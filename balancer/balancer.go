@@ -1,7 +1,7 @@
 package balancer
 
 import (
-	"load-balancer/optimizers"
+	"load-balancer/algorithms"
 	"load-balancer/server"
 	"sync"
 )
@@ -15,5 +15,5 @@ type LoadBalancer struct {
 	mu        sync.Mutex
 	servers   []*server.Server
 	connTable map[ClientKey]*server.Server
-	algo      optimizers.Algorithm
+	algo      algorithms.Algorithm
 }

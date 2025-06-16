@@ -1,4 +1,4 @@
-package optimizers
+package algorithms
 
 import (
 	"load-balancer/server"
