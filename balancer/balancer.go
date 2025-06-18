@@ -27,11 +27,20 @@ type ClientKey struct {
 	Protocol Protocol // protocol used (e.g. "TCP", "UDP")
 }
 
+type Flag string
+
+const (
+	FlagSYN Flag = "SYN" // SYN flag for TCP connections
+	FlagFIN Flag = "FIN" // FIN flag for TCP connections
+	FlagRST Flag = "RST" // RST flag for TCP connections
+	FlagACK Flag = "ACK" // ACK flag for TCP connections
+	FlagPSH Flag = "PSH" // PSH flag for TCP connections
+	FlagURG Flag = "URG" // URG flag for TCP connections
+)
+
 type Packet struct {
 	Key  ClientKey // unique key for the connection
-	Syn  bool      // SYN flag set for TCP connections
-	Fin  bool      // FIN flag set for TCP connections
-	Rst  bool      // RST flag set for TCP connections
+	Flag Flag      // TCP flags (SYN, FIN, RST)
 	Size int       // size of the packet in bytes
 }
 
@@ -53,12 +62,48 @@ func GenerateClientKey(srcIP string, srcPort int16, dstIP string, dstPort int16,
 	}
 }
 
-func GeneratePacket(key ClientKey, syn, fin, rst bool, size int) Packet {
+func GeneratePacket(key ClientKey, flag Flag, size int) Packet {
 	return Packet{
 		Key:  key,
-		Syn:  syn,
-		Fin:  fin,
-		Rst:  rst,
+		Flag: flag,
 		Size: size,
 	}
+}
+
+func newLoadBalancer(mode LBMode, algo algorithms.Algorithm) *LoadBalancer {
+	return &LoadBalancer{
+		Mode:      mode,
+		servers:   make([]*server.Server, 0),
+		connTable: make(map[ClientKey]*server.Server),
+		algo:      algo,
+	}
+}
+
+func (lb *LoadBalancer) AddServer(srv *server.Server) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.servers = append(lb.servers, srv)
+}
+
+func (lb *LoadBalancer) RemoveServer(srv *server.Server) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	for i, s := range lb.servers {
+		if s == srv {
+			lb.servers = append(lb.servers[:i], lb.servers[i+1:]...)
+			for key, value := range lb.connTable {
+				if value == srv {
+					delete(lb.connTable, key)
+				}
+			}
+
+			break
+		}
+	}
+}
+
+func (lb *LoadBalancer) GetServers() []*server.Server {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	return lb.servers
 }
