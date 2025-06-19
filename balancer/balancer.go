@@ -2,79 +2,24 @@ package balancer
 
 import (
 	"load-balancer/algorithms"
+	"load-balancer/model"
 	"load-balancer/server"
 	"sync"
 )
 
-type LBMode string
-type Protocol string
-
-const (
-	ProtocolTCP Protocol = "TCP" // for now only TCP is supported
-)
-
-const (
-	LBModeNAT  LBMode = "NAT"
-	LBModeSNAT LBMode = "SNAT"
-	LBModeDSR  LBMode = "DSR"
-)
-
-type ClientKey struct {
-	SrcIP    string   // source IP address of the connection
-	SrcPort  int16    // source port of the connection
-	DstIP    string   // destination IP address (server)
-	DstPort  int16    // destination port (server)
-	Protocol Protocol // protocol used (e.g. "TCP", "UDP")
-}
-
-type Flag string
-
-const (
-	FlagSYN Flag = "SYN" // SYN flag for TCP connections
-	FlagFIN Flag = "FIN" // FIN flag for TCP connections
-	FlagRST Flag = "RST" // RST flag for TCP connections
-	FlagACK Flag = "ACK" // ACK flag for TCP connections
-	FlagPSH Flag = "PSH" // PSH flag for TCP connections
-	FlagURG Flag = "URG" // URG flag for TCP connections
-)
-
-type Packet struct {
-	Key  ClientKey // unique key for the connection
-	Flag Flag      // TCP flags (SYN, FIN, RST)
-	Size int       // size of the packet in bytes
-}
-
 type LoadBalancer struct {
-	mu        sync.Mutex                   // mutex to protect shared state
-	Mode      LBMode                       // NAT / SNAT / DSR
-	servers   []*server.Server             // list of registered servers
-	connTable map[ClientKey]*server.Server // connection table mapping client keys to servers
-	algo      algorithms.Algorithm         // load balancing algorithm to use ex: "RoundRobin", "LeastConnections", etc.
+	mu        sync.Mutex                         // mutex to protect shared state
+	Mode      model.LBMode                       // NAT / SNAT / DSR
+	servers   []*server.Server                   // list of registered servers
+	connTable map[model.ClientKey]*server.Server // connection table mapping client keys to servers
+	algo      algorithms.Algorithm               // load balancing algorithm to use ex: "RoundRobin", "LeastConnections", etc.
 }
 
-func GenerateClientKey(srcIP string, srcPort int16, dstIP string, dstPort int16, protocol Protocol) ClientKey {
-	return ClientKey{
-		SrcIP:    srcIP,
-		SrcPort:  srcPort,
-		DstIP:    dstIP,
-		DstPort:  dstPort,
-		Protocol: protocol,
-	}
-}
-
-func GeneratePacket(key ClientKey, flag Flag, size int) Packet {
-	return Packet{
-		Key:  key,
-		Flag: flag,
-		Size: size,
-	}
-}
-
-func newLoadBalancer(mode LBMode, algo algorithms.Algorithm) *LoadBalancer {
+func newLoadBalancer(mode model.LBMode, algo algorithms.Algorithm) *LoadBalancer {
 	return &LoadBalancer{
 		Mode:      mode,
 		servers:   make([]*server.Server, 0),
-		connTable: make(map[ClientKey]*server.Server),
+		connTable: make(map[model.ClientKey]*server.Server),
 		algo:      algo,
 	}
 }
@@ -106,4 +51,60 @@ func (lb *LoadBalancer) GetServers() []*server.Server {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	return lb.servers
+}
+
+func (lb *LoadBalancer) GetConnectionTable() map[model.ClientKey]*server.Server {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	return lb.connTable
+}
+
+func (lb *LoadBalancer) Tick(key model.ClientKey) {
+
+}
+
+func (lb *LoadBalancer) getClientByKey(key model.ClientKey) (*server.Server, bool) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	srv, exists := lb.connTable[key]
+	return srv, exists
+}
+
+func (lb *LoadBalancer) Route(packet model.Packet) (*server.Server, error) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+
+	// Check if the packet is already in the connection table
+	if srv, exists := lb.connTable[packet.Key]; exists {
+		return srv, nil
+	}
+
+	// If not, select a server using the load balancing algorithm
+	srv, err := lb.algo.Pick(lb.servers)
+	if err != nil || !srv.CanAcceptNewConnection() {
+		return nil, err
+	}
+
+	// Add the new connection to the connection table
+	lb.connTable[packet.Key] = srv
+
+	return srv, nil
+}
+
+func (lb *LoadBalancer) ClearConnectionTable() {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.connTable = make(map[model.ClientKey]*server.Server)
+}
+
+func (lb *LoadBalancer) SetAlgorithm(algo algorithms.Algorithm) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.algo = algo
+}
+
+func (lb *LoadBalancer) GetAlgorithm() algorithms.Algorithm {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	return lb.algo
 }

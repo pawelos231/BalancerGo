@@ -1,6 +1,7 @@
 package server
 
 import (
+	"load-balancer/model"
 	"math"
 	"sync/atomic"
 	"time"
@@ -64,6 +65,31 @@ func NewServer(id, name, address string, port, distance, weight int16) *Server {
 func (s *Server) StartDrain() { s.Draining = true }
 func (s *Server) StopDrain()  { s.Draining = false }
 
+func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
+}
+
+func (s *Server) RetransmitPacket(packet model.Packet) {
+}
+
+func (s *Server) generateLatencyHistogram() []int32 {
+	return []int32{}
+}
+
+func (s *Server) CanAcceptNewConnection() bool {
+	if !s.Active || s.Draining && s.IsHealthy() {
+		return false // cannot accept new connections if inactive or draining
+	}
+	if s.MaxConnections > 0 && s.ActiveConnections >= s.MaxConnections {
+		return false // max connections reached
+	}
+	return true
+}
+
+func (s *Server) UpdateHealth(healthTCP bool, latencyP95Milli int32) {
+	s.HealthTCP = healthTCP
+	atomic.StoreInt32(&s.LatencyP95Milli, latencyP95Milli)
+}
+
 func (s *Server) ShouldBeTerminated() bool {
 	return s.Draining && s.ActiveConnections == 0 && s.HalfOpenConnections == 0
 }
@@ -75,16 +101,6 @@ func (s *Server) IsHealthy() bool {
 		return false // if draining and timeout exceeded, consider unhealthy
 	}
 	return s.HealthTCP && s.Active && !s.Draining
-}
-
-func (s *Server) AcceptConnection() bool {
-	if !s.IsHealthy() {
-		return false // cannot accept connections if unhealthy
-	}
-	if s.MaxConnections > 0 && s.MaxConnections <= s.ActiveConnections {
-		return false // max connections reached
-	}
-	return true
 }
 
 func (s *Server) Score() float64 {
