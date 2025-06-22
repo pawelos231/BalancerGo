@@ -1,12 +1,106 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"load-balancer/algorithms"
+	"load-balancer/balancer"
+	"load-balancer/client"
+	httpserver "load-balancer/http"
+	"load-balancer/model"
+	"load-balancer/server"
+	"math/rand"
+	"sync"
+	"time"
+)
+
+const (
+	nClients     = 50
+	nServers     = nClients / 2
+	packetsCount = 5000
+	gap          = 6 * time.Millisecond
+)
 
 func main() {
-	fmt.Println("Hello, World!")
+	rand.Seed(time.Now().UnixNano())
+
+	lb := setupLoadBalancer()
+	//hub := setupHttpServer()
+
+	setupServers(lb, nServers)
+	var wg sync.WaitGroup
+	setupClients(lb, nClients, &wg)
+
+	done := make(chan struct{})
+	//go runTicker(lb, hub, done, lb.RefreshInterval)
+
+	wg.Wait()
+	close(done)
+	fmt.Println("ALL STREAMS COMPLETED")
 }
 
-/**
-retransmisja pakietów powinna się dziać ze strony serwera i ze strony klienta jeżeli nie zostało wysłane ACK na czas, latency histograms można zrobić per server, grupowanie streamów na równoległych klientów którzy wysyłają te pakiety ma sens, gdzie dla każdego klienta jest osobna go routyna, wydaje mi się że później serwer powinien mieć zamiast może handlePacket czy jakiś tam packetProcessor, może żeby po prostu miał handleStream of packets no i będzie on dostawał emisje tych pakietów po prostu od klientów i jeżeli powiedzmy dany stream nie zakończy tego połączenia albo coś w tym stylu, nie wyśle ACK to będziemy mieli retry logic, oczywiście żeby to się wydarzyło to musielibyśmy na początku osobno mieć stworzonego klienta którym to celem jest transmisja tych pakietów i odbieranie ich od serwera i również weryfikowanie czy zostały dostarczone wszystkie pakiety, wtedy mielibyśmy pełną symulacje serwera i klienta, i do tego do środka pomiędzy serwerów i klientów wrzucić ten load balancer który w osobnych go routynach odpala serwery i klientów i które zajmuje się routowaniem tych połączeń zważając również uwagę na obronę przed flood attacks itd itp, czy to o czym mówie ma sens, spójrz na to krytycznie
+func setupLoadBalancer() *balancer.LoadBalancer {
+	return balancer.NewLoadBalancer(model.LBModeNAT, &algorithms.RoundRobin{})
+}
 
-*/
+func setupHttpServer() *httpserver.Hub {
+	hub := httpserver.NewHub()
+	go hub.Run()
+	go httpserver.StartServer(hub)
+	return hub
+}
+
+func setupServers(lb *balancer.LoadBalancer, n int) {
+	for i := 0; i < n; i++ {
+		srv := server.NewServer(
+			fmt.Sprintf("srv-%02d", i),
+			fmt.Sprintf("backend-%02d", i),
+			fmt.Sprintf("10.0.0.%d", i+10),
+			80, 0, 1,
+			make(chan model.Packet),
+			make(chan model.Packet),
+			100,
+		)
+		lb.AddServer(srv)
+
+		go srv.HandlePacketStream(srv.DataIn)
+		go srv.HandleHealthChecking()
+	}
+}
+
+func setupClients(lb *balancer.LoadBalancer, n int, wg *sync.WaitGroup) {
+	for i := 0; i < n; i++ {
+		cl := client.NewClient(
+			fmt.Sprintf("192.168.1.%d", i+1),
+			int16(40000+i),
+			"lb.local",
+			80,
+			"TCP",
+			make(chan model.Packet),
+			make(chan model.Packet),
+		)
+		lb.AddClient(cl)
+
+		wg.Add(1)
+		go func(c *client.Client) {
+			defer wg.Done()
+			c.ExpectResponse()
+			c.Open()
+			c.SendCompleteStream(packetsCount*model.SEGMENT_SIZE, gap)
+		}(cl)
+	}
+}
+
+func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done chan struct{}, tickInterval time.Duration) {
+	t := time.NewTicker(tickInterval)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-t.C:
+			state := lb.Tick()
+			hub.BroadcastState(state)
+		case <-done:
+			return
+		}
+	}
+}

@@ -1,8 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"load-balancer/model"
 	"math"
+	"sort"
 	"sync/atomic"
 	"time"
 )
@@ -46,29 +48,174 @@ type Server struct {
 	Version       string    // semantic version/image tag (blue‑green/canary tracking)
 	ConfigVersion string    // hash/version of the current runtime configuration
 	LastUpdated   time.Time // timestamp of the last configuration change
+
+	// internal
+	DataIn   chan model.Packet // channel for incoming packets from the LB
+	DataOut  chan model.Packet // channel for outgoing packets to the LB
+	Probe    chan struct{}     // channel for health probes (e.g. TCP SYNs)
+	ProbeAck chan struct{}     // channel for health probe ACKs
 }
 
-func NewServer(id, name, address string, port, distance, weight int16) *Server {
+func NewServer(id, name, address string, port, distance, weight int16,
+	out chan model.Packet,
+	in chan model.Packet, maxHalfOpen int32) *Server {
+
 	return &Server{
-		ID:       id,
-		Name:     name,
-		Address:  address,
-		Port:     port,
-		Distance: distance,
-		Weight:   weight,
-		Active:   true, // default to active
-		Tags:     []string{},
-		Metadata: make(map[string]string),
+		ID:              id,
+		Name:            name,
+		Address:         address,
+		Port:            port,
+		Distance:        distance,
+		Weight:          weight,
+		MaxHalfOpen:     maxHalfOpen,
+		HealthTCP:       true,  // default to healthy
+		LatencyP95Milli: 0,     // default to 0 latency
+		TLSEnabled:      false, // default to no TLS
+		MTLSRequired:    false, // default to no mTLS
+		Active:          true,  // default to active
+		Tags:            []string{},
+		Metadata:        make(map[string]string),
+		DataIn:          in,                     // channel for incoming packets from the load balancer
+		DataOut:         out,                    // channel for outgoing packets to the load balancer
+		Probe:           make(chan struct{}, 1), // buffered channel for health probes
+		ProbeAck:        make(chan struct{}, 1), // buffered channel for health probe ACKs
 	}
+}
+
+func (s *Server) MarkFailed() {
+	fmt.Println("Marking server as FAILED:", s.ID, s.Name)
+	s.Active = false
+	s.HealthTCP = false
+	atomic.StoreInt32(&s.LatencyP95Milli, math.MaxInt32) // mark latency as unknown
+	s.Draining = true
+	s.DrainStartedAt = time.Now() // start the draining process
+}
+
+func (s *Server) MarkHealthy() {
+	fmt.Println("Marking server as HEALTHY:", s.ID, s.Name)
+	s.Active = true
+	s.HealthTCP = true
+	atomic.StoreInt32(&s.LatencyP95Milli, 0) // reset latency to 0 (healthy)
+	s.Draining = false
+	s.DrainStartedAt = time.Time{} // reset drain start time
 }
 
 func (s *Server) StartDrain() { s.Draining = true }
 func (s *Server) StopDrain()  { s.Draining = false }
 
+func (s *Server) HandleHealthChecking() {
+	for {
+		select {
+		case <-s.Probe:
+			s.ProbeAck <- struct{}{} // acknowledge the health probe
+		}
+	}
+}
+
 func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
+	connStart := make(map[model.ClientKey]time.Time)
+	const bucket = 100
+	var latSamples [bucket]int64 // latency samples for p95 calculation
+	var sampleIdx int
+
+	updateP95 := func(ms int64) {
+		latSamples[sampleIdx%bucket] = ms
+		sampleIdx++
+
+		n := sampleIdx
+		if n > bucket {
+			n = bucket
+		}
+
+		tmp := make([]int64, n)
+		copy(tmp, latSamples[:n])
+		sort.Slice(tmp, func(i, j int) bool { return tmp[i] < tmp[j] })
+
+		idx := int(math.Ceil(0.95*float64(n))) - 1
+		if idx < 0 {
+			idx = 0
+		}
+
+		p95 := tmp[idx]
+		atomic.StoreInt32(&s.LatencyP95Milli, int32(p95))
+	}
+
+	for pkt := range stream {
+
+		// fmt.Println("Server received packet:", pkt.Key.SrcIP, pkt.Flag, s.ID, pkt.PlaceInStream)
+		switch {
+		// new SYN packet, we are starting a new connection
+		case pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0:
+			key := pkt.Key                             // extract client key from packet
+			atomic.AddInt32(&s.HalfOpenConnections, 1) // increment active connections
+			connStart[key] = time.Now()                // record the start time for this connection
+
+			resp := model.Packet{
+				Key:           key,
+				Flag:          model.FlagSYN | model.FlagACK, // respond with SYN-ACK
+				PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
+				Size:          pkt.Size,                      // echo the size of the SYN packet
+			}
+
+			s.DataOut <- resp // send SYN-ACK back to the client
+
+		// if ACK from client, we are in the middle of a handshake
+		// so we can drop the half-open slot
+		// ACK packet, we are completing the handshake, and the connection is now active
+		case pkt.Flag&model.FlagACK != 0 && pkt.Flag&model.FlagSYN == 0 && connStart[pkt.Key] != (time.Time{}):
+			atomic.AddInt32(&s.ActiveConnections, 1)    // increment active connections
+			atomic.AddInt32(&s.HalfOpenConnections, -1) // decrement half-open connections
+
+		case pkt.Flag&model.FlagPSH != 0:
+			pkt := model.Packet{
+				Key:           pkt.Key,
+				Flag:          model.FlagACK,
+				PlaceInStream: pkt.PlaceInStream + 1, // increment place in stream
+				Size:          1024,
+			}
+			s.DataOut <- pkt
+
+		case pkt.Flag&model.FlagFIN != 0:
+			atomic.AddInt32(&s.ActiveConnections, -1)
+
+			if _, ok := connStart[pkt.Key]; ok {
+				t0 := connStart[pkt.Key]
+				updateP95(time.Since(t0).Milliseconds())
+				delete(connStart, pkt.Key)
+			}
+
+			s.DataOut <- model.Packet{
+				Key:           pkt.Key,
+				Flag:          model.FlagFIN | model.FlagACK, // respond with FIN-ACK
+				PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
+				Size:          0,
+			}
+		default:
+			// if we receive a packet that is not SYN, ACK, PSH or FIN, we assume it is a FIN packet
+			atomic.AddInt32(&s.ActiveConnections, -1)
+
+			if _, ok := connStart[pkt.Key]; ok {
+				t0 := connStart[pkt.Key]
+				updateP95(time.Since(t0).Milliseconds())
+				delete(connStart, pkt.Key)
+			}
+
+			s.DataOut <- model.Packet{
+				Key:           pkt.Key,
+				Flag:          model.FlagFIN | model.FlagACK, // respond with FIN-ACK
+				PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
+				Size:          0,
+			}
+
+		}
+
+		//fmt.Println(s.HalfOpenConnections, s.MaxHalfOpen, pkt.PlaceInStream, pkt.Flag, s.Name, pkt.Key.SrcIP, s.ActiveConnections)
+
+	}
 }
 
 func (s *Server) RetransmitPacket(packet model.Packet) {
+	// to implement retransmission logic, we can simply send the packet back to the DataOut channel
 }
 
 func (s *Server) generateLatencyHistogram() []int32 {
@@ -114,4 +261,17 @@ func (s *Server) Score() float64 {
 	}
 
 	return float64(s.LatencyP95Milli)*(1.0/float64(max(1, int(s.Weight)))) + drainingPenalty
+}
+
+func (s *Server) GetState() model.ServerState {
+	return model.ServerState{
+		ID:                  s.ID,
+		Name:                s.Name,
+		Address:             s.Address,
+		Port:                s.Port,
+		Active:              s.Active,
+		ActiveConnections:   atomic.LoadInt32(&s.ActiveConnections),
+		HalfOpenConnections: atomic.LoadInt32(&s.HalfOpenConnections),
+		LatencyP95Milli:     atomic.LoadInt32(&s.LatencyP95Milli),
+	}
 }
