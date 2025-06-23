@@ -19,6 +19,7 @@ type Server struct {
 	Distance int16             // distance in km from the LB (used by nearest‑node algorithms)
 	Weight   int16             // load‑balancer weight; higher = more preferred
 	Active   bool              // true = accepts traffic; false = drained/disabled
+	Killed   bool              // true = server is killed and should not be used
 	Tags     []string          // free‑form labels (e.g. "prod", "gpu", "arm")
 	Metadata map[string]string // arbitrary key‑value metadata
 
@@ -50,10 +51,12 @@ type Server struct {
 	LastUpdated   time.Time // timestamp of the last configuration change
 
 	// internal
-	DataIn   chan model.Packet // channel for incoming packets from the LB
-	DataOut  chan model.Packet // channel for outgoing packets to the LB
-	Probe    chan struct{}     // channel for health probes (e.g. TCP SYNs)
-	ProbeAck chan struct{}     // channel for health probe ACKs
+	DataIn                 chan model.Packet // channel for incoming packets from the LB
+	DataOut                chan model.Packet // channel for outgoing packets to the LB
+	Probe                  chan struct{}     // channel for health probes (e.g. TCP SYNs)
+	ProbeAck               chan struct{}     // channel for health probe ACKs
+	Done                   chan struct{}     // channel to signal that the server is done processing
+	NumberOfHandledPackets int32             // total number of packets handled by this server
 }
 
 func NewServer(id, name, address string, port, distance, weight int16,
@@ -61,25 +64,40 @@ func NewServer(id, name, address string, port, distance, weight int16,
 	in chan model.Packet, maxHalfOpen int32) *Server {
 
 	return &Server{
-		ID:              id,
-		Name:            name,
-		Address:         address,
-		Port:            port,
-		Distance:        distance,
-		Weight:          weight,
-		MaxHalfOpen:     maxHalfOpen,
-		HealthTCP:       true,  // default to healthy
-		LatencyP95Milli: 0,     // default to 0 latency
-		TLSEnabled:      false, // default to no TLS
-		MTLSRequired:    false, // default to no mTLS
-		Active:          true,  // default to active
-		Tags:            []string{},
-		Metadata:        make(map[string]string),
-		DataIn:          in,                     // channel for incoming packets from the load balancer
-		DataOut:         out,                    // channel for outgoing packets to the load balancer
-		Probe:           make(chan struct{}, 1), // buffered channel for health probes
-		ProbeAck:        make(chan struct{}, 1), // buffered channel for health probe ACKs
+		ID:                     id,
+		Name:                   name,
+		Address:                address,
+		Port:                   port,
+		Distance:               distance,
+		Weight:                 weight,
+		MaxHalfOpen:            maxHalfOpen,
+		HealthTCP:              true,  // default to healthy
+		LatencyP95Milli:        0,     // default to 0 latency
+		TLSEnabled:             false, // default to no TLS
+		MTLSRequired:           false, // default to no mTLS
+		Active:                 true,  // default to active
+		Tags:                   []string{},
+		Metadata:               make(map[string]string),
+		DrainTimeout:           120 * time.Second,      // default drain timeout
+		DataIn:                 in,                     // channel for incoming packets from the load balancer
+		DataOut:                out,                    // channel for outgoing packets to the load balancer
+		Probe:                  make(chan struct{}, 1), // buffered channel for health probes
+		ProbeAck:               make(chan struct{}, 1), // buffered channel for health probe ACKs
+		Done:                   make(chan struct{}, 1), // channel to signal that the server is done processing
+		NumberOfHandledPackets: 0,                      // initialize handled packets count
 	}
+}
+
+// Abruptly stops the server and closes all channel, just if the power goes off
+func (s *Server) Kill() {
+	s.Killed = true // mark the server as killed
+	s.Active = false
+	s.HealthTCP = false
+	close(s.Done)     // close done channel to stop processing packets
+	close(s.DataIn)   // close incoming channel to stop receiving packets
+	close(s.DataOut)  // close outgoing channel to stop sending packets
+	close(s.Probe)    // close probe channel to stop health checks
+	close(s.ProbeAck) // close probe ACK channel
 }
 
 func (s *Server) MarkFailed() {
@@ -92,6 +110,10 @@ func (s *Server) MarkFailed() {
 }
 
 func (s *Server) MarkHealthy() {
+	if s.Killed {
+		fmt.Println("Cannot mark server as HEALTHY, it is KILLED:", s.ID, s.Name)
+		return
+	}
 	fmt.Println("Marking server as HEALTHY:", s.ID, s.Name)
 	s.Active = true
 	s.HealthTCP = true
@@ -100,12 +122,24 @@ func (s *Server) MarkHealthy() {
 	s.DrainStartedAt = time.Time{} // reset drain start time
 }
 
-func (s *Server) StartDrain() { s.Draining = true }
-func (s *Server) StopDrain()  { s.Draining = false }
+func (s *Server) StartDrain() {
+	s.Draining = true
+	s.DrainStartedAt = time.Now() // start the draining process
+}
+func (s *Server) StopDrain() {
+	s.Draining = false
+	s.DrainStartedAt = time.Time{} // reset drain start time
+}
 
 func (s *Server) HandleHealthChecking() {
+	if s.Killed {
+		return // do not handle health checks if the server is killed
+	}
+
 	for {
 		select {
+		case <-s.Done:
+			return // exit if the server is killed or done
 		case <-s.Probe:
 			s.ProbeAck <- struct{}{} // acknowledge the health probe
 		}
@@ -140,7 +174,26 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 		atomic.StoreInt32(&s.LatencyP95Milli, int32(p95))
 	}
 
+	// var (
+	// 	ctx    context.Context
+	// 	cancel context.CancelFunc
+	// )
+	// defer func() {
+	// 	if cancel != nil {
+	// 		cancel() // ensure the context is cancelled to avoid leaks
+	// 	}
+	// }()
+
+	// resetCtx := func() {
+	// 	if cancel != nil {
+	// 		cancel() // cancel the previous context if it exists
+	// 	}
+	// 	ctx, cancel = context.WithTimeout(context.Background(), model.READ_DEADLINE)
+	// }
+	// resetCtx() // initialize the context
+
 	for pkt := range stream {
+		s.NumberOfHandledPackets++ // increment the number of handled packets
 
 		// fmt.Println("Server received packet:", pkt.Key.SrcIP, pkt.Flag, s.ID, pkt.PlaceInStream)
 		switch {
@@ -190,6 +243,7 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 				PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
 				Size:          0,
 			}
+
 		default:
 			// if we receive a packet that is not SYN, ACK, PSH or FIN, we assume it is a FIN packet
 			atomic.AddInt32(&s.ActiveConnections, -1)
@@ -212,10 +266,6 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 		//fmt.Println(s.HalfOpenConnections, s.MaxHalfOpen, pkt.PlaceInStream, pkt.Flag, s.Name, pkt.Key.SrcIP, s.ActiveConnections)
 
 	}
-}
-
-func (s *Server) RetransmitPacket(packet model.Packet) {
-	// to implement retransmission logic, we can simply send the packet back to the DataOut channel
 }
 
 func (s *Server) generateLatencyHistogram() []int32 {
@@ -265,13 +315,14 @@ func (s *Server) Score() float64 {
 
 func (s *Server) GetState() model.ServerState {
 	return model.ServerState{
-		ID:                  s.ID,
-		Name:                s.Name,
-		Address:             s.Address,
-		Port:                s.Port,
-		Active:              s.Active,
-		ActiveConnections:   atomic.LoadInt32(&s.ActiveConnections),
-		HalfOpenConnections: atomic.LoadInt32(&s.HalfOpenConnections),
-		LatencyP95Milli:     atomic.LoadInt32(&s.LatencyP95Milli),
+		ID:                     s.ID,
+		Name:                   s.Name,
+		Address:                s.Address,
+		Port:                   s.Port,
+		Active:                 s.Active,
+		ActiveConnections:      atomic.LoadInt32(&s.ActiveConnections),
+		HalfOpenConnections:    atomic.LoadInt32(&s.HalfOpenConnections),
+		LatencyP95Milli:        atomic.LoadInt32(&s.LatencyP95Milli),
+		NumberOfHandledPackets: s.NumberOfHandledPackets,
 	}
 }

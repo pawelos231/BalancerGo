@@ -14,24 +14,24 @@ import (
 )
 
 const (
-	nClients     = 50
-	nServers     = nClients / 2
+	nClients     = 500
+	nServers     = nClients / 10
 	packetsCount = 5000
-	gap          = 6 * time.Millisecond
+	gap          = 10 * time.Millisecond
 )
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	lb := setupLoadBalancer()
-	//hub := setupHttpServer()
+	hub := setupHttpServer()
 
 	setupServers(lb, nServers)
 	var wg sync.WaitGroup
 	setupClients(lb, nClients, &wg)
 
 	done := make(chan struct{})
-	//go runTicker(lb, hub, done, lb.RefreshInterval)
+	go runTicker(lb, hub, done, lb.RefreshInterval)
 
 	wg.Wait()
 	close(done)
@@ -39,7 +39,7 @@ func main() {
 }
 
 func setupLoadBalancer() *balancer.LoadBalancer {
-	return balancer.NewLoadBalancer(model.LBModeNAT, &algorithms.RoundRobin{})
+	return balancer.NewLoadBalancer(model.LBModeNAT, &algorithms.RoundRobin{}, time.Millisecond*500)
 }
 
 func setupHttpServer() *httpserver.Hub {
@@ -97,6 +97,13 @@ func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done chan struct{
 	for {
 		select {
 		case <-t.C:
+			fmt.Println("LB: TICK")
+			// Chaos: 1 in 10 chance to kill a random server
+			if rand.Intn(25) == 0 {
+				if killedServerID, err := lb.KillRandomServer(); err == nil {
+					fmt.Printf("CHAOS: Killed server %s\n", killedServerID)
+				}
+			}
 			state := lb.Tick()
 			hub.BroadcastState(state)
 		case <-done:

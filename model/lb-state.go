@@ -1,7 +1,7 @@
 package model
 
 type LoadBalancerState struct {
-	Mode              LBMode
-	Algorithm         string
-	ServersAndClients map[ServerState][]ClientState
+	Mode      LBMode                   `json:"mode"`
+	Algorithm string                   `json:"algorithm"`
+	Servers   []ServerStateWithClients `json:"servers"`
 }

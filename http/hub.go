@@ -38,6 +38,7 @@ func (h *Hub) Run() {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
+			log.Printf("New client connected: %s", client.RemoteAddr())
 			h.mu.Unlock()
 		case client := <-h.unregister:
 			h.mu.Lock()

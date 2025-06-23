@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"load-balancer/model"
+	"sync/atomic"
 	"time"
 )
 
@@ -12,12 +13,15 @@ type Client struct {
 	OutChannel chan model.Packet // packets to be sent to the LB
 	InChannel  chan model.Packet // packets received from the LB
 
-	lastSent      model.Packet  // last sent packet, used for retransmission if needed
-	retrySyn      uint8         // SYN retrans counter
-	retryData     uint8         // DATA retrans counter
-	responseTimer *time.Timer   // timer for waiting for a response from the server
-	waitAck       chan struct{} // unbuffered channel to sync sender with ACK
-	handshakeDone chan struct{} // signals that 3-way handshake is complete
+	lastSent           model.Packet  // last sent packet, used for retransmission if needed
+	retrySyn           uint8         // SYN retrans counter
+	retryData          uint8         // DATA retrans counter
+	responseTimer      *time.Timer   // timer for waiting for a response from the server
+	waitAck            chan struct{} // unbuffered channel to sync sender with ACK
+	handshakeDone      chan struct{} // signals that 3-way handshake is complete
+	handshakeCompleted atomic.Bool   // to check if handshake is complete
+	connectionFinished bool          // channel to signal that the connection is finished
+
 }
 
 func NewClient(
@@ -48,14 +52,21 @@ func (c *Client) Open() {
 }
 
 func (c *Client) Close() {
+	c.connectionFinished = true                                    // signal that the connection is finished
 	finPacket := GeneratePacket(c.key, model.FlagFIN, 0, 0, 2<<30) // 2<<30 is a complete SCANDAL XD but it nicely shows the FIN packet in the stream
 	c.OutChannel <- finPacket                                      // send the FIN packet to the server
 	if c.responseTimer != nil {
 		c.responseTimer.Stop()
 	}
+
 }
 
 func (c *Client) Key() model.ClientKey { return c.key }
+
+// IsHandshakeCompleted returns true if the 3-way handshake has been completed.
+func (c *Client) IsHandshakeCompleted() bool {
+	return c.handshakeCompleted.Load()
+}
 
 // SendStream sends dataSize bytes in segSize chunks; each chunk waits for ACK.
 // so it will send dataSize / SEGMENT_SIZE packets, each of size SEGMENT_SIZE.
@@ -88,6 +99,7 @@ func (c *Client) retransmitData() {
 		return
 	}
 	c.retryData++
+	fmt.Printf("Client: retransmitting data packet, retry count: %d\n", c.retryData)
 	retry := c.lastSent
 	retry.Flag = model.FlagPSH
 	c.OutChannel <- retry
@@ -130,6 +142,7 @@ func (c *Client) ExpectResponse() {
 					if c.responseTimer != nil {
 						c.responseTimer.Stop() // got SYN-ACK
 					}
+					c.handshakeCompleted.Store(true)
 					c.handshakeDone <- struct{}{} // unblock sender to start data stream
 
 				// if the received packet is of type ACK, reset the retry counters
