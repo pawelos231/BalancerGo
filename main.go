@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	nClients     = 500
+	nClients     = 100
 	nServers     = nClients / 10
 	packetsCount = 5000
-	gap          = 10 * time.Millisecond
+	gap          = 100 * time.Millisecond
 )
 
 func main() {
@@ -99,11 +99,17 @@ func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done chan struct{
 		case <-t.C:
 			fmt.Println("LB: TICK")
 			// Chaos: 1 in 10 chance to kill a random server
-			if rand.Intn(25) == 0 {
+			if rand.Intn(10) == 0 {
 				if killedServerID, err := lb.KillRandomServer(); err == nil {
 					fmt.Printf("CHAOS: Killed server %s\n", killedServerID)
 				}
 			}
+
+			// if rand.Intn(2) == 0 {
+			// 	if killedClientID, err := lb.KillRandomClient(); err == nil {
+			// 		fmt.Printf("CHAOS: Killed client %s\n", killedClientID)
+			// 	}
+			// }
 			state := lb.Tick()
 			hub.BroadcastState(state)
 		case <-done:

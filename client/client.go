@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"load-balancer/model"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -13,14 +14,17 @@ type Client struct {
 	OutChannel chan model.Packet // packets to be sent to the LB
 	InChannel  chan model.Packet // packets received from the LB
 
-	lastSent           model.Packet  // last sent packet, used for retransmission if needed
-	retrySyn           uint8         // SYN retrans counter
-	retryData          uint8         // DATA retrans counter
-	responseTimer      *time.Timer   // timer for waiting for a response from the server
-	waitAck            chan struct{} // unbuffered channel to sync sender with ACK
-	handshakeDone      chan struct{} // signals that 3-way handshake is complete
-	handshakeCompleted atomic.Bool   // to check if handshake is complete
-	connectionFinished bool          // channel to signal that the connection is finished
+	lastSent           model.Packet       // last sent packet, used for retransmission if needed
+	retrySyn           uint8              // SYN retrans counter
+	retryData          uint8              // DATA retrans counter
+	responseTimer      *time.Timer        // timer for waiting for a response from the server
+	waitAck            chan struct{}      // unbuffered channel to sync sender with ACK
+	handshakeDone      chan struct{}      // signals that 3-way handshake is complete
+	ctx                context.Context    // context for managing timeouts
+	cancel             context.CancelFunc // Function to cancel the context and signal shutdown
+	closeOnce          sync.Once          // Ensures cleanup logic
+	wg                 sync.WaitGroup
+	handshakeCompleted atomic.Bool // to check if handshake is complete
 
 }
 
@@ -32,13 +36,17 @@ func NewClient(
 	proto model.Protocol,
 	out chan model.Packet,
 	in chan model.Packet) *Client {
-
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
 		key:           GenerateClientKey(srcIP, srcPort, dstIP, dstPort, proto),
 		OutChannel:    out,
 		InChannel:     in,
 		waitAck:       make(chan struct{}),
 		handshakeDone: make(chan struct{}, 1),
+		ctx:           ctx,
+		cancel:        cancel,
+		closeOnce:     sync.Once{},
+		wg:            sync.WaitGroup{},
 	}
 }
 
@@ -46,19 +54,16 @@ func (c *Client) Open() {
 	// Initializes the connection by sending a SYN packet
 	synPacket := GeneratePacket(c.key, model.FlagSYN, 0, 0, 0)
 	c.lastSent = synPacket
-	c.OutChannel <- synPacket
-	c.startTimer(model.SYN_TIMEOUT, c.retransmitSyn) // wait for SYN-ACK
-	<-c.handshakeDone                                // wait for SYN-ACK to arrive
-}
-
-func (c *Client) Close() {
-	c.connectionFinished = true                                    // signal that the connection is finished
-	finPacket := GeneratePacket(c.key, model.FlagFIN, 0, 0, 2<<30) // 2<<30 is a complete SCANDAL XD but it nicely shows the FIN packet in the stream
-	c.OutChannel <- finPacket                                      // send the FIN packet to the server
-	if c.responseTimer != nil {
-		c.responseTimer.Stop()
+	select {
+	case c.OutChannel <- synPacket:
+	case <-c.ctx.Done():
+		return
 	}
-
+	c.startTimer(model.SYN_TIMEOUT, c.retransmitSyn) // wait for SYN-ACK
+	select {
+	case <-c.handshakeDone: // wait for SYN-ACK to arrive
+	case <-c.ctx.Done():
+	}
 }
 
 func (c *Client) Key() model.ClientKey { return c.key }
@@ -71,46 +76,49 @@ func (c *Client) IsHandshakeCompleted() bool {
 // SendStream sends dataSize bytes in segSize chunks; each chunk waits for ACK.
 // so it will send dataSize / SEGMENT_SIZE packets, each of size SEGMENT_SIZE.
 func (c *Client) SendCompleteStream(dataSize int, delayBetween time.Duration) {
+	c.wg.Add(1)
+	defer c.wg.Done()
+
 	packets := GenerateStream(c.key, dataSize, delayBetween)
 	for _, pkt := range packets {
-		time.Sleep(pkt.Delay)                                 // simulate network gap
-		c.lastSent = pkt                                      // update last sent packet
-		c.OutChannel <- pkt                                   // send packet to the LB
+		select {
+		case <-c.ctx.Done():
+			fmt.Printf("Client %v: Shutting down sender.\n", c.key)
+			return // exit if the context is done
+		default:
+			// continue sending packets
+		}
+
+		time.Sleep(pkt.Delay) // simulate network gap
+		c.lastSent = pkt      // update last sent packet
+		select {
+		case c.OutChannel <- pkt: // send packet to the LB
+		case <-c.ctx.Done():
+			fmt.Printf("Client %v: Shutting down sender during send.\n", c.key)
+			return
+		}
 		c.startTimer(model.SEGMENT_TIMEOUT, c.retransmitData) // start timer for ACK
-		<-c.waitAck                                           // block until ACK received
+
+		// Wait for ACK or shutdown
+		select {
+		case <-c.waitAck:
+			// ACK received, continue to next packet
+		case <-c.ctx.Done():
+			fmt.Printf("Client %v: Shutdown while waiting for ACK.\n", c.key)
+			return
+		}
 	}
 	c.Close()
 
 }
 
-func (c *Client) retransmitSyn() {
-	if c.retrySyn >= model.MAX_RETRANSMISIONS {
-		return
-	}
-	c.retrySyn++
-	retry := c.lastSent
-	retry.Flag = model.FlagSYN
-	c.OutChannel <- retry
-	c.startTimer(model.SYN_TIMEOUT, c.retransmitSyn)
-}
-
-func (c *Client) retransmitData() {
-	if c.retryData >= model.MAX_RETRANSMISIONS {
-		return
-	}
-	c.retryData++
-	fmt.Printf("Client: retransmitting data packet, retry count: %d\n", c.retryData)
-	retry := c.lastSent
-	retry.Flag = model.FlagPSH
-	c.OutChannel <- retry
-	c.startTimer(model.SEGMENT_TIMEOUT, c.retransmitData)
-}
-
 func (c *Client) ExpectResponse() {
+	c.wg.Add(1) // increment the wait group counter to track the response handler goroutine
 	go func() {
+		defer c.wg.Done()
 		var (
-			ctx    context.Context
-			cancel context.CancelFunc
+			timeoutContext context.Context
+			cancel         context.CancelFunc
 		)
 		defer func() {
 			if cancel != nil {
@@ -122,13 +130,18 @@ func (c *Client) ExpectResponse() {
 			if cancel != nil {
 				cancel() // cancel the previous context if it exists
 			}
-			ctx, cancel = context.WithTimeout(context.Background(), model.READ_DEADLINE)
+			timeoutContext, cancel = context.WithTimeout(context.Background(), model.READ_DEADLINE)
 		}
 		resetCtx() // initialize the context
 
 		for {
 			select {
-			case pkt := <-c.InChannel:
+			case pkt, ok := <-c.InChannel:
+				if !ok {
+					// InChannel was closed by its owner.
+					return
+				}
+
 				resetCtx() // reset context for each new packet
 				if pkt.Key != c.key {
 					continue
@@ -143,7 +156,11 @@ func (c *Client) ExpectResponse() {
 						c.responseTimer.Stop() // got SYN-ACK
 					}
 					c.handshakeCompleted.Store(true)
-					c.handshakeDone <- struct{}{} // unblock sender to start data stream
+					select {
+					case c.handshakeDone <- struct{}{}:
+					default:
+						// ensure that we don't block if the channel is already full
+					}
 
 				// if the received packet is of type ACK, reset the retry counters
 				case pkt.Flag&model.FlagACK != 0:
@@ -152,16 +169,26 @@ func (c *Client) ExpectResponse() {
 						c.responseTimer.Stop()
 					}
 					c.retryData = 0
-					c.waitAck <- struct{}{} // let sender push next chunk
+					select {
+					case c.waitAck <- struct{}{}:
+					case <-c.ctx.Done():
+					default:
+					}
 
 				case pkt.Flag&model.FlagFIN != 0:
-					close(c.waitAck) // FIN packet received, close the wait channel
+					// Received FIN, initiate shutdown sequence.
+					c.Shutdown()
 					return
 				}
 
-			// if the context has been cancelled, exit the loop
-			case <-ctx.Done():
-				fmt.Println("Client: response timeout, no packets received")
+			case <-timeoutContext.Done():
+				fmt.Println("Client: response timeout, no packets received", c.key.SrcIP)
+				c.Shutdown()
+				return
+
+			// if the (main) context is done, exit the loop
+			case <-c.ctx.Done():
+				fmt.Printf("Client %v: Shutting down response handler.\n", c.key)
 				return
 			}
 		}
@@ -172,20 +199,51 @@ func (c *Client) ExpectResponse() {
 func (c *Client) FloodSyn(count int, gap time.Duration) {
 	go func() {
 		for i := 0; i < count; i++ {
-			synPacket := GeneratePacket(c.key, model.FlagSYN, 0, 0, uint32(i))
-			c.OutChannel <- synPacket
-			time.Sleep(gap)
+			select {
+			case <-c.ctx.Done():
+				return // exit if the context is done
+			default:
+				synPacket := GeneratePacket(c.key, model.FlagSYN, 0, 0, uint32(i)) // generate a SYN packet with the current index
+				select {
+				case c.OutChannel <- synPacket: // send SYN packet to the LB
+				case <-c.ctx.Done():
+					return
+				}
+				time.Sleep(gap) // wait for the specified gap before sending the next packet
+			}
 		}
 	}()
 }
 
-/* ---------------- timer utility ---------------- */
+// It is a graceful
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		finPacket := GeneratePacket(c.key, model.FlagFIN, 0, 0, 2<<30)
+		select {
+		case c.OutChannel <- finPacket:
+		case <-c.ctx.Done():
+		}
+	})
+	// After sending FIN, we let the Shutdown sequence handle the rest.
+}
 
-func (c *Client) startTimer(d time.Duration, fn func()) {
-	if c.responseTimer != nil {
-		c.responseTimer.Stop()
-	}
-	c.responseTimer = time.AfterFunc(d, fn)
+// Shutdown stops the client by closing the channels and stopping the response timer. It is abdrupt, almost as if power was cut off.
+func (c *Client) Shutdown() {
+	// Signal all goroutines to stop.
+	c.cancel()
+
+	// Wait for all tracked goroutines (SendCompleteStream, ExpectResponse) to finish.
+	c.wg.Wait()
+
+	// Once all goroutines are done, safely clean up shared resources.
+	c.closeOnce.Do(func() {
+		if c.responseTimer != nil {
+			c.responseTimer.Stop()
+		}
+		// Closing internal channels now is safe, as no goroutine will use them.
+		close(c.waitAck)
+		close(c.handshakeDone)
+	})
 }
 
 func (c *Client) GetState() model.ClientState {
@@ -194,4 +252,64 @@ func (c *Client) GetState() model.ClientState {
 		RetrySyn:  c.retrySyn,
 		RetryData: c.retryData,
 	}
+}
+
+func (c *Client) retransmitSyn() {
+	select {
+	case <-c.ctx.Done():
+		return
+	default:
+	}
+
+	if c.retrySyn >= model.MAX_RETRANSMISIONS {
+		c.Shutdown()
+		return
+	}
+	c.retrySyn++
+	retry := c.lastSent
+	retry.Flag = model.FlagSYN
+	select {
+	case c.OutChannel <- retry:
+	case <-c.ctx.Done():
+		return
+	}
+	c.startTimer(model.SYN_TIMEOUT, c.retransmitSyn)
+}
+
+func (c *Client) retransmitData() {
+	select {
+	case <-c.ctx.Done():
+		return
+	default:
+	}
+
+	if c.retryData >= model.MAX_RETRANSMISIONS {
+		c.Shutdown()
+		return
+	}
+	c.retryData++
+	retry := c.lastSent
+	retry.Flag = model.FlagPSH
+	select {
+	case c.OutChannel <- retry:
+	case <-c.ctx.Done():
+		return
+	}
+	c.startTimer(model.SEGMENT_TIMEOUT, c.retransmitData)
+}
+
+func (c *Client) startTimer(d time.Duration, fn func()) {
+	if c.responseTimer != nil {
+		c.responseTimer.Stop()
+	}
+
+	c.responseTimer = time.AfterFunc(d, func() {
+		select {
+		case <-c.ctx.Done():
+			// Timer is irrelevant if client is already shutting down.
+			return
+		default:
+			fn() // call the retransmission function
+		}
+	})
 }

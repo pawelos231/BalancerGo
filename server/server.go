@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"load-balancer/model"
 	"math"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -51,17 +53,21 @@ type Server struct {
 	LastUpdated   time.Time // timestamp of the last configuration change
 
 	// internal
-	DataIn                 chan model.Packet // channel for incoming packets from the LB
-	DataOut                chan model.Packet // channel for outgoing packets to the LB
-	Probe                  chan struct{}     // channel for health probes (e.g. TCP SYNs)
-	ProbeAck               chan struct{}     // channel for health probe ACKs
-	Done                   chan struct{}     // channel to signal that the server is done processing
-	NumberOfHandledPackets int32             // total number of packets handled by this server
+	DataIn                 chan model.Packet  // channel for incoming packets from the LB
+	DataOut                chan model.Packet  // channel for outgoing packets to the LB
+	Probe                  chan struct{}      // channel for health probes (e.g. TCP SYNs)
+	ProbeAck               chan struct{}      // channel for health probe ACKs
+	NumberOfHandledPackets int32              // total number of packets handled by this server
+	Ctx                    context.Context    // context for managing timeouts
+	cancel                 context.CancelFunc // Function to cancel the context and signal shutdown
+	closeOnce              sync.Once          // Ensures cleanup logic
+	wg                     sync.WaitGroup     // to track running goroutines
 }
 
 func NewServer(id, name, address string, port, distance, weight int16,
 	out chan model.Packet,
 	in chan model.Packet, maxHalfOpen int32) *Server {
+	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
 		ID:                     id,
@@ -83,21 +89,27 @@ func NewServer(id, name, address string, port, distance, weight int16,
 		DataOut:                out,                    // channel for outgoing packets to the load balancer
 		Probe:                  make(chan struct{}, 1), // buffered channel for health probes
 		ProbeAck:               make(chan struct{}, 1), // buffered channel for health probe ACKs
-		Done:                   make(chan struct{}, 1), // channel to signal that the server is done processing
 		NumberOfHandledPackets: 0,                      // initialize handled packets count
+		Ctx:                    ctx,                    // context for managing timeouts
+		cancel:                 cancel,                 // function to cancel the context and signal shutdown
+		closeOnce:              sync.Once{},            // ensures cleanup logic is executed only once
+		wg:                     sync.WaitGroup{},
 	}
 }
 
 // Abruptly stops the server and closes all channel, just if the power goes off
-func (s *Server) Kill() {
-	s.Killed = true // mark the server as killed
-	s.Active = false
-	s.HealthTCP = false
-	close(s.Done)     // close done channel to stop processing packets
-	close(s.DataIn)   // close incoming channel to stop receiving packets
-	close(s.DataOut)  // close outgoing channel to stop sending packets
-	close(s.Probe)    // close probe channel to stop health checks
-	close(s.ProbeAck) // close probe ACK channel
+func (s *Server) Shutdown() {
+	s.cancel() // signal all goroutines to stop
+
+	s.wg.Wait() // wait for all goroutines to finish
+
+	s.closeOnce.Do(func() {
+		s.Killed = true // mark the server as killed
+		s.Active = false
+		s.HealthTCP = false
+		close(s.Probe)    // close probe channel to stop health checks
+		close(s.ProbeAck) // close probe ACK channel
+	})
 }
 
 func (s *Server) MarkFailed() {
@@ -132,21 +144,30 @@ func (s *Server) StopDrain() {
 }
 
 func (s *Server) HandleHealthChecking() {
-	if s.Killed {
-		return // do not handle health checks if the server is killed
-	}
+	s.wg.Add(1) // track this goroutine
+	defer s.wg.Done()
 
 	for {
 		select {
-		case <-s.Done:
+		case <-s.Ctx.Done():
 			return // exit if the server is killed or done
-		case <-s.Probe:
-			s.ProbeAck <- struct{}{} // acknowledge the health probe
+		case _, ok := <-s.Probe:
+			if !ok {
+				return // channel closed
+			}
+			select {
+			case s.ProbeAck <- struct{}{}: // acknowledge the health probe
+			case <-s.Ctx.Done():
+				return
+			}
 		}
 	}
 }
 
 func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
+	s.wg.Add(1) // track this goroutine
+	defer s.wg.Done()
+
 	connStart := make(map[model.ClientKey]time.Time)
 	const bucket = 100
 	var latSamples [bucket]int64 // latency samples for p95 calculation
@@ -174,97 +195,84 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 		atomic.StoreInt32(&s.LatencyP95Milli, int32(p95))
 	}
 
-	// var (
-	// 	ctx    context.Context
-	// 	cancel context.CancelFunc
-	// )
-	// defer func() {
-	// 	if cancel != nil {
-	// 		cancel() // ensure the context is cancelled to avoid leaks
-	// 	}
-	// }()
-
-	// resetCtx := func() {
-	// 	if cancel != nil {
-	// 		cancel() // cancel the previous context if it exists
-	// 	}
-	// 	ctx, cancel = context.WithTimeout(context.Background(), model.READ_DEADLINE)
-	// }
-	// resetCtx() // initialize the context
-
-	for pkt := range stream {
-		s.NumberOfHandledPackets++ // increment the number of handled packets
-
-		// fmt.Println("Server received packet:", pkt.Key.SrcIP, pkt.Flag, s.ID, pkt.PlaceInStream)
-		switch {
-		// new SYN packet, we are starting a new connection
-		case pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0:
-			key := pkt.Key                             // extract client key from packet
-			atomic.AddInt32(&s.HalfOpenConnections, 1) // increment active connections
-			connStart[key] = time.Now()                // record the start time for this connection
-
-			resp := model.Packet{
-				Key:           key,
-				Flag:          model.FlagSYN | model.FlagACK, // respond with SYN-ACK
-				PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
-				Size:          pkt.Size,                      // echo the size of the SYN packet
+	for {
+		select {
+		case <-s.Ctx.Done():
+			fmt.Printf("Server %s: Shutting down packet handler.\n", s.ID)
+			return // exit if the context is done
+		case pkt, ok := <-stream:
+			if !ok {
+				return // stream channel closed
 			}
 
-			s.DataOut <- resp // send SYN-ACK back to the client
+			s.NumberOfHandledPackets++ // increment the number of handled packets
 
-		// if ACK from client, we are in the middle of a handshake
-		// so we can drop the half-open slot
-		// ACK packet, we are completing the handshake, and the connection is now active
-		case pkt.Flag&model.FlagACK != 0 && pkt.Flag&model.FlagSYN == 0 && connStart[pkt.Key] != (time.Time{}):
-			atomic.AddInt32(&s.ActiveConnections, 1)    // increment active connections
-			atomic.AddInt32(&s.HalfOpenConnections, -1) // decrement half-open connections
+			// fmt.Println("Server received packet:", pkt.Key.SrcIP, pkt.Flag, s.ID, pkt.PlaceInStream)
+			switch {
+			// new SYN packet, we are starting a new connection
+			case pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0:
+				key := pkt.Key                             // extract client key from packet
+				atomic.AddInt32(&s.HalfOpenConnections, 1) // increment active connections
+				connStart[key] = time.Now()                // record the start time for this connection
 
-		case pkt.Flag&model.FlagPSH != 0:
-			pkt := model.Packet{
-				Key:           pkt.Key,
-				Flag:          model.FlagACK,
-				PlaceInStream: pkt.PlaceInStream + 1, // increment place in stream
-				Size:          1024,
+				resp := model.Packet{
+					Key:           key,
+					Flag:          model.FlagSYN | model.FlagACK, // respond with SYN-ACK
+					PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
+					Size:          pkt.Size,                      // echo the size of the SYN packet
+				}
+
+				select {
+				case s.DataOut <- resp: // send SYN-ACK back to the client
+				case <-s.Ctx.Done():
+					return
+				}
+
+			// if ACK from client, we are in the middle of a handshake
+			// so we can drop the half-open slot
+			// ACK packet, we are completing the handshake, and the connection is now active
+			case pkt.Flag&model.FlagACK != 0 && pkt.Flag&model.FlagSYN == 0 && connStart[pkt.Key] != (time.Time{}):
+				atomic.AddInt32(&s.ActiveConnections, 1)    // increment active connections
+				atomic.AddInt32(&s.HalfOpenConnections, -1) // decrement half-open connections
+
+			case pkt.Flag&model.FlagPSH != 0:
+				resp := model.Packet{
+					Key:           pkt.Key,
+					Flag:          model.FlagACK,
+					PlaceInStream: pkt.PlaceInStream + 1, // increment place in stream
+					Size:          1024,
+				}
+				select {
+				case s.DataOut <- resp:
+				case <-s.Ctx.Done():
+					return
+				}
+
+			case pkt.Flag&model.FlagFIN != 0:
+				atomic.AddInt32(&s.ActiveConnections, -1)
+
+				if _, ok := connStart[pkt.Key]; ok {
+					t0 := connStart[pkt.Key]
+					updateP95(time.Since(t0).Milliseconds())
+					delete(connStart, pkt.Key)
+				}
+
+				resp := model.Packet{
+					Key:           pkt.Key,
+					Flag:          model.FlagFIN | model.FlagACK, // respond with FIN-ACK
+					PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
+					Size:          0,
+				}
+				select {
+				case s.DataOut <- resp:
+				case <-s.Ctx.Done():
+					return
+				}
+
+			default:
+				// handle other packet types (e.g. data packets)
 			}
-			s.DataOut <- pkt
-
-		case pkt.Flag&model.FlagFIN != 0:
-			atomic.AddInt32(&s.ActiveConnections, -1)
-
-			if _, ok := connStart[pkt.Key]; ok {
-				t0 := connStart[pkt.Key]
-				updateP95(time.Since(t0).Milliseconds())
-				delete(connStart, pkt.Key)
-			}
-
-			s.DataOut <- model.Packet{
-				Key:           pkt.Key,
-				Flag:          model.FlagFIN | model.FlagACK, // respond with FIN-ACK
-				PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
-				Size:          0,
-			}
-
-		default:
-			// if we receive a packet that is not SYN, ACK, PSH or FIN, we assume it is a FIN packet
-			atomic.AddInt32(&s.ActiveConnections, -1)
-
-			if _, ok := connStart[pkt.Key]; ok {
-				t0 := connStart[pkt.Key]
-				updateP95(time.Since(t0).Milliseconds())
-				delete(connStart, pkt.Key)
-			}
-
-			s.DataOut <- model.Packet{
-				Key:           pkt.Key,
-				Flag:          model.FlagFIN | model.FlagACK, // respond with FIN-ACK
-				PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
-				Size:          0,
-			}
-
 		}
-
-		//fmt.Println(s.HalfOpenConnections, s.MaxHalfOpen, pkt.PlaceInStream, pkt.Flag, s.Name, pkt.Key.SrcIP, s.ActiveConnections)
-
 	}
 }
 
