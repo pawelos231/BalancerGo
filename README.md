@@ -66,15 +66,39 @@ The system is heavily reliant on Go's concurrency primitives:
 *   **Goroutines**: Every client and server runs in its own goroutine, allowing for high concurrency. The WebSocket hub and the main load balancer ticker also run in dedicated goroutines.
 *   **Channels**: Communication between components is handled exclusively through channels, avoiding the need for mutexes in most of the core logic. Each client and server has `DataIn` and `DataOut` channels for sending and receiving `model.Packet` structs.
 
+### Simulating Network Communication with Go Channels
+
+A key feature of this project is the accurate emulation of TCP packet flow over a network, using Go channels as a substitute for actual network sockets. This architecture correctly models the independent request/response paths and the central role of the load balancer.
+
+Here is a high-level overview of how it works:
+
+1.  **Client and Server Channels**:
+    *   Each **Client** has an `OutChannel` (to send packets) and an `InChannel` (to receive responses).
+    *   Each **Server** has a `DataIn` channel (to receive packets) and a `DataOut` channel (to send responses).
+
+2.  **The Load Balancer as a Virtual Switchboard**: The `LoadBalancer` sits in the middle, managing the flow of packets between all clients and servers without them being directly connected.
+    *   **Client to Server Flow**:
+        *   The load balancer continuously listens to the `OutChannel` of every connected client.
+        *   When a packet is sent by a client, the load balancer receives it.
+        *   It inspects the packet and uses its internal state (connection table and balancing algorithm) to determine which backend server should receive it.
+        *   It then forwards the packet to the appropriate server's `DataIn` channel. This simulates a packet being sent from a client, through the load balancer, to a backend.
+    *   **Server to Client Flow**:
+        *   Simultaneously, the load balancer listens to the `DataOut` channel of every registered server.
+        *   When a server sends a response packet, the load balancer receives it.
+        *   It looks at the packet's key to identify the original client from its connection table.
+        *   It then forwards the response packet to that specific client's `InChannel`. This simulates the response from the backend returning to the correct client via the load balancer.
+
+This channel-based design faithfully reproduces the logical flow of a load-balanced network connection, allowing for the realistic modeling of handshakes, data transfer, and connection management.
+
 ### Flow of a Typical Packet
 
-1.  A **Client** creates a packet with a `SYN` flag and sends it to the Load Balancer's `DataIn` channel.
-2.  The **Load Balancer** receives the `SYN` packet. It uses the configured **Algorithm** (e.g., Round Robin) to select a healthy **Server**.
+1.  A **Client** creates a packet with a `SYN` flag and sends it into its `OutChannel`.
+2.  The **Load Balancer**'s listener goroutine picks up the packet from the client's `OutChannel`. It uses the configured **Algorithm** (e.g., Round Robin) to select a healthy **Server**.
 3.  It creates a new entry in its connection table, mapping the `client_ip:client_port` to the selected `server_ip:server_port`.
-4.  It performs NAT by changing the packet's destination IP to the server's IP and forwards it to the server's `DataIn` channel.
-5.  The **Server** receives the packet, processes it, and sends a response packet back to the Load Balancer.
-6.  The **Load Balancer** receives the response, looks up the connection in its table to find the original client, reverses the NAT, and forwards the packet to the client's `DataIn` channel.
-7.  This process continues for the data transfer (`ACK` packets) and connection teardown (`FIN` packets).
+4.  It performs NAT by changing the packet's destination IP to the server's IP and forwards it to the selected server's `DataIn` channel.
+5.  The **Server** receives the packet from its `DataIn` channel, processes it, and sends a response packet back into its `DataOut` channel.
+6.  The **Load Balancer**'s backend listener picks up the response, looks up the connection in its table to find the original client, reverses the NAT, and forwards the packet to the client's `InChannel`.
+7.  The client's listening goroutine receives the packet from its `InChannel`, completing the loop. This process continues for data transfer (`ACK` packets) and connection teardown (`FIN` packets).
 
 ---
 

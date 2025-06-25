@@ -44,8 +44,7 @@ type LoadBalancer struct {
 	// Chaos engineering hooks
 	chaos *model.ChaosConfig
 	// cleanup logic
-	closeOnce sync.Once      // Ensures cleanup logic
-	wg        sync.WaitGroup // WaitGroup to manage goroutines
+	wg sync.WaitGroup // WaitGroup to manage goroutines
 
 }
 
@@ -62,11 +61,10 @@ func NewLoadBalancer(mode model.LBMode, algo algorithms.Algorithm, refreshInterv
 		toSrv:    make(map[*server.Server]chan model.Packet),
 		fromSrv:  make(map[*server.Server]chan model.Packet),
 		// initialize health check channels
-		probe:     make(map[*server.Server]chan struct{}),
-		probeAck:  make(map[*server.Server]chan struct{}),
-		chaos:     &model.ChaosConfig{},
-		closeOnce: sync.Once{},
-		wg:        sync.WaitGroup{},
+		probe:    make(map[*server.Server]chan struct{}),
+		probeAck: make(map[*server.Server]chan struct{}),
+		chaos:    &model.ChaosConfig{},
+		wg:       sync.WaitGroup{},
 	}
 
 	//go lb.startIdleConnectionManager()

@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	nClients     = 100
-	nServers     = nClients / 10
-	packetsCount = 5000
-	gap          = 100 * time.Millisecond
+	nClients     = 100                    // number of clients
+	nServers     = nClients / 10          // number of servers (1 server for every 10 clients)
+	packetsCount = 5000                   // number of packets per stream
+	gap          = 100 * time.Millisecond // gap between packets
 )
 
 func main() {

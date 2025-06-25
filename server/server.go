@@ -22,13 +22,13 @@ type Server struct {
 	Weight   int16             // load‑balancer weight; higher = more preferred
 	Active   bool              // true = accepts traffic; false = drained/disabled
 	Killed   bool              // true = server is killed and should not be used
-	Tags     []string          // free‑form labels (e.g. "prod", "gpu", "arm")
-	Metadata map[string]string // arbitrary key‑value metadata
+	Tags     []string          // free‑form labels (e.g. "prod", "gpu", "arm") // NOT USED YET
+	Metadata map[string]string // arbitrary key‑value metadata // NOT USED YET
 
 	// --- High Availability / Scaling ---
-	Region         string // cloud/colo region (multi‑region routing)
-	Zone           string // availability zone (multi‑AZ fail‑over)
-	AutoscaleGroup string // auto‑scaling group ID/name for correlation with scaling events
+	Region         string // cloud/colo region (multi‑region routing) // NOT USED
+	Zone           string // availability zone (multi‑AZ fail‑over) // NOT USED
+	AutoscaleGroup string // auto‑scaling group ID/name for correlation with scaling events // NOT USED
 	Draining       bool   // true -> instance is in graceful‑shutdown/connection‑draining mode
 
 	// --- Health & Observability ---
@@ -39,7 +39,7 @@ type Server struct {
 	TLSEnabled   bool // whether the server expects TLS (termination on the instance)
 	MTLSRequired bool // whether mutual TLS authentication is required
 
-	RateLimitRPS        int32         // soft RPS limit communicated by the LB (rate‑limiter/DDoS shield)
+	RateLimitRPS        int32         // soft RPS limit communicated by the LB (rate‑limiter/DDoS shield) // NOT USED YET
 	MaxConnections      int32         // hard cap on concurrent connections (conntrack)
 	ActiveConnections   int32         // current number of active connections (conntrack)
 	HalfOpenConnections int32         // number of half-open connections (TCP SYNs in flight)
@@ -48,9 +48,9 @@ type Server struct {
 	DrainStartedAt      time.Time     // when the draining started (used to determine if we should exit the pool)
 
 	// --- DevOps / Rollout ---
-	Version       string    // semantic version/image tag (blue‑green/canary tracking)
-	ConfigVersion string    // hash/version of the current runtime configuration
-	LastUpdated   time.Time // timestamp of the last configuration change
+	Version       string    // semantic version/image tag (blue‑green/canary tracking)  // NOT USED YET
+	ConfigVersion string    // hash/version of the current runtime configuration // NOT USED YET
+	LastUpdated   time.Time // timestamp of the last configuration change // NOT USED YET
 
 	// internal
 	DataIn                 chan model.Packet  // channel for incoming packets from the LB

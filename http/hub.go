@@ -32,22 +32,24 @@ func NewHub() *Hub {
 	}
 }
 
+// Run starts the hub to listen for register, unregister, and broadcast messages.
+// It manages the connected clients and broadcasts messages to them.
 func (h *Hub) Run() {
 	for {
 		select {
-		case client := <-h.register:
+		case client := <-h.register: // Register a new client
 			h.mu.Lock()
 			h.clients[client] = true
 			log.Printf("New client connected: %s", client.RemoteAddr())
 			h.mu.Unlock()
-		case client := <-h.unregister:
+		case client := <-h.unregister: // Unregister a client and close the connection
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				client.Close()
 			}
 			h.mu.Unlock()
-		case message := <-h.broadcast:
+		case message := <-h.broadcast: // Broadcast a message to all connected clients
 			h.mu.Lock()
 			for client := range h.clients {
 				err := client.WriteMessage(websocket.TextMessage, message)
