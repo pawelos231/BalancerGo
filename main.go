@@ -26,8 +26,8 @@ func main() {
 	lb := setupLoadBalancer()
 	hub := setupHttpServer()
 
-	setupServers(lb, nServers)
 	var wg sync.WaitGroup
+	setupServers(lb, nServers)
 	setupClients(lb, nClients, &wg)
 
 	done := make(chan struct{})
@@ -99,17 +99,17 @@ func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done chan struct{
 		case <-t.C:
 			fmt.Println("LB: TICK")
 			// Chaos: 1 in 10 chance to kill a random server
-			if rand.Intn(10) == 0 {
-				if killedServerID, err := lb.KillRandomServer(); err == nil {
-					fmt.Printf("CHAOS: Killed server %s\n", killedServerID)
-				}
-			}
-
-			// if rand.Intn(2) == 0 {
-			// 	if killedClientID, err := lb.KillRandomClient(); err == nil {
-			// 		fmt.Printf("CHAOS: Killed client %s\n", killedClientID)
+			// if rand.Intn(10) == 0 {
+			// 	if killedServerID, err := lb.KillRandomServer(); err == nil {
+			// 		fmt.Printf("CHAOS: Killed server %s\n", killedServerID)
 			// 	}
 			// }
+
+			if rand.Intn(2) == 0 {
+				if killedClientID, err := lb.KillRandomClient(); err == nil {
+					fmt.Printf("CHAOS: Killed client %s\n", killedClientID)
+				}
+			}
 			state := lb.Tick()
 			hub.BroadcastState(state)
 		case <-done:

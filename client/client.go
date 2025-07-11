@@ -15,8 +15,8 @@ type Client struct {
 	InChannel  chan model.Packet // packets received from the LB
 
 	lastSent           model.Packet       // last sent packet, used for retransmission if needed
-	retrySyn           uint8              // SYN retrans counter
-	retryData          uint8              // DATA retrans counter
+	retrySyn           atomic.Uint32      // SYN retrans counter
+	retryData          atomic.Uint32      // DATA retrans counter
 	responseTimer      *time.Timer        // timer for waiting for a response from the server
 	waitAck            chan struct{}      // unbuffered channel to sync sender with ACK
 	handshakeDone      chan struct{}      // signals that 3-way handshake is complete
@@ -25,6 +25,7 @@ type Client struct {
 	closeOnce          sync.Once          // Ensures cleanup logic
 	wg                 sync.WaitGroup
 	handshakeCompleted atomic.Bool // to check if handshake is complete
+	mu                 sync.Mutex  // mutex to protect shared state
 
 }
 
@@ -47,6 +48,7 @@ func NewClient(
 		cancel:        cancel,
 		closeOnce:     sync.Once{},
 		wg:            sync.WaitGroup{},
+		mu:            sync.Mutex{},
 	}
 }
 
@@ -152,9 +154,11 @@ func (c *Client) ExpectResponse() {
 				// Checks if both SYN and ACK bits are set in pkt.Flag
 				// (ex: packet is a SYN-ACK during the 3-way handshake).
 				case pkt.Flag&mask == (model.FlagSYN | model.FlagACK):
+					c.mu.Lock()
 					if c.responseTimer != nil {
 						c.responseTimer.Stop() // got SYN-ACK
 					}
+					c.mu.Unlock()
 					c.handshakeCompleted.Store(true)
 					select {
 					case c.handshakeDone <- struct{}{}:
@@ -165,10 +169,12 @@ func (c *Client) ExpectResponse() {
 				// if the received packet is of type ACK, reset the retry counters
 				case pkt.Flag&model.FlagACK != 0:
 					// ACK of data
+					c.mu.Lock()
 					if c.responseTimer != nil {
 						c.responseTimer.Stop()
 					}
-					c.retryData = 0
+					c.mu.Unlock()
+					c.retryData.Store(0) // reset data retransmission counter
 					select {
 					case c.waitAck <- struct{}{}:
 					case <-c.ctx.Done():
@@ -249,8 +255,8 @@ func (c *Client) Shutdown() {
 func (c *Client) GetState() model.ClientState {
 	return model.ClientState{
 		Key:       c.key,
-		RetrySyn:  c.retrySyn,
-		RetryData: c.retryData,
+		RetrySyn:  uint8(c.retrySyn.Load()),
+		RetryData: uint8(c.retryData.Load()),
 	}
 }
 
@@ -261,11 +267,11 @@ func (c *Client) retransmitSyn() {
 	default:
 	}
 
-	if c.retrySyn >= model.MAX_RETRANSMISIONS {
+	if c.retrySyn.Load() >= model.MAX_RETRANSMISIONS {
 		c.Shutdown()
 		return
 	}
-	c.retrySyn++
+	c.retrySyn.Add(1) // increment the SYN retransmission counter
 	retry := c.lastSent
 	retry.Flag = model.FlagSYN
 	select {
@@ -283,11 +289,11 @@ func (c *Client) retransmitData() {
 	default:
 	}
 
-	if c.retryData >= model.MAX_RETRANSMISIONS {
+	if c.retryData.Load() >= model.MAX_RETRANSMISIONS {
 		c.Shutdown()
 		return
 	}
-	c.retryData++
+	c.retryData.Add(1)
 	retry := c.lastSent
 	retry.Flag = model.FlagPSH
 	select {
@@ -299,6 +305,8 @@ func (c *Client) retransmitData() {
 }
 
 func (c *Client) startTimer(d time.Duration, fn func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.responseTimer != nil {
 		c.responseTimer.Stop()
 	}

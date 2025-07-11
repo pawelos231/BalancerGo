@@ -67,7 +67,7 @@ func NewLoadBalancer(mode model.LBMode, algo algorithms.Algorithm, refreshInterv
 		wg:       sync.WaitGroup{},
 	}
 
-	//go lb.startIdleConnectionManager()
+	go lb.startIdleConnectionManager()
 
 	return lb
 }
@@ -127,49 +127,43 @@ func (lb *LoadBalancer) ListenOnClientEmission(cl *client.Client) {
 	}
 }
 
-// AddServer registers a new server with the load balancer.
 func (lb *LoadBalancer) AddServer(srv *server.Server) {
 	lb.mu.Lock()
-	// create per-backend channels
-	lb.toSrv[srv] = make(chan model.Packet)   // outgoing packets to server
-	lb.fromSrv[srv] = make(chan model.Packet) // incoming packets from server
 
-	// create health check channels
-	lb.probe[srv] = make(chan struct{}, 1)    // channel for health probes to server
-	lb.probeAck[srv] = make(chan struct{}, 1) // channel for health probe acknowledgments
+	toCh := make(chan model.Packet)
+	fromCh := make(chan model.Packet)
+	probeCh := make(chan struct{}, 1)
+	probeAckCh := make(chan struct{}, 1)
 
-	// inject channels into server struct
-	srv.DataIn = lb.toSrv[srv]
-	srv.DataOut = lb.fromSrv[srv]
-	srv.Probe = lb.probe[srv]
-	srv.ProbeAck = lb.probeAck[srv]
+	lb.toSrv[srv] = toCh
+	lb.fromSrv[srv] = fromCh
+	lb.probe[srv] = probeCh
+	lb.probeAck[srv] = probeAckCh
+
+	srv.DataIn = toCh
+	srv.DataOut = fromCh
+	srv.Probe = probeCh
+	srv.ProbeAck = probeAckCh
 
 	lb.servers = append(lb.servers, srv)
 	lb.mu.Unlock()
 
-	// start active health-checker
-	go lb.backendRxLoop(srv)
-	go lb.startHealthChecker(srv, 1*time.Second)
+	go lb.backendRxLoop(fromCh)
+	go lb.startHealthChecker(srv, time.Second)
 }
 
-func (lb *LoadBalancer) backendRxLoop(srv *server.Server) {
-	for pkt := range lb.fromSrv[srv] {
+func (lb *LoadBalancer) backendRxLoop(fromCh <-chan model.Packet) {
+	for pkt := range fromCh {
 		lb.mu.Lock()
 		lb.clientLastActivity[pkt.Key] = time.Now()
+		if tx := lb.clientTx[pkt.Key]; tx != nil {
+			tx <- pkt
+		}
 		lb.mu.Unlock()
 
 		if lb.applyChaos() {
 			continue
 		}
-		// FOR DEBUGGING
-		// fmt.Println("LB: received packet from server", srv.ID, "with flags", pkt.Flag, pkt.PlaceInStream, pkt.Key)
-
-		// forward to client
-		lb.mu.Lock()
-		if tx := lb.clientTx[pkt.Key]; tx != nil {
-			tx <- pkt
-		}
-		lb.mu.Unlock()
 	}
 }
 
@@ -519,7 +513,7 @@ func (lb *LoadBalancer) cleanupIdleConnections() {
 
 			if now.Sub(lastActivity) > timeout {
 				// Client has been idle for too long, close and remove it.
-				fmt.Printf("CHUUUUUUJ: Removing idle client %v (state: %s)\n", cl.Key(), map[bool]string{true: "ESTABLISHED", false: "SYN-RECV"}[cl.IsHandshakeCompleted()])
+				fmt.Printf("Removing idle client %v (state: %s)\n", cl.Key(), map[bool]string{true: "ESTABLISHED", false: "SYN-RECV"}[cl.IsHandshakeCompleted()])
 				cl.Close()
 				delete(lb.clientTx, cl.Key())
 				delete(lb.clientLastActivity, cl.Key())
