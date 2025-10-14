@@ -53,7 +53,6 @@ func NewClient(
 }
 
 func (c *Client) Open() {
-	// Initializes the connection by sending a SYN packet
 	synPacket := GeneratePacket(c.key, model.FlagSYN, 0, 0, 0)
 	c.lastSent = synPacket
 	select {
@@ -61,47 +60,43 @@ func (c *Client) Open() {
 	case <-c.ctx.Done():
 		return
 	}
-	c.startTimer(model.SYN_TIMEOUT, c.retransmitSyn) // wait for SYN-ACK
+	c.startTimer(model.SYN_TIMEOUT, c.retransmitSyn)
 	select {
-	case <-c.handshakeDone: // wait for SYN-ACK to arrive
+	case <-c.handshakeDone:
 	case <-c.ctx.Done():
 	}
 }
 
 func (c *Client) Key() model.ClientKey { return c.key }
 
-// IsHandshakeCompleted returns true if the 3-way handshake has been completed.
 func (c *Client) IsHandshakeCompleted() bool {
 	return c.handshakeCompleted.Load()
 }
 
-// SendStream sends dataSize bytes in segSize chunks; each chunk waits for ACK.
-// so it will send dataSize / SEGMENT_SIZE packets, each of size SEGMENT_SIZE.
 func (c *Client) SendCompleteStream(dataSize int, delayBetween time.Duration) {
 	c.wg.Add(1)
 	defer c.wg.Done()
 
-	packets := GenerateStream(c.key, dataSize, delayBetween)
+	packets := GeneratePackets(c.key, dataSize, delayBetween)
 	for _, pkt := range packets {
 		select {
 		case <-c.ctx.Done():
 			fmt.Printf("Client %v: Shutting down sender.\n", c.key)
-			return // exit if the context is done
+			return
 		default:
 			// continue sending packets
 		}
 
-		time.Sleep(pkt.Delay) // simulate network gap
-		c.lastSent = pkt      // update last sent packet
+		time.Sleep(pkt.Delay)
+		c.lastSent = pkt
 		select {
-		case c.OutChannel <- pkt: // send packet to the LB
+		case c.OutChannel <- pkt:
 		case <-c.ctx.Done():
 			fmt.Printf("Client %v: Shutting down sender during send.\n", c.key)
 			return
 		}
-		c.startTimer(model.SEGMENT_TIMEOUT, c.retransmitData) // start timer for ACK
+		c.startTimer(model.SEGMENT_TIMEOUT, c.retransmitData)
 
-		// Wait for ACK or shutdown
 		select {
 		case <-c.waitAck:
 			// ACK received, continue to next packet
@@ -115,7 +110,7 @@ func (c *Client) SendCompleteStream(dataSize int, delayBetween time.Duration) {
 }
 
 func (c *Client) ExpectResponse() {
-	c.wg.Add(1) // increment the wait group counter to track the response handler goroutine
+	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
 		var (
@@ -124,35 +119,32 @@ func (c *Client) ExpectResponse() {
 		)
 		defer func() {
 			if cancel != nil {
-				cancel() // ensure the context is cancelled to avoid leaks
+				cancel()
 			}
 		}()
 
 		resetCtx := func() {
 			if cancel != nil {
-				cancel() // cancel the previous context if it exists
+				cancel()
 			}
 			timeoutContext, cancel = context.WithTimeout(context.Background(), model.READ_DEADLINE)
 		}
-		resetCtx() // initialize the context
+		resetCtx()
 
 		for {
 			select {
 			case pkt, ok := <-c.InChannel:
 				if !ok {
-					// InChannel was closed by its owner.
 					return
 				}
 
-				resetCtx() // reset context for each new packet
+				resetCtx()
 				if pkt.Key != c.key {
 					continue
 				}
 
 				mask := model.FlagSYN | model.FlagACK
 				switch {
-				// Checks if both SYN and ACK bits are set in pkt.Flag
-				// (ex: packet is a SYN-ACK during the 3-way handshake).
 				case pkt.Flag&mask == (model.FlagSYN | model.FlagACK):
 					c.mu.Lock()
 					if c.responseTimer != nil {
@@ -163,18 +155,17 @@ func (c *Client) ExpectResponse() {
 					select {
 					case c.handshakeDone <- struct{}{}:
 					default:
-						// ensure that we don't block if the channel is already full
 					}
 
-				// if the received packet is of type ACK, reset the retry counters
 				case pkt.Flag&model.FlagACK != 0:
-					// ACK of data
 					c.mu.Lock()
 					if c.responseTimer != nil {
 						c.responseTimer.Stop()
 					}
 					c.mu.Unlock()
+
 					c.retryData.Store(0) // reset data retransmission counter
+
 					select {
 					case c.waitAck <- struct{}{}:
 					case <-c.ctx.Done():
@@ -192,7 +183,6 @@ func (c *Client) ExpectResponse() {
 				c.Shutdown()
 				return
 
-			// if the (main) context is done, exit the loop
 			case <-c.ctx.Done():
 				fmt.Printf("Client %v: Shutting down response handler.\n", c.key)
 				return
@@ -201,55 +191,23 @@ func (c *Client) ExpectResponse() {
 	}()
 }
 
-// FloodSyn sends a specified number of SYN packets to the server with a defined gap between each packet.
 func (c *Client) FloodSyn(count int, gap time.Duration) {
 	go func() {
 		for i := 0; i < count; i++ {
 			select {
 			case <-c.ctx.Done():
-				return // exit if the context is done
+				return
 			default:
-				synPacket := GeneratePacket(c.key, model.FlagSYN, 0, 0, uint32(i)) // generate a SYN packet with the current index
+				synPacket := GeneratePacket(c.key, model.FlagSYN, 0, 0, uint32(i))
 				select {
-				case c.OutChannel <- synPacket: // send SYN packet to the LB
+				case c.OutChannel <- synPacket:
 				case <-c.ctx.Done():
 					return
 				}
-				time.Sleep(gap) // wait for the specified gap before sending the next packet
+				time.Sleep(gap)
 			}
 		}
 	}()
-}
-
-// It is a graceful
-func (c *Client) Close() {
-	c.closeOnce.Do(func() {
-		finPacket := GeneratePacket(c.key, model.FlagFIN, 0, 0, 2<<30)
-		select {
-		case c.OutChannel <- finPacket:
-		case <-c.ctx.Done():
-		}
-	})
-	// After sending FIN, we let the Shutdown sequence handle the rest.
-}
-
-// Shutdown stops the client by closing the channels and stopping the response timer. It is abdrupt, almost as if power was cut off.
-func (c *Client) Shutdown() {
-	// Signal all goroutines to stop.
-	c.cancel()
-
-	// Wait for all tracked goroutines (SendCompleteStream, ExpectResponse) to finish.
-	c.wg.Wait()
-
-	// Once all goroutines are done, safely clean up shared resources.
-	c.closeOnce.Do(func() {
-		if c.responseTimer != nil {
-			c.responseTimer.Stop()
-		}
-		// Closing internal channels now is safe, as no goroutine will use them.
-		close(c.waitAck)
-		close(c.handshakeDone)
-	})
 }
 
 func (c *Client) GetState() model.ClientState {
@@ -271,9 +229,10 @@ func (c *Client) retransmitSyn() {
 		c.Shutdown()
 		return
 	}
-	c.retrySyn.Add(1) // increment the SYN retransmission counter
+	c.retrySyn.Add(1)
 	retry := c.lastSent
 	retry.Flag = model.FlagSYN
+
 	select {
 	case c.OutChannel <- retry:
 	case <-c.ctx.Done():
@@ -293,9 +252,11 @@ func (c *Client) retransmitData() {
 		c.Shutdown()
 		return
 	}
+
 	c.retryData.Add(1)
 	retry := c.lastSent
 	retry.Flag = model.FlagPSH
+
 	select {
 	case c.OutChannel <- retry:
 	case <-c.ctx.Done():
@@ -319,5 +280,29 @@ func (c *Client) startTimer(d time.Duration, fn func()) {
 		default:
 			fn() // call the retransmission function
 		}
+	})
+}
+
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		finPacket := GeneratePacket(c.key, model.FlagFIN, 0, 0, 2<<30)
+		select {
+		case c.OutChannel <- finPacket:
+		case <-c.ctx.Done():
+		}
+	})
+}
+
+func (c *Client) Shutdown() {
+	c.cancel()
+
+	c.wg.Wait()
+
+	c.closeOnce.Do(func() {
+		if c.responseTimer != nil {
+			c.responseTimer.Stop()
+		}
+		close(c.waitAck)
+		close(c.handshakeDone)
 	})
 }

@@ -57,7 +57,7 @@ type Server struct {
 	DataOut                chan model.Packet  // channel for outgoing packets to the LB
 	Probe                  chan struct{}      // channel for health probes (e.g. TCP SYNs)
 	ProbeAck               chan struct{}      // channel for health probe ACKs
-	NumberOfHandledPackets int32              // total number of packets handled by this server
+	NumberOfHandledPackets atomic.Int32       // total number of packets handled by this server
 	Ctx                    context.Context    // context for managing timeouts
 	cancel                 context.CancelFunc // Function to cancel the context and signal shutdown
 	closeOnce              sync.Once          // Ensures cleanup logic
@@ -89,7 +89,7 @@ func NewServer(id, name, address string, port, distance, weight int16,
 		DataOut:                out,                    // channel for outgoing packets to the load balancer
 		Probe:                  make(chan struct{}, 1), // buffered channel for health probes
 		ProbeAck:               make(chan struct{}, 1), // buffered channel for health probe ACKs
-		NumberOfHandledPackets: 0,                      // initialize handled packets count
+		NumberOfHandledPackets: atomic.Int32{},         // initialize handled packets count
 		Ctx:                    ctx,                    // context for managing timeouts
 		cancel:                 cancel,                 // function to cancel the context and signal shutdown
 		closeOnce:              sync.Once{},            // ensures cleanup logic is executed only once
@@ -97,18 +97,16 @@ func NewServer(id, name, address string, port, distance, weight int16,
 	}
 }
 
-// Abruptly stops the server and closes all channel, just if the power goes off
 func (s *Server) Shutdown() {
-	s.cancel() // signal all goroutines to stop
-
-	s.wg.Wait() // wait for all goroutines to finish
+	s.cancel()
+	s.wg.Wait()
 
 	s.closeOnce.Do(func() {
-		s.Killed = true // mark the server as killed
+		s.Killed = true
 		s.Active = false
 		s.HealthTCP = false
-		close(s.Probe)    // close probe channel to stop health checks
-		close(s.ProbeAck) // close probe ACK channel
+		close(s.Probe)
+		close(s.ProbeAck)
 	})
 }
 
@@ -116,9 +114,9 @@ func (s *Server) MarkFailed() {
 	fmt.Println("Marking server as FAILED:", s.ID, s.Name)
 	s.Active = false
 	s.HealthTCP = false
-	atomic.StoreInt32(&s.LatencyP95Milli, math.MaxInt32) // mark latency as unknown
+	atomic.StoreInt32(&s.LatencyP95Milli, math.MaxInt32)
 	s.Draining = true
-	s.DrainStartedAt = time.Now() // start the draining process
+	s.DrainStartedAt = time.Now()
 }
 
 func (s *Server) MarkHealthy() {
@@ -129,34 +127,34 @@ func (s *Server) MarkHealthy() {
 	fmt.Println("Marking server as HEALTHY:", s.ID, s.Name)
 	s.Active = true
 	s.HealthTCP = true
-	atomic.StoreInt32(&s.LatencyP95Milli, 0) // reset latency to 0 (healthy)
+	atomic.StoreInt32(&s.LatencyP95Milli, 0)
 	s.Draining = false
-	s.DrainStartedAt = time.Time{} // reset drain start time
+	s.DrainStartedAt = time.Time{}
 }
 
 func (s *Server) StartDrain() {
 	s.Draining = true
-	s.DrainStartedAt = time.Now() // start the draining process
+	s.DrainStartedAt = time.Now()
 }
 func (s *Server) StopDrain() {
 	s.Draining = false
-	s.DrainStartedAt = time.Time{} // reset drain start time
+	s.DrainStartedAt = time.Time{}
 }
 
 func (s *Server) HandleHealthChecking() {
-	s.wg.Add(1) // track this goroutine
+	s.wg.Add(1)
 	defer s.wg.Done()
 
 	for {
 		select {
 		case <-s.Ctx.Done():
-			return // exit if the server is killed or done
+			return
 		case _, ok := <-s.Probe:
 			if !ok {
-				return // channel closed
+				return
 			}
 			select {
-			case s.ProbeAck <- struct{}{}: // acknowledge the health probe
+			case s.ProbeAck <- struct{}{}:
 			case <-s.Ctx.Done():
 				return
 			}
@@ -165,12 +163,12 @@ func (s *Server) HandleHealthChecking() {
 }
 
 func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
-	s.wg.Add(1) // track this goroutine
+	s.wg.Add(1)
 	defer s.wg.Done()
 
 	connStart := make(map[model.ClientKey]time.Time)
 	const bucket = 100
-	var latSamples [bucket]int64 // latency samples for p95 calculation
+	var latSamples [bucket]int64
 	var sampleIdx int
 
 	updateP95 := func(ms int64) {
@@ -199,47 +197,42 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 		select {
 		case <-s.Ctx.Done():
 			fmt.Printf("Server %s: Shutting down packet handler.\n", s.ID)
-			return // exit if the context is done
+			return
 		case pkt, ok := <-stream:
 			if !ok {
-				return // stream channel closed
+				return
 			}
 
-			s.NumberOfHandledPackets++ // increment the number of handled packets
+			s.NumberOfHandledPackets.Add(1)
 
-			// fmt.Println("Server received packet:", pkt.Key.SrcIP, pkt.Flag, s.ID, pkt.PlaceInStream)
 			switch {
-			// new SYN packet, we are starting a new connection
 			case pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0:
-				key := pkt.Key                             // extract client key from packet
-				atomic.AddInt32(&s.HalfOpenConnections, 1) // increment active connections
-				connStart[key] = time.Now()                // record the start time for this connection
+				key := pkt.Key
+				atomic.AddInt32(&s.HalfOpenConnections, 1)
+				connStart[key] = time.Now()
 
 				resp := model.Packet{
 					Key:           key,
-					Flag:          model.FlagSYN | model.FlagACK, // respond with SYN-ACK
-					PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
-					Size:          pkt.Size,                      // echo the size of the SYN packet
+					Flag:          model.FlagSYN | model.FlagACK,
+					PlaceInStream: pkt.PlaceInStream + 1,
+					Size:          pkt.Size,
 				}
 
 				select {
-				case s.DataOut <- resp: // send SYN-ACK back to the client
+				case s.DataOut <- resp:
 				case <-s.Ctx.Done():
 					return
 				}
 
-			// if ACK from client, we are in the middle of a handshake
-			// so we can drop the half-open slot
-			// ACK packet, we are completing the handshake, and the connection is now active
 			case pkt.Flag&model.FlagACK != 0 && pkt.Flag&model.FlagSYN == 0 && connStart[pkt.Key] != (time.Time{}):
-				atomic.AddInt32(&s.ActiveConnections, 1)    // increment active connections
-				atomic.AddInt32(&s.HalfOpenConnections, -1) // decrement half-open connections
+				atomic.AddInt32(&s.ActiveConnections, 1)
+				atomic.AddInt32(&s.HalfOpenConnections, -1)
 
 			case pkt.Flag&model.FlagPSH != 0:
 				resp := model.Packet{
 					Key:           pkt.Key,
 					Flag:          model.FlagACK,
-					PlaceInStream: pkt.PlaceInStream + 1, // increment place in stream
+					PlaceInStream: pkt.PlaceInStream + 1,
 					Size:          1024,
 				}
 				select {
@@ -259,8 +252,8 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 
 				resp := model.Packet{
 					Key:           pkt.Key,
-					Flag:          model.FlagFIN | model.FlagACK, // respond with FIN-ACK
-					PlaceInStream: pkt.PlaceInStream + 1,         // increment place in stream
+					Flag:          model.FlagFIN | model.FlagACK,
+					PlaceInStream: pkt.PlaceInStream + 1,
 					Size:          0,
 				}
 				select {
@@ -282,7 +275,7 @@ func (s *Server) generateLatencyHistogram() []int32 {
 
 func (s *Server) CanAcceptNewConnection() bool {
 	if !s.Active || s.Draining && s.IsHealthy() {
-		return false // cannot accept new connections if inactive or draining
+		return false
 	}
 	if s.MaxConnections > 0 && s.ActiveConnections >= s.MaxConnections {
 		return false // max connections reached
@@ -303,19 +296,19 @@ func (s *Server) IsHealthy() bool {
 	if s.Draining &&
 		time.Since(s.DrainStartedAt) > s.DrainTimeout &&
 		atomic.LoadInt32(&s.ActiveConnections) == 0 {
-		return false // if draining and timeout exceeded, consider unhealthy
+		return false
 	}
 	return s.HealthTCP && s.Active && !s.Draining
 }
 
 func (s *Server) Score() float64 {
 	if !s.IsHealthy() {
-		return math.Inf(1) // unhealthy servers should be at the end of the list
+		return math.Inf(1)
 	}
 
 	drainingPenalty := 0.0
 	if s.Draining {
-		drainingPenalty = 10.0 // arbitrary penalty for draining servers
+		drainingPenalty = 10.0
 	}
 
 	return float64(s.LatencyP95Milli)*(1.0/float64(max(1, int(s.Weight)))) + drainingPenalty
@@ -331,6 +324,6 @@ func (s *Server) GetState() model.ServerState {
 		ActiveConnections:      atomic.LoadInt32(&s.ActiveConnections),
 		HalfOpenConnections:    atomic.LoadInt32(&s.HalfOpenConnections),
 		LatencyP95Milli:        atomic.LoadInt32(&s.LatencyP95Milli),
-		NumberOfHandledPackets: s.NumberOfHandledPackets,
+		NumberOfHandledPackets: s.NumberOfHandledPackets.Load(),
 	}
 }

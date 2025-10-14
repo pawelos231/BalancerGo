@@ -89,8 +89,8 @@ func (lb *LoadBalancer) AddClient(cl *client.Client) {
 // enforces the half-open backlog limit and forwards accepted packets
 // to the chosen backend.
 func (lb *LoadBalancer) ListenOnClientEmission(cl *client.Client) {
-	lb.wg.Add(1)       // Poinformuj LB, że uruchamiamy gorutynę
-	defer lb.wg.Done() // Poinformuj LB, że ta gorutyna się zakończyła
+	lb.wg.Add(1)
+	defer lb.wg.Done()
 	for pkt := range cl.OutChannel {
 		lb.mu.Lock()
 		lb.clientLastActivity[cl.Key()] = time.Now()
@@ -110,7 +110,7 @@ func (lb *LoadBalancer) ListenOnClientEmission(cl *client.Client) {
 			srv, err = lb.Route(pkt, cl) // choose + persist in connTable
 
 			if err != nil || srv == nil {
-				continue // no backend available
+				continue
 			}
 		}
 
@@ -187,14 +187,12 @@ func (lb *LoadBalancer) GetServers() []*server.Server {
 	return lb.servers
 }
 
-// GetConnectionTable returns the current connection table mapping servers to their clients.
 func (lb *LoadBalancer) GetConnectionTable() map[*server.Server][]*client.Client {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	return lb.connTable
 }
 
-// getClientByKey retrieves the server and client associated with the given client key.
 func (lb *LoadBalancer) getServerByClientKey(key model.ClientKey) (*server.Server, bool) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -208,7 +206,6 @@ func (lb *LoadBalancer) getServerByClientKey(key model.ClientKey) (*server.Serve
 	return nil, false
 }
 
-// Route determines which server should handle the incoming packet based on the load balancing algorithm.
 // ex: RoundRobin, LeastConnections, etc.
 func (lb *LoadBalancer) Route(packet model.Packet, cl *client.Client) (*server.Server, error) {
 	lb.mu.Lock()
@@ -223,35 +220,30 @@ func (lb *LoadBalancer) Route(packet model.Packet, cl *client.Client) (*server.S
 	return srv, nil
 }
 
-// ClearConnectionTable resets the connection table, removing all client-server mappings.
 func (lb *LoadBalancer) ClearConnectionTable() {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	lb.connTable = make(map[*server.Server][]*client.Client)
 }
 
-// SetAlgorithm allows changing the load balancing algorithm at runtime.
 func (lb *LoadBalancer) SetAlgorithm(algo algorithms.Algorithm) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	lb.algo = algo
 }
 
-// GetAlgorithm returns the current load balancing algorithm.
 func (lb *LoadBalancer) GetAlgorithm() algorithms.Algorithm {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	return lb.algo
 }
 
-// SetChaosConfig updates the chaos engineering settings.
 func (lb *LoadBalancer) SetChaosConfig(config *model.ChaosConfig) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	lb.chaos = config
 }
 
-// ReviveServer simulates a server recovery for a given server ID.
 func (lb *LoadBalancer) ReviveServer(serverID string) error {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -265,8 +257,6 @@ func (lb *LoadBalancer) ReviveServer(serverID string) error {
 }
 
 // KillRandomServer picks a random healthy server and simulates a crash.
-// The server remains in the server list but becomes unhealthy and inactive.
-// Returns the ID of the killed server, or an error if no healthy servers are available.
 func (lb *LoadBalancer) KillRandomServer() (string, error) {
 	lb.mu.Lock()
 
@@ -295,26 +285,16 @@ func (lb *LoadBalancer) KillRandomServer() (string, error) {
 	// by algorithms that check IsHealthy().
 	serverToKill.MarkFailed()
 
-	lb.mu.Unlock() // Unlock before calling blocking shutdown and closing channels.
+	lb.mu.Unlock()
 
-	// 1. Shutdown the server first. This stops its internal goroutines.
-	// Note: Shutdown() could be more robust and also call MarkFailed().
-	// For now, we call both to be explicit.
 	serverToKill.Shutdown()
 
-	// 2. Close the communication channels. This severs the link between the LB and the server.
-	// Any pending sends from the LB to this server will now fail, and the LB's
-	// backendRxLoop for this server will terminate.
 	if toSrvOk {
-		// It's safer to close a channel that you know exists.
 		close(toSrvChan)
 	}
 	if fromSrvOk {
 		close(fromSrvChan)
 	}
-
-	// The server object remains in lb.servers, but is now unhealthy.
-	// Clients connected to it will time out as they will no longer receive responses.
 
 	return serverID, nil
 }
@@ -334,16 +314,15 @@ func (lb *LoadBalancer) KillRandomClient() (string, error) {
 
 	clientToKill := allClients[rand.Intn(len(allClients))]
 	fmt.Println("INFO: Killing client", clientToKill.Key())
-	delete(lb.clientTx, clientToKill.Key())           // remove from the tx map
-	delete(lb.clientLastActivity, clientToKill.Key()) // remove from last activity map
+	delete(lb.clientTx, clientToKill.Key())
+	delete(lb.clientLastActivity, clientToKill.Key())
 
-	// Remove the client from the connection table
 	for srv, clients := range lb.connTable {
 		survivingClients := make([]*client.Client, 0, len(clients))
 		for _, cl := range clients {
 			if cl.Key() == clientToKill.Key() {
-				atomic.AddInt32(&srv.ActiveConnections, -1) // decrement half-open connections count
-				continue                                    // skip the client we are killing
+				atomic.AddInt32(&srv.ActiveConnections, -1)
+				continue
 			}
 			survivingClients = append(survivingClients, cl)
 		}
@@ -357,11 +336,10 @@ func (lb *LoadBalancer) KillRandomClient() (string, error) {
 
 	clientToKill.Shutdown()
 
-	close(clientToKill.OutChannel) // close the client's outgoing channel
-	close(clientToKill.InChannel)  // close the client's incoming channel
+	close(clientToKill.OutChannel)
+	close(clientToKill.InChannel)
 
 	// not idiomatic way of doing things in golang, but i think in this case it is worth it
-
 	return clientToKill.Key().SrcIP, nil
 }
 
@@ -374,17 +352,13 @@ func (lb *LoadBalancer) getChaosConfig() model.ChaosConfig {
 	return *lb.chaos
 }
 
-// applyChaos applies chaos engineering hooks to packet processing.
-// It returns true if the packet should be dropped.
 func (lb *LoadBalancer) applyChaos() bool {
 	chaos := lb.getChaosConfig()
 
-	// simulate latency
 	if chaos.Latency > 0 {
 		time.Sleep(chaos.Latency)
 	}
 
-	// simulate packet drop
 	if chaos.PacketDropRate > 0 {
 		if rand.Float64() < chaos.PacketDropRate {
 			return true // drop packet
@@ -394,7 +368,6 @@ func (lb *LoadBalancer) applyChaos() bool {
 	return false
 }
 
-// startHealthChecker starts a goroutine that periodically checks the health of the server by sending a probe.
 func (lb *LoadBalancer) startHealthChecker(srv *server.Server, interval time.Duration) {
 
 	t := time.NewTicker(interval)
@@ -403,25 +376,22 @@ func (lb *LoadBalancer) startHealthChecker(srv *server.Server, interval time.Dur
 		select {
 		case <-t.C:
 			{
-				// send probe; non-blocking: if chan full we treat as immediate fail
 				select {
 				case srv.Probe <- struct{}{}:
 				default:
 					srv.MarkFailed()
 					continue
 				}
-
-				// wait for ack with small timeout
 				select {
 				case <-srv.ProbeAck:
 					if !srv.IsHealthy() {
-						srv.MarkHealthy() // mark as healthy if ack received
+						srv.MarkHealthy()
 					}
 				case <-time.After(interval / 2):
 					srv.MarkFailed()
 				}
 			}
-		case <-srv.Ctx.Done(): // if server is done, stop health checking
+		case <-srv.Ctx.Done():
 			return
 		}
 	}
@@ -473,13 +443,11 @@ func (lb *LoadBalancer) safeSendToServer(srv *server.Server, pkt model.Packet) {
 
 	select {
 	case lb.toSrv[srv] <- pkt:
-		// packet sent successfully
 	default:
 		// channel is either full or closed, drop the packet
 	}
 }
 
-// startIdleConnectionManager runs a background task to clean up idle connections.
 func (lb *LoadBalancer) startIdleConnectionManager() {
 	ticker := time.NewTicker(CleanupInterval)
 	defer ticker.Stop()
@@ -489,7 +457,6 @@ func (lb *LoadBalancer) startIdleConnectionManager() {
 	}
 }
 
-// cleanupIdleConnections iterates through the connection table and removes clients that have been idle for too long.
 func (lb *LoadBalancer) cleanupIdleConnections() {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -500,7 +467,6 @@ func (lb *LoadBalancer) cleanupIdleConnections() {
 		for _, cl := range clients {
 			lastActivity, ok := lb.clientLastActivity[cl.Key()]
 			if !ok {
-				// This case should ideally not be reached if clientLastActivity is always populated when a client is added.
 				// We'll keep the client if we don't have activity data, just in case.
 				survivingClients = append(survivingClients, cl)
 				continue
@@ -512,7 +478,6 @@ func (lb *LoadBalancer) cleanupIdleConnections() {
 			}
 
 			if now.Sub(lastActivity) > timeout {
-				// Client has been idle for too long, close and remove it.
 				fmt.Printf("Removing idle client %v (state: %s)\n", cl.Key(), map[bool]string{true: "ESTABLISHED", false: "SYN-RECV"}[cl.IsHandshakeCompleted()])
 				cl.Close()
 				delete(lb.clientTx, cl.Key())

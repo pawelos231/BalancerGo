@@ -2,10 +2,8 @@ package model
 
 import "time"
 
-// ChaosConfig holds settings for chaos engineering hooks.
+// to be used later, not really used right now (also must be implemented on the frontend)
 type ChaosConfig struct {
-	// Latency adds a fixed delay to packet processing.
-	Latency time.Duration
-	// PacketDropRate is the probability (0.0 to 1.0) of dropping a packet.
+	Latency        time.Duration
 	PacketDropRate float64
-} 
+}

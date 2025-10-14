@@ -25,7 +25,7 @@ func GeneratePacket(key model.ClientKey, flag model.Flag, size int, delay time.D
 	}
 }
 
-func GenerateStream(clientKey model.ClientKey, dataSize int, delayBetween time.Duration) []model.Packet {
+func GeneratePackets(clientKey model.ClientKey, dataSize int, delayBetween time.Duration) []model.Packet {
 	flags := []model.Flag{model.FlagACK}
 
 	var packets []model.Packet
@@ -47,7 +47,7 @@ func GenerateStream(clientKey model.ClientKey, dataSize int, delayBetween time.D
 	return packets
 }
 
-func GenerateStreamWithDelays(clientKey model.ClientKey, dataSize int, delays []time.Duration) []model.Packet {
+func GeneratePacketsWithDelays(clientKey model.ClientKey, dataSize int, delays []time.Duration) []model.Packet {
 	var packets []model.Packet
 	flags := []model.Flag{model.FlagSYN, model.FlagACK, model.FlagPSH, model.FlagFIN}
 	sizes := []int{0, 0, dataSize, 0}
