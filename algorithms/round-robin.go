@@ -7,8 +7,8 @@ import (
 )
 
 type RoundRobin struct {
-	mu   sync.Mutex
-	idx  int
+	mu  sync.Mutex
+	idx int
 }
 
 // Pick returns the next server (or error if slice empty).
@@ -19,6 +19,11 @@ func (rr *RoundRobin) Pick(backends []*server.Server) (*server.Server, error) {
 
 	rr.mu.Lock()
 	s := backends[rr.idx%len(backends)]
+	if s.MaxConnections > 0 && s.ActiveConnections >= s.MaxConnections {
+		rr.idx++
+		rr.mu.Unlock()
+		return rr.Pick(backends)
+	}
 	rr.idx++
 	rr.mu.Unlock()
 

@@ -173,6 +173,7 @@ func (c *Client) ListenForResponse() {
 
 				case pkt.Flag&model.FlagFIN != 0:
 					// Received FIN, initiate shutdown sequence.
+					fmt.Println("Client: received FIN, shutting down", c.key.SrcIP)
 					c.Shutdown()
 					return
 				}
@@ -225,6 +226,7 @@ func (c *Client) retransmitSyn() {
 	}
 
 	if c.retrySyn.Load() >= model.MAX_RETRANSMISIONS {
+		fmt.Println("Client: Max SYN retransmissions reached, shutting down", c.key.SrcIP)
 		c.Shutdown()
 		return
 	}
@@ -248,6 +250,7 @@ func (c *Client) retransmitData() {
 	}
 
 	if c.retryData.Load() >= model.MAX_RETRANSMISIONS {
+		fmt.Println("Client: Max data retransmissions reached, shutting down", c.key.SrcIP)
 		c.Shutdown()
 		return
 	}

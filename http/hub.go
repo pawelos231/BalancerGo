@@ -9,7 +9,6 @@ import (
 	"load-balancer/model"
 	"log"
 	"net/http"
-	"reflect"
 	"sync"
 	"time"
 
@@ -39,6 +38,89 @@ func NewHub() *Hub {
 	}
 }
 
+type Envelope struct {
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type SetAlgorithmMsg struct {
+	Name string `json:"name"`
+}
+
+type SpawnClientMsg struct {
+	Count int `json:"count"`
+}
+
+func (h *Hub) registerProtocolHandlers(lb *balancer.LoadBalancer) *Protocol {
+	proto := NewProtocol()
+
+	Register(proto, "setAlgorithm", func(msg SetAlgorithmMsg) error {
+		var algo algorithms.Algorithm
+
+		switch msg.Name {
+		case "roundRobin":
+			algo = &algorithms.RoundRobin{}
+		case "random":
+			algo = &algorithms.Random{}
+		default:
+			return fmt.Errorf("unknown algorithm: %s", msg.Name)
+		}
+
+		lb.SetAlgorithm(algo)
+		fmt.Printf("Load balancer algorithm set to: %s\n", msg.Name)
+		return nil
+	})
+
+	Register(proto, "spawnClient", func(msg SpawnClientMsg) error {
+
+		for i := 0; i < msg.Count; i++ {
+			cl := client.NewClient(
+				fmt.Sprintf("192.168.%d.%d", (i/254)+1, (i%254)+1),
+				int16(100+i),
+				"lb.local",
+				80,
+				"TCP",
+				make(chan model.Packet),
+				make(chan model.Packet),
+			)
+
+			lb.AddClient(cl)
+
+			go func(c *client.Client) {
+				c.ListenForResponse()
+				c.OpenConnection()
+				c.SendCompleteStream(5000*model.SEGMENT_SIZE, 100*time.Millisecond)
+			}(cl)
+		}
+		fmt.Println("Spawned", msg.Count, "clients")
+		return nil
+	})
+
+	return proto
+}
+
+func (h *Hub) handleClientMessages(c *websocket.Conn, lb *balancer.LoadBalancer) {
+	proto := h.registerProtocolHandlers(lb)
+
+	for {
+		var env Envelope
+		if err := c.ReadJSON(&env); err != nil {
+			log.Println("read error:", err)
+			return
+		}
+
+		handler, ok := proto.handlers[env.Type]
+		if !ok {
+			log.Printf("unknown message type: %s", env.Type)
+			continue
+		}
+
+		if err := handler(env.Payload); err != nil {
+			log.Printf("handler error (%s): %v", env.Type, err)
+		}
+	}
+}
+
 func (h *Hub) Run(lb *balancer.LoadBalancer) {
 	for {
 		select {
@@ -47,102 +129,7 @@ func (h *Hub) Run(lb *balancer.LoadBalancer) {
 			h.clients[cl] = true
 			log.Printf("New client connected: %s", cl.RemoteAddr())
 			// listen for messages from client
-			go func(c *websocket.Conn) {
-				defer func() {
-					for {
-						var msg interface{}
-						err := c.ReadJSON(&msg)
-						if err != nil {
-							log.Println("read error:", err)
-							break
-						}
-						typeOfMsg := reflect.TypeOf(msg)
-						switch typeOfMsg.Kind() {
-						case reflect.Map:
-							{
-								fmt.Printf("%v\n", msg)
-								typeField, ok := msg.(map[string]interface{})["type"]
-								if !ok {
-									log.Printf("no type field in message")
-									continue
-								}
-
-								stringiedTypeField, ok := typeField.(string)
-								if !ok {
-									log.Printf("type field is not a string")
-									continue
-								}
-
-								switch stringiedTypeField {
-								case "setAlgorithm":
-									{
-										algorithmField, ok := msg.(map[string]interface{})["algorithm"]
-										if !ok {
-											log.Printf("no algorithm field in message")
-											continue
-										}
-										stringiedAlgorithmField, ok := algorithmField.(string)
-										if !ok {
-											log.Printf("algorithm field is not a string")
-											continue
-										}
-										var algorithm algorithms.Algorithm
-										switch stringiedAlgorithmField {
-										case "roundRobin":
-											algorithm = &algorithms.RoundRobin{}
-										case "random":
-											algorithm = &algorithms.Random{}
-										default:
-											log.Printf("unknown algorithm: %s", stringiedAlgorithmField)
-											continue
-										}
-										log.Printf("Setting algorithm to %s", stringiedAlgorithmField)
-										lb.SetAlgorithm(algorithm)
-										break
-									}
-								case "spawnClient":
-									countField, ok := msg.(map[string]interface{})["count"]
-									if !ok {
-										log.Printf("no count field in message")
-										continue
-									}
-									count, ok := countField.(float64)
-									if !ok {
-										log.Printf("count field is not a int")
-										continue
-									}
-									for i := 0; i < int(count); i++ {
-										cl := client.NewClient(
-											fmt.Sprintf("192.168.%d.%d", (i/254)+1, (i%254)+1),
-											int16(100+i),
-											"lb.local",
-											80,
-											"TCP",
-											make(chan model.Packet),
-											make(chan model.Packet),
-										)
-
-										lb.AddClient(cl)
-
-										go func(c *client.Client) {
-											c.ListenForResponse()
-											c.OpenConnection()
-											c.SendCompleteStream(5000*model.SEGMENT_SIZE, 100*time.Millisecond)
-										}(cl)
-									}
-								}
-								break
-							}
-
-						case reflect.Slice:
-							log.Printf("it is a slice")
-							break
-						default:
-							log.Printf("what the fuck is this")
-						}
-					}
-				}()
-			}(cl)
+			go h.handleClientMessages(cl, lb)
 
 			h.mu.Unlock()
 		case cl := <-h.unregister:

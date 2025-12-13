@@ -10,4 +10,5 @@ type ServerState struct {
 	HalfOpenConnections    uint32
 	LatencyP95Milli        uint32
 	NumberOfHandledPackets uint32
+	CpuUsage               float32
 }

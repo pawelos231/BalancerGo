@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+const (
+	alpha       = 0.002 // reaction to new measurements
+	bytesPerCPU = 512.0 // cost of scaling in bytes per CPU usage
+	maxCPU      = 10000 // says how many packets per second a server can handle at max
+)
+
 type Server struct {
 	ID              string
 	Name            string
@@ -24,8 +30,7 @@ type Server struct {
 	Draining        bool
 	HealthTCP       bool
 	LatencyP95Milli uint32
-	TLSEnabled      bool
-	MTLSRequired    bool
+	CpuUsage        atomic.Uint32
 
 	MaxConnections      uint32
 	ActiveConnections   uint32
@@ -62,11 +67,9 @@ func NewServer(id, name, address string, port, distance, weight int16,
 		Distance:               distance,
 		Weight:                 weight,
 		MaxHalfOpen:            maxHalfOpen,
-		HealthTCP:              true,  // default to healthy
-		LatencyP95Milli:        0,     // default to 0 latency
-		TLSEnabled:             false, // default to no TLS
-		MTLSRequired:           false, // default to no mTLS
-		Active:                 true,  // default to active
+		HealthTCP:              true, // default to healthy
+		LatencyP95Milli:        0,    // default to 0 latency
+		Active:                 true, // default to active
 		Tags:                   []string{},
 		Metadata:               make(map[string]string),
 		DrainTimeout:           120 * time.Second,      // default drain timeout
@@ -80,6 +83,7 @@ func NewServer(id, name, address string, port, distance, weight int16,
 		closeOnce:              sync.Once{},            // ensures cleanup logic is executed only once
 		wg:                     sync.WaitGroup{},
 	}
+
 }
 
 func (s *Server) Shutdown() {
@@ -193,6 +197,7 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 			PushPacket := pkt.Flag&model.FlagPSH != 0
 			FinPacket := pkt.Flag&model.FlagFIN != 0
 
+			// hierachical combining in the future?
 			s.NumberOfHandledPackets.Add(1)
 			// fmt.Println(pkt)
 
@@ -221,7 +226,7 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 			case ThreeWayHandshakeCompleted:
 				{
 					atomic.AddUint32(&s.ActiveConnections, 1)
-					atomic.AddUint32(&s.HalfOpenConnections, ^uint32(0))
+					atomic.AddUint32(&s.HalfOpenConnections, ^uint32(0)) // decrement half-open connections
 					break
 				}
 
@@ -242,7 +247,7 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 				}
 			case FinPacket:
 				{
-					atomic.AddUint32(&s.ActiveConnections, ^uint32(0))
+					atomic.AddUint32(&s.ActiveConnections, ^uint32(0)) // decrement active connections
 
 					if _, ok := connStart[pkt.Key]; ok {
 						t0 := connStart[pkt.Key]
@@ -316,6 +321,15 @@ func (s *Server) Score() float64 {
 	return float64(s.LatencyP95Milli)*(1.0/float64(max(1, int(s.Weight)))) + drainingPenalty
 }
 
+func (s *Server) CalculatePacketsPerSecond() {
+	before := s.NumberOfHandledPackets.Load()
+	time.Sleep(1 * time.Second)
+	after := s.NumberOfHandledPackets.Load()
+
+	s.CpuUsage.Store(after - before)
+	s.CalculatePacketsPerSecond()
+}
+
 func (s *Server) GetState() model.ServerState {
 	return model.ServerState{
 		ID:                     s.ID,
@@ -325,6 +339,7 @@ func (s *Server) GetState() model.ServerState {
 		ActiveConnections:      atomic.LoadUint32(&s.ActiveConnections),
 		HalfOpenConnections:    atomic.LoadUint32(&s.HalfOpenConnections),
 		LatencyP95Milli:        atomic.LoadUint32(&s.LatencyP95Milli),
+		CpuUsage:               float32(s.CpuUsage.Load()) / float32(maxCPU), // normalize to [0,1]
 		NumberOfHandledPackets: s.NumberOfHandledPackets.Load(),
 	}
 }

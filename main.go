@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	nClients     = 2                      // number of clients
-	nServers     = 2                      // number of servers (1 server for every 10 clients)
-	packetsCount = 5000                   // number of packets per stream
+	nClients     = 200                    // number of clients
+	nServers     = 20                     // number of servers (1 server for every 10 clients)
+	packetsCount = 10000                  // number of packets per stream
 	delay        = 100 * time.Millisecond // gap between packets
 )
 
@@ -64,6 +64,7 @@ func setupServers(lb *balancer.LoadBalancer, n int) {
 		)
 		lb.AddServer(srv)
 
+		go srv.CalculatePacketsPerSecond()
 		go srv.HandlePacketStream(srv.DataIn)
 		go srv.HandleHealthChecking()
 	}

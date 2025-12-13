@@ -15,11 +15,11 @@ import (
 
 const (
 	// HalfOpenTimeout defines the idle timeout for connections that have not completed the 3-way handshake.
-	HalfOpenTimeout = 2 * time.Second
+	HalfOpenTimeout = 5 * time.Second
 	// EstablishedTimeout defines the idle timeout for established connections with no traffic.
-	EstablishedTimeout = 2 * time.Second
+	EstablishedTimeout = 5 * time.Second
 	// CleanupInterval specifies how often the idle connection manager should run.
-	CleanupInterval = 2 * time.Second
+	CleanupInterval = 5 * time.Second
 )
 
 type LoadBalancer struct {
