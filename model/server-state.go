@@ -6,8 +6,8 @@ type ServerState struct {
 	Address                string
 	Port                   int16
 	Active                 bool
-	ActiveConnections      int32
-	HalfOpenConnections    int32
-	LatencyP95Milli        int32
-	NumberOfHandledPackets int32
+	ActiveConnections      uint32
+	HalfOpenConnections    uint32
+	LatencyP95Milli        uint32
+	NumberOfHandledPackets uint32
 }

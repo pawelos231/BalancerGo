@@ -11,69 +11,54 @@ import (
 	"time"
 )
 
-// server is an abstract representation of real-world server entities.
 type Server struct {
-	// --- Core attributes ---
-	ID       string            // unique identifier -> (SrcIP,SrcPort,DstIP,DstPort,Protocol)
-	Name     string            // human‑readable instance name
-	Address  string            // IP address or hostname that the LB forwards traffic to
-	Port     int16             // port the server listens on
-	Distance int16             // distance in km from the LB (used by nearest‑node algorithms)
-	Weight   int16             // load‑balancer weight; higher = more preferred
-	Active   bool              // true = accepts traffic; false = drained/disabled
-	Killed   bool              // true = server is killed and should not be used
-	Tags     []string          // free‑form labels (e.g. "prod", "gpu", "arm") // NOT USED YET
-	Metadata map[string]string // arbitrary key‑value metadata // NOT USED YET
+	ID              string
+	Name            string
+	Address         string
+	Distance        int16
+	Weight          int16
+	Active          bool
+	Killed          bool
+	Tags            []string
+	Metadata        map[string]string
+	Draining        bool
+	HealthTCP       bool
+	LatencyP95Milli uint32
+	TLSEnabled      bool
+	MTLSRequired    bool
 
-	// --- High Availability / Scaling ---
-	Region         string // cloud/colo region (multi‑region routing) // NOT USED
-	Zone           string // availability zone (multi‑AZ fail‑over) // NOT USED
-	AutoscaleGroup string // auto‑scaling group ID/name for correlation with scaling events // NOT USED
-	Draining       bool   // true -> instance is in graceful‑shutdown/connection‑draining mode
+	MaxConnections      uint32
+	ActiveConnections   uint32
+	HalfOpenConnections uint32
+	MaxHalfOpen         uint32
+	DrainTimeout        time.Duration
+	DrainStartedAt      time.Time
 
-	// --- Health & Observability ---
-	HealthTCP       bool  // last result of L4 probe (SYN/ACK)
-	LatencyP95Milli int32 // rolling p95 latency in milliseconds (used for SLOs and decisions)
-
-	// --- Security ---
-	TLSEnabled   bool // whether the server expects TLS (termination on the instance)
-	MTLSRequired bool // whether mutual TLS authentication is required
-
-	RateLimitRPS        int32         // soft RPS limit communicated by the LB (rate‑limiter/DDoS shield) // NOT USED YET
-	MaxConnections      int32         // hard cap on concurrent connections (conntrack)
-	ActiveConnections   int32         // current number of active connections (conntrack)
-	HalfOpenConnections int32         // number of half-open connections (TCP SYNs in flight)
-	MaxHalfOpen         int32         // maximum allowed half‑open connections (to prevent SYN flood)
-	DrainTimeout        time.Duration // how long to wait for graceful shutdown before force‑closing connections
-	DrainStartedAt      time.Time     // when the draining started (used to determine if we should exit the pool)
-
-	// --- DevOps / Rollout ---
-	Version       string    // semantic version/image tag (blue‑green/canary tracking)  // NOT USED YET
-	ConfigVersion string    // hash/version of the current runtime configuration // NOT USED YET
-	LastUpdated   time.Time // timestamp of the last configuration change // NOT USED YET
+	Version       string
+	ConfigVersion string
+	LastUpdated   time.Time
 
 	// internal
-	DataIn                 chan model.Packet  // channel for incoming packets from the LB
-	DataOut                chan model.Packet  // channel for outgoing packets to the LB
-	Probe                  chan struct{}      // channel for health probes (e.g. TCP SYNs)
-	ProbeAck               chan struct{}      // channel for health probe ACKs
-	NumberOfHandledPackets atomic.Int32       // total number of packets handled by this server
-	Ctx                    context.Context    // context for managing timeouts
-	cancel                 context.CancelFunc // Function to cancel the context and signal shutdown
-	closeOnce              sync.Once          // Ensures cleanup logic
-	wg                     sync.WaitGroup     // to track running goroutines
+	DataIn                 chan model.Packet // channel for incoming packets from the LB
+	DataOut                chan model.Packet // channel for outgoing packets to the LB
+	Probe                  chan struct{}     // channel for health probes (e.g. TCP SYNs)
+	ProbeAck               chan struct{}     // channel for health probe ACKs
+	NumberOfHandledPackets atomic.Uint32
+	Ctx                    context.Context
+	cancel                 context.CancelFunc
+	closeOnce              sync.Once
+	wg                     sync.WaitGroup
 }
 
 func NewServer(id, name, address string, port, distance, weight int16,
 	out chan model.Packet,
-	in chan model.Packet, maxHalfOpen int32) *Server {
+	in chan model.Packet, maxHalfOpen uint32) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
 		ID:                     id,
 		Name:                   name,
 		Address:                address,
-		Port:                   port,
 		Distance:               distance,
 		Weight:                 weight,
 		MaxHalfOpen:            maxHalfOpen,
@@ -89,7 +74,7 @@ func NewServer(id, name, address string, port, distance, weight int16,
 		DataOut:                out,                    // channel for outgoing packets to the load balancer
 		Probe:                  make(chan struct{}, 1), // buffered channel for health probes
 		ProbeAck:               make(chan struct{}, 1), // buffered channel for health probe ACKs
-		NumberOfHandledPackets: atomic.Int32{},         // initialize handled packets count
+		NumberOfHandledPackets: atomic.Uint32{},        // initialize handled packets count
 		Ctx:                    ctx,                    // context for managing timeouts
 		cancel:                 cancel,                 // function to cancel the context and signal shutdown
 		closeOnce:              sync.Once{},            // ensures cleanup logic is executed only once
@@ -114,7 +99,7 @@ func (s *Server) MarkFailed() {
 	fmt.Println("Marking server as FAILED:", s.ID, s.Name)
 	s.Active = false
 	s.HealthTCP = false
-	atomic.StoreInt32(&s.LatencyP95Milli, math.MaxInt32)
+	atomic.StoreUint32(&s.LatencyP95Milli, math.MaxUint32)
 	s.Draining = true
 	s.DrainStartedAt = time.Now()
 }
@@ -127,7 +112,7 @@ func (s *Server) MarkHealthy() {
 	fmt.Println("Marking server as HEALTHY:", s.ID, s.Name)
 	s.Active = true
 	s.HealthTCP = true
-	atomic.StoreInt32(&s.LatencyP95Milli, 0)
+	atomic.StoreUint32(&s.LatencyP95Milli, 0)
 	s.Draining = false
 	s.DrainStartedAt = time.Time{}
 }
@@ -190,7 +175,7 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 		}
 
 		p95 := tmp[idx]
-		atomic.StoreInt32(&s.LatencyP95Milli, int32(p95))
+		atomic.StoreUint32(&s.LatencyP95Milli, uint32(p95))
 	}
 
 	for {
@@ -203,67 +188,84 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 				return
 			}
 
+			ThreeWayHandshakeCompleted := pkt.Flag&model.FlagACK != 0 && pkt.Flag&model.FlagSYN == 0 && connStart[pkt.Key] != (time.Time{})
+			InitiateThreeWayHandshake := pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0
+			PushPacket := pkt.Flag&model.FlagPSH != 0
+			FinPacket := pkt.Flag&model.FlagFIN != 0
+
 			s.NumberOfHandledPackets.Add(1)
+			// fmt.Println(pkt)
 
 			switch {
-			case pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0:
-				key := pkt.Key
-				atomic.AddInt32(&s.HalfOpenConnections, 1)
-				connStart[key] = time.Now()
+			case InitiateThreeWayHandshake:
+				{
+					key := pkt.Key
+					atomic.AddUint32(&s.HalfOpenConnections, 1)
+					connStart[key] = time.Now()
 
-				resp := model.Packet{
-					Key:           key,
-					Flag:          model.FlagSYN | model.FlagACK,
-					PlaceInStream: pkt.PlaceInStream + 1,
-					Size:          pkt.Size,
+					resp := model.Packet{
+						Key:           key,
+						Flag:          model.FlagSYN | model.FlagACK, // SYN-ACK response
+						PlaceInStream: pkt.PlaceInStream + 1,
+						Size:          pkt.Size,
+					}
+
+					select {
+					case s.DataOut <- resp:
+					case <-s.Ctx.Done():
+						return
+					}
+					break
 				}
 
-				select {
-				case s.DataOut <- resp:
-				case <-s.Ctx.Done():
-					return
+			case ThreeWayHandshakeCompleted:
+				{
+					atomic.AddUint32(&s.ActiveConnections, 1)
+					atomic.AddUint32(&s.HalfOpenConnections, ^uint32(0))
+					break
 				}
 
-			case pkt.Flag&model.FlagACK != 0 && pkt.Flag&model.FlagSYN == 0 && connStart[pkt.Key] != (time.Time{}):
-				atomic.AddInt32(&s.ActiveConnections, 1)
-				atomic.AddInt32(&s.HalfOpenConnections, -1)
-
-			case pkt.Flag&model.FlagPSH != 0:
-				resp := model.Packet{
-					Key:           pkt.Key,
-					Flag:          model.FlagACK,
-					PlaceInStream: pkt.PlaceInStream + 1,
-					Size:          1024,
+			case PushPacket:
+				{
+					resp := model.Packet{
+						Key:           pkt.Key,
+						Flag:          model.FlagACK,
+						PlaceInStream: pkt.PlaceInStream + 1,
+						Size:          1024,
+					}
+					select {
+					case s.DataOut <- resp:
+					case <-s.Ctx.Done():
+						return
+					}
+					break
 				}
-				select {
-				case s.DataOut <- resp:
-				case <-s.Ctx.Done():
-					return
-				}
+			case FinPacket:
+				{
+					atomic.AddUint32(&s.ActiveConnections, ^uint32(0))
 
-			case pkt.Flag&model.FlagFIN != 0:
-				atomic.AddInt32(&s.ActiveConnections, -1)
+					if _, ok := connStart[pkt.Key]; ok {
+						t0 := connStart[pkt.Key]
+						updateP95(time.Since(t0).Milliseconds())
+						delete(connStart, pkt.Key)
+					}
 
-				if _, ok := connStart[pkt.Key]; ok {
-					t0 := connStart[pkt.Key]
-					updateP95(time.Since(t0).Milliseconds())
-					delete(connStart, pkt.Key)
-				}
-
-				resp := model.Packet{
-					Key:           pkt.Key,
-					Flag:          model.FlagFIN | model.FlagACK,
-					PlaceInStream: pkt.PlaceInStream + 1,
-					Size:          0,
-				}
-				select {
-				case s.DataOut <- resp:
-				case <-s.Ctx.Done():
-					return
+					resp := model.Packet{
+						Key:           pkt.Key,
+						Flag:          model.FlagFIN | model.FlagACK,
+						PlaceInStream: pkt.PlaceInStream + 1,
+						Size:          0,
+					}
+					select {
+					case s.DataOut <- resp:
+					case <-s.Ctx.Done():
+						return
+					}
+					break
 				}
 
 			default:
-				// handle other packet types (e.g. data packets)
+				// ignore other packets
 			}
 		}
 	}
@@ -283,9 +285,9 @@ func (s *Server) CanAcceptNewConnection() bool {
 	return true
 }
 
-func (s *Server) UpdateHealth(healthTCP bool, latencyP95Milli int32) {
+func (s *Server) UpdateHealth(healthTCP bool, latencyP95Milli uint32) {
 	s.HealthTCP = healthTCP
-	atomic.StoreInt32(&s.LatencyP95Milli, latencyP95Milli)
+	atomic.StoreUint32(&s.LatencyP95Milli, latencyP95Milli)
 }
 
 func (s *Server) ShouldBeTerminated() bool {
@@ -295,7 +297,7 @@ func (s *Server) ShouldBeTerminated() bool {
 func (s *Server) IsHealthy() bool {
 	if s.Draining &&
 		time.Since(s.DrainStartedAt) > s.DrainTimeout &&
-		atomic.LoadInt32(&s.ActiveConnections) == 0 {
+		atomic.LoadUint32(&s.ActiveConnections) == 0 {
 		return false
 	}
 	return s.HealthTCP && s.Active && !s.Draining
@@ -319,11 +321,10 @@ func (s *Server) GetState() model.ServerState {
 		ID:                     s.ID,
 		Name:                   s.Name,
 		Address:                s.Address,
-		Port:                   s.Port,
 		Active:                 s.Active,
-		ActiveConnections:      atomic.LoadInt32(&s.ActiveConnections),
-		HalfOpenConnections:    atomic.LoadInt32(&s.HalfOpenConnections),
-		LatencyP95Milli:        atomic.LoadInt32(&s.LatencyP95Milli),
+		ActiveConnections:      atomic.LoadUint32(&s.ActiveConnections),
+		HalfOpenConnections:    atomic.LoadUint32(&s.HalfOpenConnections),
+		LatencyP95Milli:        atomic.LoadUint32(&s.LatencyP95Milli),
 		NumberOfHandledPackets: s.NumberOfHandledPackets.Load(),
 	}
 }

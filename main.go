@@ -14,17 +14,17 @@ import (
 )
 
 const (
-	nClients     = 100                    // number of clients
-	nServers     = nClients / 10          // number of servers (1 server for every 10 clients)
+	nClients     = 2                      // number of clients
+	nServers     = 2                      // number of servers (1 server for every 10 clients)
 	packetsCount = 5000                   // number of packets per stream
-	gap          = 100 * time.Millisecond // gap between packets
+	delay        = 100 * time.Millisecond // gap between packets
 )
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	lb := setupLoadBalancer()
-	hub := setupHttpServer()
+	hub := setupHttpServer(lb)
 
 	var wg sync.WaitGroup
 	setupServers(lb, nServers)
@@ -42,22 +42,24 @@ func setupLoadBalancer() *balancer.LoadBalancer {
 	return balancer.NewLoadBalancer(model.LBModeNAT, &algorithms.RoundRobin{}, time.Millisecond*500)
 }
 
-func setupHttpServer() *httpserver.Hub {
+func setupHttpServer(lb *balancer.LoadBalancer) *httpserver.Hub {
 	hub := httpserver.NewHub()
-	go hub.Run()
+	go hub.Run(lb)
 	go httpserver.StartServer(hub)
 	return hub
 }
 
 func setupServers(lb *balancer.LoadBalancer, n int) {
 	for i := 0; i < n; i++ {
+		out := make(chan model.Packet)
+		in := make(chan model.Packet)
 		srv := server.NewServer(
 			fmt.Sprintf("srv-%02d", i),
 			fmt.Sprintf("backend-%02d", i),
 			fmt.Sprintf("10.0.0.%d", i+10),
 			80, 0, 1,
-			make(chan model.Packet),
-			make(chan model.Packet),
+			out, // outgoing channel
+			in,  // incoming channel
 			100,
 		)
 		lb.AddServer(srv)
@@ -83,9 +85,9 @@ func setupClients(lb *balancer.LoadBalancer, n int, wg *sync.WaitGroup) {
 		wg.Add(1)
 		go func(c *client.Client) {
 			defer wg.Done()
-			c.ExpectResponse()
-			c.Open()
-			c.SendCompleteStream(packetsCount*model.SEGMENT_SIZE, gap)
+			c.ListenForResponse()
+			c.OpenConnection()
+			c.SendCompleteStream(packetsCount*model.SEGMENT_SIZE, delay)
 		}(cl)
 	}
 }
@@ -97,7 +99,7 @@ func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done chan struct{
 	for {
 		select {
 		case <-t.C:
-			fmt.Println("LB: TICK")
+			// fmt.Println("LB: TICK")
 			// Chaos: 1 in 10 chance to kill a random server
 			// if rand.Intn(10) == 0 {
 			// 	if killedServerID, err := lb.KillRandomServer(); err == nil {
@@ -105,11 +107,11 @@ func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done chan struct{
 			// 	}
 			// }
 
-			if rand.Intn(2) == 0 {
-				if killedClientID, err := lb.KillRandomClient(); err == nil {
-					fmt.Printf("CHAOS: Killed client %s\n", killedClientID)
-				}
-			}
+			// if rand.Intn(2) == 0 {
+			// 	if killedClientID, err := lb.KillRandomClient(); err == nil {
+			// 		fmt.Printf("CHAOS: Killed client %s\n", killedClientID)
+			// 	}
+			// }
 			state := lb.Tick()
 			hub.BroadcastState(state)
 		case <-done:

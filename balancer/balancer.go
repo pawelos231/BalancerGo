@@ -23,48 +23,41 @@ const (
 )
 
 type LoadBalancer struct {
-	mu                 sync.Mutex                          // mutex to protect shared state
-	Mode               model.LBMode                        // NAT / SNAT / DSR
-	servers            []*server.Server                    // list of registered servers
-	connTable          map[*server.Server][]*client.Client // connection table mapping servers to their clients
-	clientLastActivity map[model.ClientKey]time.Time       // tracks the last activity time for each client
-	algo               algorithms.Algorithm                // load balancing algorithm to use ex: "RoundRobin", "LeastConnections", etc.
-	RefreshInterval    time.Duration                       // interval for getting the state of the load balancer
+	mu                 sync.Mutex
+	Mode               model.LBMode
+	servers            []*server.Server
+	connTable          map[*server.Server][]*client.Client
+	clientLastActivity map[model.ClientKey]time.Time
+	algo               algorithms.Algorithm
+	RefreshInterval    time.Duration
 
-	// Channels for packet routing, they are treated as intermediary buffers
-	// between clients and servers to handle incoming and outgoing packets.
 	clientTx map[model.ClientKey]chan model.Packet // outgoing packets to clients, indexed by client key
 	toSrv    map[*server.Server]chan model.Packet  // channel for packets to be sent to servers
 	fromSrv  map[*server.Server]chan model.Packet  // channel for packets received from servers
 
 	// Health check channels
-	probe    map[*server.Server]chan struct{} // channel for health probes to servers
-	probeAck map[*server.Server]chan struct{} // channel for health probe acknowledgments
+	probe    map[*server.Server]chan struct{}
+	probeAck map[*server.Server]chan struct{}
 
-	// Chaos engineering hooks
 	chaos *model.ChaosConfig
-	// cleanup logic
-	wg sync.WaitGroup // WaitGroup to manage goroutines
-
+	wg    sync.WaitGroup
 }
 
 func NewLoadBalancer(mode model.LBMode, algo algorithms.Algorithm, refreshInterval time.Duration) *LoadBalancer {
 	lb := &LoadBalancer{
-		RefreshInterval:    refreshInterval, // default refresh interval
+		RefreshInterval:    refreshInterval,
 		Mode:               mode,
 		servers:            make([]*server.Server, 0),
 		connTable:          make(map[*server.Server][]*client.Client),
 		clientLastActivity: make(map[model.ClientKey]time.Time),
 		algo:               algo,
-		// initialize channels
-		clientTx: make(map[model.ClientKey]chan model.Packet),
-		toSrv:    make(map[*server.Server]chan model.Packet),
-		fromSrv:  make(map[*server.Server]chan model.Packet),
-		// initialize health check channels
-		probe:    make(map[*server.Server]chan struct{}),
-		probeAck: make(map[*server.Server]chan struct{}),
-		chaos:    &model.ChaosConfig{},
-		wg:       sync.WaitGroup{},
+		clientTx:           make(map[model.ClientKey]chan model.Packet),
+		toSrv:              make(map[*server.Server]chan model.Packet),
+		fromSrv:            make(map[*server.Server]chan model.Packet),
+		probe:              make(map[*server.Server]chan struct{}),
+		probeAck:           make(map[*server.Server]chan struct{}),
+		chaos:              &model.ChaosConfig{},
+		wg:                 sync.WaitGroup{},
 	}
 
 	go lb.startIdleConnectionManager()
@@ -81,13 +74,9 @@ func (lb *LoadBalancer) AddClient(cl *client.Client) {
 	lb.mu.Unlock()
 
 	// start per-client listener
-	// it listens for packets from the client and routes them to the appropriate server
 	go lb.ListenOnClientEmission(cl)
 }
 
-// ListenOnClientEmission pulls packets from a single client,
-// enforces the half-open backlog limit and forwards accepted packets
-// to the chosen backend.
 func (lb *LoadBalancer) ListenOnClientEmission(cl *client.Client) {
 	lb.wg.Add(1)
 	defer lb.wg.Done()
@@ -101,13 +90,11 @@ func (lb *LoadBalancer) ListenOnClientEmission(cl *client.Client) {
 		}
 		//fmt.Println("LB: received packet from client", cl.Key(), "with flags", pkt.Flag)
 
-		// pick backend
 		srv, mapped := lb.getServerByClientKey(pkt.Key)
 		// to route the packet to the server, we need to check if the client is already mapped to a server
-		// and if the packet is a SYN packet.
 		if !mapped && pkt.Flag&model.FlagSYN != 0 {
 			var err error
-			srv, err = lb.Route(pkt, cl) // choose + persist in connTable
+			srv, err = lb.Route(pkt, cl)
 
 			if err != nil || srv == nil {
 				continue
@@ -117,13 +104,12 @@ func (lb *LoadBalancer) ListenOnClientEmission(cl *client.Client) {
 		if pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0 {
 			// drop if backlog full
 			if srv.MaxHalfOpen > 0 &&
-				atomic.LoadInt32(&srv.HalfOpenConnections) >= srv.MaxHalfOpen {
+				atomic.LoadUint32(&srv.HalfOpenConnections) >= srv.MaxHalfOpen {
 				continue
 			}
 		}
 
-		// forward packet to the server
-		lb.safeSendToServer(srv, pkt)
+		lb.sendClientPacketToServer(srv, pkt)
 	}
 }
 
@@ -148,11 +134,11 @@ func (lb *LoadBalancer) AddServer(srv *server.Server) {
 	lb.servers = append(lb.servers, srv)
 	lb.mu.Unlock()
 
-	go lb.backendRxLoop(fromCh)
+	go lb.ListenOnServerEmission(fromCh)
 	go lb.startHealthChecker(srv, time.Second)
 }
 
-func (lb *LoadBalancer) backendRxLoop(fromCh <-chan model.Packet) {
+func (lb *LoadBalancer) ListenOnServerEmission(fromCh <-chan model.Packet) {
 	for pkt := range fromCh {
 		lb.mu.Lock()
 		lb.clientLastActivity[pkt.Key] = time.Now()
@@ -167,7 +153,6 @@ func (lb *LoadBalancer) backendRxLoop(fromCh <-chan model.Packet) {
 	}
 }
 
-// RemoveServer removes a server from the load balancer's list of registered servers.
 func (lb *LoadBalancer) RemoveServer(srv *server.Server) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -180,7 +165,6 @@ func (lb *LoadBalancer) RemoveServer(srv *server.Server) {
 	delete(lb.connTable, srv)
 }
 
-// GetServers returns the list of registered servers in the load balancer.
 func (lb *LoadBalancer) GetServers() []*server.Server {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -321,7 +305,7 @@ func (lb *LoadBalancer) KillRandomClient() (string, error) {
 		survivingClients := make([]*client.Client, 0, len(clients))
 		for _, cl := range clients {
 			if cl.Key() == clientToKill.Key() {
-				atomic.AddInt32(&srv.ActiveConnections, -1)
+				atomic.AddUint32(&srv.ActiveConnections, ^uint32(0))
 				continue
 			}
 			survivingClients = append(survivingClients, cl)
@@ -432,7 +416,7 @@ func (lb *LoadBalancer) Tick() model.LoadBalancerState {
 	}
 }
 
-func (lb *LoadBalancer) safeSendToServer(srv *server.Server, pkt model.Packet) {
+func (lb *LoadBalancer) sendClientPacketToServer(srv *server.Server, pkt model.Packet) {
 	defer func() {
 		if r := recover(); r != nil {
 			// something bad happened, probably a send on a closed channel.

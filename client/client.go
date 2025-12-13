@@ -14,19 +14,18 @@ type Client struct {
 	OutChannel chan model.Packet // packets to be sent to the LB
 	InChannel  chan model.Packet // packets received from the LB
 
-	lastSent           model.Packet       // last sent packet, used for retransmission if needed
-	retrySyn           atomic.Uint32      // SYN retrans counter
-	retryData          atomic.Uint32      // DATA retrans counter
-	responseTimer      *time.Timer        // timer for waiting for a response from the server
-	waitAck            chan struct{}      // unbuffered channel to sync sender with ACK
-	handshakeDone      chan struct{}      // signals that 3-way handshake is complete
-	ctx                context.Context    // context for managing timeouts
-	cancel             context.CancelFunc // Function to cancel the context and signal shutdown
-	closeOnce          sync.Once          // Ensures cleanup logic
+	lastSent           model.Packet
+	retrySyn           atomic.Uint32
+	retryData          atomic.Uint32
+	responseTimer      *time.Timer
+	waitAck            chan struct{}
+	handshakeDone      chan struct{}
+	ctx                context.Context
+	cancel             context.CancelFunc
+	closeOnce          sync.Once
 	wg                 sync.WaitGroup
-	handshakeCompleted atomic.Bool // to check if handshake is complete
-	mu                 sync.Mutex  // mutex to protect shared state
-
+	handshakeCompleted atomic.Bool
+	mu                 sync.Mutex
 }
 
 func NewClient(
@@ -52,15 +51,18 @@ func NewClient(
 	}
 }
 
-func (c *Client) Open() {
+func (c *Client) OpenConnection() {
 	synPacket := GeneratePacket(c.key, model.FlagSYN, 0, 0, 0)
 	c.lastSent = synPacket
+
 	select {
 	case c.OutChannel <- synPacket:
 	case <-c.ctx.Done():
 		return
 	}
+
 	c.startTimer(model.SYN_TIMEOUT, c.retransmitSyn)
+
 	select {
 	case <-c.handshakeDone:
 	case <-c.ctx.Done():
@@ -73,19 +75,16 @@ func (c *Client) IsHandshakeCompleted() bool {
 	return c.handshakeCompleted.Load()
 }
 
+// normally we would want implement sliding window, but for simplicity, we send one packet at a time
+// also normally we would want to randomize delay a bit to simulate real network conditions
+// also normally we would want to generate the packets in a streaming manner rather than all at once
+// all of this concerns are (FOR NOW) ignored for simplicity
 func (c *Client) SendCompleteStream(dataSize int, delayBetween time.Duration) {
 	c.wg.Add(1)
 	defer c.wg.Done()
 
 	packets := GeneratePackets(c.key, dataSize, delayBetween)
 	for _, pkt := range packets {
-		select {
-		case <-c.ctx.Done():
-			fmt.Printf("Client %v: Shutting down sender.\n", c.key)
-			return
-		default:
-			// continue sending packets
-		}
 
 		time.Sleep(pkt.Delay)
 		c.lastSent = pkt
@@ -99,7 +98,7 @@ func (c *Client) SendCompleteStream(dataSize int, delayBetween time.Duration) {
 
 		select {
 		case <-c.waitAck:
-			// ACK received, continue to next packet
+			continue
 		case <-c.ctx.Done():
 			fmt.Printf("Client %v: Shutdown while waiting for ACK.\n", c.key)
 			return
@@ -109,7 +108,7 @@ func (c *Client) SendCompleteStream(dataSize int, delayBetween time.Duration) {
 
 }
 
-func (c *Client) ExpectResponse() {
+func (c *Client) ListenForResponse() {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()

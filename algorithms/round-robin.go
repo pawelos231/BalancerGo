@@ -7,8 +7,8 @@ import (
 )
 
 type RoundRobin struct {
-	mu  sync.Mutex
-	idx int
+	mu   sync.Mutex
+	idx  int
 }
 
 // Pick returns the next server (or error if slice empty).
