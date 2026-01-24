@@ -80,15 +80,15 @@ func (h *Hub) registerProtocolHandlers(lb *balancer.LoadBalancer) *Protocol {
 				"lb.local",
 				80,
 				"TCP",
-				make(chan model.Packet),
-				make(chan model.Packet),
+				make(chan *model.Packet),
+				make(chan *model.Packet),
 			)
 
 			lb.AddClient(cl)
 
 			go func(c *client.Client) {
 				c.ListenForResponse()
-				c.OpenConnection()
+				c.EstablishConnection()
 				c.SendCompleteStream(5000*model.SEGMENT_SIZE, 100*time.Millisecond)
 			}(cl)
 		}

@@ -11,16 +11,16 @@ import (
 
 type Client struct {
 	key        model.ClientKey
-	OutChannel chan model.Packet // packets to be sent to the LB
-	InChannel  chan model.Packet // packets received from the LB
+	OutChannel chan *model.Packet // packets to be sent to the LB
+	InChannel  chan *model.Packet // packets received from the LB
 
-	lastSent           model.Packet
+	lastSent           *model.Packet
 	retrySyn           atomic.Uint32
 	retryData          atomic.Uint32
 	responseTimer      *time.Timer
 	waitAck            chan struct{}
 	handshakeDone      chan struct{}
-	ctx                context.Context
+	Ctx                context.Context
 	cancel             context.CancelFunc
 	closeOnce          sync.Once
 	wg                 sync.WaitGroup
@@ -34,8 +34,8 @@ func NewClient(
 	dstIP string,
 	dstPort int16,
 	proto model.Protocol,
-	out chan model.Packet,
-	in chan model.Packet) *Client {
+	out chan *model.Packet,
+	in chan *model.Packet) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
 		key:           GenerateClientKey(srcIP, srcPort, dstIP, dstPort, proto),
@@ -43,7 +43,7 @@ func NewClient(
 		InChannel:     in,
 		waitAck:       make(chan struct{}),
 		handshakeDone: make(chan struct{}, 1),
-		ctx:           ctx,
+		Ctx:           ctx,
 		cancel:        cancel,
 		closeOnce:     sync.Once{},
 		wg:            sync.WaitGroup{},
@@ -51,13 +51,13 @@ func NewClient(
 	}
 }
 
-func (c *Client) OpenConnection() {
+func (c *Client) EstablishConnection() {
 	synPacket := GeneratePacket(c.key, model.FlagSYN, 0, 0, 0)
 	c.lastSent = synPacket
 
 	select {
 	case c.OutChannel <- synPacket:
-	case <-c.ctx.Done():
+	case <-c.Ctx.Done():
 		return
 	}
 
@@ -65,7 +65,7 @@ func (c *Client) OpenConnection() {
 
 	select {
 	case <-c.handshakeDone:
-	case <-c.ctx.Done():
+	case <-c.Ctx.Done():
 	}
 }
 
@@ -79,32 +79,37 @@ func (c *Client) IsHandshakeCompleted() bool {
 // also normally we would want to randomize delay a bit to simulate real network conditions
 // also normally we would want to generate the packets in a streaming manner rather than all at once
 // all of this concerns are (FOR NOW) ignored for simplicity
-func (c *Client) SendCompleteStream(dataSize int, delayBetween time.Duration) {
+func (c *Client) SendCompleteStream(dataSize int, delay time.Duration) {
 	c.wg.Add(1)
 	defer c.wg.Done()
+	var counter uint32
 
-	packets := GeneratePackets(c.key, dataSize, delayBetween)
-	for _, pkt := range packets {
+	for {
+		pkt := GeneratePacket(c.key, model.FlagPSH, dataSize, delay, counter)
+		counter++
+		if counter > uint32(dataSize/model.SEGMENT_SIZE) {
+			fmt.Println("Client: completed sending data stream", c.key.SrcIP)
+			return
+		}
 
 		time.Sleep(pkt.Delay)
 		c.lastSent = pkt
+
 		select {
 		case c.OutChannel <- pkt:
-		case <-c.ctx.Done():
-			fmt.Printf("Client %v: Shutting down sender during send.\n", c.key)
+		case <-c.Ctx.Done():
 			return
 		}
+
 		c.startTimer(model.SEGMENT_TIMEOUT, c.retransmitData)
 
 		select {
-		case <-c.waitAck:
+		case <-c.waitAck: // ACK = generate next
 			continue
-		case <-c.ctx.Done():
-			fmt.Printf("Client %v: Shutdown while waiting for ACK.\n", c.key)
+		case <-c.Ctx.Done():
 			return
 		}
 	}
-	c.Close()
 
 }
 
@@ -136,6 +141,7 @@ func (c *Client) ListenForResponse() {
 				if !ok {
 					return
 				}
+				fmt.Println(pkt)
 
 				resetCtx()
 				if pkt.Key != c.key {
@@ -167,7 +173,7 @@ func (c *Client) ListenForResponse() {
 
 					select {
 					case c.waitAck <- struct{}{}:
-					case <-c.ctx.Done():
+					case <-c.Ctx.Done():
 					default:
 					}
 
@@ -183,7 +189,7 @@ func (c *Client) ListenForResponse() {
 				c.Shutdown()
 				return
 
-			case <-c.ctx.Done():
+			case <-c.Ctx.Done():
 				fmt.Printf("Client %v: Shutting down response handler.\n", c.key)
 				return
 			}
@@ -195,13 +201,13 @@ func (c *Client) FloodSyn(count int, gap time.Duration) {
 	go func() {
 		for i := 0; i < count; i++ {
 			select {
-			case <-c.ctx.Done():
+			case <-c.Ctx.Done():
 				return
 			default:
 				synPacket := GeneratePacket(c.key, model.FlagSYN, 0, 0, uint32(i))
 				select {
 				case c.OutChannel <- synPacket:
-				case <-c.ctx.Done():
+				case <-c.Ctx.Done():
 					return
 				}
 				time.Sleep(gap)
@@ -220,7 +226,7 @@ func (c *Client) GetState() model.ClientState {
 
 func (c *Client) retransmitSyn() {
 	select {
-	case <-c.ctx.Done():
+	case <-c.Ctx.Done():
 		return
 	default:
 	}
@@ -231,12 +237,17 @@ func (c *Client) retransmitSyn() {
 		return
 	}
 	c.retrySyn.Add(1)
-	retry := c.lastSent
+
+	retry := new(model.Packet)
+	retry.Key = c.lastSent.Key
+	retry.Size = c.lastSent.Size
+	retry.PlaceInStream = c.lastSent.PlaceInStream
+	retry.Delay = c.lastSent.Delay
 	retry.Flag = model.FlagSYN
 
 	select {
 	case c.OutChannel <- retry:
-	case <-c.ctx.Done():
+	case <-c.Ctx.Done():
 		return
 	}
 	c.startTimer(model.SYN_TIMEOUT, c.retransmitSyn)
@@ -244,7 +255,7 @@ func (c *Client) retransmitSyn() {
 
 func (c *Client) retransmitData() {
 	select {
-	case <-c.ctx.Done():
+	case <-c.Ctx.Done():
 		return
 	default:
 	}
@@ -256,12 +267,12 @@ func (c *Client) retransmitData() {
 	}
 
 	c.retryData.Add(1)
+
 	retry := c.lastSent
-	retry.Flag = model.FlagPSH
 
 	select {
 	case c.OutChannel <- retry:
-	case <-c.ctx.Done():
+	case <-c.Ctx.Done():
 		return
 	}
 	c.startTimer(model.SEGMENT_TIMEOUT, c.retransmitData)
@@ -276,7 +287,7 @@ func (c *Client) startTimer(d time.Duration, fn func()) {
 
 	c.responseTimer = time.AfterFunc(d, func() {
 		select {
-		case <-c.ctx.Done():
+		case <-c.Ctx.Done():
 			// Timer is irrelevant if client is already shutting down.
 			return
 		default:
@@ -290,7 +301,7 @@ func (c *Client) Close() {
 		finPacket := GeneratePacket(c.key, model.FlagFIN, 0, 0, 2<<30)
 		select {
 		case c.OutChannel <- finPacket:
-		case <-c.ctx.Done():
+		case <-c.Ctx.Done():
 		}
 	})
 }

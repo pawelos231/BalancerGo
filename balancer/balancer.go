@@ -23,17 +23,18 @@ const (
 )
 
 type LoadBalancer struct {
-	mu                 sync.Mutex
-	Mode               model.LBMode
-	servers            []*server.Server
-	connTable          map[*server.Server][]*client.Client
-	clientLastActivity map[model.ClientKey]time.Time
-	algo               algorithms.Algorithm
-	RefreshInterval    time.Duration
+	mu                          sync.Mutex
+	Mode                        model.LBMode
+	servers                     []*server.Server
+	connTable                   map[*server.Server][]*client.Client
+	fastAccessClientKeyConTable map[model.ClientKey]*server.Server
+	clientLastActivity          map[model.ClientKey]time.Time // do we need to keep it thread-safe? it is certain that given client key only one goroutine will update it
+	algo                        algorithms.Algorithm
+	RefreshInterval             time.Duration
 
-	clientTx map[model.ClientKey]chan model.Packet // outgoing packets to clients, indexed by client key
-	toSrv    map[*server.Server]chan model.Packet  // channel for packets to be sent to servers
-	fromSrv  map[*server.Server]chan model.Packet  // channel for packets received from servers
+	clientTx map[model.ClientKey]chan *model.Packet // outgoing packets to clients, indexed by client key
+	toSrv    map[*server.Server]chan *model.Packet  // channel for packets to be sent to servers
+	fromSrv  map[*server.Server]chan *model.Packet  // channel for packets received from servers
 
 	// Health check channels
 	probe    map[*server.Server]chan struct{}
@@ -45,19 +46,20 @@ type LoadBalancer struct {
 
 func NewLoadBalancer(mode model.LBMode, algo algorithms.Algorithm, refreshInterval time.Duration) *LoadBalancer {
 	lb := &LoadBalancer{
-		RefreshInterval:    refreshInterval,
-		Mode:               mode,
-		servers:            make([]*server.Server, 0),
-		connTable:          make(map[*server.Server][]*client.Client),
-		clientLastActivity: make(map[model.ClientKey]time.Time),
-		algo:               algo,
-		clientTx:           make(map[model.ClientKey]chan model.Packet),
-		toSrv:              make(map[*server.Server]chan model.Packet),
-		fromSrv:            make(map[*server.Server]chan model.Packet),
-		probe:              make(map[*server.Server]chan struct{}),
-		probeAck:           make(map[*server.Server]chan struct{}),
-		chaos:              &model.ChaosConfig{},
-		wg:                 sync.WaitGroup{},
+		RefreshInterval:             refreshInterval,
+		Mode:                        mode,
+		servers:                     make([]*server.Server, 0),
+		connTable:                   make(map[*server.Server][]*client.Client),
+		fastAccessClientKeyConTable: make(map[model.ClientKey]*server.Server),
+		clientLastActivity:          make(map[model.ClientKey]time.Time),
+		algo:                        algo,
+		clientTx:                    make(map[model.ClientKey]chan *model.Packet),
+		toSrv:                       make(map[*server.Server]chan *model.Packet),
+		fromSrv:                     make(map[*server.Server]chan *model.Packet),
+		probe:                       make(map[*server.Server]chan struct{}),
+		probeAck:                    make(map[*server.Server]chan struct{}),
+		chaos:                       &model.ChaosConfig{},
+		wg:                          sync.WaitGroup{},
 	}
 
 	go lb.startIdleConnectionManager()
@@ -78,46 +80,54 @@ func (lb *LoadBalancer) AddClient(cl *client.Client) {
 }
 
 func (lb *LoadBalancer) ListenOnClientEmission(cl *client.Client) {
-	lb.wg.Add(1)
-	defer lb.wg.Done()
-	for pkt := range cl.OutChannel {
-		lb.mu.Lock()
-		lb.clientLastActivity[cl.Key()] = time.Now()
-		lb.mu.Unlock()
 
-		if lb.applyChaos() {
-			continue
-		}
-		//fmt.Println("LB: received packet from client", cl.Key(), "with flags", pkt.Flag)
+	for {
+		select {
+		case pkt, ok := <-cl.OutChannel:
+			{
+				if !ok {
+					return
+				}
+				lb.mu.Lock()
+				lb.clientLastActivity[cl.Key()] = time.Now()
+				lb.mu.Unlock()
+				// to implement chaos features
+				// if lb.applyChaos() {
+				// 	return
+				// }
+				srv, mapped := lb.getServerByClientKey(pkt.Key)
+				// to route the packet to the server, we need to check if the client is already mapped to a server
+				if !mapped && pkt.Flag&model.FlagSYN != 0 {
+					var err error
+					srv, err = lb.Route(cl)
 
-		srv, mapped := lb.getServerByClientKey(pkt.Key)
-		// to route the packet to the server, we need to check if the client is already mapped to a server
-		if !mapped && pkt.Flag&model.FlagSYN != 0 {
-			var err error
-			srv, err = lb.Route(pkt, cl)
+					if err != nil || srv == nil {
+						break
+					}
+				}
 
-			if err != nil || srv == nil {
-				continue
+				if pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0 {
+					// drop if backlog full
+					if srv.MaxHalfOpen > 0 &&
+						atomic.LoadUint32(&srv.HalfOpenConnections) >= srv.MaxHalfOpen {
+						break
+					}
+				}
+
+				lb.sendClientPacketToServer(srv, pkt)
 			}
-		}
+		case <-cl.Ctx.Done():
+			return
 
-		if pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0 {
-			// drop if backlog full
-			if srv.MaxHalfOpen > 0 &&
-				atomic.LoadUint32(&srv.HalfOpenConnections) >= srv.MaxHalfOpen {
-				continue
-			}
 		}
-
-		lb.sendClientPacketToServer(srv, pkt)
 	}
 }
 
 func (lb *LoadBalancer) AddServer(srv *server.Server) {
 	lb.mu.Lock()
 
-	toCh := make(chan model.Packet)
-	fromCh := make(chan model.Packet)
+	toCh := make(chan *model.Packet)
+	fromCh := make(chan *model.Packet)
 	probeCh := make(chan struct{}, 1)
 	probeAckCh := make(chan struct{}, 1)
 
@@ -138,7 +148,7 @@ func (lb *LoadBalancer) AddServer(srv *server.Server) {
 	go lb.startHealthChecker(srv, time.Second)
 }
 
-func (lb *LoadBalancer) ListenOnServerEmission(fromCh <-chan model.Packet) {
+func (lb *LoadBalancer) ListenOnServerEmission(fromCh <-chan *model.Packet) {
 	for pkt := range fromCh {
 		lb.mu.Lock()
 		lb.clientLastActivity[pkt.Key] = time.Now()
@@ -180,10 +190,15 @@ func (lb *LoadBalancer) GetConnectionTable() map[*server.Server][]*client.Client
 func (lb *LoadBalancer) getServerByClientKey(key model.ClientKey) (*server.Server, bool) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
-	for srv, list := range lb.connTable {
-		for _, cl := range list {
-			if cl.Key() == key {
-				return srv, true
+	if srv, ok := lb.fastAccessClientKeyConTable[key]; ok {
+		// fmt.Println("Fast access hit for client key:", key)
+		return srv, true
+	} else {
+		for srv, list := range lb.connTable {
+			for _, cl := range list {
+				if cl.Key() == key {
+					return srv, true
+				}
 			}
 		}
 	}
@@ -191,7 +206,7 @@ func (lb *LoadBalancer) getServerByClientKey(key model.ClientKey) (*server.Serve
 }
 
 // ex: RoundRobin, LeastConnections, etc.
-func (lb *LoadBalancer) Route(packet model.Packet, cl *client.Client) (*server.Server, error) {
+func (lb *LoadBalancer) Route(cl *client.Client) (*server.Server, error) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
@@ -201,6 +216,7 @@ func (lb *LoadBalancer) Route(packet model.Packet, cl *client.Client) (*server.S
 	}
 
 	lb.connTable[srv] = append(lb.connTable[srv], cl)
+	lb.fastAccessClientKeyConTable[cl.Key()] = srv
 	return srv, nil
 }
 
@@ -208,6 +224,7 @@ func (lb *LoadBalancer) ClearConnectionTable() {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	lb.connTable = make(map[*server.Server][]*client.Client)
+	lb.fastAccessClientKeyConTable = make(map[model.ClientKey]*server.Server)
 }
 
 func (lb *LoadBalancer) SetAlgorithm(algo algorithms.Algorithm) {
@@ -416,20 +433,14 @@ func (lb *LoadBalancer) Tick() model.LoadBalancerState {
 	}
 }
 
-func (lb *LoadBalancer) sendClientPacketToServer(srv *server.Server, pkt model.Packet) {
-	defer func() {
-		if r := recover(); r != nil {
-			// something bad happened, probably a send on a closed channel.
-			// for now, we can just ignore it, but in a real-world scenario
-			// this should be logged.
-		}
-	}()
-
+func (lb *LoadBalancer) sendClientPacketToServer(srv *server.Server, pkt *model.Packet) {
 	select {
 	case lb.toSrv[srv] <- pkt:
+	case <-srv.Ctx.Done():
+		return
 	default:
-		// channel is either full or closed, drop the packet
 	}
+
 }
 
 func (lb *LoadBalancer) startIdleConnectionManager() {

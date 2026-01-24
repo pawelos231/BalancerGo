@@ -9,18 +9,27 @@ import (
 	"load-balancer/model"
 	"load-balancer/server"
 	"math/rand"
+	"net/http"
+	"runtime"
 	"sync"
 	"time"
+
+	_ "net/http/pprof"
 )
 
 const (
-	nClients     = 200                    // number of clients
-	nServers     = 20                     // number of servers (1 server for every 10 clients)
-	packetsCount = 10000                  // number of packets per stream
+	nClients     = 1                      // number of clients
+	nServers     = 1                      // number of servers (1 server for every 10 clients)
+	packetsCount = 100000                 // number of packets per stream
 	delay        = 100 * time.Millisecond // gap between packets
 )
 
 func main() {
+	runtime.SetMutexProfileFraction(1)
+
+	go func() {
+		http.ListenAndServe(":6060", nil)
+	}()
 	rand.Seed(time.Now().UnixNano())
 
 	lb := setupLoadBalancer()
@@ -31,7 +40,7 @@ func main() {
 	setupClients(lb, nClients, &wg)
 
 	done := make(chan struct{})
-	go runTicker(lb, hub, done, lb.RefreshInterval)
+	go runTicker(lb, hub, done)
 
 	wg.Wait()
 	close(done)
@@ -39,7 +48,7 @@ func main() {
 }
 
 func setupLoadBalancer() *balancer.LoadBalancer {
-	return balancer.NewLoadBalancer(model.LBModeNAT, &algorithms.RoundRobin{}, time.Millisecond*500)
+	return balancer.NewLoadBalancer(model.LBModeNAT, &algorithms.RoundRobin{}, time.Millisecond*100)
 }
 
 func setupHttpServer(lb *balancer.LoadBalancer) *httpserver.Hub {
@@ -51,8 +60,8 @@ func setupHttpServer(lb *balancer.LoadBalancer) *httpserver.Hub {
 
 func setupServers(lb *balancer.LoadBalancer, n int) {
 	for i := 0; i < n; i++ {
-		out := make(chan model.Packet)
-		in := make(chan model.Packet)
+		out := make(chan *model.Packet)
+		in := make(chan *model.Packet)
 		srv := server.NewServer(
 			fmt.Sprintf("srv-%02d", i),
 			fmt.Sprintf("backend-%02d", i),
@@ -78,8 +87,8 @@ func setupClients(lb *balancer.LoadBalancer, n int, wg *sync.WaitGroup) {
 			"lb.local",
 			80,
 			"TCP",
-			make(chan model.Packet),
-			make(chan model.Packet),
+			make(chan *model.Packet),
+			make(chan *model.Packet),
 		)
 		lb.AddClient(cl)
 
@@ -87,14 +96,14 @@ func setupClients(lb *balancer.LoadBalancer, n int, wg *sync.WaitGroup) {
 		go func(c *client.Client) {
 			defer wg.Done()
 			c.ListenForResponse()
-			c.OpenConnection()
+			c.EstablishConnection()
 			c.SendCompleteStream(packetsCount*model.SEGMENT_SIZE, delay)
 		}(cl)
 	}
 }
 
-func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done chan struct{}, tickInterval time.Duration) {
-	t := time.NewTicker(tickInterval)
+func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done chan struct{}) {
+	t := time.NewTicker(lb.RefreshInterval)
 	defer t.Stop()
 
 	for {

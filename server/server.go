@@ -44,10 +44,10 @@ type Server struct {
 	LastUpdated   time.Time
 
 	// internal
-	DataIn                 chan model.Packet // channel for incoming packets from the LB
-	DataOut                chan model.Packet // channel for outgoing packets to the LB
-	Probe                  chan struct{}     // channel for health probes (e.g. TCP SYNs)
-	ProbeAck               chan struct{}     // channel for health probe ACKs
+	DataIn                 chan *model.Packet // channel for incoming packets from the LB
+	DataOut                chan *model.Packet // channel for outgoing packets to the LB
+	Probe                  chan struct{}      // channel for health probes (e.g. TCP SYNs)
+	ProbeAck               chan struct{}      // channel for health probe ACKs
 	NumberOfHandledPackets atomic.Uint32
 	Ctx                    context.Context
 	cancel                 context.CancelFunc
@@ -56,8 +56,8 @@ type Server struct {
 }
 
 func NewServer(id, name, address string, port, distance, weight int16,
-	out chan model.Packet,
-	in chan model.Packet, maxHalfOpen uint32) *Server {
+	out chan *model.Packet,
+	in chan *model.Packet, maxHalfOpen uint32) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
@@ -151,7 +151,7 @@ func (s *Server) HandleHealthChecking() {
 	}
 }
 
-func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
+func (s *Server) HandlePacketStream(stream <-chan *model.Packet) {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
@@ -208,7 +208,7 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 					atomic.AddUint32(&s.HalfOpenConnections, 1)
 					connStart[key] = time.Now()
 
-					resp := model.Packet{
+					resp := &model.Packet{
 						Key:           key,
 						Flag:          model.FlagSYN | model.FlagACK, // SYN-ACK response
 						PlaceInStream: pkt.PlaceInStream + 1,
@@ -232,7 +232,7 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 
 			case PushPacket:
 				{
-					resp := model.Packet{
+					resp := &model.Packet{
 						Key:           pkt.Key,
 						Flag:          model.FlagACK,
 						PlaceInStream: pkt.PlaceInStream + 1,
@@ -262,7 +262,7 @@ func (s *Server) HandlePacketStream(stream <-chan model.Packet) {
 						Size:          0,
 					}
 					select {
-					case s.DataOut <- resp:
+					case s.DataOut <- &resp:
 					case <-s.Ctx.Done():
 						return
 					}
@@ -323,7 +323,7 @@ func (s *Server) Score() float64 {
 
 func (s *Server) CalculatePacketsPerSecond() {
 	before := s.NumberOfHandledPackets.Load()
-	time.Sleep(1 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 	after := s.NumberOfHandledPackets.Load()
 
 	s.CpuUsage.Store(after - before)
