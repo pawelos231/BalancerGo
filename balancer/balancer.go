@@ -17,7 +17,7 @@ const (
 	// HalfOpenTimeout defines the idle timeout for connections that have not completed the 3-way handshake.
 	HalfOpenTimeout = 5 * time.Second
 	// EstablishedTimeout defines the idle timeout for established connections with no traffic.
-	EstablishedTimeout = 5 * time.Second
+	EstablishedTimeout = 50 * time.Second
 	// CleanupInterval specifies how often the idle connection manager should run.
 	CleanupInterval = 5 * time.Second
 )
@@ -88,13 +88,16 @@ func (lb *LoadBalancer) ListenOnClientEmission(cl *client.Client) {
 				if !ok {
 					return
 				}
+
 				lb.mu.Lock()
 				lb.clientLastActivity[cl.Key()] = time.Now()
 				lb.mu.Unlock()
+
 				// to implement chaos features
 				// if lb.applyChaos() {
 				// 	return
 				// }
+
 				srv, mapped := lb.getServerByClientKey(pkt.Key)
 				// to route the packet to the server, we need to check if the client is already mapped to a server
 				if !mapped && pkt.Flag&model.FlagSYN != 0 {
@@ -434,6 +437,7 @@ func (lb *LoadBalancer) Tick() model.LoadBalancerState {
 }
 
 func (lb *LoadBalancer) sendClientPacketToServer(srv *server.Server, pkt *model.Packet) {
+	// fmt.Println(pkt.Key.SrcIP, " SENDING PACKET TO SERVER ", srv.ID)
 	select {
 	case lb.toSrv[srv] <- pkt:
 	case <-srv.Ctx.Done():
@@ -472,8 +476,9 @@ func (lb *LoadBalancer) cleanupIdleConnections() {
 				timeout = HalfOpenTimeout
 			}
 
+			// fmt.Println(lastActivity.Add(-timeout))
 			if now.Sub(lastActivity) > timeout {
-				fmt.Printf("Removing idle client %v (state: %s)\n", cl.Key(), map[bool]string{true: "ESTABLISHED", false: "SYN-RECV"}[cl.IsHandshakeCompleted()])
+				fmt.Printf("Removing idle client %v (state: %s)\n", cl.Key(), map[bool]string{true: "ESTABLISHED", false: "NOT-ESTABLISHED - SYN-RECV"}[cl.IsHandshakeCompleted()])
 				cl.Close()
 				delete(lb.clientTx, cl.Key())
 				delete(lb.clientLastActivity, cl.Key())

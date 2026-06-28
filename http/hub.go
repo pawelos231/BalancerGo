@@ -129,10 +129,11 @@ func (h *Hub) Run(lb *balancer.LoadBalancer) {
 			h.clients[cl] = true
 			log.Printf("New client connected: %s", cl.RemoteAddr())
 			// listen for messages from client
-			go h.handleClientMessages(cl, lb)
+			// go h.handleClientMessages(cl, lb)
 
 			h.mu.Unlock()
 		case cl := <-h.unregister:
+			log.Printf("Client disconnected: %s", cl.RemoteAddr())
 			h.mu.Lock()
 			if _, ok := h.clients[cl]; ok {
 				delete(h.clients, cl)
@@ -154,13 +155,14 @@ func (h *Hub) Run(lb *balancer.LoadBalancer) {
 	}
 }
 
-func (h *Hub) BroadcastState(state interface{}) {
+func (h *Hub) BroadcastState(state interface{}) error {
 	bytes, err := json.Marshal(state)
 	if err != nil {
 		log.Printf("error: %v", err)
-		return
+		return err
 	}
 	h.broadcast <- bytes
+	return nil
 }
 
 func (h *Hub) ServeWs(w http.ResponseWriter, r *http.Request) {

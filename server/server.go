@@ -125,15 +125,17 @@ func (s *Server) StartDrain() {
 	s.Draining = true
 	s.DrainStartedAt = time.Now()
 }
+
 func (s *Server) StopDrain() {
 	s.Draining = false
 	s.DrainStartedAt = time.Time{}
 }
 
-func (s *Server) HandleHealthChecking() {
+func (s *Server) HandleHealthChecking(ready chan<- struct{}) {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
+	ready <- struct{}{}
 	for {
 		select {
 		case <-s.Ctx.Done():
@@ -151,7 +153,7 @@ func (s *Server) HandleHealthChecking() {
 	}
 }
 
-func (s *Server) HandlePacketStream(stream <-chan *model.Packet) {
+func (s *Server) HandlePacketStream(stream <-chan *model.Packet, ready chan<- struct{}) {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
@@ -182,6 +184,7 @@ func (s *Server) HandlePacketStream(stream <-chan *model.Packet) {
 		atomic.StoreUint32(&s.LatencyP95Milli, uint32(p95))
 	}
 
+	ready <- struct{}{}
 	for {
 		select {
 		case <-s.Ctx.Done():
@@ -192,7 +195,7 @@ func (s *Server) HandlePacketStream(stream <-chan *model.Packet) {
 				return
 			}
 
-			ThreeWayHandshakeCompleted := pkt.Flag&model.FlagACK != 0 && pkt.Flag&model.FlagSYN == 0 && connStart[pkt.Key] != (time.Time{})
+			ThreeWayHandshakeCompleted := pkt.Flag&model.FlagACK != 0
 			InitiateThreeWayHandshake := pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0
 			PushPacket := pkt.Flag&model.FlagPSH != 0
 			FinPacket := pkt.Flag&model.FlagFIN != 0
@@ -321,13 +324,18 @@ func (s *Server) Score() float64 {
 	return float64(s.LatencyP95Milli)*(1.0/float64(max(1, int(s.Weight)))) + drainingPenalty
 }
 
-func (s *Server) CalculatePacketsPerSecond() {
+func (s *Server) CalculatePacketsPerSecond(ready chan<- struct{}) {
 	before := s.NumberOfHandledPackets.Load()
 	time.Sleep(100 * time.Millisecond)
 	after := s.NumberOfHandledPackets.Load()
 
 	s.CpuUsage.Store(after - before)
-	s.CalculatePacketsPerSecond()
+
+	// only signal readiness once
+	if ready != nil {
+		ready <- struct{}{}
+	}
+	s.CalculatePacketsPerSecond(nil)
 }
 
 func (s *Server) GetState() model.ServerState {

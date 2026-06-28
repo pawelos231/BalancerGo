@@ -18,10 +18,10 @@ import (
 )
 
 const (
-	nClients     = 1                      // number of clients
-	nServers     = 1                      // number of servers (1 server for every 10 clients)
-	packetsCount = 100000                 // number of packets per stream
-	delay        = 100 * time.Millisecond // gap between packets
+	nClients     = 10                   // number of clients
+	nServers     = 1                    // number of servers (1 server for every 10 clients)
+	packetsCount = 10000                // number of packets per stream
+	delay        = 0 * time.Millisecond // gap between packets
 )
 
 func main() {
@@ -30,17 +30,18 @@ func main() {
 	go func() {
 		http.ListenAndServe(":6060", nil)
 	}()
+
 	rand.Seed(time.Now().UnixNano())
 
 	lb := setupLoadBalancer()
-	hub := setupHttpServer(lb)
+	// hub := setupHttpServer(lb)
 
 	var wg sync.WaitGroup
 	setupServers(lb, nServers)
 	setupClients(lb, nClients, &wg)
 
 	done := make(chan struct{})
-	go runTicker(lb, hub, done)
+	// go runTicker(lb, hub, done)
 
 	wg.Wait()
 	close(done)
@@ -59,23 +60,32 @@ func setupHttpServer(lb *balancer.LoadBalancer) *httpserver.Hub {
 }
 
 func setupServers(lb *balancer.LoadBalancer, n int) {
+	ready := make(chan struct{}, n*3)
+
 	for i := 0; i < n; i++ {
 		out := make(chan *model.Packet)
 		in := make(chan *model.Packet)
+
 		srv := server.NewServer(
 			fmt.Sprintf("srv-%02d", i),
 			fmt.Sprintf("backend-%02d", i),
 			fmt.Sprintf("10.0.0.%d", i+10),
 			80, 0, 1,
-			out, // outgoing channel
-			in,  // incoming channel
+			out,
+			in,
 			100,
 		)
+
 		lb.AddServer(srv)
 
-		go srv.CalculatePacketsPerSecond()
-		go srv.HandlePacketStream(srv.DataIn)
-		go srv.HandleHealthChecking()
+		go srv.HandlePacketStream(srv.DataIn, ready)
+		go srv.CalculatePacketsPerSecond(ready)
+		go srv.HandleHealthChecking(ready)
+	}
+
+	for i := 0; i < n*3; i++ {
+		<-ready
+		// fmt.Println("Server goroutine ready", i+1, "/", n*3)
 	}
 }
 
@@ -91,12 +101,19 @@ func setupClients(lb *balancer.LoadBalancer, n int, wg *sync.WaitGroup) {
 			make(chan *model.Packet),
 		)
 		lb.AddClient(cl)
+		fmt.Println(i, n)
 
-		wg.Add(1)
+		cl.EstablishConnection()
+
 		go func(c *client.Client) {
+			wg.Add(1)
 			defer wg.Done()
 			c.ListenForResponse()
-			c.EstablishConnection()
+		}(cl)
+
+		go func(c *client.Client) {
+			wg.Add(1)
+			defer wg.Done()
 			c.SendCompleteStream(packetsCount*model.SEGMENT_SIZE, delay)
 		}(cl)
 	}
@@ -123,7 +140,11 @@ func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done chan struct{
 			// 	}
 			// }
 			state := lb.Tick()
-			hub.BroadcastState(state)
+			err := hub.BroadcastState(state)
+			if err != nil {
+				fmt.Println("Error broadcasting state to hub:", err)
+				continue
+			}
 		case <-done:
 			return
 		}

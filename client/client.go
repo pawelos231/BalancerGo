@@ -19,7 +19,7 @@ type Client struct {
 	retryData          atomic.Uint32
 	responseTimer      *time.Timer
 	waitAck            chan struct{}
-	handshakeDone      chan struct{}
+	closeSignal        chan struct{} // used in load balancer to signal client closure, cleans up resources on the LB side
 	Ctx                context.Context
 	cancel             context.CancelFunc
 	closeOnce          sync.Once
@@ -38,22 +38,23 @@ func NewClient(
 	in chan *model.Packet) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
-		key:           GenerateClientKey(srcIP, srcPort, dstIP, dstPort, proto),
-		OutChannel:    out,
-		InChannel:     in,
-		waitAck:       make(chan struct{}),
-		handshakeDone: make(chan struct{}, 1),
-		Ctx:           ctx,
-		cancel:        cancel,
-		closeOnce:     sync.Once{},
-		wg:            sync.WaitGroup{},
-		mu:            sync.Mutex{},
+		key:         GenerateClientKey(srcIP, srcPort, dstIP, dstPort, proto),
+		OutChannel:  out,
+		InChannel:   in,
+		Ctx:         ctx,
+		cancel:      cancel,
+		closeOnce:   sync.Once{},
+		wg:          sync.WaitGroup{},
+		mu:          sync.Mutex{},
+		waitAck:     make(chan struct{}),
+		closeSignal: make(chan struct{}),
 	}
 }
 
 func (c *Client) EstablishConnection() {
 	synPacket := GeneratePacket(c.key, model.FlagSYN, 0, 0, 0)
 	c.lastSent = synPacket
+	timer := time.NewTimer(model.READ_DEADLINE)
 
 	select {
 	case c.OutChannel <- synPacket:
@@ -61,12 +62,36 @@ func (c *Client) EstablishConnection() {
 		return
 	}
 
-	c.startTimer(model.SYN_TIMEOUT, c.retransmitSyn)
+	// we wait for SYN-ACK or timeout
+	select {
+	case pkt, ok := <-c.InChannel:
+		if !ok {
+			return
+		}
+		if pkt.Key != c.key {
+			return
+		}
+
+		if !(pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK != 0) {
+			fmt.Println("initialization went wrong")
+			return
+		}
+	case <-timer.C:
+		fmt.Println("Client: SYN-ACK timeout, shutting down", c.key.SrcIP)
+		c.Shutdown()
+		return
+	}
+
+	ackPacket := GeneratePacket(c.key, model.FlagACK, 0, 0, 1)
+	c.lastSent = ackPacket
 
 	select {
-	case <-c.handshakeDone:
+	case c.OutChannel <- ackPacket:
 	case <-c.Ctx.Done():
+		return
 	}
+	fmt.Println(c.key, "INITIALIZED THREEWAY HANDSHAKE")
+	c.handshakeCompleted.Store(true)
 }
 
 func (c *Client) Key() model.ClientKey { return c.key }
@@ -83,7 +108,6 @@ func (c *Client) SendCompleteStream(dataSize int, delay time.Duration) {
 	c.wg.Add(1)
 	defer c.wg.Done()
 	var counter uint32
-
 	for {
 		pkt := GeneratePacket(c.key, model.FlagPSH, dataSize, delay, counter)
 		counter++
@@ -115,86 +139,73 @@ func (c *Client) SendCompleteStream(dataSize int, delay time.Duration) {
 
 func (c *Client) ListenForResponse() {
 	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		var (
-			timeoutContext context.Context
-			cancel         context.CancelFunc
-		)
-		defer func() {
-			if cancel != nil {
-				cancel()
-			}
-		}()
+	defer c.wg.Done()
 
-		resetCtx := func() {
-			if cancel != nil {
-				cancel()
-			}
-			timeoutContext, cancel = context.WithTimeout(context.Background(), model.READ_DEADLINE)
-		}
-		resetCtx()
-
-		for {
-			select {
-			case pkt, ok := <-c.InChannel:
-				if !ok {
-					return
-				}
-				fmt.Println(pkt)
-
-				resetCtx()
-				if pkt.Key != c.key {
-					continue
-				}
-
-				mask := model.FlagSYN | model.FlagACK
-				switch {
-				case pkt.Flag&mask == (model.FlagSYN | model.FlagACK):
-					c.mu.Lock()
-					if c.responseTimer != nil {
-						c.responseTimer.Stop() // got SYN-ACK
-					}
-					c.mu.Unlock()
-					c.handshakeCompleted.Store(true)
-					select {
-					case c.handshakeDone <- struct{}{}:
-					default:
-					}
-
-				case pkt.Flag&model.FlagACK != 0:
-					c.mu.Lock()
-					if c.responseTimer != nil {
-						c.responseTimer.Stop()
-					}
-					c.mu.Unlock()
-
-					c.retryData.Store(0) // reset data retransmission counter
-
-					select {
-					case c.waitAck <- struct{}{}:
-					case <-c.Ctx.Done():
-					default:
-					}
-
-				case pkt.Flag&model.FlagFIN != 0:
-					// Received FIN, initiate shutdown sequence.
-					fmt.Println("Client: received FIN, shutting down", c.key.SrcIP)
-					c.Shutdown()
-					return
-				}
-
-			case <-timeoutContext.Done():
-				fmt.Println("Client: response timeout, no packets received", c.key.SrcIP)
-				c.Shutdown()
-				return
-
-			case <-c.Ctx.Done():
-				fmt.Printf("Client %v: Shutting down response handler.\n", c.key)
-				return
-			}
+	var (
+		timeoutContext context.Context
+		cancel         context.CancelFunc
+	)
+	defer func() {
+		if cancel != nil {
+			cancel()
 		}
 	}()
+
+	resetCtx := func() {
+		if cancel != nil {
+			cancel()
+		}
+		timeoutContext, cancel = context.WithTimeout(context.Background(), model.READ_DEADLINE)
+	}
+	resetCtx()
+
+	for {
+		select {
+		case pkt, ok := <-c.InChannel:
+			if !ok {
+				return
+			}
+
+			resetCtx()
+			if pkt.Key != c.key {
+				continue
+			}
+
+			switch {
+
+			case pkt.Flag&model.FlagACK != 0:
+				c.mu.Lock()
+				if c.responseTimer != nil {
+					c.responseTimer.Stop()
+				}
+				c.mu.Unlock()
+
+				c.retryData.Store(0) // reset data retransmission counter
+
+				select {
+				case c.waitAck <- struct{}{}:
+				case <-c.Ctx.Done():
+				default:
+				}
+
+			case pkt.Flag&model.FlagFIN != 0:
+				// Received FIN, initiate shutdown sequence.
+				fmt.Println("Client: received FIN, shutting down", c.key.SrcIP)
+				c.Shutdown()
+				return
+			}
+
+		case <-timeoutContext.Done():
+			fmt.Println("Client: response timeout, no packets received", c.key.SrcIP)
+			c.Shutdown()
+			return
+
+		case <-c.Ctx.Done():
+			fmt.Printf("Client %v: Shutting down response handler.\n", c.key)
+			return
+		}
+	}
+
 }
 
 func (c *Client) FloodSyn(count int, gap time.Duration) {
@@ -307,8 +318,8 @@ func (c *Client) Close() {
 }
 
 func (c *Client) Shutdown() {
+	// fmt.Println("SHUTTING DOWN - cleaning resources")
 	c.cancel()
-
 	c.wg.Wait()
 
 	c.closeOnce.Do(func() {
@@ -316,6 +327,5 @@ func (c *Client) Shutdown() {
 			c.responseTimer.Stop()
 		}
 		close(c.waitAck)
-		close(c.handshakeDone)
 	})
 }

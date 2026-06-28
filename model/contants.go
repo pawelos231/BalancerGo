@@ -6,6 +6,6 @@ const (
 	SYN_TIMEOUT        = 1000 * time.Millisecond // max wait for SYN-ACK
 	SEGMENT_TIMEOUT    = 1000 * time.Millisecond // max wait for DATA-ACK
 	MAX_RETRANSMISIONS = 30                      // how many times to retransmit a segment
-	READ_DEADLINE      = 50 * time.Second        // read deadline for receiving packets
+	READ_DEADLINE      = 20 * time.Second        // read deadline for receiving packets
 	SEGMENT_SIZE       = 1024                    // bytes per PSH segment
 )
