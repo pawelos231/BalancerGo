@@ -1,0 +1,31 @@
+# Simulator output
+trace.out
+/simulator/bin/
+/simulator/*.exe
+/simulator/*.test
+/simulator/coverage.out
+
+# Visualizer dependencies and build output
+/visualizer/node_modules/
+/visualizer/dist/
+/visualizer/dist-ssr/
+*.tsbuildinfo
+
+# Logs and local configuration
+logs/
+*.log
+*.local
+
+# Local backup of the former frontend repository
+/.repo-backups/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

@@ -10,7 +10,9 @@ import (
 	"load-balancer/server"
 	"math/rand"
 	"net/http"
+	"os"
 	"runtime"
+	"runtime/trace"
 	"sync"
 	"time"
 
@@ -18,13 +20,17 @@ import (
 )
 
 const (
-	nClients     = 10                   // number of clients
-	nServers     = 1                    // number of servers (1 server for every 10 clients)
+	nClients     = 200                  // number of clients
+	nServers     = 10                   // number of servers (1 server for every 10 clients)
 	packetsCount = 10000                // number of packets per stream
 	delay        = 0 * time.Millisecond // gap between packets
 )
 
 func main() {
+	f, _ := os.Create("trace.out")
+	trace.Start(f)
+	defer trace.Stop()
+
 	runtime.SetMutexProfileFraction(1)
 
 	go func() {
@@ -63,6 +69,7 @@ func setupServers(lb *balancer.LoadBalancer, n int) {
 	ready := make(chan struct{}, n*3)
 
 	for i := 0; i < n; i++ {
+		
 		out := make(chan *model.Packet)
 		in := make(chan *model.Packet)
 
