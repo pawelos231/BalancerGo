@@ -59,35 +59,43 @@ function App() {
   });
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8080/ws');
-    wsRef.current = ws;
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
-    ws.onopen = () => {
-      console.log('connected');
-      setConnected(true);
-    };
+    function connect() {
+      const ws = new WebSocket(import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws');
+      wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        setData(message);
-      } catch (error) {
-        console.error('Error parsing JSON:', error);
-      }
-    };
+      ws.onopen = () => {
+        if (!disposed) setConnected(true);
+      };
 
-    ws.onclose = () => {
-      console.log('disconnected');
-      setConnected(false);
-    };
+      ws.onmessage = (event) => {
+        if (disposed) return;
+        try {
+          const message = JSON.parse(event.data);
+          setData(message);
+        } catch (error) {
+          console.error('Error parsing JSON:', error);
+        }
+      };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setConnected(false);
-    };
+      ws.onclose = () => {
+        if (disposed) return;
+        setConnected(false);
+        reconnectTimer = setTimeout(connect, 1000);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    connect();
 
     return () => {
-      ws.close();
+      disposed = true;
+      clearTimeout(reconnectTimer);
+      wsRef.current?.close();
+      wsRef.current = null;
     };
   }, []);
 

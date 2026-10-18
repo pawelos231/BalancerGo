@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"load-balancer/algorithms"
 	"load-balancer/balancer"
@@ -11,9 +12,11 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/trace"
 	"sync"
+	"syscall"
 	"time"
 
 	_ "net/http/pprof"
@@ -27,6 +30,9 @@ const (
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	f, _ := os.Create("trace.out")
 	trace.Start(f)
 	defer trace.Stop()
@@ -40,18 +46,19 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	lb := setupLoadBalancer()
-	// hub := setupHttpServer(lb)
+	hub := setupHttpServer(lb)
 
 	var wg sync.WaitGroup
 	setupServers(lb, nServers)
-	setupClients(lb, nClients, &wg)
+	go runTicker(lb, hub, ctx.Done())
+	go func() {
+		setupClients(lb, nClients, &wg)
+		wg.Wait()
+		fmt.Println("ALL STREAMS COMPLETED")
+	}()
 
-	done := make(chan struct{})
-	// go runTicker(lb, hub, done)
-
-	wg.Wait()
-	close(done)
-	fmt.Println("ALL STREAMS COMPLETED")
+	// Keep serving the visualizer after the simulated streams finish.
+	<-ctx.Done()
 }
 
 func setupLoadBalancer() *balancer.LoadBalancer {
@@ -69,7 +76,7 @@ func setupServers(lb *balancer.LoadBalancer, n int) {
 	ready := make(chan struct{}, n*3)
 
 	for i := 0; i < n; i++ {
-		
+
 		out := make(chan *model.Packet)
 		in := make(chan *model.Packet)
 
@@ -112,21 +119,20 @@ func setupClients(lb *balancer.LoadBalancer, n int, wg *sync.WaitGroup) {
 
 		cl.EstablishConnection()
 
+		wg.Add(2)
 		go func(c *client.Client) {
-			wg.Add(1)
 			defer wg.Done()
 			c.ListenForResponse()
 		}(cl)
 
 		go func(c *client.Client) {
-			wg.Add(1)
 			defer wg.Done()
 			c.SendCompleteStream(packetsCount*model.SEGMENT_SIZE, delay)
 		}(cl)
 	}
 }
 
-func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done chan struct{}) {
+func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done <-chan struct{}) {
 	t := time.NewTicker(lb.RefreshInterval)
 	defer t.Stop()
 

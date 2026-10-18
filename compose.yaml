@@ -1,0 +1,29 @@
+services:
+  backend:
+    build: ./simulator
+    environment:
+      LB_HTTP_ADDR: ':8080'
+    ports:
+      - '127.0.0.1:${BACKEND_PORT:-8081}:8080'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/healthz']
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+
+  frontend:
+    build:
+      context: ./visualizer
+      args:
+        VITE_WS_URL: 'ws://localhost:${BACKEND_PORT:-8081}/ws'
+    ports:
+      - '127.0.0.1:${FRONTEND_PORT:-5173}:5173'
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:5173/']
+      interval: 10s
+      timeout: 2s
+      retries: 3
