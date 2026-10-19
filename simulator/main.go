@@ -2,164 +2,189 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
-	"load-balancer/algorithms"
-	"load-balancer/balancer"
-	"load-balancer/client"
+	"load-balancer/engine"
 	httpserver "load-balancer/http"
 	"load-balancer/model"
-	"load-balancer/server"
-	"math/rand"
+	"log"
+	"math"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"runtime"
 	"runtime/trace"
-	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
-
-	_ "net/http/pprof"
 )
 
-const (
-	nClients     = 200                  // number of clients
-	nServers     = 10                   // number of servers (1 server for every 10 clients)
-	packetsCount = 10000                // number of packets per stream
-	delay        = 0 * time.Millisecond // gap between packets
-)
+type configuration struct {
+	clients, servers, packets, streamBytes                    int
+	clientGap, packetGap, duration, snapshotInterval, latency time.Duration
+	bandwidth                                                 int64
+	queue                                                     int
+	loss, speed                                               float64
+	seed                                                      int64
+	algorithm                                                 string
+	maxEvents                                                 uint64
+	headless                                                  bool
+	tracePath                                                 string
+}
+
+func readConfiguration() (configuration, error) {
+	var c configuration
+	flag.IntVar(&c.clients, "clients", 200, "number of simulated clients")
+	flag.IntVar(&c.servers, "servers", 10, "number of backend servers (zero simulates no backends)")
+	flag.IntVar(&c.packets, "packets", 10000, "full payload segments per client")
+	flag.IntVar(&c.streamBytes, "bytes", -1, "payload bytes per client; -1 uses packets * segment size")
+	flag.DurationVar(&c.clientGap, "client-gap", 0, "virtual interval between new clients")
+	flag.DurationVar(&c.packetGap, "packet-gap", 0, "virtual sender pause before each data segment")
+	flag.DurationVar(&c.duration, "duration", 2*time.Minute, "virtual experiment end time (inclusive)")
+	flag.DurationVar(&c.snapshotInterval, "snapshot-interval", 100*time.Millisecond, "virtual snapshot and runner step interval")
+	flag.Int64Var(&c.bandwidth, "bandwidth", 1_000_000_000, "bandwidth of each directed link in bits/s")
+	flag.DurationVar(&c.latency, "link-delay", time.Millisecond, "propagation delay of each directed link")
+	flag.IntVar(&c.queue, "link-queue", 1024, "waiting packets per link, excluding its active transmission")
+	flag.Float64Var(&c.loss, "loss", 0, "independent packet loss probability on each link")
+	flag.Int64Var(&c.seed, "seed", 1, "reproducible experiment seed")
+	flag.StringVar(&c.algorithm, "algorithm", "roundRobin", "roundRobin or random")
+	flag.Float64Var(&c.speed, "speed", 1, "virtual seconds per real second; 0 runs without pacing")
+	flag.Uint64Var(&c.maxEvents, "max-events", engine.DefaultMaxEvents, "maximum callbacks executed in the experiment")
+	flag.BoolVar(&c.headless, "headless", false, "run without HTTP or pacing, print JSON result and exit")
+	flag.StringVar(&c.tracePath, "trace", "", "optional Go runtime trace output path")
+	flag.Parse()
+	if flag.NArg() != 0 {
+		return c, fmt.Errorf("unexpected arguments: %v", flag.Args())
+	}
+	if c.clients < 0 || c.clients >= 1<<24 || c.servers < 0 || c.packets < 0 || c.streamBytes < -1 {
+		return c, errors.New("invalid client, server or stream size")
+	}
+	if c.clientGap < 0 || c.packetGap < 0 || c.duration < 0 || c.latency < 0 || c.snapshotInterval <= 0 {
+		return c, errors.New("durations must be nonnegative and snapshot interval positive")
+	}
+	if c.bandwidth <= 0 || c.queue < 0 || !(c.loss >= 0 && c.loss <= 1) {
+		return c, errors.New("bandwidth must be positive, queue nonnegative and loss in 0..1")
+	}
+	if c.algorithm != "roundRobin" && c.algorithm != "random" {
+		return c, errors.New("unknown algorithm")
+	}
+	if c.speed < 0 || math.IsNaN(c.speed) || math.IsInf(c.speed, 0) || c.maxEvents == 0 {
+		return c, errors.New("speed must be finite and nonnegative; max-events must be positive")
+	}
+	if c.headless {
+		c.speed = 0
+	}
+	if c.speed > 0 && float64(c.duration)/c.speed >= float64(math.MaxInt64) {
+		return c, errors.New("paced experiment duration exceeds time.Duration range")
+	}
+	if c.streamBytes == -1 {
+		if c.packets > math.MaxInt/model.SEGMENT_SIZE {
+			return c, errors.New("stream size overflows int")
+		}
+		c.streamBytes = c.packets * model.SEGMENT_SIZE
+	}
+	// PlaceInStream remains a uint32 segment counter in this migration.
+	if uint64(c.streamBytes/model.SEGMENT_SIZE) >= math.MaxUint32 || c.streamBytes > math.MaxInt-40 {
+		return c, errors.New("stream exceeds the simplified transport's range")
+	}
+	return c, nil
+}
 
 func main() {
+	if err := run(); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	cfg, err := readConfiguration()
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	f, _ := os.Create("trace.out")
-	trace.Start(f)
-	defer trace.Stop()
-
-	runtime.SetMutexProfileFraction(1)
-
-	go func() {
-		http.ListenAndServe(":6060", nil)
-	}()
-
-	rand.Seed(time.Now().UnixNano())
-
-	lb := setupLoadBalancer()
-	hub := setupHttpServer(lb)
-
-	var wg sync.WaitGroup
-	setupServers(lb, nServers)
-	go runTicker(lb, hub, ctx.Done())
-	go func() {
-		setupClients(lb, nClients, &wg)
-		wg.Wait()
-		fmt.Println("ALL STREAMS COMPLETED")
-	}()
-
-	// Keep serving the visualizer after the simulated streams finish.
-	<-ctx.Done()
-}
-
-func setupLoadBalancer() *balancer.LoadBalancer {
-	return balancer.NewLoadBalancer(model.LBModeNAT, &algorithms.RoundRobin{}, time.Millisecond*100)
-}
-
-func setupHttpServer(lb *balancer.LoadBalancer) *httpserver.Hub {
-	hub := httpserver.NewHub()
-	go hub.Run(lb)
-	go httpserver.StartServer(hub)
-	return hub
-}
-
-func setupServers(lb *balancer.LoadBalancer, n int) {
-	ready := make(chan struct{}, n*3)
-
-	for i := 0; i < n; i++ {
-
-		out := make(chan *model.Packet)
-		in := make(chan *model.Packet)
-
-		srv := server.NewServer(
-			fmt.Sprintf("srv-%02d", i),
-			fmt.Sprintf("backend-%02d", i),
-			fmt.Sprintf("10.0.0.%d", i+10),
-			80, 0, 1,
-			out,
-			in,
-			100,
-		)
-
-		lb.AddServer(srv)
-
-		go srv.HandlePacketStream(srv.DataIn, ready)
-		go srv.CalculatePacketsPerSecond(ready)
-		go srv.HandleHealthChecking(ready)
-	}
-
-	for i := 0; i < n*3; i++ {
-		<-ready
-		// fmt.Println("Server goroutine ready", i+1, "/", n*3)
-	}
-}
-
-func setupClients(lb *balancer.LoadBalancer, n int, wg *sync.WaitGroup) {
-	for i := 0; i < n; i++ {
-		cl := client.NewClient(
-			fmt.Sprintf("192.168.1.%d", i+1),
-			int16(40000+i),
-			"lb.local",
-			80,
-			"TCP",
-			make(chan *model.Packet),
-			make(chan *model.Packet),
-		)
-		lb.AddClient(cl)
-		fmt.Println(i, n)
-
-		cl.EstablishConnection()
-
-		wg.Add(2)
-		go func(c *client.Client) {
-			defer wg.Done()
-			c.ListenForResponse()
-		}(cl)
-
-		go func(c *client.Client) {
-			defer wg.Done()
-			c.SendCompleteStream(packetsCount*model.SEGMENT_SIZE, delay)
-		}(cl)
-	}
-}
-
-func runTicker(lb *balancer.LoadBalancer, hub *httpserver.Hub, done <-chan struct{}) {
-	t := time.NewTicker(lb.RefreshInterval)
-	defer t.Stop()
-
-	for {
-		select {
-		case <-t.C:
-			// fmt.Println("LB: TICK")
-			// Chaos: 1 in 10 chance to kill a random server
-			// if rand.Intn(10) == 0 {
-			// 	if killedServerID, err := lb.KillRandomServer(); err == nil {
-			// 		fmt.Printf("CHAOS: Killed server %s\n", killedServerID)
-			// 	}
-			// }
-
-			// if rand.Intn(2) == 0 {
-			// 	if killedClientID, err := lb.KillRandomClient(); err == nil {
-			// 		fmt.Printf("CHAOS: Killed client %s\n", killedClientID)
-			// 	}
-			// }
-			state := lb.Tick()
-			err := hub.BroadcastState(state)
-			if err != nil {
-				fmt.Println("Error broadcasting state to hub:", err)
-				continue
-			}
-		case <-done:
-			return
+	if cfg.tracePath != "" {
+		file, err := os.Create(cfg.tracePath)
+		if err != nil {
+			return err
 		}
+		if err := trace.Start(file); err != nil {
+			file.Close()
+			return err
+		}
+		defer file.Close()
+		defer trace.Stop()
 	}
+
+	// These channels and goroutines are application I/O, not modelled transport.
+	commands := make(chan httpserver.Envelope, 64)
+	var accepting atomic.Bool
+	accepting.Store(true)
+	var hub *httpserver.Hub
+	if !cfg.headless {
+		hub = httpserver.NewHub(func(command httpserver.Envelope) error {
+			if !accepting.Load() {
+				return errors.New("experiment has finished; restart to run another")
+			}
+			select {
+			case commands <- command:
+				return nil
+			default:
+				return errors.New("simulation command queue is full")
+			}
+		})
+		go hub.Run(ctx)
+		srv := httpserver.NewServer(hub, os.Getenv("LB_HTTP_ADDR"))
+		// Bind synchronously so startup fails before spending time on a simulation.
+		listener, err := net.Listen("tcp", srv.Addr)
+		if err != nil {
+			return err
+		}
+		go func() {
+			if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("HTTP server: %v", err)
+				stop()
+			}
+		}()
+		defer func() {
+			shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			srv.Shutdown(shutdown)
+		}()
+		log.Printf("WebSocket server listening on %s/ws", srv.Addr)
+	}
+
+	sim := newSimulation(cfg, hub)
+	started := time.Now()
+
+	err = sim.run(ctx, commands)
+	accepting.Store(false)
+
+	for n := len(commands); n > 0; n-- {
+		command := <-commands
+		log.Printf("command %q rejected: experiment has finished", command.Type)
+	}
+
+	result := sim.result(time.Since(started))
+	if encodeErr := json.NewEncoder(os.Stdout).Encode(result); encodeErr != nil {
+		return encodeErr
+	}
+
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+	}
+
+	if !cfg.headless {
+		log.Print("Experiment finished; final snapshot remains available until shutdown")
+		<-ctx.Done()
+	}
+
+	return nil
 }

@@ -4,7 +4,7 @@ type ServerState struct {
 	ID                     string
 	Name                   string
 	Address                string
-	Port                   int16
+	Port                   uint16
 	Active                 bool
 	ActiveConnections      uint32
 	HalfOpenConnections    uint32

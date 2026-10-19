@@ -14,6 +14,9 @@ root, build and start both applications:
 docker compose up --build
 ```
 
+In PowerShell, you can also run `./start.ps1` from the repository root. The script
+builds both images and starts the services in the background.
+
 Open `http://localhost:5173`. The backend is available at `http://localhost:8081`
 and its WebSocket at `ws://localhost:8081/ws`. Press `Ctrl+C` to stop both applications.
 Subsequent starts can reuse the built images:
@@ -60,7 +63,89 @@ go run .
 ```
 
 The Go module remains named `load-balancer`, so package imports stay the same.
-The simulator writes its runtime trace to `trace.out` in its working directory.
+By default the application runs a finite, two-minute virtual experiment at real
+time speed and keeps serving its final snapshot afterwards. Use `-speed=0` to
+run without pacing. Go runtime tracing is optional: `go run . -trace trace.out`.
+
+For a quick run without HTTP, from `simulator/`:
+
+```sh
+go run . -headless -clients 6 -servers 2 -bytes 2050 -duration 1s
+```
+
+`-headless` disables pacing, prints a JSON result and exits. The result includes
+completed and incomplete streams, closed clients, executed events, final backend
+state and per-link queue/loss counters. `VirtualTime` describes the model;
+`WallTime` describes the cost of running it. Clients still active at the end time
+remain in the final state; reaching that time does not imply successful completion.
+
+Useful parameters (see `go run . -help` for all options):
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-clients`, `-servers`, `-packets` | `200`, `10`, `10000` | Initial clients, backend count and full segments per stream. |
+| `-bytes` | `-1` | Override stream payload size, including a partial final segment; `-1` uses `packets * 1024`. |
+| `-duration`, `-seed` | `2m`, `1` | Virtual end time (inclusive) and experiment seed. |
+| `-client-gap`, `-packet-gap` | `0s`, `0s` | Virtual inter-arrival interval and sender pause before each data segment. |
+| `-bandwidth`, `-link-delay` | `1000000000`, `1ms` | Bits/s and propagation delay per directed link. |
+| `-link-queue`, `-loss` | `1024`, `0` | Waiting packets per link and independent loss probability per transmission. |
+| `-algorithm` | `roundRobin` | `roundRobin` or seeded `random`. |
+| `-snapshot-interval`, `-speed` | `100ms`, `1` | Virtual snapshot interval and virtual seconds per real second; speed `0` is unpaced. |
+| `-max-events` | `50000000` | Execution limit, including equal-time events, to stop runaway scenarios. |
+
+For example, to observe a shorter experiment in the frontend:
+
+```sh
+go run . -clients 20 -servers 2 -packets 500 -duration 15s -speed 1
+```
+
+The same flags can be passed to the backend image, for example:
+
+```sh
+docker compose run --rm --service-ports backend -clients 20 -packets 500 -duration 15s
+```
+
+Stop an existing backend container before using `--service-ports` on the same
+published port.
+
+## Virtual-time architecture
+
+- `simulator/engine/engine.go` owns one global event queue ordered by virtual
+  nanoseconds and increasing event ID. Cancellation removes timers from the heap.
+  No model event is scheduled after the experiment's end time.
+- `simulator/network/link.go` models directed FIFO links: one transmission at a
+  time, a finite waiting queue, propagation and seeded loss. A packet consumes
+  bandwidth even when random loss suppresses delivery. Queue capacity excludes
+  the active transmission and packets already propagating.
+- `client/`, `server/` and `balancer/` use short packet handlers and scheduled
+  callbacks. Connections coexist as state objects. There is no waiting goroutine
+  or channel per client, connection or backend.
+- `simulator/simulation.go` wires endpoints and links, schedules client arrivals
+  and snapshots, and applies UI commands as events at virtual step boundaries.
+  Clients share one access link in each direction; each backend has its own pair.
+  The optional real clock pacing belongs to this application runner.
+- `http/` handles real HTTP/WebSocket I/O. It receives detached JSON snapshots,
+  keeps the latest frame for new subscribers and replaces queued UI frames when
+  a browser is slow. Model execution does not wait for a WebSocket writer.
+
+The existing `setAlgorithm` and `spawnClient` commands are dispatched through a
+bounded queue to the simulation owner. Applied commands are logged with their
+virtual timestamp; manual input changes the experiment. Once it finishes, the
+final snapshot remains available and further commands are rejected. The frontend
+provides algorithm selection and adding TCP clients.
+
+This migration preserves a **simplified TCP-like stop-and-wait model**. Packet
+indices are segment counters, not TCP byte sequence numbers. SYN retries and
+data retries use virtual timers; server SYN-ACK retries, FIN retries, a complete
+TCP state machine, windows, congestion control and UDP are deferred. The old
+same-flow SYN generator is retained as a limited model, not a validated SYN flood.
+Backend application workers and service queues are also deferred.
+
+The JSON shape remains compatible with the frontend. `LatencyP95Milli` still
+measures SYN-to-FIN connection lifetime over the last 100 finished connections;
+`CpuUsage` remains the legacy packet-count proxy, not CPU utilization. NAT/SNAT/DSR
+remain mode labels rather than implemented translation paths. These fields are
+not validation of the model against a real network stack.
 
 ## Run the visualizer
 

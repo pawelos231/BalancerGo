@@ -22,10 +22,9 @@ import { useEffect, useRef, useState } from 'react';
 import ControlPanel from './components/ControlPanel';
 import type { LoadBalancerState } from './types';
 
-export type Payload = {
-  Payload: unknown;
-  Type: string;
-};
+export type Payload =
+  | { Type: 'setAlgorithm'; Payload: { Name: string } }
+  | { Type: 'spawnClient'; Payload: { Count: number } };
 
 function App() {
   const [data, setData] = useState<LoadBalancerState | null>(null);
@@ -147,7 +146,6 @@ function App() {
                 <CardHeader title="Szczegoly LB" />
                 <CardContent>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
-                    <Chip label={`Mode: ${data.mode}`} color="info" variant="outlined" />
                     <Chip label={`Algorithm: ${data.algorithm}`} color="primary" variant="outlined" />
                   </Stack>
                 </CardContent>
@@ -170,11 +168,10 @@ function App() {
                             />
                             <CardContent sx={{ flexGrow: 1 }}>
                               <Stack spacing={1}>
-                                <Typography variant="body2">Connections: {server.ActiveConnections}</Typography>
-                                <Typography variant="body2">Half-Open: {server.HalfOpenConnections}</Typography>
-                                <Typography variant="body2">P95 Latency: {server.LatencyP95Milli} ms</Typography>
-                                <Typography variant="body2">Packets handled: {server.NumberOfHandledPackets}</Typography>
-                                <Typography variant="body2">Cpu usage: {(server.CpuUsage * 100).toFixed(2)}%</Typography>
+                                <Typography variant="body2">Established connections: {server.ActiveConnections}</Typography>
+                                <Typography variant="body2">Half-open connections: {server.HalfOpenConnections}</Typography>
+                                <Typography variant="body2">P95 connection lifetime: {server.LatencyP95Milli} ms</Typography>
+                                <Typography variant="body2">Packets received: {server.NumberOfHandledPackets}</Typography>
                                 <Divider />
                                 <Typography variant="subtitle2" gutterBottom>
                                   Clients ({clients.length})

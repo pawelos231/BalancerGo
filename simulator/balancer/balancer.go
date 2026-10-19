@@ -1,494 +1,390 @@
+// Package balancer models L4 forwarding. Its methods belong to the engine's
+// owner goroutine; HTTP handlers must enqueue commands instead of calling them.
 package balancer
 
 import (
+	"errors"
 	"fmt"
 	"load-balancer/algorithms"
 	"load-balancer/client"
+	"load-balancer/engine"
 	"load-balancer/model"
 	"load-balancer/server"
 	"math/rand"
 	"reflect"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
 const (
-	// HalfOpenTimeout defines the idle timeout for connections that have not completed the 3-way handshake.
-	HalfOpenTimeout = 5 * time.Second
-	// EstablishedTimeout defines the idle timeout for established connections with no traffic.
+	HalfOpenTimeout    = 5 * time.Second
 	EstablishedTimeout = 50 * time.Second
-	// CleanupInterval specifies how often the idle connection manager should run.
-	CleanupInterval = 5 * time.Second
+	CleanupInterval    = 5 * time.Second
+	healthInterval     = time.Second
 )
 
-type LoadBalancer struct {
-	mu                          sync.Mutex
-	Mode                        model.LBMode
-	servers                     []*server.Server
-	connTable                   map[*server.Server][]*client.Client
-	fastAccessClientKeyConTable map[model.ClientKey]*server.Server
-	clientLastActivity          map[model.ClientKey]time.Time // do we need to keep it thread-safe? it is certain that given client key only one goroutine will update it
-	algo                        algorithms.Algorithm
-	RefreshInterval             time.Duration
+type Sender func(model.Packet)
 
-	clientTx map[model.ClientKey]chan *model.Packet // outgoing packets to clients, indexed by client key
-	toSrv    map[*server.Server]chan *model.Packet  // channel for packets to be sent to servers
-	fromSrv  map[*server.Server]chan *model.Packet  // channel for packets received from servers
-
-	// Health check channels
-	probe    map[*server.Server]chan struct{}
-	probeAck map[*server.Server]chan struct{}
-
-	chaos *model.ChaosConfig
-	wg    sync.WaitGroup
+type healthCheck struct {
+	tick    engine.EventID
+	timeout engine.EventID
+	serial  uint64
 }
 
-func NewLoadBalancer(mode model.LBMode, algo algorithms.Algorithm, refreshInterval time.Duration) *LoadBalancer {
-	lb := &LoadBalancer{
-		RefreshInterval:             refreshInterval,
-		Mode:                        mode,
-		servers:                     make([]*server.Server, 0),
-		connTable:                   make(map[*server.Server][]*client.Client),
-		fastAccessClientKeyConTable: make(map[model.ClientKey]*server.Server),
-		clientLastActivity:          make(map[model.ClientKey]time.Time),
-		algo:                        algo,
-		clientTx:                    make(map[model.ClientKey]chan *model.Packet),
-		toSrv:                       make(map[*server.Server]chan *model.Packet),
-		fromSrv:                     make(map[*server.Server]chan *model.Packet),
-		probe:                       make(map[*server.Server]chan struct{}),
-		probeAck:                    make(map[*server.Server]chan struct{}),
-		chaos:                       &model.ChaosConfig{},
-		wg:                          sync.WaitGroup{},
+type LoadBalancer struct {
+	engine          *engine.Engine
+	Mode            model.LBMode
+	RefreshInterval time.Duration
+	algo            algorithms.Algorithm
+	rng             *rand.Rand
+	servers         []*server.Server
+	clients         map[model.ClientKey]*client.Client
+	clientOrder     []*client.Client
+	connTable       map[*server.Server][]*client.Client
+	byKey           map[model.ClientKey]*server.Server
+	lastActivity    map[model.ClientKey]time.Duration
+	clientTx        map[model.ClientKey]Sender
+	toServer        map[*server.Server]Sender
+	health          map[*server.Server]*healthCheck
+	chaos           model.ChaosConfig
+	cleanup         engine.EventID
+	closed          bool
+}
+
+func NewLoadBalancer(e *engine.Engine, mode model.LBMode, algo algorithms.Algorithm, refreshInterval time.Duration, rng *rand.Rand) *LoadBalancer {
+	if e == nil || algo == nil || rng == nil || refreshInterval <= 0 {
+		panic("balancer: engine, algorithm, RNG and positive refresh interval are required")
 	}
-
-	go lb.startIdleConnectionManager()
-
+	lb := &LoadBalancer{
+		engine: e, Mode: mode, algo: algo, RefreshInterval: refreshInterval, rng: rng,
+		clients:      make(map[model.ClientKey]*client.Client),
+		connTable:    make(map[*server.Server][]*client.Client),
+		byKey:        make(map[model.ClientKey]*server.Server),
+		lastActivity: make(map[model.ClientKey]time.Duration),
+		clientTx:     make(map[model.ClientKey]Sender),
+		toServer:     make(map[*server.Server]Sender),
+		health:       make(map[*server.Server]*healthCheck),
+	}
+	lb.scheduleCleanup()
 	return lb
 }
 
-func (lb *LoadBalancer) AddClient(cl *client.Client) {
-	lb.mu.Lock()
-	if _, ok := lb.clientTx[cl.Key()]; !ok {
-		lb.clientTx[cl.Key()] = cl.InChannel
+func (lb *LoadBalancer) AddClient(cl *client.Client, send Sender) error {
+	if lb.closed || cl == nil || cl.IsClosed() || send == nil {
+		return errors.New("balancer: cannot add client")
 	}
-	lb.clientLastActivity[cl.Key()] = time.Now()
-	lb.mu.Unlock()
-
-	// start per-client listener
-	go lb.ListenOnClientEmission(cl)
-}
-
-func (lb *LoadBalancer) ListenOnClientEmission(cl *client.Client) {
-
-	for {
-		select {
-		case pkt, ok := <-cl.OutChannel:
-			{
-				if !ok {
-					return
-				}
-
-				lb.mu.Lock()
-				lb.clientLastActivity[cl.Key()] = time.Now()
-				lb.mu.Unlock()
-
-				// to implement chaos features
-				// if lb.applyChaos() {
-				// 	return
-				// }
-
-				srv, mapped := lb.getServerByClientKey(pkt.Key)
-				// to route the packet to the server, we need to check if the client is already mapped to a server
-				if !mapped && pkt.Flag&model.FlagSYN != 0 {
-					var err error
-					srv, err = lb.Route(cl)
-
-					if err != nil || srv == nil {
-						break
-					}
-				}
-
-				if pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0 {
-					// drop if backlog full
-					if srv.MaxHalfOpen > 0 &&
-						atomic.LoadUint32(&srv.HalfOpenConnections) >= srv.MaxHalfOpen {
-						break
-					}
-				}
-
-				lb.sendClientPacketToServer(srv, pkt)
-			}
-		case <-cl.Ctx.Done():
-			return
-
+	key := cl.Key()
+	if _, exists := lb.clients[key]; exists {
+		return fmt.Errorf("balancer: duplicate client key: %v", key)
+	}
+	lb.clients[key], lb.clientTx[key] = cl, send
+	lb.lastActivity[key] = lb.engine.Now()
+	lb.clientOrder = append(lb.clientOrder, cl)
+	previous := cl.OnClose
+	cl.OnClose = func() {
+		if lb.clients[key] == cl {
+			lb.forgetClient(key)
+		}
+		if previous != nil {
+			previous()
 		}
 	}
+	return nil
 }
 
-func (lb *LoadBalancer) AddServer(srv *server.Server) {
-	lb.mu.Lock()
+// The instance check prevents old deliveries from reaching a replacement client.
+func (lb *LoadBalancer) HasClient(cl *client.Client) bool {
+	return !lb.closed && cl != nil && lb.clients[cl.Key()] == cl && !cl.IsClosed()
+}
 
-	toCh := make(chan *model.Packet)
-	fromCh := make(chan *model.Packet)
-	probeCh := make(chan struct{}, 1)
-	probeAckCh := make(chan struct{}, 1)
+func (lb *LoadBalancer) GetClient(key model.ClientKey) *client.Client { return lb.clients[key] }
 
-	lb.toSrv[srv] = toCh
-	lb.fromSrv[srv] = fromCh
-	lb.probe[srv] = probeCh
-	lb.probeAck[srv] = probeAckCh
-
-	srv.DataIn = toCh
-	srv.DataOut = fromCh
-	srv.Probe = probeCh
-	srv.ProbeAck = probeAckCh
-
+func (lb *LoadBalancer) AddServer(srv *server.Server, send Sender) error {
+	if lb.closed || srv == nil || send == nil {
+		return errors.New("balancer: cannot add server")
+	}
+	for _, existing := range lb.servers {
+		if existing == srv || existing.ID == srv.ID {
+			return fmt.Errorf("balancer: duplicate server: %s", srv.ID)
+		}
+	}
 	lb.servers = append(lb.servers, srv)
-	lb.mu.Unlock()
-
-	go lb.ListenOnServerEmission(fromCh)
-	go lb.startHealthChecker(srv, time.Second)
+	lb.toServer[srv] = send
+	check := &healthCheck{}
+	lb.health[srv] = check
+	lb.scheduleHealthCheck(srv, check)
+	return nil
 }
 
-func (lb *LoadBalancer) ListenOnServerEmission(fromCh <-chan *model.Packet) {
-	for pkt := range fromCh {
-		lb.mu.Lock()
-		lb.clientLastActivity[pkt.Key] = time.Now()
-		if tx := lb.clientTx[pkt.Key]; tx != nil {
-			tx <- pkt
-		}
-		lb.mu.Unlock()
+func (lb *LoadBalancer) HandleClientPacket(pkt model.Packet) {
+	cl := lb.clients[pkt.Key]
+	if cl == nil || !lb.HasClient(cl) {
+		return
+	}
+	lb.lastActivity[pkt.Key] = lb.engine.Now()
+	srv := lb.byKey[pkt.Key]
+	if srv == nil && pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0 {
+		var err error
+		srv, err = lb.Route(cl)
+		if err != nil {
+			return
+		} // The client's virtual timeout handles this.
+	}
+	if srv == nil || srv.Killed {
+		return
+	}
+	lb.forward(lb.toServer[srv], pkt, func() bool {
+		return lb.HasClient(cl) && lb.byKey[pkt.Key] == srv && !srv.Killed
+	})
+}
 
-		if lb.applyChaos() {
-			continue
+func (lb *LoadBalancer) HandleServerPacket(srv *server.Server, pkt model.Packet) {
+	cl := lb.clients[pkt.Key]
+	if cl == nil || !lb.HasClient(cl) || lb.byKey[pkt.Key] != srv || srv.Killed {
+		return
+	}
+	lb.lastActivity[pkt.Key] = lb.engine.Now()
+	lb.forward(lb.clientTx[pkt.Key], pkt, func() bool {
+		return lb.HasClient(cl) && lb.byKey[pkt.Key] == srv && !srv.Killed
+	})
+}
+
+// Chaos acts before delivery. Senders enqueue on links, never call endpoints.
+func (lb *LoadBalancer) forward(send Sender, pkt model.Packet, valid func() bool) {
+	if send == nil || lb.rng.Float64() < lb.chaos.PacketDropRate {
+		return
+	}
+	if lb.chaos.Latency == 0 {
+		send(pkt)
+		return
+	}
+	lb.engine.ScheduleAfter(lb.chaos.Latency, func() {
+		if valid() {
+			send(pkt)
+		}
+	})
+}
+
+func (lb *LoadBalancer) Route(cl *client.Client) (*server.Server, error) {
+	if mapped := lb.byKey[cl.Key()]; mapped != nil {
+		return mapped, nil
+	}
+	eligible := make([]*server.Server, 0, len(lb.servers))
+	for _, srv := range lb.servers {
+		if srv.CanAcceptNewConnection() {
+			eligible = append(eligible, srv)
 		}
 	}
+	srv, err := lb.algo.Pick(eligible)
+	if err != nil {
+		return nil, err
+	}
+	if srv == nil {
+		return nil, errors.New("balancer: no available backend")
+	}
+	lb.connTable[srv] = append(lb.connTable[srv], cl)
+	lb.byKey[cl.Key()] = srv
+	return srv, nil
+}
+
+func (lb *LoadBalancer) forgetClient(key model.ClientKey) {
+	cl := lb.clients[key]
+	if srv := lb.byKey[key]; srv != nil {
+		srv.ForgetConnection(key)
+		list := lb.connTable[srv]
+		for i, entry := range list {
+			if entry == cl {
+				copy(list[i:], list[i+1:])
+				list[len(list)-1] = nil
+				lb.connTable[srv] = list[:len(list)-1]
+				break
+			}
+		}
+	}
+	delete(lb.clients, key)
+	delete(lb.byKey, key)
+	delete(lb.clientTx, key)
+	delete(lb.lastActivity, key)
 }
 
 func (lb *LoadBalancer) RemoveServer(srv *server.Server) {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	for i, s := range lb.servers {
-		if s == srv {
+	for _, cl := range append([]*client.Client(nil), lb.connTable[srv]...) {
+		cl.Shutdown()
+	}
+	if check := lb.health[srv]; check != nil {
+		lb.engine.Cancel(check.tick)
+		lb.engine.Cancel(check.timeout)
+		delete(lb.health, srv)
+	}
+	for i, candidate := range lb.servers {
+		if candidate == srv {
 			lb.servers = append(lb.servers[:i], lb.servers[i+1:]...)
 			break
 		}
 	}
+	delete(lb.toServer, srv)
 	delete(lb.connTable, srv)
+	srv.Shutdown()
 }
 
 func (lb *LoadBalancer) GetServers() []*server.Server {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	return lb.servers
+	return append([]*server.Server(nil), lb.servers...)
 }
 
 func (lb *LoadBalancer) GetConnectionTable() map[*server.Server][]*client.Client {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	return lb.connTable
-}
-
-func (lb *LoadBalancer) getServerByClientKey(key model.ClientKey) (*server.Server, bool) {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	if srv, ok := lb.fastAccessClientKeyConTable[key]; ok {
-		// fmt.Println("Fast access hit for client key:", key)
-		return srv, true
-	} else {
-		for srv, list := range lb.connTable {
-			for _, cl := range list {
-				if cl.Key() == key {
-					return srv, true
-				}
-			}
-		}
+	result := make(map[*server.Server][]*client.Client, len(lb.connTable))
+	for srv, clients := range lb.connTable {
+		result[srv] = append([]*client.Client(nil), clients...)
 	}
-	return nil, false
-}
-
-// ex: RoundRobin, LeastConnections, etc.
-func (lb *LoadBalancer) Route(cl *client.Client) (*server.Server, error) {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-
-	srv, err := lb.algo.Pick(lb.servers)
-	if err != nil || !srv.CanAcceptNewConnection() {
-		return nil, err
-	}
-
-	lb.connTable[srv] = append(lb.connTable[srv], cl)
-	lb.fastAccessClientKeyConTable[cl.Key()] = srv
-	return srv, nil
+	return result
 }
 
 func (lb *LoadBalancer) ClearConnectionTable() {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	lb.connTable = make(map[*server.Server][]*client.Client)
-	lb.fastAccessClientKeyConTable = make(map[model.ClientKey]*server.Server)
+	for _, cl := range lb.clientOrder {
+		if lb.clients[cl.Key()] == cl {
+			cl.Shutdown()
+		}
+	}
 }
 
 func (lb *LoadBalancer) SetAlgorithm(algo algorithms.Algorithm) {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
+	if algo == nil {
+		panic("balancer: nil algorithm")
+	}
 	lb.algo = algo
 }
 
-func (lb *LoadBalancer) GetAlgorithm() algorithms.Algorithm {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	return lb.algo
-}
+func (lb *LoadBalancer) GetAlgorithm() algorithms.Algorithm { return lb.algo }
 
 func (lb *LoadBalancer) SetChaosConfig(config *model.ChaosConfig) {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	lb.chaos = config
+	if config == nil {
+		lb.chaos = model.ChaosConfig{}
+		return
+	}
+	if config.Latency < 0 || !(config.PacketDropRate >= 0 && config.PacketDropRate <= 1) {
+		panic("balancer: invalid chaos configuration")
+	}
+	lb.chaos = *config
 }
 
 func (lb *LoadBalancer) ReviveServer(serverID string) error {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	for _, s := range lb.servers {
-		if s.GetState().ID == serverID {
-			s.MarkHealthy()
+	for _, srv := range lb.servers {
+		if srv.ID == serverID {
+			if srv.Killed {
+				return fmt.Errorf("balancer: server %s has been shut down", serverID)
+			}
+			srv.MarkHealthy()
 			return nil
 		}
 	}
-	return fmt.Errorf("server with ID '%s' not found", serverID)
+	return fmt.Errorf("balancer: server %s not found", serverID)
 }
 
-// KillRandomServer picks a random healthy server and simulates a crash.
 func (lb *LoadBalancer) KillRandomServer() (string, error) {
-	lb.mu.Lock()
-
-	healthyServers := []*server.Server{}
-	for _, s := range lb.servers {
-		if s.IsHealthy() {
-			healthyServers = append(healthyServers, s)
+	var candidates []*server.Server
+	for _, srv := range lb.servers {
+		if srv.IsHealthy() {
+			candidates = append(candidates, srv)
 		}
 	}
-
-	if len(healthyServers) == 0 {
-		lb.mu.Unlock()
-		return "", fmt.Errorf("no healthy servers to kill")
+	if len(candidates) == 0 {
+		return "", errors.New("balancer: no healthy server")
 	}
-
-	serverToKill := healthyServers[rand.Intn(len(healthyServers))]
-	serverID := serverToKill.GetState().ID
-	fmt.Println("INFO: Killing server", serverID)
-
-	// Get server-specific channels before unlocking.
-	// We need them to close them after the lock is released.
-	toSrvChan, toSrvOk := lb.toSrv[serverToKill]
-	fromSrvChan, fromSrvOk := lb.fromSrv[serverToKill]
-
-	// Mark the server as failed immediately. This prevents new connections from being routed to it
-	// by algorithms that check IsHealthy().
-	serverToKill.MarkFailed()
-
-	lb.mu.Unlock()
-
-	serverToKill.Shutdown()
-
-	if toSrvOk {
-		close(toSrvChan)
-	}
-	if fromSrvOk {
-		close(fromSrvChan)
-	}
-
-	return serverID, nil
+	srv := candidates[lb.rng.Intn(len(candidates))]
+	srv.Shutdown()
+	return srv.ID, nil
 }
 
 func (lb *LoadBalancer) KillRandomClient() (string, error) {
-	lb.mu.Lock()
-
-	// Collect all clients
-	var allClients []*client.Client
-	for _, clients := range lb.connTable {
-		allClients = append(allClients, clients...)
-	}
-
-	if len(allClients) == 0 {
-		return "NO ID", fmt.Errorf("no clients to kill")
-	}
-
-	clientToKill := allClients[rand.Intn(len(allClients))]
-	fmt.Println("INFO: Killing client", clientToKill.Key())
-	delete(lb.clientTx, clientToKill.Key())
-	delete(lb.clientLastActivity, clientToKill.Key())
-
-	for srv, clients := range lb.connTable {
-		survivingClients := make([]*client.Client, 0, len(clients))
-		for _, cl := range clients {
-			if cl.Key() == clientToKill.Key() {
-				atomic.AddUint32(&srv.ActiveConnections, ^uint32(0))
-				continue
-			}
-			survivingClients = append(survivingClients, cl)
-		}
-
-		if len(survivingClients) < len(clients) {
-			lb.connTable[srv] = survivingClients
-		}
-
-	}
-	lb.mu.Unlock()
-
-	clientToKill.Shutdown()
-
-	close(clientToKill.OutChannel)
-	close(clientToKill.InChannel)
-
-	// not idiomatic way of doing things in golang, but i think in this case it is worth it
-	return clientToKill.Key().SrcIP, nil
-}
-
-func (lb *LoadBalancer) getChaosConfig() model.ChaosConfig {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	if lb.chaos == nil {
-		return model.ChaosConfig{}
-	}
-	return *lb.chaos
-}
-
-func (lb *LoadBalancer) applyChaos() bool {
-	chaos := lb.getChaosConfig()
-
-	if chaos.Latency > 0 {
-		time.Sleep(chaos.Latency)
-	}
-
-	if chaos.PacketDropRate > 0 {
-		if rand.Float64() < chaos.PacketDropRate {
-			return true // drop packet
+	var candidates []*client.Client
+	for _, cl := range lb.clientOrder {
+		if lb.HasClient(cl) {
+			candidates = append(candidates, cl)
 		}
 	}
-
-	return false
+	if len(candidates) == 0 {
+		return "", errors.New("balancer: no client")
+	}
+	cl := candidates[lb.rng.Intn(len(candidates))]
+	cl.Shutdown()
+	return cl.Key().SrcIP, nil
 }
 
-func (lb *LoadBalancer) startHealthChecker(srv *server.Server, interval time.Duration) {
-
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		select {
-		case <-t.C:
-			{
-				select {
-				case srv.Probe <- struct{}{}:
-				default:
-					srv.MarkFailed()
-					continue
-				}
-				select {
-				case <-srv.ProbeAck:
-					if !srv.IsHealthy() {
-						srv.MarkHealthy()
-					}
-				case <-time.After(interval / 2):
-					srv.MarkFailed()
-				}
-			}
-		case <-srv.Ctx.Done():
+func (lb *LoadBalancer) scheduleCleanup() {
+	lb.cleanup = lb.engine.ScheduleAfter(CleanupInterval, func() {
+		if lb.closed {
 			return
 		}
-	}
-
-}
-
-func (lb *LoadBalancer) Tick() model.LoadBalancerState {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-
-	serversWithClients := make([]model.ServerStateWithClients, 0, len(lb.servers))
-	for _, srv := range lb.servers {
-		serverState := srv.GetState()
-
-		clientStates := []model.ClientState{}
-		if clients, ok := lb.connTable[srv]; ok {
-			clientStates = make([]model.ClientState, len(clients))
-			for i, cl := range clients {
-				clientStates[i] = cl.GetState()
-			}
-		}
-
-		serversWithClients = append(serversWithClients, model.ServerStateWithClients{
-			Server:  serverState,
-			Clients: clientStates,
-		})
-	}
-
-	var algoName string
-	if lb.algo != nil {
-		algoName = reflect.TypeOf(lb.algo).Elem().Name()
-	}
-
-	return model.LoadBalancerState{
-		Mode:      lb.Mode,
-		Algorithm: algoName,
-		Servers:   serversWithClients,
-	}
-}
-
-func (lb *LoadBalancer) sendClientPacketToServer(srv *server.Server, pkt *model.Packet) {
-	// fmt.Println(pkt.Key.SrcIP, " SENDING PACKET TO SERVER ", srv.ID)
-	select {
-	case lb.toSrv[srv] <- pkt:
-	case <-srv.Ctx.Done():
-		return
-	default:
-	}
-
-}
-
-func (lb *LoadBalancer) startIdleConnectionManager() {
-	ticker := time.NewTicker(CleanupInterval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		lb.cleanupIdleConnections()
-	}
-}
-
-func (lb *LoadBalancer) cleanupIdleConnections() {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-
-	now := time.Now()
-	for srv, clients := range lb.connTable {
-		survivingClients := make([]*client.Client, 0, len(clients))
-		for _, cl := range clients {
-			lastActivity, ok := lb.clientLastActivity[cl.Key()]
-			if !ok {
-				// We'll keep the client if we don't have activity data, just in case.
-				survivingClients = append(survivingClients, cl)
+		// Stable ordering keeps timer actions independent of Go map iteration.
+		remaining := lb.clientOrder[:0]
+		for _, cl := range lb.clientOrder {
+			key := cl.Key()
+			if lb.clients[key] != cl {
 				continue
 			}
-
 			timeout := EstablishedTimeout
 			if !cl.IsHandshakeCompleted() {
 				timeout = HalfOpenTimeout
 			}
-
-			// fmt.Println(lastActivity.Add(-timeout))
-			if now.Sub(lastActivity) > timeout {
-				fmt.Printf("Removing idle client %v (state: %s)\n", cl.Key(), map[bool]string{true: "ESTABLISHED", false: "NOT-ESTABLISHED - SYN-RECV"}[cl.IsHandshakeCompleted()])
-				cl.Close()
-				delete(lb.clientTx, cl.Key())
-				delete(lb.clientLastActivity, cl.Key())
+			if lb.engine.Now()-lb.lastActivity[key] >= timeout {
+				cl.Shutdown()
 			} else {
-				survivingClients = append(survivingClients, cl)
+				remaining = append(remaining, cl)
 			}
 		}
+		clear(lb.clientOrder[len(remaining):])
+		lb.clientOrder = remaining
+		lb.scheduleCleanup()
+	})
+}
 
-		if len(survivingClients) < len(clients) {
-			lb.connTable[srv] = survivingClients
+// Probes retain the old idealised path. They do not yet consume link capacity.
+func (lb *LoadBalancer) scheduleHealthCheck(srv *server.Server, check *healthCheck) {
+	check.tick = lb.engine.ScheduleAfter(healthInterval, func() {
+		if lb.closed || lb.health[srv] != check || srv.Killed {
+			return
 		}
+		check.serial++
+		serial := check.serial
+		check.timeout = lb.engine.ScheduleAfter(healthInterval/2, func() {
+			if lb.health[srv] == check && check.serial == serial && !srv.Killed {
+				srv.UpdateHealth(false, srv.LatencyP95Milli)
+			}
+		})
+		srv.HandleProbe(func() {
+			if lb.health[srv] == check && check.serial == serial && !srv.Killed {
+				lb.engine.Cancel(check.timeout)
+				srv.UpdateHealth(true, srv.LatencyP95Milli)
+			}
+		})
+		lb.scheduleHealthCheck(srv, check)
+	})
+}
+
+// Tick creates detached DTOs. I/O can retain them without reading live models.
+func (lb *LoadBalancer) Tick() model.LoadBalancerState {
+	states := make([]model.ServerStateWithClients, 0, len(lb.servers))
+	for _, srv := range lb.servers {
+		clients := make([]model.ClientState, 0, len(lb.connTable[srv]))
+		for _, cl := range lb.connTable[srv] {
+			clients = append(clients, cl.GetState())
+		}
+		states = append(states, model.ServerStateWithClients{Server: srv.GetState(), Clients: clients})
+	}
+	name := reflect.TypeOf(lb.algo)
+	if name.Kind() == reflect.Pointer {
+		name = name.Elem()
+	}
+	return model.LoadBalancerState{Mode: lb.Mode, Algorithm: name.Name(), Servers: states}
+}
+
+func (lb *LoadBalancer) Shutdown() {
+	if lb.closed {
+		return
+	}
+	lb.closed = true
+	lb.engine.Cancel(lb.cleanup)
+	lb.ClearConnectionTable()
+	for _, srv := range append([]*server.Server(nil), lb.servers...) {
+		lb.RemoveServer(srv)
 	}
 }

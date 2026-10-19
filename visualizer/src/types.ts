@@ -1,10 +1,9 @@
-export type LBMode = 'NAT' | 'SNAT' | 'DSR';
-
 export interface ClientKey {
-  // Based on the Go code, the fields are not exported,
-  // so I'm assuming a generic structure.
-  // This can be updated if more information is available.
-  [key: string]: unknown;
+  SrcIP: string;
+  SrcPort: number;
+  DstIP: string;
+  DstPort: number;
+  Protocol: string;
 }
 
 export interface ClientState {
@@ -23,7 +22,6 @@ export interface ServerState {
   HalfOpenConnections: number;
   LatencyP95Milli: number;
   NumberOfHandledPackets: number;
-  CpuUsage: number; // 0-1
 }
 
 export interface ServerStateWithClients {
@@ -32,7 +30,6 @@ export interface ServerStateWithClients {
 }
 
 export interface LoadBalancerState {
-  mode: LBMode;
   algorithm: string;
   servers: ServerStateWithClients[];
 }

@@ -11,21 +11,22 @@ type RoundRobin struct {
 	idx int
 }
 
-// Pick returns the next server (or error if slice empty).
+// Pick checks at most one full rotation. A full backend set returns an error
+// rather than recurring indefinitely. Eligibility is otherwise filtered by LB.
 func (rr *RoundRobin) Pick(backends []*server.Server) (*server.Server, error) {
 	if len(backends) == 0 {
 		return nil, errors.New("no backends")
 	}
 
 	rr.mu.Lock()
-	s := backends[rr.idx%len(backends)]
-	if s.MaxConnections > 0 && s.ActiveConnections >= s.MaxConnections {
-		rr.idx++
-		rr.mu.Unlock()
-		return rr.Pick(backends)
+	defer rr.mu.Unlock()
+	rr.idx %= len(backends)
+	for checked := 0; checked < len(backends); checked++ {
+		s := backends[rr.idx]
+		rr.idx = (rr.idx + 1) % len(backends)
+		if s != nil && (s.MaxConnections == 0 || s.ActiveConnections < s.MaxConnections) {
+			return s, nil
+		}
 	}
-	rr.idx++
-	rr.mu.Unlock()
-
-	return s, nil
+	return nil, errors.New("no available backends")
 }

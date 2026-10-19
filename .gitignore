@@ -16,6 +16,10 @@ logs/
 *.log
 *.local
 
+# Local architecture plan
+/ARCHITECTURE_PLAN.md
+/plan/ARCHITECTURE_PLAN.md
+
 # Local backup of the former frontend repository
 /.repo-backups/
 

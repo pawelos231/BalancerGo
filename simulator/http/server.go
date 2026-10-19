@@ -1,23 +1,39 @@
 package httpserver
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
-func StartServer(hub *Hub) {
-	http.HandleFunc("/ws", hub.ServeWs)
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	address := os.Getenv("LB_HTTP_ADDR")
+// NewServer creates an independently managed HTTP server. Its owner starts
+// ListenAndServe and calls Shutdown; canceling Hub.Run closes upgraded sockets.
+func NewServer(hub *Hub, address string) *http.Server {
 	if address == "" {
 		address = ":8080"
 	}
-	log.Printf("WebSocket server running on %s/ws", address)
-	if err := http.ListenAndServe(address, nil); err != nil {
-		log.Fatal(err)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", hub.ServeWs)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	return &http.Server{
+		Addr:              address,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+}
+
+// StartServer retains the original convenience entry point. New integrations
+// should use NewServer so the application owns graceful shutdown.
+func StartServer(hub *Hub) {
+	address := os.Getenv("LB_HTTP_ADDR")
+	srv := NewServer(hub, address)
+	log.Printf("WebSocket server running on %s/ws", srv.Addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("HTTP server stopped: %v", err)
 	}
 }

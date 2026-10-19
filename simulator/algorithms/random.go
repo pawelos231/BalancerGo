@@ -1,23 +1,34 @@
 package algorithms
 
 import (
-	"fmt"
+	"errors"
 	"load-balancer/server"
 	"math/rand"
 )
 
-type Random struct{}
+// Random uses a private experiment RNG rather than the process-global source.
+// The simulation owner serializes Pick calls.
+type Random struct {
+	RNG *rand.Rand
+}
+
+func NewRandom(seed int64) *Random {
+	return &Random{RNG: rand.New(rand.NewSource(seed))}
+}
 
 func (r *Random) Pick(servers []*server.Server) (*server.Server, error) {
-	if len(servers) == 0 {
-		fmt.Println("No servers available in Random picker")
-		return nil, nil // or an error
+	available := make([]*server.Server, 0, len(servers))
+	for _, srv := range servers {
+		if srv != nil && (srv.MaxConnections == 0 || srv.ActiveConnections < srv.MaxConnections) {
+			available = append(available, srv)
+		}
 	}
-	index := rand.Intn(len(servers))
-	srv := servers[index]
-	if srv.MaxConnections > 0 && srv.ActiveConnections >= srv.MaxConnections {
-		// we pick again, might lead to infinite recursion if all servers are at max capacity
-		return r.Pick(servers)
+	if len(available) == 0 {
+		return nil, errors.New("no available backends")
 	}
-	return servers[index], nil
+	if r.RNG == nil {
+		// Preserve a usable zero value with a reproducible fallback seed.
+		r.RNG = rand.New(rand.NewSource(1))
+	}
+	return available[r.RNG.Intn(len(available))], nil
 }
