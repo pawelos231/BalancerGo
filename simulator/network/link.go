@@ -14,7 +14,7 @@ import (
 
 type Config struct {
 	BandwidthBitsPerSecond int64
-	PropagationDelay       time.Duration
+	PacketTravelTime       time.Duration // Virtual travel time after transmission.
 	QueueCapacity          int
 	LossRate               float64
 }
@@ -28,13 +28,13 @@ type Stats struct {
 	QueueDroppedPackets uint64
 	QueueDroppedBytes   uint64
 	// Randomly lost packets still consumed link bandwidth.
-	LostPackets        uint64
-	LostBytes          uint64
-	DeliveredPackets   uint64
-	DeliveredBytes     uint64
-	QueuedPackets      int
-	Transmitting       bool
-	PropagatingPackets int
+	LostPackets       uint64
+	LostBytes         uint64
+	DeliveredPackets  uint64
+	DeliveredBytes    uint64
+	QueuedPackets     int
+	Transmitting      bool
+	TravellingPackets int
 }
 
 // Link models a one-way network path, e.g. client -> balancer or balancer -> server.
@@ -46,7 +46,7 @@ type Link struct {
 	queue        []transmission
 	queueHead    int
 	transmitting bool
-	propagating  int
+	travelling   int
 	stats        Stats
 }
 
@@ -60,8 +60,8 @@ func NewLink(e *engine.Engine, config Config, rng *rand.Rand) *Link {
 		panic("network: bandwidth must be positive bits per second")
 	}
 
-	if config.PropagationDelay < 0 {
-		panic("network: propagation delay must not be negative")
+	if config.PacketTravelTime < 0 {
+		panic("network: packet travel time must not be negative")
 	}
 
 	if config.QueueCapacity < 0 {
@@ -113,7 +113,7 @@ func (l *Link) Stats() Stats {
 	stats := l.stats
 	stats.QueuedPackets = l.queued()
 	stats.Transmitting = l.transmitting
-	stats.PropagatingPackets = l.propagating
+	stats.TravellingPackets = l.travelling
 	return stats
 }
 
@@ -138,9 +138,9 @@ func (l *Link) start(packet transmission) {
 			l.stats.LostPackets++
 			l.stats.LostBytes += uint64(packet.sizeBytes)
 		} else {
-			l.propagating++
-			l.engine.ScheduleAfter(l.config.PropagationDelay, func() {
-				l.propagating--
+			l.travelling++
+			l.engine.ScheduleAfter(l.config.PacketTravelTime, func() {
+				l.travelling--
 				l.stats.DeliveredPackets++
 				l.stats.DeliveredBytes += uint64(packet.sizeBytes)
 				packet.onArrival()

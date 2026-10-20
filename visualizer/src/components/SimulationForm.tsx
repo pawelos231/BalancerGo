@@ -73,8 +73,8 @@ const detailFields: Field[] = [
     help: 'Maximum bitrate of each directed link, including the modeled IPv4 and TCP headers. One gigabit per second is 1,000,000,000 bit/s, or 125 MB/s of raw traffic. Clients share their links to and from the load balancer, while each backend has its own pair of links.',
   },
   {
-    name: 'linkDelayMs', label: 'Link propagation delay (virtual ms)', min: 0,
-    help: 'Virtual travel time added after each packet finishes transmitting. With a 1 ms delay, a packet finishing transmission at 5 ms arrives at 6 ms. The link can transmit the next packet while the previous one is still travelling.',
+    name: 'packetTravelTimeMs', label: 'Packet travel time (virtual ms)', min: 0,
+    help: 'Virtual time a packet needs to reach the receiver after transmission finishes. On a link with 1 ms of travel time, a packet finishing transmission at 5 ms arrives at 6 ms. The link can transmit the next packet while the previous one is still travelling.',
   },
   {
     name: 'linkQueue', label: 'Link queue slots (packets)', integer: true, min: 0,

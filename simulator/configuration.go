@@ -11,16 +11,16 @@ import (
 )
 
 type configuration struct {
-	clients, servers, packets, streamBytes                    int
-	clientGap, packetGap, duration, snapshotInterval, latency time.Duration
-	bandwidth                                                 int64
-	queue                                                     int
-	loss, speed                                               float64
-	seed                                                      int64
-	algorithm                                                 string
-	maxEvents                                                 uint64
-	headless                                                  bool
-	tracePath                                                 string
+	clients, servers, packets, streamBytes                             int
+	clientGap, packetGap, duration, snapshotInterval, packetTravelTime time.Duration
+	bandwidth                                                          int64
+	queue                                                              int
+	loss, speed                                                        float64
+	seed                                                               int64
+	algorithm                                                          string
+	maxEvents                                                          uint64
+	headless                                                           bool
+	tracePath                                                          string
 }
 
 func readConfiguration() (configuration, error) {
@@ -34,7 +34,7 @@ func readConfiguration() (configuration, error) {
 	flag.DurationVar(&c.duration, "duration", 2*time.Minute, "virtual experiment end time (inclusive)")
 	flag.DurationVar(&c.snapshotInterval, "snapshot-interval", 100*time.Millisecond, "virtual snapshot and runner step interval")
 	flag.Int64Var(&c.bandwidth, "bandwidth", 1_000_000_000, "bandwidth of each directed link in bits/s")
-	flag.DurationVar(&c.latency, "link-delay", time.Millisecond, "propagation delay of each directed link")
+	flag.DurationVar(&c.packetTravelTime, "packet-travel-time", time.Millisecond, "virtual packet travel time after transmission on each directed link")
 	flag.IntVar(&c.queue, "link-queue", 1024, "waiting packets per link, excluding its active transmission")
 	flag.Float64Var(&c.loss, "loss", 0, "independent packet loss probability on each link")
 	flag.Int64Var(&c.seed, "seed", 1, "reproducible experiment seed")
@@ -62,7 +62,7 @@ func (c configuration) normalized() (configuration, error) {
 	if c.servers > 10000 {
 		return c, errors.New("server count must not exceed 10000")
 	}
-	if c.clientGap < 0 || c.packetGap < 0 || c.duration < 0 || c.latency < 0 || c.snapshotInterval <= 0 {
+	if c.clientGap < 0 || c.packetGap < 0 || c.duration < 0 || c.packetTravelTime < 0 || c.snapshotInterval <= 0 {
 		return c, errors.New("durations must be nonnegative and snapshot interval positive")
 	}
 	if c.bandwidth <= 0 || c.queue < 0 || !(c.loss >= 0 && c.loss <= 1) {
@@ -105,7 +105,7 @@ type simulationConfig struct {
 	PacketGapMs            float64 `json:"packetGapMs"`
 	SnapshotIntervalMs     float64 `json:"snapshotIntervalMs"`
 	BandwidthBitsPerSecond int64   `json:"bandwidthBitsPerSecond"`
-	LinkDelayMs            float64 `json:"linkDelayMs"`
+	PacketTravelTimeMs     float64 `json:"packetTravelTimeMs"`
 	LinkQueue              int     `json:"linkQueue"`
 	Loss                   float64 `json:"loss"`
 	Seed                   int64   `json:"seed"`
@@ -122,7 +122,7 @@ func (c configuration) publicConfig() simulationConfig {
 		PacketGapMs:            float64(c.packetGap) / float64(time.Millisecond),
 		SnapshotIntervalMs:     float64(c.snapshotInterval) / float64(time.Millisecond),
 		BandwidthBitsPerSecond: c.bandwidth,
-		LinkDelayMs:            float64(c.latency) / float64(time.Millisecond),
+		PacketTravelTimeMs:     float64(c.packetTravelTime) / float64(time.Millisecond),
 		LinkQueue:              c.queue, Loss: c.loss, Seed: c.seed, Algorithm: c.algorithm,
 		Speed: c.speed, MaxEvents: c.maxEvents,
 	}
@@ -146,7 +146,7 @@ func (c simulationConfig) configuration(base configuration) (configuration, erro
 		{"clientGapMs", c.ClientGapMs, time.Millisecond, &base.clientGap},
 		{"packetGapMs", c.PacketGapMs, time.Millisecond, &base.packetGap},
 		{"snapshotIntervalMs", c.SnapshotIntervalMs, time.Millisecond, &base.snapshotInterval},
-		{"linkDelayMs", c.LinkDelayMs, time.Millisecond, &base.latency},
+		{"packetTravelTimeMs", c.PacketTravelTimeMs, time.Millisecond, &base.packetTravelTime},
 	} {
 		duration, err := configDuration(field.name, field.value, field.unit)
 		if err != nil {

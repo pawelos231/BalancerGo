@@ -101,7 +101,7 @@ parameters (see `go run . -help` for all options):
 | `-bytes` | `-1` | Override stream payload size, including a partial final segment; `-1` uses `packets * 1024`. |
 | `-duration`, `-seed` | `2m`, `1` | Virtual end time (inclusive) and experiment seed. |
 | `-client-gap`, `-packet-gap` | `0s`, `0s` | Virtual inter-arrival interval and sender pause before each data segment. |
-| `-bandwidth`, `-link-delay` | `1000000000`, `1ms` | Bits/s and propagation delay per directed link. |
+| `-bandwidth`, `-packet-travel-time` | `1000000000`, `1ms` | Bits/s and virtual packet travel time after transmission per directed link. |
 | `-link-queue`, `-loss` | `1024`, `0` | Waiting packets per link and independent loss probability per transmission. |
 | `-algorithm` | `roundRobin` | `roundRobin` or seeded `random`. |
 | `-snapshot-interval`, `-speed` | `100ms`, `1` | Virtual snapshot interval and virtual seconds per real second; speed `0` is unpaced. |
@@ -128,9 +128,9 @@ published port.
   nanoseconds and increasing event ID. Cancellation removes timers from the heap.
   No model event is scheduled after the experiment's end time.
 - `simulator/network/link.go` models directed FIFO links: one transmission at a
-  time, a finite waiting queue, propagation and seeded loss. A packet consumes
+  time, a finite waiting queue, packet travel time and seeded loss. A packet consumes
   bandwidth even when random loss suppresses delivery. Queue capacity excludes
-  the active transmission and packets already propagating.
+  the active transmission and packets already travelling.
 - `client/`, `server/` and `balancer/` use short packet handlers and scheduled
   callbacks. Connections coexist as state objects. There is no waiting goroutine
   or channel per client, connection or backend.

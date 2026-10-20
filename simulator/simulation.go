@@ -84,7 +84,7 @@ func newSimulation(cfg configuration) *simulation {
 
 func (s *simulation) addLink(name string) *network.Link {
 	link := network.NewLink(s.engine, network.Config{
-		BandwidthBitsPerSecond: s.config.bandwidth, PropagationDelay: s.config.latency,
+		BandwidthBitsPerSecond: s.config.bandwidth, PacketTravelTime: s.config.packetTravelTime,
 		QueueCapacity: s.config.queue, LossRate: s.config.loss,
 	}, rand.New(rand.NewSource(s.config.seed+100+int64(len(s.links)))))
 	s.links = append(s.links, namedLink{Name: name, Link: link})
