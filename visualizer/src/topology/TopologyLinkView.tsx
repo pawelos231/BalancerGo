@@ -12,33 +12,99 @@ export type FlowTopologyLink = Edge<{
   selectLink: (id: string) => void;
 }, 'topologyLink'>;
 
-function TopologyLinkView({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected, data }: EdgeProps<FlowTopologyLink>) {
+function TopologyLinkView({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  markerEnd,
+  selected,
+  data,
+}: EdgeProps<FlowTopologyLink>) {
   const theme = useTheme();
-  if (!data) return null;
+
+  if (!data) {
+    return null;
+  }
+
   const busy = linkIsBusy(data.link);
-  const color = selected ? theme.palette.primary.main : busy ? theme.palette.info.main : theme.palette.text.disabled;
-  const distance = Math.max(65, Math.abs(targetX - sourceX) * 0.4);
+  let color = theme.palette.text.disabled;
+  let strokeWidth = 1.5;
+
+  if (busy) {
+    color = theme.palette.info.main;
+    strokeWidth = 2.2;
+  }
+
+  if (selected) {
+    color = theme.palette.primary.main;
+    strokeWidth = 3;
+  }
+
+  const controlDistance = Math.max(65, Math.abs(targetX - sourceX) * 0.4);
   const laneOffset = data.lane * 22;
-  const control1X = sourceX + (sourcePosition === Position.Left ? -distance : distance);
-  const control2X = targetX + (targetPosition === Position.Left ? -distance : distance);
-  const path = `M ${sourceX},${sourceY} C ${control1X},${sourceY + laneOffset} ${control2X},${targetY + laneOffset} ${targetX},${targetY}`;
+  const sourceDirection = sourcePosition === Position.Left ? -1 : 1;
+  const targetDirection = targetPosition === Position.Left ? -1 : 1;
+  const control1X = sourceX + sourceDirection * controlDistance;
+  const control2X = targetX + targetDirection * controlDistance;
+  const control1Y = sourceY + laneOffset;
+  const control2Y = targetY + laneOffset;
+  const path = [
+    `M ${sourceX},${sourceY}`,
+    `C ${control1X},${control1Y}`,
+    `${control2X},${control2Y}`,
+    `${targetX},${targetY}`,
+  ].join(' ');
+
   const labelX = (sourceX + targetX) / 2;
   const labelY = (sourceY + targetY) / 2 + laneOffset * 0.75;
+  const showLabel = data.showLabel || selected;
+  const bandwidth = formatBandwidth(data.link.config.bandwidthBitsPerSecond);
+  const queuedPackets = data.link.stats.queuedPackets;
+  const queueLabel = queuedPackets > 0 ? ` · Q ${queuedPackets}` : '';
+  const label = `${bandwidth}${queueLabel}`;
 
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} interactionWidth={24} style={{ stroke: color, strokeWidth: selected ? 3 : busy ? 2.2 : 1.5 }} />
-      {(data.showLabel || selected) && (
+      <BaseEdge
+        id={id}
+        path={path}
+        markerEnd={markerEnd}
+        interactionWidth={24}
+        style={{ stroke: color, strokeWidth }}
+      />
+      {showLabel && (
         <EdgeLabelRenderer>
           <Box
             component="button"
             type="button"
             className="nodrag nopan"
             aria-label={`Inspect link ${data.link.label}`}
-            onClick={(event) => { event.stopPropagation(); data.selectLink(id); }}
-            sx={{ position: 'absolute', transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, pointerEvents: 'all', border: '1px solid', borderColor: selected ? 'primary.main' : 'divider', borderRadius: 1, bgcolor: 'background.paper', color: 'text.primary', px: 0.75, py: 0.25, fontSize: 10, fontFamily: 'inherit', whiteSpace: 'nowrap', cursor: 'pointer' }}
+            onClick={(event) => {
+              event.stopPropagation();
+              data.selectLink(id);
+            }}
+            sx={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: 'all',
+              border: '1px solid',
+              borderColor: selected ? 'primary.main' : 'divider',
+              borderRadius: 1,
+              bgcolor: 'background.paper',
+              color: 'text.primary',
+              px: 0.75,
+              py: 0.25,
+              fontSize: 10,
+              fontFamily: 'inherit',
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+            }}
           >
-            {formatBandwidth(data.link.config.bandwidthBitsPerSecond)}{data.link.stats.queuedPackets > 0 ? ` · Q ${data.link.stats.queuedPackets}` : ''}
+            {label}
           </Box>
         </EdgeLabelRenderer>
       )}

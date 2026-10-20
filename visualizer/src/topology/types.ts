@@ -16,27 +16,31 @@ export interface TopologyNode {
   metrics: TopologyMetric[];
 }
 
+export interface TopologyLinkConfig {
+  bandwidthBitsPerSecond: number;
+  packetTravelTimeMs: number;
+  queueCapacity: number;
+  lossRate: number;
+}
+
+export interface TopologyLinkStats {
+  queuedPackets: number;
+  transmitting: boolean;
+  travellingPackets: number;
+  offeredPackets: number;
+  deliveredPackets: number;
+  queueDroppedPackets: number;
+  lostPackets: number;
+  deliveredBytes: number;
+}
+
 export interface TopologyLink {
   id: string;
   label: string;
   source: string;
   target: string;
-  config: {
-    bandwidthBitsPerSecond: number;
-    packetTravelTimeMs: number;
-    queueCapacity: number;
-    lossRate: number;
-  };
-  stats: {
-    queuedPackets: number;
-    transmitting: boolean;
-    travellingPackets: number;
-    offeredPackets: number;
-    deliveredPackets: number;
-    queueDroppedPackets: number;
-    lostPackets: number;
-    deliveredBytes: number;
-  };
+  config: TopologyLinkConfig;
+  stats: TopologyLinkStats;
 }
 
 export interface TopologyGraph {
@@ -44,4 +48,7 @@ export interface TopologyGraph {
   links: TopologyLink[];
 }
 
-export type TopologySelection = { kind: 'node' | 'link'; id: string } | null;
+export type TopologySelection = {
+  kind: 'node' | 'link';
+  id: string;
+} | null;

@@ -21,7 +21,15 @@ function HelpTooltip({ label, children }: HelpTooltipProps) {
       enterDelay={150}
       enterTouchDelay={0}
       leaveTouchDelay={8000}
-      slotProps={{ tooltip: { sx: { maxWidth: 360, fontSize: '0.85rem', lineHeight: 1.5 } } }}
+      slotProps={{
+        tooltip: {
+          sx: {
+            maxWidth: 360,
+            fontSize: '0.85rem',
+            lineHeight: 1.5,
+          },
+        },
+      }}
     >
       <IconButton
         type="button"

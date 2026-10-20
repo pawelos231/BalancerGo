@@ -1,35 +1,81 @@
 import type { TopologyLink, TopologyMetric } from './types';
 
+const bandwidthUnits = [
+  [1e12, 'Tbit/s'],
+  [1e9, 'Gbit/s'],
+  [1e6, 'Mbit/s'],
+  [1e3, 'kbit/s'],
+] as const;
+
+const byteUnits = [
+  [1e12, 'TB'],
+  [1e9, 'GB'],
+  [1e6, 'MB'],
+  [1e3, 'kB'],
+] as const;
+
+const kindLabels: Record<string, string> = {
+  clientGroup: 'Client group',
+  loadBalancer: 'Load balancer',
+  backend: 'Backend',
+};
+
 export function formatNumber(value: number, maximumFractionDigits = 2): string {
-  return Number.isFinite(value) ? value.toLocaleString('en-US', { maximumFractionDigits }) : 'Unknown';
+  if (!Number.isFinite(value)) {
+    return 'Unknown';
+  }
+
+  return value.toLocaleString('en-US', { maximumFractionDigits });
 }
 
 export function formatBandwidth(value: number): string {
-  if (!Number.isFinite(value)) return 'Unknown';
-  for (const [scale, unit] of [[1e12, 'Tbit/s'], [1e9, 'Gbit/s'], [1e6, 'Mbit/s'], [1e3, 'kbit/s']] as const) {
-    if (value >= scale) return `${formatNumber(value / scale)} ${unit}`;
+  if (!Number.isFinite(value)) {
+    return 'Unknown';
   }
+
+  for (const [scale, unit] of bandwidthUnits) {
+    if (value >= scale) {
+      return `${formatNumber(value / scale)} ${unit}`;
+    }
+  }
+
   return `${formatNumber(value)} bit/s`;
 }
 
 export function formatBytes(value: number): string {
-  for (const [scale, unit] of [[1e12, 'TB'], [1e9, 'GB'], [1e6, 'MB'], [1e3, 'kB']] as const) {
-    if (value >= scale) return `${formatNumber(value / scale)} ${unit}`;
+  for (const [scale, unit] of byteUnits) {
+    if (value >= scale) {
+      return `${formatNumber(value / scale)} ${unit}`;
+    }
   }
+
   return `${formatNumber(value)} B`;
 }
 
 export function formatMetric(metric: TopologyMetric): string {
-  if (metric.unit === 'bytes' || metric.unit === 'B') return formatBytes(metric.value);
-  if (metric.unit === 'bit/s') return formatBandwidth(metric.value);
-  return `${formatNumber(metric.value)}${metric.unit ? ` ${metric.unit}` : ''}`;
+  switch (metric.unit) {
+    case 'bytes':
+    case 'B':
+      return formatBytes(metric.value);
+    case 'bit/s':
+      return formatBandwidth(metric.value);
+    default: {
+      const suffix = metric.unit ? ` ${metric.unit}` : '';
+      return `${formatNumber(metric.value)}${suffix}`;
+    }
+  }
 }
 
 export function kindLabel(kind: string): string {
-  const names: Record<string, string> = { clientGroup: 'Client group', loadBalancer: 'Load balancer', backend: 'Backend' };
-  return names[kind] ?? kind.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' ');
+  const fallback = kind
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]/g, ' ');
+
+  return kindLabels[kind] ?? fallback;
 }
 
 export function linkIsBusy(link: TopologyLink): boolean {
-  return link.stats.transmitting || link.stats.queuedPackets > 0 || link.stats.travellingPackets > 0;
+  const { transmitting, queuedPackets, travellingPackets } = link.stats;
+
+  return transmitting || queuedPackets > 0 || travellingPackets > 0;
 }

@@ -20,8 +20,9 @@ For Docker Compose, ports and build instructions, see the [root README](../READM
   node or directed link to inspect its settings and counters. Search covers the
   full graph, including elements outside the visible subset.
 
-`src/App.tsx` owns the WebSocket, snapshots and lifecycle actions across both
-pages. The configuration form stays mounted when switching pages, preserving
+`src/hooks/useSimulation.ts` owns the WebSocket, snapshots and lifecycle actions.
+`src/App.tsx` shares that hook across both pages. The configuration form stays
+mounted when switching pages, preserving
 its draft. Static hosting must serve `index.html` for `/topology`; the container's
 `local-web-server --spa index.html` already does this.
 

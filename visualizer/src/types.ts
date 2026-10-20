@@ -41,6 +41,24 @@ export interface LoadBalancerState {
 
 export type AlgorithmName = 'roundRobin' | 'random';
 
+export type SimulationCommand =
+  | {
+      Type: CommandType.SetAlgorithm;
+      Payload: { Name: string };
+    }
+  | {
+      Type: CommandType.SpawnClient;
+      Payload: { Count: number };
+    }
+  | {
+      Type: CommandType.StartSimulation;
+      Payload: SimulationConfig;
+    }
+  | {
+      Type: CommandType.StopSimulation;
+      Payload: Record<string, never>;
+    };
+
 // Configuration defaults arrive in the first backend WebSocket snapshot.
 export interface SimulationConfig {
   clients: number;
