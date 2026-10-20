@@ -109,6 +109,11 @@ func (l *Link) Transmit(sizeBytes int, onArrival func()) bool {
 	return true
 }
 
+// Config returns a value copy of this directed link's own configuration.
+func (l *Link) Config() Config {
+	return l.config
+}
+
 func (l *Link) Stats() Stats {
 	stats := l.stats
 	stats.QueuedPackets = l.queued()

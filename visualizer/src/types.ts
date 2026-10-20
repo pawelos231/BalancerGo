@@ -1,4 +1,5 @@
 import type { CommandType } from './commands';
+import type { TopologyGraph } from './topology/types';
 
 export interface ClientKey {
   SrcIP: string;
@@ -35,6 +36,7 @@ export interface LoadBalancerState {
   algorithm: string;
   servers: ServerStateWithClients[];
   simulation: SimulationMetadata;
+  topology?: TopologyGraph;
 }
 
 export type AlgorithmName = 'roundRobin' | 'random';

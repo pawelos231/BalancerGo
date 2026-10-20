@@ -34,8 +34,11 @@ type simulation struct {
 }
 
 type namedLink struct {
-	Name string
-	Link *network.Link
+	ID     string
+	Name   string
+	Source string
+	Target string
+	Link   *network.Link
 }
 
 func newSimulation(cfg configuration) *simulation {
@@ -49,13 +52,13 @@ func newSimulation(cfg configuration) *simulation {
 	s.lb = balancer.NewLoadBalancer(e, model.LBModeNAT, algo, cfg.snapshotInterval, rand.New(rand.NewSource(cfg.seed+1)))
 	// All clients share the access link in each direction. Each backend has its
 	// own pair of links; this does not give every client a separate full NIC.
-	s.uplink = s.addLink("clients -> LB")
-	s.downlink = s.addLink("LB -> clients")
+	s.uplink = s.addLink("clients -> LB", "clients", "lb")
+	s.downlink = s.addLink("LB -> clients", "lb", "clients")
 	for i := 0; i < cfg.servers; i++ {
 		srv := server.NewServer(e, fmt.Sprintf("srv-%02d", i), fmt.Sprintf("backend-%02d", i),
 			fmt.Sprintf("10.0.%d.%d", i/254, i%254+1), 80, 0, 1, 100)
-		outward := s.addLink("LB -> " + srv.ID)
-		returning := s.addLink(srv.ID + " -> LB")
+		outward := s.addLink("LB -> "+srv.ID, "lb", srv.ID)
+		returning := s.addLink(srv.ID+" -> LB", srv.ID, "lb")
 		srv.SetSender(func(pkt model.Packet) {
 			cl := s.lb.GetClient(pkt.Key)
 			returning.Transmit(pkt.WireSize(), func() {
@@ -82,12 +85,15 @@ func newSimulation(cfg configuration) *simulation {
 	return s
 }
 
-func (s *simulation) addLink(name string) *network.Link {
+func (s *simulation) addLink(name, source, target string) *network.Link {
 	link := network.NewLink(s.engine, network.Config{
 		BandwidthBitsPerSecond: s.config.bandwidth, PacketTravelTime: s.config.packetTravelTime,
 		QueueCapacity: s.config.queue, LossRate: s.config.loss,
 	}, rand.New(rand.NewSource(s.config.seed+100+int64(len(s.links)))))
-	s.links = append(s.links, namedLink{Name: name, Link: link})
+	s.links = append(s.links, namedLink{
+		ID: fmt.Sprintf("link-%03d", len(s.links)), Name: name,
+		Source: source, Target: target, Link: link,
+	})
 	return link
 }
 

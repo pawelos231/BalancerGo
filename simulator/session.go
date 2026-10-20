@@ -24,6 +24,7 @@ type simulationMetadata struct {
 type simulationSnapshot struct {
 	model.LoadBalancerState
 	Simulation simulationMetadata `json:"simulation"`
+	Topology   model.Topology     `json:"topology"`
 }
 
 // runInteractive waits for a validated start request before creating a model.
@@ -40,13 +41,16 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			state.Algorithm = "Random"
 		}
 		virtualTime := 0.0
+		topology := model.Topology{Nodes: []model.TopologyNode{}, Links: []model.TopologyLink{}}
 		if current != nil {
 			state = current.lb.Tick()
 			virtualTime = current.engine.Now().Seconds()
+			topology = current.topology(state)
 		}
 		return hub.BroadcastState(simulationSnapshot{
 			LoadBalancerState: state,
 			Simulation:        simulationMetadata{Status: status, Config: config, VirtualTimeSeconds: virtualTime, Error: lastError},
+			Topology:          topology,
 		})
 	}
 	if err := publish(); err != nil {

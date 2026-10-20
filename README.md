@@ -19,7 +19,7 @@ builds both images and starts the services in the background.
 
 Open `http://localhost:5173`. The backend is available at `http://localhost:8081`
 and its WebSocket at `ws://localhost:8081/ws`. Set the initial configuration in
-the frontend and click **Start symulacji**. Starting the containers or opening
+the frontend and click **Start simulation**. Starting the containers or opening
 the page does not start an experiment. Press `Ctrl+C` to stop both applications.
 Subsequent starts can reuse the built images:
 
@@ -162,7 +162,10 @@ same-flow SYN generator is retained as a limited model, not a validated SYN floo
 Backend application workers and service queues are also deferred.
 
 Snapshots include lifecycle status, selected configuration and virtual time in
-`simulation`, alongside the balancer and server state. `LatencyP95Milli` still
+`simulation`, alongside the balancer and server state. The `topology` graph
+contains the actual model nodes, directed links and per-link configuration and
+counters. It is empty before a run starts and after **Stop and clear**.
+`LatencyP95Milli` still
 measures SYN-to-FIN connection lifetime over the last 100 finished connections;
 `CpuUsage` remains the legacy packet-count proxy, not CPU utilization. NAT/SNAT/DSR
 remain mode labels rather than implemented translation paths. These fields are
@@ -182,6 +185,26 @@ The frontend connects directly to `ws://localhost:8080/ws`. The backend streams 
 updates and stays available after the simulated streams finish. Set
 `LB_HTTP_ADDR` to override the backend listen address, or `VITE_WS_URL` before
 starting Vite to override the browser WebSocket URL.
+
+## Simulation and topology pages
+
+| Page | Path | Purpose |
+| --- | --- | --- |
+| Simulation | `/` | Configure, start or stop an experiment and monitor backend state. |
+| Topology | `/topology` | Explore the current graph and inspect nodes and directed links. |
+
+Both pages share the WebSocket connection and current experiment in `App`.
+Switching pages preserves the configuration draft and keeps the run advancing.
+The topology groups clients into one node; each arrow represents a directed link
+reported by the backend, including the return direction. Select a node or link
+to inspect its configuration and counters, or use search to find any element.
+Finished runs retain their final graph and state.
+
+The view displays each link's own bandwidth and other settings from the graph
+DTO. The current model initializes all links from one global configuration.
+Additional topologies or load-balancer resources require corresponding backend
+models and snapshot projections. See [the visualizer guide](visualizer/README.md)
+for the frontend extension points.
 
 ## Verify the project
 
