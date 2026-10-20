@@ -134,7 +134,8 @@ func (c *Client) queueSegment() {
 			return
 		}
 		payloadBytes := min(c.remainingBytes, model.SEGMENT_SIZE)
-		c.lastSent = GeneratePacket(c.key, model.FlagPSH, payloadBytes, c.segmentIndex)
+		// Data also acknowledges the handshake if its final standalone ACK was lost.
+		c.lastSent = GeneratePacket(c.key, model.FlagPSH|model.FlagACK, payloadBytes, c.segmentIndex)
 		c.waitingForAck = true
 		c.retryData = 0
 		c.armDataTimer()

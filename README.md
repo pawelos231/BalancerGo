@@ -18,7 +18,9 @@ In PowerShell, you can also run `./start.ps1` from the repository root. The scri
 builds both images and starts the services in the background.
 
 Open `http://localhost:5173`. The backend is available at `http://localhost:8081`
-and its WebSocket at `ws://localhost:8081/ws`. Press `Ctrl+C` to stop both applications.
+and its WebSocket at `ws://localhost:8081/ws`. Set the initial configuration in
+the frontend and click **Start symulacji**. Starting the containers or opening
+the page does not start an experiment. Press `Ctrl+C` to stop both applications.
 Subsequent starts can reuse the built images:
 
 ```sh
@@ -63,9 +65,19 @@ go run .
 ```
 
 The Go module remains named `load-balancer`, so package imports stay the same.
-By default the application runs a finite, two-minute virtual experiment at real
-time speed and keeps serving its final snapshot afterwards. Use `-speed=0` to
-run without pacing. Go runtime tracing is optional: `go run . -trace trace.out`.
+The backend starts in an idle state and sends the Go configuration defaults to
+the frontend. Edit the form and click **Start simulation** to create and run an
+experiment. The default is 200 clients, 10 backends, 10000 segments per client,
+120 virtual seconds and speed 1. Set speed to 0 in the form to run without pacing.
+Go runtime tracing is optional: `go run . -trace trace.out`.
+
+The UI shows idle, running, finished or failed status and the virtual clock.
+After completion, the final snapshot remains available and another Start creates
+a fresh experiment. **Stop and clear** interrupts a run and discards its event
+queue, links, connections and counters. It also clears a finished experiment;
+the form configuration is preserved for the next Start.
+Reconnecting or refreshing the page restores the current
+state without starting or restarting the simulation.
 
 For a quick run without HTTP, from `simulator/`:
 
@@ -79,11 +91,13 @@ state and per-link queue/loss counters. `VirtualTime` describes the model;
 `WallTime` describes the cost of running it. Clients still active at the end time
 remain in the final state; reaching that time does not imply successful completion.
 
-Useful parameters (see `go run . -help` for all options):
+CLI flags provide the form defaults, and configure immediate headless runs.
+The browser sends its selected configuration when Start is clicked. Useful
+parameters (see `go run . -help` for all options):
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `-clients`, `-servers`, `-packets` | `200`, `10`, `10000` | Initial clients, backend count and full segments per stream. |
+| `-clients`, `-servers`, `-packets` | `200`, `10`, `10000` | Initial clients, backend count (at most 10000) and full segments per stream. |
 | `-bytes` | `-1` | Override stream payload size, including a partial final segment; `-1` uses `packets * 1024`. |
 | `-duration`, `-seed` | `2m`, `1` | Virtual end time (inclusive) and experiment seed. |
 | `-client-gap`, `-packet-gap` | `0s`, `0s` | Virtual inter-arrival interval and sender pause before each data segment. |
@@ -93,7 +107,7 @@ Useful parameters (see `go run . -help` for all options):
 | `-snapshot-interval`, `-speed` | `100ms`, `1` | Virtual snapshot interval and virtual seconds per real second; speed `0` is unpaced. |
 | `-max-events` | `50000000` | Execution limit, including equal-time events, to stop runaway scenarios. |
 
-For example, to observe a shorter experiment in the frontend:
+For example, to prefill a shorter experiment in the frontend (then click Start):
 
 ```sh
 go run . -clients 20 -servers 2 -packets 500 -duration 15s -speed 1
@@ -128,11 +142,17 @@ published port.
   keeps the latest frame for new subscribers and replaces queued UI frames when
   a browser is slow. Model execution does not wait for a WebSocket writer.
 
-The existing `setAlgorithm` and `spawnClient` commands are dispatched through a
-bounded queue to the simulation owner. Applied commands are logged with their
-virtual timestamp; manual input changes the experiment. Once it finishes, the
-final snapshot remains available and further commands are rejected. The frontend
-provides algorithm selection and adding TCP clients.
+`startSimulation` carries the initial configuration through a bounded command
+queue to the simulation owner. Configuration is validated before models are
+created. During a run, `setAlgorithm` and `spawnClient` are applied at virtual
+step boundaries and logged with their virtual timestamp. After a run, these
+controls are disabled until another Start. Invalid requests are reported in the
+UI; starting an already running experiment is rejected.
+
+Command names are defined once in `simulator/http/commands.go` as `CommandType`
+constants. After adding or renaming an action, run `go generate ./http` from
+`simulator/` to update the frontend enum in `visualizer/src/commands.ts`.
+The generated file is committed, so frontend and Docker builds need no generator.
 
 This migration preserves a **simplified TCP-like stop-and-wait model**. Packet
 indices are segment counters, not TCP byte sequence numbers. SYN retries and
@@ -141,7 +161,8 @@ TCP state machine, windows, congestion control and UDP are deferred. The old
 same-flow SYN generator is retained as a limited model, not a validated SYN flood.
 Backend application workers and service queues are also deferred.
 
-The JSON shape remains compatible with the frontend. `LatencyP95Milli` still
+Snapshots include lifecycle status, selected configuration and virtual time in
+`simulation`, alongside the balancer and server state. `LatencyP95Milli` still
 measures SYN-to-FIN connection lifetime over the last 100 finished connections;
 `CpuUsage` remains the legacy packet-count proxy, not CPU utilization. NAT/SNAT/DSR
 remain mode labels rather than implemented translation paths. These fields are

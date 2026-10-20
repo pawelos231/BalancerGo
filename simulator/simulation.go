@@ -24,7 +24,8 @@ type simulation struct {
 	config                                                            configuration
 	engine                                                            *engine.Engine
 	lb                                                                *balancer.LoadBalancer
-	hub                                                               *httpserver.Hub
+	publishState                                                      func() error
+	commandHandled                                                    func(error)
 	uplink, downlink                                                  *network.Link
 	links                                                             []namedLink
 	algorithmRNG                                                      *rand.Rand
@@ -37,10 +38,10 @@ type namedLink struct {
 	Link *network.Link
 }
 
-func newSimulation(cfg configuration, hub *httpserver.Hub) *simulation {
+func newSimulation(cfg configuration) *simulation {
 	e := engine.New(cfg.duration)
 	e.MaxEvents = cfg.maxEvents
-	s := &simulation{config: cfg, engine: e, hub: hub, algorithmRNG: rand.New(rand.NewSource(cfg.seed + 2))}
+	s := &simulation{config: cfg, engine: e, algorithmRNG: rand.New(rand.NewSource(cfg.seed + 2))}
 	var algo algorithms.Algorithm = &algorithms.RoundRobin{}
 	if cfg.algorithm == "random" {
 		algo = &algorithms.Random{RNG: s.algorithmRNG}
@@ -140,8 +141,8 @@ func (s *simulation) startClient() {
 }
 
 func (s *simulation) sample() {
-	if s.hub != nil {
-		if err := s.hub.BroadcastState(s.lb.Tick()); err != nil {
+	if s.publishState != nil {
+		if err := s.publishState(); err != nil {
 			log.Printf("snapshot: %v", err)
 		}
 	}
@@ -150,7 +151,7 @@ func (s *simulation) sample() {
 
 func (s *simulation) applyCommand(command httpserver.Envelope) error {
 	switch command.Type {
-	case "setAlgorithm":
+	case httpserver.SetAlgorithm:
 		var msg httpserver.SetAlgorithmMsg
 		if err := json.Unmarshal(command.Payload, &msg); err != nil {
 			return err
@@ -163,7 +164,7 @@ func (s *simulation) applyCommand(command httpserver.Envelope) error {
 		default:
 			return fmt.Errorf("unknown algorithm: %s", msg.Name)
 		}
-	case "spawnClient":
+	case httpserver.SpawnClient:
 		var msg httpserver.SpawnClientMsg
 		if err := json.Unmarshal(command.Payload, &msg); err != nil {
 			return err
@@ -209,10 +210,14 @@ func (s *simulation) run(ctx context.Context, commands <-chan httpserver.Envelop
 		for n := len(commands); n > 0; n-- {
 			command := <-commands
 			s.engine.ScheduleAfter(0, func() {
-				if err := s.applyCommand(command); err != nil {
+				err := s.applyCommand(command)
+				if err != nil {
 					log.Printf("command at %s: %v", s.engine.Now(), err)
 				} else {
 					log.Printf("command at %s: %s %s", s.engine.Now(), command.Type, command.Payload)
+				}
+				if s.commandHandled != nil {
+					s.commandHandled(err)
 				}
 			})
 		}
@@ -224,8 +229,8 @@ func (s *simulation) run(ctx context.Context, commands <-chan httpserver.Envelop
 		}
 	}
 	// A final frame is needed when the end time is not a multiple of the interval.
-	if s.hub != nil {
-		return s.hub.BroadcastState(s.lb.Tick())
+	if s.publishState != nil {
+		return s.publishState()
 	}
 	return nil
 }

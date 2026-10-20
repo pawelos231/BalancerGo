@@ -29,30 +29,22 @@ var upg = websocket.Upgrader{
 
 var errHubClosed = errors.New("websocket hub is closed")
 
-// Envelope is the UI command envelope. Payload decoding and all simulation
-// mutations belong to the simulation owner, outside the HTTP goroutines.
-type Envelope struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
-}
-
-type SetAlgorithmMsg struct {
-	Name string `json:"name"`
-}
-
-type SpawnClientMsg struct {
-	Count int `json:"count"`
-}
-
 type snapshotFrame struct {
 	data []byte
 }
 
+type commandErrorFrame struct {
+	Type        string      `json:"type"`
+	CommandType CommandType `json:"commandType"`
+	Error       string      `json:"error"`
+}
+
 type wsClient struct {
-	conn     *websocket.Conn
-	outgoing chan []byte
-	done     chan struct{}
-	stopOnce sync.Once
+	conn          *websocket.Conn
+	outgoing      chan []byte
+	commandErrors chan []byte
+	done          chan struct{}
+	stopOnce      sync.Once
 }
 
 func (c *wsClient) stop() {
@@ -188,6 +180,18 @@ func (h *Hub) readCommands(c *wsClient) {
 		}
 		if err := h.submit(envelope); err != nil {
 			log.Printf("UI command %q rejected: %v", envelope.Type, err)
+			// String-only fields cannot fail JSON encoding. Keep errors separate
+			// from replaceable snapshots, and use the same connection writer.
+			frame, _ := json.Marshal(commandErrorFrame{
+				Type: "commandError", CommandType: envelope.Type, Error: err.Error(),
+			})
+			select {
+			case c.commandErrors <- frame:
+			default:
+				// Disconnect rather than silently lose a command rejection.
+				c.stop()
+				return
+			}
 		}
 	}
 }
@@ -202,6 +206,13 @@ func (h *Hub) writeFrames(c *wsClient) {
 			return
 		case <-c.done:
 			return
+		case frame := <-c.commandErrors:
+			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, frame); err != nil {
+				return
+			}
 		case frame := <-c.outgoing:
 			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 				return
@@ -228,7 +239,10 @@ func (h *Hub) ServeWs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	c := &wsClient{conn: conn, outgoing: make(chan []byte, 1), done: make(chan struct{})}
+	c := &wsClient{
+		conn: conn, outgoing: make(chan []byte, 1),
+		commandErrors: make(chan []byte, 8), done: make(chan struct{}),
+	}
 	select {
 	case h.register <- c:
 	case <-h.done:

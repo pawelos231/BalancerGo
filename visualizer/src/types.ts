@@ -1,3 +1,5 @@
+import type { CommandType } from './commands';
+
 export interface ClientKey {
   SrcIP: string;
   SrcPort: number;
@@ -32,4 +34,40 @@ export interface ServerStateWithClients {
 export interface LoadBalancerState {
   algorithm: string;
   servers: ServerStateWithClients[];
+  simulation: SimulationMetadata;
+}
+
+export type AlgorithmName = 'roundRobin' | 'random';
+
+// Configuration defaults arrive in the first backend WebSocket snapshot.
+export interface SimulationConfig {
+  clients: number;
+  servers: number;
+  packets: number;
+  bytes: number;
+  durationSeconds: number;
+  clientGapMs: number;
+  packetGapMs: number;
+  snapshotIntervalMs: number;
+  bandwidthBitsPerSecond: number;
+  linkDelayMs: number;
+  linkQueue: number;
+  loss: number;
+  seed: number;
+  algorithm: AlgorithmName;
+  speed: number;
+  maxEvents: number;
+}
+
+export interface SimulationMetadata {
+  status: 'idle' | 'running' | 'finished' | 'failed';
+  config: SimulationConfig;
+  virtualTimeSeconds: number;
+  error?: string;
+}
+
+export interface CommandError {
+  type: 'commandError';
+  commandType: CommandType;
+  error: string;
 }
