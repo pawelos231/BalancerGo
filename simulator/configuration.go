@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"load-balancer/engine"
-	"load-balancer/model"
+	"load-balancer/scenario"
 	"math"
 	"time"
 )
@@ -56,40 +56,24 @@ func readConfiguration() (configuration, error) {
 // normalized validates a value copy and resolves options used by the model.
 // The caller's CLI/default configuration remains unchanged.
 func (c configuration) normalized() (configuration, error) {
-	if c.clients < 0 || c.clients >= 1<<24 || c.servers < 0 || c.packets < 0 || c.streamBytes < -1 {
-		return c, errors.New("invalid client, server or stream size")
+	if c.clients < 0 || c.clients > scenario.MaxClients || c.servers < 0 {
+		return c, errors.New("invalid client or server count")
 	}
-	if c.servers > 10000 {
-		return c, errors.New("server count must not exceed 10000")
+	if c.servers > scenario.MaxBackends {
+		return c, fmt.Errorf("server count must not exceed %d", scenario.MaxBackends)
 	}
-	if c.clientGap < 0 || c.packetGap < 0 || c.duration < 0 || c.packetTravelTime < 0 || c.snapshotInterval <= 0 {
-		return c, errors.New("durations must be nonnegative and snapshot interval positive")
-	}
-	if c.bandwidth <= 0 || c.queue < 0 || !(c.loss >= 0 && c.loss <= 1) {
-		return c, errors.New("bandwidth must be positive, queue nonnegative and loss in 0..1")
-	}
-	if c.algorithm != "roundRobin" && c.algorithm != "random" {
-		return c, errors.New("unknown algorithm")
-	}
-	if c.speed < 0 || math.IsNaN(c.speed) || math.IsInf(c.speed, 0) || c.maxEvents == 0 {
-		return c, errors.New("speed must be finite and nonnegative; max-events must be positive")
+	if c.speed < 0 || math.IsNaN(c.speed) || math.IsInf(c.speed, 0) {
+		return c, errors.New("speed must be finite and nonnegative")
 	}
 	if c.headless {
 		c.speed = 0
 	}
-	if c.speed > 0 && float64(c.duration)/c.speed >= float64(math.MaxInt64) {
-		return c, errors.New("paced experiment duration exceeds time.Duration range")
+
+	resolved, err := scenario.Normalize(c.scenarioDefinition())
+	if err != nil {
+		return c, err
 	}
-	if c.streamBytes == -1 {
-		if c.packets > math.MaxInt/model.SEGMENT_SIZE {
-			return c, errors.New("stream size overflows int")
-		}
-		c.streamBytes = c.packets * model.SEGMENT_SIZE
-	}
-	// PlaceInStream remains a uint32 segment counter in this migration.
-	if uint64(c.streamBytes/model.SEGMENT_SIZE) >= math.MaxUint32 || c.streamBytes > math.MaxInt-40 {
-		return c, errors.New("stream exceeds the simplified transport's range")
-	}
+	c.streamBytes = resolved.DefaultStream.Bytes
 	return c, nil
 }
 

@@ -67,58 +67,65 @@ function TopologyCanvas({ graph, selection, onSelect }: TopologyCanvasProps) {
   const key = structureKey(graph);
   const layout = useMemo(() => layoutTopology(key), [key]);
 
-  const selectLink = useCallback((id: string) => {
-    onSelect({ kind: 'link', id });
-  }, [onSelect]);
+  const selectLink = useCallback(
+    (id: string) => {
+      onSelect({ kind: 'link', id });
+    },
+    [onSelect]
+  );
 
-  const nodes = useMemo<FlowTopologyNode[]>(() => (
-    graph.nodes.map((node) => ({
-      id: node.id,
-      type: 'topologyNode',
-      position: layout.positions.get(node.id)!,
-      // Retain measurements so fresh snapshots cannot hide nodes or reset handles.
-      measured: measurements.get(node.id),
-      data: { node },
-      selected: selection?.kind === 'node' && selection.id === node.id,
-      draggable: false,
-      connectable: false,
-      deletable: false,
-      ariaLabel: `${node.label}, ${kindLabel(node.kind)}. Press Enter to inspect.`,
-      style: { width: NODE_WIDTH, height: NODE_HEIGHT },
-    }))
-  ), [graph.nodes, layout, selection, measurements]);
-
-  const edges = useMemo<FlowTopologyLink[]>(() => (
-    graph.links.map((link) => {
-      const route = layout.routes.get(link.id)!;
-      const bandwidth = formatBandwidth(link.config.bandwidthBitsPerSecond);
-      const activity = linkIsBusy(link) ? 'busy' : 'idle';
-
-      return {
-        id: link.id,
-        type: 'topologyLink',
-        source: link.source,
-        target: link.target,
-        ...route,
-        data: {
-          link,
-          lane: route.lane,
-          showLabel: graph.nodes.length <= 30,
-          selectLink,
-        },
-        selected: selection?.kind === 'link' && selection.id === link.id,
+  const nodes = useMemo<FlowTopologyNode[]>(
+    () =>
+      graph.nodes.map((node) => ({
+        id: node.id,
+        type: 'topologyNode',
+        position: layout.positions.get(node.id)!,
+        // Retain measurements so fresh snapshots cannot hide nodes or reset handles.
+        measured: measurements.get(node.id),
+        data: { node },
+        selected: selection?.kind === 'node' && selection.id === node.id,
+        draggable: false,
+        connectable: false,
         deletable: false,
-        reconnectable: false,
-        ariaLabel: `${link.label}, ${bandwidth}, ${activity}. Press Enter to inspect.`,
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: theme.palette.text.secondary,
-          width: 16,
-          height: 16,
-        },
-      };
-    })
-  ), [graph.links, graph.nodes.length, layout, selection, selectLink, theme.palette.text.secondary]);
+        ariaLabel: `${node.label}, ${kindLabel(node.kind)}. Press Enter to inspect.`,
+        style: { width: NODE_WIDTH, height: NODE_HEIGHT },
+      })),
+    [graph.nodes, layout, selection, measurements]
+  );
+
+  const edges = useMemo<FlowTopologyLink[]>(
+    () =>
+      graph.links.map((link) => {
+        const route = layout.routes.get(link.id)!;
+        const bandwidth = formatBandwidth(link.config.bandwidthBitsPerSecond);
+        const activity = linkIsBusy(link) ? 'busy' : 'idle';
+
+        return {
+          id: link.id,
+          type: 'topologyLink',
+          source: link.source,
+          target: link.target,
+          ...route,
+          data: {
+            link,
+            lane: route.lane,
+            showLabel: graph.nodes.length <= 30,
+            selectLink,
+          },
+          selected: selection?.kind === 'link' && selection.id === link.id,
+          deletable: false,
+          reconnectable: false,
+          ariaLabel: `${link.label}, ${bandwidth}, ${activity}. Press Enter to inspect.`,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: theme.palette.text.secondary,
+            width: 16,
+            height: 16,
+          },
+        };
+      }),
+    [graph.links, graph.nodes.length, layout, selection, selectLink, theme.palette.text.secondary]
+  );
 
   const focusedNodeId = findFocusedNodeId(selection, graph.links);
 
@@ -142,9 +149,7 @@ function TopologyCanvas({ graph, selection, onSelect }: TopologyCanvasProps) {
   }, [focusedNodeId, layout]);
 
   function handleNodesChange(changes: NodeChanges) {
-    const hasMeasurements = changes.some((change) => (
-      change.type === 'dimensions' && change.dimensions
-    ));
+    const hasMeasurements = changes.some((change) => change.type === 'dimensions' && change.dimensions);
 
     if (hasMeasurements) {
       setMeasurements((previous) => updateMeasurements(previous, changes));

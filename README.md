@@ -122,6 +122,32 @@ docker compose run --rm --service-ports backend -clients 20 -packets 500 -durati
 Stop an existing backend container before using `--service-ports` on the same
 published port.
 
+## Scenario configuration foundation
+
+`simulator/scenario/` defines version 1 of the upcoming scenario configuration:
+
+| Part | Contents |
+| --- | --- |
+| `execution` | Virtual duration, snapshot interval, seed, pacing and event limit. |
+| `network` | Link defaults and named profiles. |
+| `resources` | Load balancer settings and individually configured backends. |
+| `workload` | Stream defaults, compact client groups and individual overrides. |
+
+`scenario.Normalize` resolves profiles and overrides into independent values,
+validates identifiers and settings, and resolves stream sizes. Patch fields use
+pointers so an explicit zero differs from an omitted value. Groups remain compact;
+normalization does not allocate one object for every configured client.
+
+The existing CLI and frontend settings pass through this validation model. Their
+flags, WebSocket payload and runtime topology remain unchanged: clients still
+share their access links, and the new forwarding budget is not enforced yet.
+The new scenario document is not accepted by Start until its network and API
+integration are implemented.
+
+Scenario duration fields have explicit `Nanoseconds` JSON names and retain native
+`time.Duration` precision in Go. The future import API must preserve large integer
+values across JavaScript and Go; it must not round them through JavaScript numbers.
+
 ## Virtual-time architecture
 
 - `simulator/engine/engine.go` owns one global event queue ordered by virtual
