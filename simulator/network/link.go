@@ -12,6 +12,7 @@ import (
 	"load-balancer/engine"
 )
 
+// Config describes a directed link's transmission, travel and buffering limits.
 type Config struct {
 	BandwidthBitsPerSecond int64
 	PacketTravelTime       time.Duration // Virtual travel time after transmission.
@@ -48,9 +49,10 @@ type Link struct {
 	transmitting bool
 	travelling   int
 	stats        Stats
+	onReady      func()
 }
 
-// NewLink panics on invalid configuration
+// NewLink creates an idle link and panics on invalid configuration.
 func NewLink(e *engine.Engine, config Config, rng *rand.Rand) *Link {
 	if e == nil {
 		panic("network: engine must not be nil")
@@ -85,20 +87,30 @@ func NewLink(e *engine.Engine, config Config, rng *rand.Rand) *Link {
 // freezing any packet state captured by onArrival at the moment of transmission.
 // Even zero-byte, zero-delay packets are delivered through queued engine events.
 func (l *Link) Transmit(sizeBytes int, onArrival func()) bool {
+	if l.onReady != nil {
+		panic("network: managed link must be started through its external queue")
+	}
 	if sizeBytes < 0 {
 		panic("network: packet size must not be negative")
 	}
 	if onArrival == nil {
 		panic("network: arrival callback must not be nil")
 	}
-	packet := transmission{sizeBytes: sizeBytes, duration: serializationDuration(sizeBytes, l.config.BandwidthBitsPerSecond), onArrival: onArrival}
+
+	packet := transmission{
+		sizeBytes: sizeBytes,
+		duration:  serializationDuration(sizeBytes, l.config.BandwidthBitsPerSecond),
+		onArrival: onArrival,
+	}
 	l.stats.OfferedPackets++
 	l.stats.OfferedBytes += uint64(sizeBytes)
+
 	if l.transmitting && l.queued() >= l.config.QueueCapacity {
 		l.stats.QueueDroppedPackets++
 		l.stats.QueueDroppedBytes += uint64(sizeBytes)
 		return false
 	}
+
 	l.stats.AcceptedPackets++
 	l.stats.AcceptedBytes += uint64(sizeBytes)
 	if l.transmitting {
@@ -109,11 +121,62 @@ func (l *Link) Transmit(sizeBytes int, onArrival func()) bool {
 	return true
 }
 
+// Ready reports a free transmitter; packets still travelling do not block it.
+func (l *Link) Ready() bool {
+	return !l.transmitting
+}
+
+// TryStart starts immediately or returns false without queueing or counting a
+// busy attempt. Completion and arrival callbacks always run as engine events.
+func (l *Link) TryStart(sizeBytes int, onArrival func()) bool {
+	if sizeBytes < 0 {
+		panic("network: packet size must not be negative")
+	}
+	if onArrival == nil {
+		panic("network: arrival callback must not be nil")
+	}
+	if !l.Ready() {
+		return false
+	}
+
+	packet := transmission{
+		sizeBytes: sizeBytes,
+		duration:  serializationDuration(sizeBytes, l.config.BandwidthBitsPerSecond),
+		onArrival: onArrival,
+	}
+
+	l.stats.OfferedPackets++
+	l.stats.OfferedBytes += uint64(sizeBytes)
+	l.stats.AcceptedPackets++
+	l.stats.AcceptedBytes += uint64(sizeBytes)
+	l.start(packet)
+
+	return true
+}
+
+// useExternalQueue gives a fresh link to one manager without notifying it yet.
+func (l *Link) useExternalQueue(onReady func()) {
+	if onReady == nil {
+		panic("network: readiness callback must not be nil")
+	}
+	if l.onReady != nil {
+		panic("network: link already has an external queue")
+	}
+
+	hasTraffic := l.stats.OfferedPackets != 0 || l.transmitting || l.queued() != 0 || l.travelling != 0
+	if hasTraffic {
+		panic("network: external queue requires a fresh link")
+	}
+
+	l.onReady = onReady
+}
+
 // Config returns a value copy of this directed link's own configuration.
 func (l *Link) Config() Config {
 	return l.config
 }
 
+// Stats returns copied counters and the current physical link state.
 func (l *Link) Stats() Stats {
 	stats := l.stats
 	stats.QueuedPackets = l.queued()
@@ -122,10 +185,12 @@ func (l *Link) Stats() Stats {
 	return stats
 }
 
+// queued excludes consumed slots retained at the front of the slice.
 func (l *Link) queued() int {
 	return len(l.queue) - l.queueHead
 }
 
+// start releases the transmitter after serialization, before travel completes.
 func (l *Link) start(packet transmission) {
 	l.transmitting = true
 	l.engine.ScheduleAfter(packet.duration, func() {
@@ -152,14 +217,17 @@ func (l *Link) start(packet transmission) {
 			})
 		}
 
-		// Start the next transmission while earlier packets may still be in flight.
-		if l.queued() > 0 {
+		// A manager owns the waiting queue; autonomous links keep their own FIFO.
+		if l.onReady != nil {
+			l.onReady()
+		} else if l.queued() > 0 {
 			nextPacket := l.pop()
 			l.start(nextPacket)
 		}
 	})
 }
 
+// pop releases one waiting packet and occasionally compacts the queue.
 func (l *Link) pop() transmission {
 	const minConsumedSlots = 1024
 
@@ -188,6 +256,7 @@ func (l *Link) pop() transmission {
 	return packet
 }
 
+// transmission freezes one packet's cost and delivery callback while queued.
 type transmission struct {
 	sizeBytes int
 	duration  time.Duration

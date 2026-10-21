@@ -153,10 +153,16 @@ values across JavaScript and Go; it must not round them through JavaScript numbe
 - `simulator/engine/engine.go` owns one global event queue ordered by virtual
   nanoseconds and increasing event ID. Cancellation removes timers from the heap.
   No model event is scheduled after the experiment's end time.
-- `simulator/network/link.go` models directed FIFO links: one transmission at a
-  time, a finite waiting queue, packet travel time and seeded loss. A packet consumes
-  bandwidth even when random loss suppresses delivery. Queue capacity excludes
-  the active transmission and packets already travelling.
+- `simulator/network/link.go` models directed links: one transmission at a time,
+  packet travel time and seeded loss. Incoming links own a finite FIFO. A packet
+  consumes bandwidth even when random loss suppresses delivery. Queue capacity
+  excludes the active transmission and packets already travelling.
+- `simulator/network/egress.go` owns the LB's outgoing FIFO queues, one per
+  destination link. It starts the oldest queued packet among ready outputs;
+  busy links do not block other destinations. Managed links have no second
+  waiting queue. Readiness follows transmission completion, without waiting for
+  the packet to arrive. Reports and topology include the managed queue's counters.
+  The LB has no shared forwarding rate limit yet; each link enforces its own rate.
 - `client/`, `server/` and `balancer/` use short packet handlers and scheduled
   callbacks. Connections coexist as state objects. There is no waiting goroutine
   or channel per client, connection or backend.

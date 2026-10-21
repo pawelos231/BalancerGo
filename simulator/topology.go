@@ -72,7 +72,7 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 			continue
 		}
 		config := link.Link.Config()
-		stats := link.Link.Stats()
+		stats := link.Stats()
 		graph.Links = append(graph.Links, model.TopologyLink{
 			ID: link.ID, Label: link.Name, Source: link.Source, Target: link.Target,
 			Config: model.TopologyLinkConfig{

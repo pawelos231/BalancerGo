@@ -21,80 +21,156 @@ import (
 // Application wiring and optional wall-clock pacing live outside the engine.
 // A simulation and every endpoint/link it creates have one owner: run's caller.
 type simulation struct {
-	config                                                            configuration
-	engine                                                            *engine.Engine
-	lb                                                                *balancer.LoadBalancer
-	publishState                                                      func() error
-	commandHandled                                                    func(error)
-	uplink, downlink                                                  *network.Link
-	links                                                             []namedLink
-	algorithmRNG                                                      *rand.Rand
-	scheduledClients, createdClients, completedStreams, closedClients int
-	completedPayloadBytes                                             uint64
+	config       configuration
+	engine       *engine.Engine
+	lb           *balancer.LoadBalancer
+	algorithmRNG *rand.Rand
+
+	egress   *network.Egress
+	uplink   *network.Link
+	downlink *network.Output
+	links    []namedLink
+
+	publishState   func() error
+	commandHandled func(error)
+
+	scheduledClients      int
+	createdClients        int
+	completedStreams      int
+	closedClients         int
+	completedPayloadBytes uint64
 }
 
+// namedLink adds topology labels to a physical link and its optional LB output.
+// Managed outputs supply queue counters; incoming links keep their own FIFO.
 type namedLink struct {
 	ID     string
 	Name   string
 	Source string
 	Target string
 	Link   *network.Link
+	Output *network.Output
 }
 
+// Stats includes the queue owned by the LB when this is an outgoing link.
+func (link namedLink) Stats() network.Stats {
+	if link.Output != nil {
+		return link.Output.Stats()
+	}
+	return link.Link.Stats()
+}
+
+// newSimulation connects the endpoints and schedules the first model events.
 func newSimulation(cfg configuration) *simulation {
 	e := engine.New(cfg.duration)
 	e.MaxEvents = cfg.maxEvents
-	s := &simulation{config: cfg, engine: e, algorithmRNG: rand.New(rand.NewSource(cfg.seed + 2))}
+
+	s := &simulation{
+		config:       cfg,
+		engine:       e,
+		algorithmRNG: rand.New(rand.NewSource(cfg.seed + 2)),
+	}
+
+	// Backend selection and packet forwarding use separate random sources.
 	var algo algorithms.Algorithm = &algorithms.RoundRobin{}
 	if cfg.algorithm == "random" {
 		algo = &algorithms.Random{RNG: s.algorithmRNG}
 	}
-	s.lb = balancer.NewLoadBalancer(e, model.LBModeNAT, algo, cfg.snapshotInterval, rand.New(rand.NewSource(cfg.seed+1)))
-	// All clients share the access link in each direction. Each backend has its
-	// own pair of links; this does not give every client a separate full NIC.
+
+	balancerRNG := rand.New(rand.NewSource(cfg.seed + 1))
+	s.lb = balancer.NewLoadBalancer(
+		e,
+		model.LBModeNAT,
+		algo,
+		cfg.snapshotInterval,
+		balancerRNG,
+	)
+	s.egress = network.NewEgress(e)
+
+	// Clients currently share one link in each direction.
 	s.uplink = s.addLink("clients -> LB", "clients", "lb")
-	s.downlink = s.addLink("LB -> clients", "lb", "clients")
+	s.downlink = s.addOutput("LB -> clients", "lb", "clients")
+
 	for i := 0; i < cfg.servers; i++ {
-		srv := server.NewServer(e, fmt.Sprintf("srv-%02d", i), fmt.Sprintf("backend-%02d", i),
-			fmt.Sprintf("10.0.%d.%d", i/254, i%254+1), 80, 0, 1, 100)
-		outward := s.addLink("LB -> "+srv.ID, "lb", srv.ID)
-		returning := s.addLink(srv.ID+" -> LB", srv.ID, "lb")
+		// Give each backend a stable identity and address.
+		serverID := fmt.Sprintf("srv-%02d", i)
+		serverName := fmt.Sprintf("backend-%02d", i)
+		serverAddress := fmt.Sprintf("10.0.%d.%d", i/254, i%254+1)
+
+		srv := server.NewServer(
+			e,
+			serverID,
+			serverName,
+			serverAddress,
+			80,  // Port.
+			0,   // Distance.
+			1,   // Initial weight.
+			100, // Half-open connection limit.
+		)
+
+		// The LB owns the outgoing FIFO; the return link owns its own queue.
+		toBackend := s.addOutput("LB -> "+srv.ID, "lb", srv.ID)
+		toBalancer := s.addLink(srv.ID+" -> LB", srv.ID, "lb")
+
+		// Backend -> LB: ignore arrivals for clients that have already closed.
 		srv.SetSender(func(pkt model.Packet) {
-			cl := s.lb.GetClient(pkt.Key)
-			returning.Transmit(pkt.WireSize(), func() {
-				if s.lb.HasClient(cl) {
+			client := s.lb.GetClient(pkt.Key)
+
+			toBalancer.Transmit(pkt.WireSize(), func() {
+				if s.lb.HasClient(client) {
 					s.lb.HandleServerPacket(srv, pkt)
 				}
 			})
 		})
+
+		// LB -> backend: queue the packet and deliver it if its client is still active.
 		err := s.lb.AddServer(srv, func(pkt model.Packet) {
-			cl := s.lb.GetClient(pkt.Key)
-			outward.Transmit(pkt.WireSize(), func() {
-				if s.lb.HasClient(cl) {
+			client := s.lb.GetClient(pkt.Key)
+
+			toBackend.Transmit(pkt.WireSize(), func() {
+				if s.lb.HasClient(client) {
 					srv.HandlePacket(pkt)
 				}
 			})
 		})
 		if err != nil {
 			panic(err)
-		} // IDs and sender functions are constructed here.
+		}
+
 		srv.Start()
 	}
+
+	// Schedule client arrivals and the first snapshot at virtual time zero.
 	s.scheduleClients(cfg.clients)
 	e.ScheduleAt(0, s.sample)
+
 	return s
 }
 
+// addLink creates an autonomous link with stable labels and a seeded RNG.
 func (s *simulation) addLink(name, source, target string) *network.Link {
 	link := network.NewLink(s.engine, network.Config{
-		BandwidthBitsPerSecond: s.config.bandwidth, PacketTravelTime: s.config.packetTravelTime,
-		QueueCapacity: s.config.queue, LossRate: s.config.loss,
+		BandwidthBitsPerSecond: s.config.bandwidth,
+		PacketTravelTime:       s.config.packetTravelTime,
+		QueueCapacity:          s.config.queue,
+		LossRate:               s.config.loss,
 	}, rand.New(rand.NewSource(s.config.seed+100+int64(len(s.links)))))
 	s.links = append(s.links, namedLink{
-		ID: fmt.Sprintf("link-%03d", len(s.links)), Name: name,
-		Source: source, Target: target, Link: link,
+		ID:     fmt.Sprintf("link-%03d", len(s.links)),
+		Name:   name,
+		Source: source,
+		Target: target,
+		Link:   link,
 	})
 	return link
+}
+
+// addOutput gives the LB exclusive ownership of this outgoing link's FIFO.
+func (s *simulation) addOutput(name, source, target string) *network.Output {
+	link := s.addLink(name, source, target)
+	output := s.egress.AddOutput(link)
+	s.links[len(s.links)-1].Output = output
+	return output
 }
 
 func (s *simulation) scheduleClients(count int) {
@@ -284,7 +360,7 @@ type simulationResult struct {
 func (s *simulation) result(elapsed time.Duration) simulationResult {
 	links := make([]linkResult, 0, len(s.links))
 	for _, link := range s.links {
-		links = append(links, linkResult{Name: link.Name, Stats: link.Link.Stats()})
+		links = append(links, linkResult{Name: link.Name, Stats: link.Stats()})
 	}
 	return simulationResult{
 		VirtualTime: s.engine.Now().String(), WallTime: elapsed.String(), Seed: s.config.seed,
