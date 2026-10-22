@@ -36,6 +36,7 @@ func exampleScenario() Scenario {
 			LoadBalancer: LoadBalancerConfig{
 				ID:                      "lb",
 				Algorithm:               "roundRobin",
+				Ingress:                 DefaultIngressConfig(),
 				ForwardingBitsPerSecond: 1_000_000_000,
 			},
 
@@ -367,6 +368,7 @@ func TestZeroAndLargeNativeValuesRemainValid(t *testing.T) {
 	input.Network.Defaults.PacketTravelTime = 0
 	input.Network.Defaults.QueueCapacity = 0
 	input.Resources.LoadBalancer.ForwardingBitsPerSecond = math.MaxInt64
+	input.Resources.LoadBalancer.Ingress = LinkConfig{BandwidthBitsPerSecond: math.MaxInt64}
 
 	input.Workload.Defaults = StreamConfig{
 		Packets: math.MaxInt,
@@ -839,6 +841,7 @@ func TestNativeJSONRoundTripRetainsNanosecondsAndFullWidthIntegers(t *testing.T)
 	input.Execution.Seed = math.MinInt64
 	input.Execution.MaxEvents = math.MaxUint64
 	input.Network.Defaults.PacketTravelTime = 123456789
+	input.Resources.LoadBalancer.Ingress.PacketTravelTime = time.Duration(1<<53 + 3)
 
 	group := &input.Workload.ClientGroups[0]
 	group.Network.ToLoadBalancer.QueueCapacity = pointer(0)
@@ -866,5 +869,120 @@ func TestNativeJSONRoundTripRetainsNanosecondsAndFullWidthIntegers(t *testing.T)
 	// The restored document must still satisfy all configuration rules.
 	if _, err := Normalize(restored); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestDefaultIngressConfigReturnsIndependentValues fixes the shared Go defaults.
+func TestDefaultIngressConfigReturnsIndependentValues(t *testing.T) {
+	want := LinkConfig{
+		BandwidthBitsPerSecond: 1_000_000_000,
+		QueueCapacity:          1024,
+	}
+	first := DefaultIngressConfig()
+	if first != want {
+		t.Fatalf("unexpected shared ingress defaults: %+v", first)
+	}
+	first.QueueCapacity = 0
+	if DefaultIngressConfig() != want {
+		t.Fatal("changing one default configuration changed later callers")
+	}
+}
+
+// TestIngressDoesNotInheritEndpointProfiles checks the complete shared input config.
+func TestIngressDoesNotInheritEndpointProfiles(t *testing.T) {
+	input := exampleScenario()
+	input.Resources.LoadBalancer.Ingress = LinkConfig{
+		BandwidthBitsPerSecond: 300_000_000,
+		PacketTravelTime:       13 * time.Nanosecond,
+		QueueCapacity:          0,
+		LossRate:               1,
+	}
+	input.Network.Profiles = []LinkProfile{
+		{
+			ID: "endpoint",
+			Config: LinkPatch{
+				BandwidthBitsPerSecond: pointer[int64](200_000_000),
+				PacketTravelTime:       pointer(7 * time.Nanosecond),
+			},
+		},
+	}
+	input.Resources.Backends[0].Network.Profile = "endpoint"
+	input.Workload.ClientGroups[0].Network.Profile = "endpoint"
+	resolved, err := Normalize(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.LoadBalancer.Ingress != input.Resources.LoadBalancer.Ingress {
+		t.Fatal("endpoint defaults or profiles changed the shared input")
+	}
+	if resolved.Backends[0].Network.ToLoadBalancer.BandwidthBitsPerSecond != 200_000_000 {
+		t.Fatal("the independent endpoint profile was not applied")
+	}
+	input.Resources.LoadBalancer.Ingress.LossRate = 0
+	if resolved.LoadBalancer.Ingress.LossRate != 1 {
+		t.Fatal("normalized ingress aliases the input configuration")
+	}
+}
+
+// TestIngressValidationRequiresACompleteLink also validates scenarios with no endpoints.
+func TestIngressValidationRequiresACompleteLink(t *testing.T) {
+	cases := []struct {
+		name   string
+		change func(*LinkConfig)
+		field  string
+	}{
+		{
+			name:   "missing ingress",
+			change: func(config *LinkConfig) { *config = LinkConfig{} },
+			field:  "bandwidthBitsPerSecond",
+		},
+		{
+			name:   "negative bandwidth",
+			change: func(config *LinkConfig) { config.BandwidthBitsPerSecond = -1 },
+			field:  "bandwidthBitsPerSecond",
+		},
+		{
+			name:   "negative travel",
+			change: func(config *LinkConfig) { config.PacketTravelTime = -1 },
+			field:  "packetTravelTimeNanoseconds",
+		},
+		{
+			name:   "negative queue",
+			change: func(config *LinkConfig) { config.QueueCapacity = -1 },
+			field:  "queueCapacity",
+		},
+		{
+			name:   "negative loss",
+			change: func(config *LinkConfig) { config.LossRate = -0.1 },
+			field:  "lossRate",
+		},
+		{
+			name:   "high loss",
+			change: func(config *LinkConfig) { config.LossRate = 1.1 },
+			field:  "lossRate",
+		},
+		{
+			name:   "NaN loss",
+			change: func(config *LinkConfig) { config.LossRate = math.NaN() },
+			field:  "lossRate",
+		},
+		{
+			name:   "infinite loss",
+			change: func(config *LinkConfig) { config.LossRate = math.Inf(1) },
+			field:  "lossRate",
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			input := exampleScenario()
+			input.Resources.Backends = nil
+			input.Workload.ClientGroups = nil
+			test.change(&input.Resources.LoadBalancer.Ingress)
+			_, err := Normalize(input)
+			path := "resources.loadBalancer.ingress." + test.field
+			if err == nil || !strings.Contains(err.Error(), path) {
+				t.Fatalf("expected ingress validation error for %s, got %v", path, err)
+			}
+		})
 	}
 }

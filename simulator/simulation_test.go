@@ -27,6 +27,9 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 			cfg := legacyTestConfiguration()
 			cfg.clients = 0
 			cfg.bandwidth = 8_000
+			cfg.ingress.BandwidthBitsPerSecond = cfg.bandwidth
+			cfg.ingress.PacketTravelTime = cfg.packetTravelTime
+			cfg.ingress.QueueCapacity = test.capacity
 			cfg.forwardingBitsPerSecond = math.MaxInt64
 			cfg.queue = test.capacity
 			cfg.duration = 5 * time.Millisecond
@@ -98,12 +101,14 @@ func TestSimulationSharesForwardingBudget(t *testing.T) {
 	cfg.clients = 0
 	cfg.servers = 1
 	cfg.bandwidth = 8_000
+	cfg.ingress.BandwidthBitsPerSecond = cfg.bandwidth
+	cfg.ingress.PacketTravelTime = cfg.packetTravelTime
 	cfg.forwardingBitsPerSecond = 8_000
 	cfg.queue = 1
 	cfg.duration = 4 * time.Millisecond
 	s := newSimulation(cfg)
 
-	// Both incoming paths transmit independently of the LB's shared budget.
+	// Physical input links do not consume the LB's output forwarding budget.
 	arrivals := make(map[string]time.Duration)
 	for _, link := range s.links {
 		transmit := link.Link.Transmit
@@ -146,10 +151,11 @@ func TestSimulationSharesForwardingBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantArrivals := map[string]time.Duration{
-		"clients -> LB": 2 * time.Millisecond,
-		"LB -> clients": 2 * time.Millisecond,
-		"LB -> srv-00":  3 * time.Millisecond,
-		"srv-00 -> LB":  2 * time.Millisecond,
+		"clients -> upstream": 2 * time.Millisecond,
+		"LB -> clients":       2 * time.Millisecond,
+		"LB -> srv-00":        3 * time.Millisecond,
+		"srv-00 -> upstream":  2 * time.Millisecond,
+		"upstream -> LB":      2 * time.Millisecond,
 	}
 	if !reflect.DeepEqual(arrivals, wantArrivals) {
 		t.Fatalf("arrivals = %v, want %v", arrivals, wantArrivals)
@@ -258,9 +264,14 @@ func assertSimulationLinkSnapshots(t *testing.T, s *simulation, want network.Sta
 		Transmitting:        want.Transmitting,
 		TravellingPackets:   want.TravellingPackets,
 		OfferedPackets:      want.OfferedPackets,
+		OfferedBytes:        want.OfferedBytes,
+		AcceptedPackets:     want.AcceptedPackets,
+		AcceptedBytes:       want.AcceptedBytes,
 		DeliveredPackets:    want.DeliveredPackets,
 		QueueDroppedPackets: want.QueueDroppedPackets,
+		QueueDroppedBytes:   want.QueueDroppedBytes,
 		LostPackets:         want.LostPackets,
+		LostBytes:           want.LostBytes,
 		DeliveredBytes:      want.DeliveredBytes,
 	}
 	for i, link := range s.links {

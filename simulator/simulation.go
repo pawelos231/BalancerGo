@@ -27,6 +27,7 @@ type simulation struct {
 	algorithmRNG *rand.Rand
 
 	egress   *network.Egress
+	ingress  *network.Link
 	uplink   *network.Link
 	downlink *network.Output
 	links    []namedLink
@@ -87,8 +88,8 @@ func newSimulation(cfg configuration) *simulation {
 	)
 	s.egress = network.NewEgress(e, cfg.forwardingBitsPerSecond)
 
-	// Clients currently share one link in each direction.
-	s.uplink = s.addLink("clients -> LB", "clients", "lb")
+	// Client traffic reaches the upstream aggregator before the shared LB input.
+	s.uplink = s.addLink("clients -> upstream", "clients", "upstream")
 	s.downlink = s.addOutput("LB -> clients", "lb", "clients")
 
 	for i := 0; i < cfg.servers; i++ {
@@ -110,16 +111,18 @@ func newSimulation(cfg configuration) *simulation {
 
 		// The LB owns the outgoing FIFO; the return link owns its own queue.
 		toBackend := s.addOutput("LB -> "+srv.ID, "lb", srv.ID)
-		toBalancer := s.addLink(srv.ID+" -> LB", srv.ID, "lb")
+		toIngress := s.addLink(srv.ID+" -> upstream", srv.ID, "upstream")
 
-		// Backend -> LB: ignore arrivals for clients that have already closed.
+		// Backend -> upstream -> LB: both input directions share the final link.
 		srv.SetSender(func(pkt model.Packet) {
 			client := s.lb.GetClient(pkt.Key)
 
-			toBalancer.Transmit(pkt.WireSize(), func() {
-				if s.lb.HasClient(client) {
-					s.lb.HandleServerPacket(srv, pkt)
-				}
+			toIngress.Transmit(pkt.WireSize(), func() {
+				s.ingress.Transmit(pkt.WireSize(), func() {
+					if s.lb.HasClient(client) {
+						s.lb.HandleServerPacket(srv, pkt)
+					}
+				})
 			})
 		})
 
@@ -140,11 +143,38 @@ func newSimulation(cfg configuration) *simulation {
 		srv.Start()
 	}
 
+	// Add the shared input after existing links to keep their IDs and RNGs stable.
+	s.ingress = s.addIngress()
+
 	// Schedule client arrivals and the first snapshot at virtual time zero.
 	s.scheduleClients(cfg.clients)
 	e.ScheduleAt(0, s.sample)
 
 	return s
+}
+
+// addIngress creates the shared physical path from upstream to the LB.
+// Its FIFO holds arriving packets before either LB packet handler can run.
+func (s *simulation) addIngress() *network.Link {
+	config := s.config.ingress
+	linkConfig := network.Config{
+		BandwidthBitsPerSecond: config.BandwidthBitsPerSecond,
+		PacketTravelTime:       config.PacketTravelTime,
+		QueueCapacity:          config.QueueCapacity,
+		LossRate:               config.LossRate,
+	}
+
+	// The ingress has its own random source, independent of the backend count.
+	rng := rand.New(rand.NewSource(s.config.seed + 3))
+	link := network.NewLink(s.engine, linkConfig, rng)
+	s.links = append(s.links, namedLink{
+		ID:     "link-ingress",
+		Name:   "upstream -> LB",
+		Source: "upstream",
+		Target: "lb",
+		Link:   link,
+	})
+	return link
 }
 
 // addLink creates an autonomous link with stable labels and a seeded RNG.
@@ -198,10 +228,13 @@ func (s *simulation) startClient() {
 		fmt.Sprintf("192.%d.%d.%d", byte(id>>16), byte(id>>8), byte(id)),
 		uint16(40000+id%20000), "lb.local", 80, model.TCP)
 	cl.SetSender(func(pkt model.Packet) {
+		// Access-link arrival joins the shared input FIFO, before LB processing.
 		s.uplink.Transmit(pkt.WireSize(), func() {
-			if s.lb.HasClient(cl) {
-				s.lb.HandleClientPacket(pkt)
-			}
+			s.ingress.Transmit(pkt.WireSize(), func() {
+				if s.lb.HasClient(cl) {
+					s.lb.HandleClientPacket(pkt)
+				}
+			})
 		})
 	})
 	cl.OnStreamComplete = func() {
@@ -341,7 +374,8 @@ func (s *simulation) advance(ctx context.Context, until time.Duration) error {
 }
 
 type linkResult struct {
-	Name string
+	Name   string
+	Config network.Config
 	network.Stats
 }
 
@@ -361,6 +395,7 @@ type simulationResult struct {
 
 	EventsExecuted uint64
 	PendingEvents  int
+	Ingress        linkResult
 	Forwarding     network.ForwardingStats
 	Links          []linkResult
 	State          model.LoadBalancerState
@@ -370,8 +405,9 @@ func (s *simulation) result(elapsed time.Duration) simulationResult {
 	links := make([]linkResult, 0, len(s.links))
 	for _, link := range s.links {
 		links = append(links, linkResult{
-			Name:  link.Name,
-			Stats: link.Stats(),
+			Name:   link.Name,
+			Config: link.Link.Config(),
+			Stats:  link.Stats(),
 		})
 	}
 
@@ -389,8 +425,13 @@ func (s *simulation) result(elapsed time.Duration) simulationResult {
 
 		EventsExecuted: s.engine.EventsExecuted(),
 		PendingEvents:  s.engine.Pending(),
-		Forwarding:     s.egress.Stats(),
-		Links:          links,
-		State:          s.lb.Tick(),
+		Ingress: linkResult{
+			Name:   "upstream -> LB",
+			Config: s.ingress.Config(),
+			Stats:  s.ingress.Stats(),
+		},
+		Forwarding: s.egress.Stats(),
+		Links:      links,
+		State:      s.lb.Tick(),
 	}
 }

@@ -77,13 +77,14 @@ type ResourcesConfig struct {
 	Backends     []BackendConfig    `json:"backends"`
 }
 
-// LoadBalancerConfig describes backend selection and the shared forwarding limit.
-// The same limit covers packets sent to both clients and backends.
+// LoadBalancerConfig separates the shared input from backend selection and forwarding.
+// Ingress has its own link settings; the forwarding limit covers both output directions.
 type LoadBalancerConfig struct {
-	ID                      string `json:"id"`
-	Algorithm               string `json:"algorithm"`
-	ForwardingBitsPerSecond int64  `json:"forwardingBitsPerSecond"`
-	QueueCapacity           int    `json:"queueCapacity"` // Waiting packets per output branch.
+	ID                      string     `json:"id"`
+	Algorithm               string     `json:"algorithm"`
+	Ingress                 LinkConfig `json:"ingress"`
+	ForwardingBitsPerSecond int64      `json:"forwardingBitsPerSecond"`
+	QueueCapacity           int        `json:"queueCapacity"` // Waiting packets per output branch.
 }
 
 // BackendConfig identifies one server and its network settings.

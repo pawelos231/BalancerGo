@@ -199,25 +199,46 @@ function LinkDetails({ link, nodeLabels, running }: LinkDetailsProps) {
       <Stack component="dl" spacing={1.25} sx={{ m: 0 }}>
         <Fact label="Offered packets" value={formatNumber(stats.offeredPackets)} />
         <Fact
+          label="Offered bytes"
+          value={formatBytes(stats.offeredBytes)}
+        />
+        <Fact
+          label="Accepted packets"
+          value={formatNumber(stats.acceptedPackets)}
+        />
+        <Fact
+          label="Accepted bytes"
+          value={formatBytes(stats.acceptedBytes)}
+        />
+        <Fact
+          label="Queue drops"
+          value={formatNumber(stats.queueDroppedPackets)}
+        />
+        <Fact
+          label="Queue-dropped bytes"
+          value={formatBytes(stats.queueDroppedBytes)}
+        />
+        <Fact
+          label="Link losses"
+          value={formatNumber(stats.lostPackets)}
+        />
+        <Fact
+          label="Lost bytes"
+          value={formatBytes(stats.lostBytes)}
+        />
+        <Fact
           label="Delivered packets"
           value={formatNumber(stats.deliveredPackets)}
         />
         <Fact
-          label="Delivered wire bytes"
+          label="Delivered bytes"
           value={formatBytes(stats.deliveredBytes)}
-        />
-        <Fact
-          label="Queue drops (total)"
-          value={formatNumber(stats.queueDroppedPackets)}
-        />
-        <Fact
-          label="Link losses (total)"
-          value={formatNumber(stats.lostPackets)}
         />
       </Stack>
       <Typography variant="caption" color="text.secondary">
+        Accepted packets may still be waiting, transmitting or travelling.
         Delivered packets and bytes count arrival at the end of this link.
-        Wire bytes include modeled protocol headers.
+        All byte totals include modeled protocol headers.
       </Typography>
     </>
   );

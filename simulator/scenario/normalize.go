@@ -166,7 +166,7 @@ func validateExecution(config ExecutionConfig) error {
 	return nil
 }
 
-// validateLoadBalancer checks the balancer ID, selection algorithm and output limits.
+// validateLoadBalancer checks selection, forwarding and the independent input link.
 func validateLoadBalancer(config LoadBalancerConfig) error {
 	if err := validateID(config.ID, "resources.loadBalancer.id"); err != nil {
 		return err
@@ -185,7 +185,7 @@ func validateLoadBalancer(config LoadBalancerConfig) error {
 		return fmt.Errorf("resources.loadBalancer.queueCapacity: must be nonnegative")
 	}
 
-	return nil
+	return validateLink(config.Ingress, "resources.loadBalancer.ingress")
 }
 
 // validateLink checks one direction's speed, travel time, queue size and loss.

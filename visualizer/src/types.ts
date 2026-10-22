@@ -71,6 +71,10 @@ export interface SimulationConfig {
   snapshotIntervalMs: number;
   bandwidthBitsPerSecond: number;
   forwardingBitsPerSecond: number;
+  ingressBandwidthBitsPerSecond: number;
+  ingressPacketTravelTimeMs: number;
+  ingressQueueCapacity: number;
+  ingressLoss: number;
   packetTravelTimeMs: number;
   linkQueue: number;
   loss: number;

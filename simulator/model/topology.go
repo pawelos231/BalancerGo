@@ -8,9 +8,10 @@ type Topology struct {
 }
 
 const (
-	TopologyNodeClientGroup  = "clientGroup"
-	TopologyNodeLoadBalancer = "loadBalancer"
-	TopologyNodeBackend      = "backend"
+	TopologyNodeClientGroup       = "clientGroup"
+	TopologyNodeLoadBalancer      = "loadBalancer"
+	TopologyNodeBackend           = "backend"
+	TopologyNodeNetworkAggregator = "networkAggregator"
 )
 
 // Kind remains an open string so additional node types can use the same graph
@@ -53,8 +54,13 @@ type TopologyLinkStats struct {
 	Transmitting        bool   `json:"transmitting"`
 	TravellingPackets   int    `json:"travellingPackets"`
 	OfferedPackets      uint64 `json:"offeredPackets"`
+	OfferedBytes        uint64 `json:"offeredBytes"`
+	AcceptedPackets     uint64 `json:"acceptedPackets"`
+	AcceptedBytes       uint64 `json:"acceptedBytes"`
 	DeliveredPackets    uint64 `json:"deliveredPackets"`
 	QueueDroppedPackets uint64 `json:"queueDroppedPackets"`
+	QueueDroppedBytes   uint64 `json:"queueDroppedBytes"`
 	LostPackets         uint64 `json:"lostPackets"`
+	LostBytes           uint64 `json:"lostBytes"`
 	DeliveredBytes      uint64 `json:"deliveredBytes"`
 }

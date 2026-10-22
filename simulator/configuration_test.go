@@ -2,12 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"math"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"load-balancer/model"
+	"load-balancer/scenario"
 )
 
 func legacyTestConfiguration() configuration {
@@ -22,6 +25,7 @@ func legacyTestConfiguration() configuration {
 		bandwidth:               1_000_000_000,
 		forwardingBitsPerSecond: 1_000_000_000,
 		queue:                   1024,
+		ingress:                 scenario.DefaultIngressConfig(),
 		seed:                    1,
 		algorithm:               "roundRobin",
 		maxEvents:               100_000,
@@ -183,6 +187,7 @@ func TestScenarioAdapterPreservesExactDurations(t *testing.T) {
 	cfg.clientGap = 3 * time.Nanosecond
 	cfg.packetGap = 5 * time.Nanosecond
 	cfg.packetTravelTime = 11 * time.Nanosecond
+	cfg.ingress.PacketTravelTime = 13 * time.Nanosecond
 
 	runtime, err := cfg.normalized()
 	if err != nil {
@@ -203,6 +208,9 @@ func TestScenarioAdapterPreservesExactDurations(t *testing.T) {
 	}
 	if definition.Network.Defaults.PacketTravelTime != cfg.packetTravelTime {
 		t.Fatal("packet travel time changed")
+	}
+	if definition.Resources.LoadBalancer.Ingress.PacketTravelTime != cfg.ingress.PacketTravelTime {
+		t.Fatal("shared ingress travel time lost nanosecond precision")
 	}
 }
 
@@ -298,4 +306,188 @@ func TestConfigurationKeepsSimplifiedTransportLimits(t *testing.T) {
 	if _, err := cfg.normalized(); err == nil {
 		t.Fatal("negative packet count accepted with explicit payload size")
 	}
+}
+
+// TestConfigurationIngressRoundTrip keeps shared input settings separate from outputs.
+func TestConfigurationIngressRoundTrip(t *testing.T) {
+	cfg := legacyTestConfiguration()
+	cfg.bandwidth = 125_000_000
+	cfg.forwardingBitsPerSecond = 750_000_000
+	cfg.ingress = scenario.LinkConfig{
+		BandwidthBitsPerSecond: 500_000_000,
+		PacketTravelTime:       1250 * time.Microsecond,
+		QueueCapacity:          9,
+		LossRate:               0.25,
+	}
+	requested := cfg.publicConfig()
+	data, err := json.Marshal(requested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{
+		"ingressBandwidthBitsPerSecond",
+		"ingressPacketTravelTimeMs",
+		"ingressQueueCapacity",
+		"ingressLoss",
+	} {
+		if !strings.Contains(string(data), `"`+field+`":`) {
+			t.Fatalf("public configuration omitted JSON field %q", field)
+		}
+	}
+	var restored simulationConfig
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := restored.configuration(legacyTestConfiguration())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.ingress != cfg.ingress {
+		t.Fatalf("shared ingress changed during the browser round trip: %+v", runtime.ingress)
+	}
+	definition := runtime.scenarioDefinition()
+	if definition.Resources.LoadBalancer.Ingress != cfg.ingress {
+		t.Fatal("scenario adapter lost the shared ingress settings")
+	}
+	if runtime.bandwidth != cfg.bandwidth || runtime.forwardingBitsPerSecond != cfg.forwardingBitsPerSecond {
+		t.Fatal("shared ingress mixed endpoint and forwarding bandwidth")
+	}
+}
+
+// TestConfigurationOmittedIngressFieldsKeepDefaults checks partial WebSocket requests.
+func TestConfigurationOmittedIngressFieldsKeepDefaults(t *testing.T) {
+	defaults := legacyTestConfiguration()
+	defaults.ingress = scenario.LinkConfig{
+		BandwidthBitsPerSecond: 300_000_000,
+		PacketTravelTime:       2 * time.Millisecond,
+		QueueCapacity:          7,
+		LossRate:               0.2,
+	}
+	requested := defaults.publicConfig()
+	input := `{"bandwidthBitsPerSecond":125000000,"forwardingBitsPerSecond":750000000}`
+	if err := json.Unmarshal([]byte(input), &requested); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := requested.configuration(defaults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.ingress != defaults.ingress {
+		t.Fatal("omitted ingress settings inherited an endpoint or forwarding limit")
+	}
+
+	// Explicit ingress zeros replace nonzero defaults without changing endpoint links.
+	requested = defaults.publicConfig()
+	input = `{
+		"ingressBandwidthBitsPerSecond":250000000,
+		"ingressPacketTravelTimeMs":0,
+		"ingressQueueCapacity":0,
+		"ingressLoss":0
+	}`
+	if err := json.Unmarshal([]byte(input), &requested); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err = requested.configuration(defaults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIngress := scenario.LinkConfig{BandwidthBitsPerSecond: 250_000_000}
+	if runtime.ingress != wantIngress {
+		t.Fatalf("explicit ingress zeros were replaced by defaults: %+v", runtime.ingress)
+	}
+	if runtime.bandwidth != defaults.bandwidth || runtime.forwardingBitsPerSecond != defaults.forwardingBitsPerSecond {
+		t.Fatal("ingress override changed other bandwidth limits")
+	}
+	if defaults.ingress.QueueCapacity != 7 || defaults.ingress.PacketTravelTime != 2*time.Millisecond {
+		t.Fatal("configuration overlay mutated the original defaults")
+	}
+}
+
+// TestConfigurationRejectsInvalidIngress checks explicit overrides instead of fallback.
+func TestConfigurationRejectsInvalidIngress(t *testing.T) {
+	cases := []struct {
+		input string
+		field string
+	}{
+		{input: `{"ingressBandwidthBitsPerSecond":0}`, field: "bandwidthBitsPerSecond"},
+		{input: `{"ingressBandwidthBitsPerSecond":-1}`, field: "bandwidthBitsPerSecond"},
+		{input: `{"ingressQueueCapacity":-1}`, field: "queueCapacity"},
+		{input: `{"ingressLoss":-0.1}`, field: "lossRate"},
+		{input: `{"ingressLoss":1.1}`, field: "lossRate"},
+	}
+	for _, test := range cases {
+		t.Run(test.input, func(t *testing.T) {
+			defaults := legacyTestConfiguration()
+			requested := defaults.publicConfig()
+			if err := json.Unmarshal([]byte(test.input), &requested); err != nil {
+				t.Fatal(err)
+			}
+			_, err := requested.configuration(defaults)
+			path := "resources.loadBalancer.ingress." + test.field
+			if err == nil || !strings.Contains(err.Error(), path) {
+				t.Fatalf("expected validation error for %s, got %v", path, err)
+			}
+		})
+	}
+}
+
+// TestConfigurationIngressTimeChecksBeforeConversion rejects unsafe float durations.
+func TestConfigurationIngressTimeChecksBeforeConversion(t *testing.T) {
+	values := []float64{-1, math.NaN(), math.Inf(1), math.MaxFloat64}
+	values = append(values, float64(math.MaxInt64)/float64(time.Millisecond))
+	for _, value := range values {
+		defaults := legacyTestConfiguration()
+		requested := defaults.publicConfig()
+		requested.IngressPacketTravelTimeMs = value
+		_, err := requested.configuration(defaults)
+		if err == nil || !strings.Contains(err.Error(), "ingressPacketTravelTimeMs") {
+			t.Errorf("unsafe ingress duration %v accepted or misidentified: %v", value, err)
+		}
+	}
+}
+
+// TestIngressCLIFlagsKeepIndependentDefaults checks the real flag parser and units.
+func TestIngressCLIFlagsKeepIndependentDefaults(t *testing.T) {
+	defaults, err := readTestConfiguration(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.ingress != scenario.DefaultIngressConfig() || defaults.streamBytes != -1 {
+		t.Fatal("CLI lost the common ingress defaults or raw byte sentinel")
+	}
+	cfg, err := readTestConfiguration(t,
+		"-bandwidth", "125000000",
+		"-lb-bandwidth", "750000000",
+		"-lb-ingress-bandwidth", "300000000",
+		"-lb-ingress-packet-travel-time", "13ns",
+		"-lb-ingress-queue", "9",
+		"-lb-ingress-loss", "0.25",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIngress := scenario.LinkConfig{
+		BandwidthBitsPerSecond: 300_000_000,
+		PacketTravelTime:       13 * time.Nanosecond,
+		QueueCapacity:          9,
+		LossRate:               0.25,
+	}
+	if cfg.ingress != wantIngress || cfg.bandwidth != 125_000_000 || cfg.forwardingBitsPerSecond != 750_000_000 {
+		t.Fatalf("CLI flags mixed shared ingress and output settings: %+v", cfg)
+	}
+	if _, err := readTestConfiguration(t, "-lb-ingress-bandwidth", "0"); err == nil {
+		t.Fatal("an explicit zero CLI ingress bandwidth used the default")
+	}
+}
+
+// readTestConfiguration isolates process-global flags for these sequential tests.
+func readTestConfiguration(t *testing.T, args ...string) (configuration, error) {
+	t.Helper()
+	previousFlags, previousArgs := flag.CommandLine, os.Args
+	defer func() {
+		flag.CommandLine, os.Args = previousFlags, previousArgs
+	}()
+	flag.CommandLine = flag.NewFlagSet("configuration-test", flag.ContinueOnError)
+	os.Args = append([]string{"configuration-test"}, args...)
+	return readConfiguration()
 }

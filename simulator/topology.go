@@ -12,18 +12,19 @@ import (
 // counters; it neither schedules events nor exposes live model references.
 func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 	forwarding := s.egress.Stats()
+	ingress := s.ingress.Stats()
 	routedConnections := 0
 	for _, backend := range state.Servers {
 		routedConnections += len(backend.Clients)
 	}
 	graph := model.Topology{
-		Nodes: make([]model.TopologyNode, 0, len(state.Servers)+2),
+		Nodes: make([]model.TopologyNode, 0, len(state.Servers)+3),
 		Links: make([]model.TopologyLink, 0, len(s.links)),
 	}
 	graph.Nodes = append(graph.Nodes,
 		model.TopologyNode{
 			ID: "clients", Kind: model.TopologyNodeClientGroup, Label: "Clients",
-			Description: "Clients share one outgoing and one incoming link to the load balancer.",
+			Description: "Clients share an access link to upstream and a return link from the load balancer.",
 			Metrics: []model.TopologyMetric{
 				{Key: "scheduledClients", Label: "Scheduled clients", Value: float64(s.scheduledClients), Unit: "clients"},
 				{Key: "createdClients", Label: "Created clients", Value: float64(s.createdClients), Unit: "clients"},
@@ -32,9 +33,53 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 			},
 		},
 		model.TopologyNode{
+			ID:          "upstream",
+			Kind:        model.TopologyNodeNetworkAggregator,
+			Label:       "Upstream aggregation",
+			Description: "Client and backend return traffic joins the FIFO before the shared physical LB input. This is an upstream network buffer.",
+			Metrics: []model.TopologyMetric{
+				{
+					Key:   "queuedPackets",
+					Label: "Packets waiting before LB",
+					Value: float64(ingress.QueuedPackets),
+					Unit:  "packets",
+				},
+				{
+					Key:   "queueDroppedPackets",
+					Label: "Queue drops before LB",
+					Value: float64(ingress.QueueDroppedPackets),
+					Unit:  "packets",
+				},
+				{
+					Key:   "queueDroppedBytes",
+					Label: "Bytes dropped before LB",
+					Value: float64(ingress.QueueDroppedBytes),
+					Unit:  "bytes",
+				},
+			},
+		},
+		model.TopologyNode{
 			ID: "lb", Kind: model.TopologyNodeLoadBalancer, Label: "Load balancer",
 			Description: "Assigns backends and shares one forwarding budget across packets sent to clients and backends.",
 			Metrics: []model.TopologyMetric{
+				{
+					Key:   "ingressBitsPerSecond",
+					Label: "Shared physical input bandwidth",
+					Value: float64(s.ingress.Config().BandwidthBitsPerSecond),
+					Unit:  "bit/s",
+				},
+				{
+					Key:   "ingressDeliveredPackets",
+					Label: "Packets delivered to LB",
+					Value: float64(ingress.DeliveredPackets),
+					Unit:  "packets",
+				},
+				{
+					Key:   "ingressDeliveredBytes",
+					Label: "Wire bytes delivered to LB",
+					Value: float64(ingress.DeliveredBytes),
+					Unit:  "bytes",
+				},
 				{
 					Key:   "backendCount",
 					Label: "Backends",
@@ -135,10 +180,19 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 				LossRate:               config.LossRate,
 			},
 			Stats: model.TopologyLinkStats{
-				QueuedPackets: stats.QueuedPackets, Transmitting: stats.Transmitting,
-				TravellingPackets: stats.TravellingPackets, OfferedPackets: stats.OfferedPackets,
-				DeliveredPackets: stats.DeliveredPackets, QueueDroppedPackets: stats.QueueDroppedPackets,
-				LostPackets: stats.LostPackets, DeliveredBytes: stats.DeliveredBytes,
+				QueuedPackets:       stats.QueuedPackets,
+				Transmitting:        stats.Transmitting,
+				TravellingPackets:   stats.TravellingPackets,
+				OfferedPackets:      stats.OfferedPackets,
+				OfferedBytes:        stats.OfferedBytes,
+				AcceptedPackets:     stats.AcceptedPackets,
+				AcceptedBytes:       stats.AcceptedBytes,
+				DeliveredPackets:    stats.DeliveredPackets,
+				DeliveredBytes:      stats.DeliveredBytes,
+				QueueDroppedPackets: stats.QueueDroppedPackets,
+				QueueDroppedBytes:   stats.QueueDroppedBytes,
+				LostPackets:         stats.LostPackets,
+				LostBytes:           stats.LostBytes,
 			},
 		})
 	}

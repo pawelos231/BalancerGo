@@ -5,8 +5,8 @@ import (
 	"load-balancer/scenario"
 )
 
-// scenarioDefinition maps existing settings to the new configuration model.
-// The current runtime still uses its shared client links.
+// scenarioDefinition maps CLI and browser settings to the scenario model.
+// Shared ingress, endpoint links and forwarding keep their independent settings.
 func (c configuration) scenarioDefinition() scenario.Scenario {
 	backends := make([]scenario.BackendConfig, c.servers)
 	for i := range backends {
@@ -39,6 +39,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 			LoadBalancer: scenario.LoadBalancerConfig{
 				ID:                      "lb",
 				Algorithm:               c.algorithm,
+				Ingress:                 c.ingress,
 				ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
 				QueueCapacity:           c.queue,
 			},

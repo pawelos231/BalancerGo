@@ -28,9 +28,14 @@ export interface TopologyLinkStats {
   transmitting: boolean;
   travellingPackets: number;
   offeredPackets: number;
-  deliveredPackets: number;
+  offeredBytes: number;
+  acceptedPackets: number;
+  acceptedBytes: number;
   queueDroppedPackets: number;
+  queueDroppedBytes: number;
   lostPackets: number;
+  lostBytes: number;
+  deliveredPackets: number;
   deliveredBytes: number;
 }
 

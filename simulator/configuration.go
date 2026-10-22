@@ -26,6 +26,7 @@ type configuration struct {
 	forwardingBitsPerSecond int64
 	queue                   int
 	loss                    float64
+	ingress                 scenario.LinkConfig
 
 	speed     float64
 	seed      int64
@@ -37,6 +38,7 @@ type configuration struct {
 
 func readConfiguration() (configuration, error) {
 	var c configuration
+	ingressDefaults := scenario.DefaultIngressConfig()
 	flag.IntVar(&c.clients, "clients", 200, "number of simulated clients")
 	flag.IntVar(&c.servers, "servers", 10, "number of backend servers (zero simulates no backends)")
 	flag.IntVar(&c.packets, "packets", 10000, "full payload segments per client")
@@ -55,6 +57,30 @@ func readConfiguration() (configuration, error) {
 	flag.DurationVar(&c.packetTravelTime, "packet-travel-time", time.Millisecond, "virtual packet travel time after transmission on each directed link")
 	flag.IntVar(&c.queue, "link-queue", 1024, "waiting packets per link, excluding its active transmission")
 	flag.Float64Var(&c.loss, "loss", 0, "independent packet loss probability on each link")
+	flag.Int64Var(
+		&c.ingress.BandwidthBitsPerSecond,
+		"lb-ingress-bandwidth",
+		ingressDefaults.BandwidthBitsPerSecond,
+		"shared load balancer ingress bandwidth in bits/s",
+	)
+	flag.DurationVar(
+		&c.ingress.PacketTravelTime,
+		"lb-ingress-packet-travel-time",
+		ingressDefaults.PacketTravelTime,
+		"virtual packet travel time after shared ingress transmission",
+	)
+	flag.IntVar(
+		&c.ingress.QueueCapacity,
+		"lb-ingress-queue",
+		ingressDefaults.QueueCapacity,
+		"waiting packets at the shared load balancer ingress",
+	)
+	flag.Float64Var(
+		&c.ingress.LossRate,
+		"lb-ingress-loss",
+		ingressDefaults.LossRate,
+		"independent packet loss probability at shared ingress",
+	)
 	flag.Int64Var(&c.seed, "seed", 1, "reproducible experiment seed")
 	flag.StringVar(&c.algorithm, "algorithm", "roundRobin", "roundRobin or random")
 	flag.Float64Var(&c.speed, "speed", 1, "virtual seconds per real second; 0 runs without pacing")
@@ -111,10 +137,16 @@ type simulationConfig struct {
 	PacketTravelTimeMs      float64 `json:"packetTravelTimeMs"`
 	LinkQueue               int     `json:"linkQueue"`
 	Loss                    float64 `json:"loss"`
-	Seed                    int64   `json:"seed"`
-	Algorithm               string  `json:"algorithm"`
-	Speed                   float64 `json:"speed"`
-	MaxEvents               uint64  `json:"maxEvents"`
+
+	IngressBandwidthBitsPerSecond int64   `json:"ingressBandwidthBitsPerSecond"`
+	IngressPacketTravelTimeMs     float64 `json:"ingressPacketTravelTimeMs"`
+	IngressQueueCapacity          int     `json:"ingressQueueCapacity"`
+	IngressLoss                   float64 `json:"ingressLoss"`
+
+	Seed      int64   `json:"seed"`
+	Algorithm string  `json:"algorithm"`
+	Speed     float64 `json:"speed"`
+	MaxEvents uint64  `json:"maxEvents"`
 }
 
 func (c configuration) publicConfig() simulationConfig {
@@ -132,10 +164,16 @@ func (c configuration) publicConfig() simulationConfig {
 		PacketTravelTimeMs:      float64(c.packetTravelTime) / float64(time.Millisecond),
 		LinkQueue:               c.queue,
 		Loss:                    c.loss,
-		Seed:                    c.seed,
-		Algorithm:               c.algorithm,
-		Speed:                   c.speed,
-		MaxEvents:               c.maxEvents,
+
+		IngressBandwidthBitsPerSecond: c.ingress.BandwidthBitsPerSecond,
+		IngressPacketTravelTimeMs:     float64(c.ingress.PacketTravelTime) / float64(time.Millisecond),
+		IngressQueueCapacity:          c.ingress.QueueCapacity,
+		IngressLoss:                   c.ingress.LossRate,
+
+		Seed:      c.seed,
+		Algorithm: c.algorithm,
+		Speed:     c.speed,
+		MaxEvents: c.maxEvents,
 	}
 }
 
@@ -148,6 +186,9 @@ func (c simulationConfig) configuration(base configuration) (configuration, erro
 	base.forwardingBitsPerSecond = c.ForwardingBitsPerSecond
 	base.loss, base.seed = c.Loss, c.Seed
 	base.algorithm, base.speed, base.maxEvents = c.Algorithm, c.Speed, c.MaxEvents
+	base.ingress.BandwidthBitsPerSecond = c.IngressBandwidthBitsPerSecond
+	base.ingress.QueueCapacity = c.IngressQueueCapacity
+	base.ingress.LossRate = c.IngressLoss
 	for _, field := range []struct {
 		name  string
 		value float64
@@ -159,6 +200,12 @@ func (c simulationConfig) configuration(base configuration) (configuration, erro
 		{"packetGapMs", c.PacketGapMs, time.Millisecond, &base.packetGap},
 		{"snapshotIntervalMs", c.SnapshotIntervalMs, time.Millisecond, &base.snapshotInterval},
 		{"packetTravelTimeMs", c.PacketTravelTimeMs, time.Millisecond, &base.packetTravelTime},
+		{
+			name:  "ingressPacketTravelTimeMs",
+			value: c.IngressPacketTravelTimeMs,
+			unit:  time.Millisecond,
+			out:   &base.ingress.PacketTravelTime,
+		},
 	} {
 		duration, err := configDuration(field.name, field.value, field.unit)
 		if err != nil {

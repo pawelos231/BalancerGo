@@ -101,9 +101,12 @@ parameters (see `go run . -help` for all options):
 | `-bytes` | `-1` | Override stream payload size, including a partial final segment; `-1` uses `packets * 1024`. |
 | `-duration`, `-seed` | `2m`, `1` | Virtual end time (inclusive) and experiment seed. |
 | `-client-gap`, `-packet-gap` | `0s`, `0s` | Virtual inter-arrival interval and sender pause before each data segment. |
-| `-bandwidth`, `-packet-travel-time` | `1000000000`, `1ms` | Bits/s and virtual packet travel time after transmission per directed link. |
+| `-bandwidth`, `-packet-travel-time` | `1000000000`, `1ms` | Bits/s and virtual travel time per access link or outgoing LB link. |
 | `-lb-bandwidth` | `1000000000` | One shared forwarding budget in bits/s for all LB outputs, toward both clients and backends. |
-| `-link-queue`, `-loss` | `1024`, `0` | Waiting packets per link and independent loss probability per transmission. |
+| `-lb-ingress-bandwidth` | `1000000000` | Bitrate of the shared physical link delivering client and backend traffic into the LB. |
+| `-lb-ingress-packet-travel-time` | `0s` | Additional virtual travel time after transmission on the shared input link. |
+| `-lb-ingress-queue`, `-lb-ingress-loss` | `1024`, `0` | Waiting slots before the shared input link and its independent loss probability. |
+| `-link-queue`, `-loss` | `1024`, `0` | Waiting slots and independent loss on each access or outgoing LB link. |
 | `-algorithm` | `roundRobin` | `roundRobin` or seeded `random`. |
 | `-snapshot-interval`, `-speed` | `100ms`, `1` | Virtual snapshot interval and virtual seconds per real second; speed `0` is unpaced. |
 | `-max-events` | `50000000` | Execution limit, including equal-time events, to stop runaway scenarios. |
@@ -140,8 +143,10 @@ pointers so an explicit zero differs from an omitted value. Groups remain compac
 normalization does not allocate one object for every configured client.
 
 The existing CLI and frontend settings pass through this validation model.
-Clients still share their access links. Link bandwidth and the shared LB forwarding
-budget are independent settings, and both are enforced by the runtime.
+Clients still share their access links. Access/outgoing link settings, the shared
+physical input link and the LB forwarding budget are independent and enforced
+by the runtime. `resources.loadBalancer.ingress` describes the shared input link
+in the scenario format; `scenario.DefaultIngressConfig()` supplies its Go defaults.
 The new scenario document is not accepted by Start until its network and API
 integration are implemented.
 
@@ -170,11 +175,49 @@ values across JavaScript and Go; it must not round them through JavaScript numbe
   or channel per client, connection or backend.
 - `simulator/simulation.go` wires endpoints and links, schedules client arrivals
   and snapshots, and applies UI commands as events at virtual step boundaries.
-  Clients share one access link in each direction; each backend has its own pair.
+  Clients share their access and return links; each backend has its own pair.
+  Client access links and backend return links reach an upstream aggregator,
+  followed by one shared physical input link into the LB.
   The optional real clock pacing belongs to this application runner.
 - `http/` handles real HTTP/WebSocket I/O. It receives detached JSON snapshots,
   keeps the latest frame for new subscribers and replaces queued UI frames when
   a browser is slow. Model execution does not wait for a WebSocket writer.
+
+The **LB ingress link** limits traffic before either LB packet handler runs:
+
+```text
+clients -------- access link -------+
+                                    +--> upstream FIFO --> shared ingress --> LB handlers
+backends ------- return links ------+
+```
+
+The aggregator adds no processing delay or second queue. Its FIFO belongs to
+the shared ingress `Link` and represents a network buffer before the last
+physical section into the LB. It is separate from the future kernel RX model.
+All client and backend packets use it, including ACK, SYN, FIN and retransmissions.
+Each packet completes its access-link transmission and travel, then its ingress
+transmission and travel. These are two physical sections; the ingress travel
+default is zero additional time. Outgoing LB packets retain their existing paths.
+
+When upstream traffic fills the ingress FIFO, new packets are tail-dropped before
+the LB can handle them. Capacity excludes active transmission and travelling
+packets. Capacity zero admits only an immediate transmission. Random ingress
+loss still consumes its bandwidth. Drops do not notify the remote sender
+immediately; the existing transport reacts through its normal timers.
+
+For example, with access links at 10 Gbit/s and ingress at 1 Gbit/s, a sufficiently
+long actual input burst can overflow the upstream FIFO. Configured access rates
+are maximum capacities, not guaranteed generation rates: clients still use
+stop-and-wait. With no congestion control or adaptive retransmission timers,
+drop and retry results describe this simplified transport, not a validated TCP
+response to overload. LB packet handlers still have zero modeled CPU cost.
+
+The frontend has separate **LB ingress** settings for bandwidth, packet travel
+time, queue slots and loss. Headless `Ingress` includes the shared link's `Config`
+and complete packet/byte counters; the same physical link also appears in `Links`.
+Every link in `Links` now includes its own `Config`. Headless `PacketTravelTime`
+is in nanoseconds. The topology shows one upstream node and one shared ingress
+arrow; its counters distinguish drops before the LB from drops at LB outputs.
 
 The **LB forwarding budget** counts each outgoing packet once, at transmission
 start, including its modeled headers. SYN, ACK, FIN and retransmissions use the
@@ -258,7 +301,8 @@ Switching pages preserves the configuration draft and keeps the run advancing.
 The topology groups clients into one node; each arrow represents a directed link
 reported by the backend, including the return direction. Select a node or link
 to inspect its configuration and counters, or use search to find any element.
-Finished runs retain their final graph and state.
+The upstream aggregation node and shared input link show where client and backend
+traffic joins before entering the LB. Finished runs retain their final graph and state.
 
 The view displays each link's own bandwidth and other settings from the graph
 DTO. The current model initializes all links from one global configuration.
