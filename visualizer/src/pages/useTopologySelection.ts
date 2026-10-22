@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { kindLabel } from '../topology/format';
-import type { TopologyGraph, TopologySelection } from '../topology/types';
+import type {
+  TopologyGraph,
+  TopologySearchOption,
+  TopologySelection,
+} from '../topology/types';
 
-export interface TopologySearchOption {
-  kind: 'node' | 'link';
-  id: string;
-  label: string;
-  detail: string;
-}
-
-export default function useTopologySelection(topology: TopologyGraph | null) {
-  const [selection, setSelection] = useState<TopologySelection>(null);
+// Search includes physical resources and the groups currently shown on the canvas.
+export default function useTopologySelection(
+  topology: TopologyGraph | null,
+  selection: TopologySelection,
+  onSelect: (selection: TopologySelection) => void,
+) {
   const nodes = topology?.nodes;
   const links = topology?.links;
 
@@ -27,21 +28,14 @@ export default function useTopologySelection(topology: TopologyGraph | null) {
     [nodes],
   );
 
-  const onSelect = useCallback((next: TopologySelection) => {
-    setSelection((previous) => {
-      const unchanged = previous?.kind === next?.kind && previous?.id === next?.id;
-      return unchanged ? previous : next;
-    });
-  }, []);
-
   useEffect(() => {
     if (!selection) return;
 
     const index = selection.kind === 'node' ? nodeById : linkById;
     if (!index.has(selection.id)) {
-      setSelection(null);
+      onSelect(null);
     }
-  }, [selection, nodeById, linkById]);
+  }, [selection, nodeById, linkById, onSelect]);
 
   const options = useMemo<TopologySearchOption[]>(() => {
     const nodeOptions: TopologySearchOption[] = (nodes ?? []).map((node) => {

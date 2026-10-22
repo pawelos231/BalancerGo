@@ -70,7 +70,7 @@ func ingressClientAccessDeliveries(s *simulation) uint64 {
 	var deliveries uint64
 	for _, cl := range s.clients {
 		for _, link := range s.links {
-			if link.Source == cl.ID && link.Target == upstreamNodeID {
+			if link.Source == cl.ID && link.Target == loadBalancerNodeID {
 				deliveries += link.Stats().DeliveredPackets
 			}
 		}
@@ -115,7 +115,7 @@ func TestIngressDelaysBothClientAndBackendPackets(t *testing.T) {
 		t.Fatal("backend received the SYN before its outgoing link completed")
 	}
 
-	// The backend receives the SYN at 173 ms; its actual SYN-ACK reaches upstream at 216 ms.
+	// The backend receives the SYN at 173 ms; its SYN-ACK reaches its input queue at 216 ms.
 	runIngressUntil(t, s, 216*time.Millisecond)
 	if srv.NumberOfHandledPackets != 1 {
 		t.Fatal("backend did not receive the forwarded SYN")
@@ -141,12 +141,17 @@ func TestIngressDelaysBothClientAndBackendPackets(t *testing.T) {
 	if s.ingress.Stats().DeliveredPackets != 2 {
 		t.Fatal("both input directions did not complete the common link")
 	}
+	clientDeliveries := s.clientIngress.Stats().DeliveredPackets
+	backendDeliveries := s.backendIngress.Stats().DeliveredPackets
+	if clientDeliveries != 1 || backendDeliveries != 1 {
+		t.Fatal("input queues did not retain their own completed packet counters")
+	}
 	if firstIngressClient(t, s).IsHandshakeCompleted() {
 		t.Fatal("client received SYN-ACK before its outgoing link completed")
 	}
 }
 
-// TestIngressClientBurstUsesOneFiniteFIFO checks real clients competing upstream.
+// TestIngressClientBurstUsesOneFiniteFIFO checks clients sharing their input FIFO.
 func TestIngressClientBurstUsesOneFiniteFIFO(t *testing.T) {
 	for _, capacity := range []int{0, 1} {
 		name := "no waiting slots"
@@ -192,6 +197,181 @@ func TestIngressClientBurstUsesOneFiniteFIFO(t *testing.T) {
 	}
 }
 
+// TestIngressQueuesShareOneReceiver checks isolation without multiplying bandwidth.
+func TestIngressQueuesShareOneReceiver(t *testing.T) {
+	cfg := ingressTestConfiguration()
+	cfg.bandwidth = 320_000
+	cfg.packetTravelTime = 0
+	cfg.ingress = scenario.LinkConfig{
+		BandwidthBitsPerSecond: 8_000,
+		QueueCapacity:          1,
+	}
+	definition := cfg.scenarioDefinition()
+	definition.Workload.ClientGroups = []scenario.ClientGroup{
+		{ID: "initial", Count: 2},
+		{
+			ID:      "later",
+			Count:   2,
+			StartAt: 43 * time.Millisecond,
+		},
+	}
+	s := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+
+	// Two initial SYNs share one transmitter: one starts and the other waits.
+	runIngressUntil(t, s, time.Millisecond)
+	if s.clientIngress.Stats().QueuedPackets != 1 {
+		t.Fatal("initial client burst did not fill the client input queue")
+	}
+	if s.backendIngress.Stats() != (network.Stats{}) {
+		t.Fatal("client SYNs entered the backend input queue")
+	}
+
+	// The first real SYN-ACK reaches its own queue at 43 ms, behind a busy receiver.
+	runIngressUntil(t, s, 43*time.Millisecond)
+	backend := s.backendIngress.Stats()
+	if backend.AcceptedPackets != 1 || backend.QueuedPackets != 1 {
+		t.Fatalf("backend reply did not retain its own waiting slot: %+v", backend)
+	}
+	if firstIngressClientOutput(t, s).Stats().OfferedPackets != 0 {
+		t.Fatal("backend reply bypassed the shared receiver")
+	}
+
+	// New SYNs can fill the client queue while the backend queue stays full.
+	runIngressUntil(t, s, 44*time.Millisecond)
+	want := network.Stats{
+		OfferedPackets:      5,
+		OfferedBytes:        200,
+		AcceptedPackets:     4,
+		AcceptedBytes:       160,
+		QueueDroppedPackets: 1,
+		QueueDroppedBytes:   40,
+		DeliveredPackets:    1,
+		DeliveredBytes:      40,
+		QueuedPackets:       2,
+		Transmitting:        true,
+	}
+	if got := s.ingress.Stats(); got != want {
+		t.Fatalf("shared receiver = %+v, want %+v", got, want)
+	}
+	clients := s.clientIngress.Stats()
+	if clients.QueuedPackets != 1 || clients.QueueDroppedPackets != 1 {
+		t.Fatalf("client input did not enforce its own capacity: %+v", clients)
+	}
+	if s.backendIngress.Stats() != backend {
+		t.Fatal("client overload changed the waiting backend reply")
+	}
+	assertIngressSnapshots(t, s)
+
+	// The older backend head starts at 81 ms, after two 40 ms transmissions.
+	runIngressUntil(t, s, 81*time.Millisecond)
+	backend = s.backendIngress.Stats()
+	if !backend.Transmitting || backend.QueuedPackets != 0 {
+		t.Fatalf("the older backend head did not receive the next grant: %+v", backend)
+	}
+	if s.clientIngress.Stats().QueuedPackets != 1 {
+		t.Fatal("a newer client head overtook the waiting backend reply")
+	}
+
+	// One physical receiver makes the reply wait until 121 ms before LB delivery.
+	runIngressUntil(t, s, 121*time.Millisecond-time.Nanosecond)
+	if firstIngressClientOutput(t, s).Stats().OfferedPackets != 0 {
+		t.Fatal("independent input queues multiplied the physical ingress bandwidth")
+	}
+	runIngressUntil(t, s, 121*time.Millisecond)
+	if firstIngressClientOutput(t, s).Stats().OfferedPackets != 1 {
+		t.Fatal("the backend reply did not reach the client output at 121 ms")
+	}
+}
+
+// assertIngressSnapshots checks separate input queues and a detached shared resource.
+func assertIngressSnapshots(t *testing.T, s *simulation) {
+	t.Helper()
+	report := s.result(0)
+	graph := s.topology(report.State)
+	aggregate := s.ingress.Stats()
+	if graph.Ingress == nil {
+		t.Fatal("topology omitted the shared ingress resource")
+	}
+	if report.Ingress.Name != "Shared LB input" || report.Ingress.Stats != aggregate {
+		t.Fatalf("report omitted aggregate ingress counters: %+v", report.Ingress)
+	}
+	if graph.Ingress.Stats != topologyStatsForTest(aggregate) {
+		t.Fatalf("topology omitted aggregate ingress counters: %+v", graph.Ingress.Stats)
+	}
+	if len(report.IngressQueues) != 2 || len(graph.Ingress.Queues) != 2 {
+		t.Fatal("report and topology must expose exactly two input queues")
+	}
+
+	// Queue capacity belongs to each side; the common resource carries the rate once.
+	capacity := s.ingress.Config().QueueCapacity
+	wantQueues := map[string]network.Stats{
+		"clients":  s.clientIngress.Stats(),
+		"backends": s.backendIngress.Stats(),
+	}
+	seenSides := make(map[string]bool)
+	seenIDs := make(map[string]bool)
+	for _, queue := range graph.Ingress.Queues {
+		want, exists := wantQueues[queue.Side]
+		if !exists || seenSides[queue.Side] {
+			t.Fatalf("topology repeated or invented an input side: %q", queue.Side)
+		}
+		if queue.ID != "ingress/"+queue.Side || seenIDs[queue.ID] || queue.Label == "" {
+			t.Fatalf("input queue lacks a unique identity or label: %+v", queue)
+		}
+		if queue.Capacity != capacity || queue.Stats != topologyStatsForTest(want) {
+			t.Fatalf("topology queue %q lost its capacity or counters: %+v", queue.Side, queue)
+		}
+		seenSides[queue.Side] = true
+		seenIDs[queue.ID] = true
+	}
+	for _, queue := range report.IngressQueues {
+		want, exists := wantQueues[queue.Side]
+		if !exists || queue.Capacity != capacity || queue.Stats != want {
+			t.Fatalf("report queue lost its own capacity or counters: %+v", queue)
+		}
+	}
+	sharedRate := s.ingress.Config().BandwidthBitsPerSecond
+	if graph.Ingress.Config.BandwidthBitsPerSecond != sharedRate {
+		t.Fatal("topology multiplied the shared ingress rate")
+	}
+
+	// Graph arrows show endpoint access sections, without an invented shared hop.
+	if len(graph.Nodes) != 1+len(s.clients)+len(s.lb.GetServers()) {
+		t.Fatal("topology added a synthetic network node")
+	}
+	if len(graph.Links) != 2*(len(s.clients)+len(s.lb.GetServers())) {
+		t.Fatal("topology omitted a private path or added a fake ingress arrow")
+	}
+	for _, link := range graph.Links {
+		if link.Source != loadBalancerNodeID && link.Target != loadBalancerNodeID {
+			t.Fatalf("access or output path is not attached to the LB: %+v", link)
+		}
+	}
+
+	// Editing a returned snapshot cannot change a later snapshot or the model.
+	graph.Ingress.Config.BandwidthBitsPerSecond = 0
+	graph.Ingress.Stats.QueuedPackets = -1
+	graph.Ingress.Queues[0].Stats.QueuedPackets = -1
+	report.IngressQueues[0].Stats.QueuedPackets = -1
+	fresh := s.topology(report.State)
+	if fresh.Ingress.Config.BandwidthBitsPerSecond != sharedRate {
+		t.Fatal("ingress configuration escaped as a live reference")
+	}
+	if fresh.Ingress.Stats != topologyStatsForTest(aggregate) {
+		t.Fatal("shared ingress counters escaped as a live reference")
+	}
+	for _, queue := range fresh.Ingress.Queues {
+		if queue.Stats != topologyStatsForTest(wantQueues[queue.Side]) {
+			t.Fatal("input queue counters escaped as a live reference")
+		}
+	}
+	for _, queue := range s.result(0).IngressQueues {
+		if queue.Stats != wantQueues[queue.Side] {
+			t.Fatal("report queue counters escaped as a live reference")
+		}
+	}
+}
+
 // TestIngressLossPreventsLBReception distinguishes ingress loss from access loss.
 func TestIngressLossPreventsLBReception(t *testing.T) {
 	cfg := ingressTestConfiguration()
@@ -211,6 +391,11 @@ func TestIngressLossPreventsLBReception(t *testing.T) {
 	}
 	if input.DeliveredPackets != 0 || input.AcceptedPackets != 1 {
 		t.Fatalf("unexpected ingress admission or delivery: %+v", input)
+	}
+	clientLosses := s.clientIngress.Stats().LostPackets
+	backendLosses := s.backendIngress.Stats().LostPackets
+	if clientLosses != 1 || backendLosses != 0 {
+		t.Fatal("shared receiver loss was attributed to the wrong input side")
 	}
 	srv := s.lb.GetServers()[0]
 	if len(s.lb.GetConnectionTable()[srv]) != 0 || srv.NumberOfHandledPackets != 0 {
@@ -348,15 +533,22 @@ func TestIngressFrozenWorkAndFreshRun(t *testing.T) {
 	if first.Forwarding.ForwardedPackets != 0 {
 		t.Fatal("unfinished ingress packets reached LB forwarding")
 	}
+	assertIngressSnapshots(t, s)
 
 	// A fresh simulation owns new queues, links and counters before it starts.
 	fresh := newSimulation(cfg)
 	if fresh.ingress == s.ingress || fresh.engine == s.engine {
 		t.Fatal("a fresh simulation reused the old model graph")
 	}
+	reusedClientInput := fresh.clientIngress == s.clientIngress
+	reusedBackendInput := fresh.backendIngress == s.backendIngress
+	if reusedClientInput || reusedBackendInput {
+		t.Fatal("a fresh simulation reused an old input queue")
+	}
 	if fresh.result(0).Ingress.Stats != (network.Stats{}) {
 		t.Fatal("fresh ingress retained old counters or unfinished packets")
 	}
+	assertIngressSnapshots(t, fresh)
 	if err := fresh.run(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}

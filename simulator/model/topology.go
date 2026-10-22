@@ -3,8 +3,27 @@ package model
 // Topology is a detached view of the nodes and directed links actually wired
 // into a simulation. Empty slices represent the absence of a current model.
 type Topology struct {
-	Nodes []TopologyNode `json:"nodes"`
-	Links []TopologyLink `json:"links"`
+	Nodes   []TopologyNode   `json:"nodes"`
+	Links   []TopologyLink   `json:"links"`
+	Ingress *TopologyIngress `json:"ingress,omitempty"`
+}
+
+// TopologyIngress shows one shared receiver and the queues feeding it.
+// Its bitrate applies once across both sides of the load balancer.
+type TopologyIngress struct {
+	Config TopologyLinkConfig   `json:"config"`
+	Stats  TopologyLinkStats    `json:"stats"`
+	Queues []TopologyInputQueue `json:"queues"`
+}
+
+// TopologyInputQueue holds traffic arriving from one side of the LB.
+// Capacity counts waiting packets; both queues share the ingress transmitter.
+type TopologyInputQueue struct {
+	ID       string            `json:"id"`
+	Side     string            `json:"side"`
+	Label    string            `json:"label"`
+	Capacity int               `json:"capacity"`
+	Stats    TopologyLinkStats `json:"stats"`
 }
 
 const (

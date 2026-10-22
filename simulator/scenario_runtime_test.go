@@ -207,7 +207,7 @@ func TestScenarioRuntimeUsesDirectionalProfilesAndArrivalTimes(t *testing.T) {
 	// Each endpoint direction receives its own resolved physical settings.
 	for _, backend := range resolved.Backends {
 		id := backendNodeID(backend.ID)
-		incoming := scenarioRuntimeLink(t, s, id, upstreamNodeID)
+		incoming := scenarioRuntimeLink(t, s, id, loadBalancerNodeID)
 		outgoing := scenarioRuntimeLink(t, s, loadBalancerNodeID, id)
 		assertRuntimeLinkConfig(t, incoming, backend.Network.ToLoadBalancer)
 		assertRuntimeLinkConfig(t, outgoing, backend.Network.FromLoadBalancer)
@@ -222,7 +222,7 @@ func TestScenarioRuntimeUsesDirectionalProfilesAndArrivalTimes(t *testing.T) {
 			if got.Config != want || got.GroupID != group.ID || got.Index != index {
 				t.Fatalf("client %q lost its group or individual settings", want.ID)
 			}
-			incoming := scenarioRuntimeLink(t, s, want.ID, upstreamNodeID)
+			incoming := scenarioRuntimeLink(t, s, want.ID, loadBalancerNodeID)
 			outgoing := scenarioRuntimeLink(t, s, loadBalancerNodeID, want.ID)
 			assertRuntimeLinkConfig(t, incoming, want.Network.ToLoadBalancer)
 			assertRuntimeLinkConfig(t, outgoing, want.Network.FromLoadBalancer)
@@ -233,8 +233,8 @@ func TestScenarioRuntimeUsesDirectionalProfilesAndArrivalTimes(t *testing.T) {
 	}
 
 	// The first slow SYN needs 20 ms transmission plus 2 ms travel after 10 ms.
-	slowAccess := scenarioRuntimeLink(t, s, "client/slow/0", upstreamNodeID)
-	overriddenAccess := scenarioRuntimeLink(t, s, "client/slow/1", upstreamNodeID)
+	slowAccess := scenarioRuntimeLink(t, s, "client/slow/0", loadBalancerNodeID)
+	overriddenAccess := scenarioRuntimeLink(t, s, "client/slow/1", loadBalancerNodeID)
 	runIngressUntil(t, s, 32*time.Millisecond-time.Nanosecond)
 	if slowAccess.Stats().DeliveredPackets != 0 || overriddenAccess.Stats().DeliveredPackets != 0 {
 		t.Fatal("a slow client SYN arrived before its private link finished")
@@ -443,7 +443,6 @@ func TestScenarioRuntimeTopologyNamespaces(t *testing.T) {
 	}
 	expected := []string{
 		loadBalancerNodeID,
-		upstreamNodeID,
 		"backend/lb",
 		"backend/upstream",
 		"client/clients/0",
@@ -502,7 +501,7 @@ func observeScenarioResources(
 			s.topology(s.lb.Tick())
 		}
 		for _, cl := range s.clients {
-			link := scenarioRuntimeLink(t, s, cl.ID, upstreamNodeID)
+			link := scenarioRuntimeLink(t, s, cl.ID, loadBalancerNodeID)
 			observed.stats[cl.ID] = append(observed.stats[cl.ID], link.Stats())
 		}
 	}

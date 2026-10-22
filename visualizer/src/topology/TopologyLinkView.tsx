@@ -2,7 +2,7 @@ import { Box, useTheme } from '@mui/material';
 import { BaseEdge, EdgeLabelRenderer, Position } from '@xyflow/react';
 import type { Edge, EdgeProps } from '@xyflow/react';
 import { memo } from 'react';
-import { formatBandwidth, linkIsBusy } from './format';
+import { formatBandwidth, formatNumber, linkIsBusy } from './format';
 import type { TopologyLink } from './types';
 
 export type FlowTopologyLink = Edge<{
@@ -63,9 +63,17 @@ function TopologyLinkView({
   const labelY = (sourceY + targetY) / 2 + laneOffset * 0.75;
   const showLabel = data.showLabel || selected;
   const bandwidth = formatBandwidth(data.link.config.bandwidthBitsPerSecond);
+  const memberCount = data.link.memberCount ?? 1;
+  const bandwidthLabel = memberCount > 1
+    ? `${formatNumber(memberCount)} × ${bandwidth}`
+    : bandwidth;
   const queuedPackets = data.link.stats.queuedPackets;
-  const queueLabel = queuedPackets > 0 ? ` · Q ${queuedPackets}` : '';
-  const label = `${bandwidth}${queueLabel}`;
+  const queueScope = memberCount > 1 ? 'queued total' : 'Q';
+  const queueLabel = queuedPackets > 0 ? ` · ${queueScope} ${formatNumber(queuedPackets)}` : '';
+  const label = `${bandwidthLabel}${queueLabel}`;
+  const inspectLabel = memberCount > 1
+    ? `Inspect ${formatNumber(memberCount)} independent links: ${data.link.label}`
+    : `Inspect link ${data.link.label}`;
 
   return (
     <>
@@ -82,7 +90,8 @@ function TopologyLinkView({
             component="button"
             type="button"
             className="nodrag nopan"
-            aria-label={`Inspect link ${data.link.label}`}
+            aria-label={inspectLabel}
+            title="Configured limit per link. Each member keeps its own transmitter and queue."
             onClick={(event) => {
               event.stopPropagation();
               data.selectLink(id);

@@ -7,60 +7,47 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
+import { useMemo } from 'react';
 import {
   formatBandwidth,
-  formatBytes,
   formatMetric,
   formatNumber,
   kindLabel,
   linkIsBusy,
 } from './format';
-import type { TopologyLink, TopologyNode } from './types';
+import { describeLink } from './telemetry';
+import { Fact, TrafficTotals } from './TopologyFacts';
+import { BundleDetails, GroupDetails } from './TopologyGroupDetails';
+import TopologyIngressDetails from './TopologyIngressDetails';
+import type { TopologyBundle, TopologyGroup } from './grouping';
+import type {
+  TopologyGraph,
+  TopologyLink,
+  TopologyNode,
+  TopologySelection,
+} from './types';
 
 interface TopologyInspectorProps {
   node: TopologyNode | null;
   link: TopologyLink | null;
   nodeLabels: Map<string, string>;
   running: boolean;
+  group?: TopologyGroup | null;
+  bundle?: TopologyBundle | null;
+  onToggleGroup?: (groupId: string) => void;
+  onSelect?: (selection: TopologySelection) => void;
+  topology?: TopologyGraph | null;
 }
 
-interface FactProps {
-  label: string;
-  value: string;
-}
-
-function Fact({ label, value }: FactProps) {
-  return (
-    <Stack
-      direction="row"
-      justifyContent="space-between"
-      alignItems="baseline"
-      spacing={2}
-    >
-      <Typography component="dt" variant="body2" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography
-        component="dd"
-        variant="body2"
-        fontWeight={600}
-        sx={{
-          m: 0,
-          textAlign: 'right',
-          overflowWrap: 'anywhere',
-        }}
-      >
-        {value}
-      </Typography>
-    </Stack>
-  );
-}
-
-function NodeDetails({ node }: { node: TopologyNode }) {
+function NodeDetails({ node, topology }: { node: TopologyNode; topology?: TopologyGraph | null }) {
   const hasActiveStatus = node.active !== undefined;
   const statusLabel = node.active ? 'Active' : 'Inactive';
   const statusColor = node.active ? 'success' : 'default';
-  const hasMetrics = node.metrics.length > 0;
+  const ingress = node.kind === 'loadBalancer' ? topology?.ingress : undefined;
+  const metrics = ingress
+    ? node.metrics.filter((metric) => !metric.key.startsWith('ingress'))
+    : node.metrics;
+  const hasMetrics = metrics.length > 0;
 
   return (
     <>
@@ -86,11 +73,19 @@ function NodeDetails({ node }: { node: TopologyNode }) {
         </Typography>
       )}
 
+      {ingress && (
+        <>
+          <Typography variant="subtitle2">Shared RX and input queues</Typography>
+          <TopologyIngressDetails ingress={ingress} />
+          <Divider />
+        </>
+      )}
+
       <Stack component="dl" spacing={1.25} sx={{ m: 0 }}>
         {node.resourceId && <Fact label="Resource ID" value={node.resourceId} />}
         {node.groupId && <Fact label="Client group" value={node.groupId} />}
         {node.address && <Fact label="Address" value={node.address} />}
-        {node.metrics.map((metric) => (
+        {metrics.map((metric) => (
           <Fact
             key={metric.key}
             label={metric.label}
@@ -111,15 +106,17 @@ function NodeDetails({ node }: { node: TopologyNode }) {
 interface LinkDetailsProps {
   link: TopologyLink;
   nodeLabels: Map<string, string>;
+  nodeById: ReadonlyMap<string, TopologyNode>;
   running: boolean;
 }
 
-function LinkDetails({ link, nodeLabels, running }: LinkDetailsProps) {
+function LinkDetails({ link, nodeLabels, nodeById, running }: LinkDetailsProps) {
   const { config, stats } = link;
   const sourceLabel = nodeLabels.get(link.source) ?? link.source;
   const targetLabel = nodeLabels.get(link.target) ?? link.target;
   const busy = linkIsBusy(link);
   const statusColor = busy ? 'info' : 'default';
+  const role = describeLink(link, nodeById);
 
   let statusLabel = 'Idle link';
   if (busy) {
@@ -152,6 +149,12 @@ function LinkDetails({ link, nodeLabels, running }: LinkDetailsProps) {
         sx={{ alignSelf: 'flex-start' }}
       />
 
+      <Typography variant="subtitle2">{role.label}</Typography>
+      <Typography variant="body2" color="text.secondary">{role.explanation}</Typography>
+      <Stack component="dl" sx={{ m: 0 }}>
+        <Fact label="Waiting queue owner" value={role.owner} />
+      </Stack>
+
       <Typography variant="subtitle2">Link settings</Typography>
       <Stack component="dl" spacing={1.25} sx={{ m: 0 }}>
         <Fact
@@ -171,6 +174,11 @@ function LinkDetails({ link, nodeLabels, running }: LinkDetailsProps) {
           value={`${formatNumber(config.lossRate * 100, 4)}%`}
         />
       </Stack>
+      <Typography variant="caption" color="text.secondary">
+        Transmission time is wire bytes × 8 ÷ bandwidth. Packet travel time is
+        extra delay after sending; the next packet can be sent while the previous
+        one travels.
+      </Typography>
 
       <Divider />
       <Typography variant="subtitle2">Current activity</Typography>
@@ -186,61 +194,27 @@ function LinkDetails({ link, nodeLabels, running }: LinkDetailsProps) {
         />
       </Stack>
 
-      <LinearProgress
-        variant="determinate"
-        value={queuePercent}
-        aria-label="Waiting queue occupancy"
-      />
+      {config.queueCapacity > 0 && (
+        <LinearProgress
+          variant="determinate"
+          value={queuePercent}
+          aria-label="Waiting queue occupancy"
+        />
+      )}
       <Typography variant="caption" color="text.secondary">
         Queue capacity excludes the packet being sent and packets already
-        travelling.
+        travelling. Zero waiting slots admit a packet only when transmission
+        can start immediately.
       </Typography>
 
       <Divider />
       <Typography variant="subtitle2">Totals for this run</Typography>
-      <Stack component="dl" spacing={1.25} sx={{ m: 0 }}>
-        <Fact label="Offered packets" value={formatNumber(stats.offeredPackets)} />
-        <Fact
-          label="Offered bytes"
-          value={formatBytes(stats.offeredBytes)}
-        />
-        <Fact
-          label="Accepted packets"
-          value={formatNumber(stats.acceptedPackets)}
-        />
-        <Fact
-          label="Accepted bytes"
-          value={formatBytes(stats.acceptedBytes)}
-        />
-        <Fact
-          label="Queue drops"
-          value={formatNumber(stats.queueDroppedPackets)}
-        />
-        <Fact
-          label="Queue-dropped bytes"
-          value={formatBytes(stats.queueDroppedBytes)}
-        />
-        <Fact
-          label="Link losses"
-          value={formatNumber(stats.lostPackets)}
-        />
-        <Fact
-          label="Lost bytes"
-          value={formatBytes(stats.lostBytes)}
-        />
-        <Fact
-          label="Delivered packets"
-          value={formatNumber(stats.deliveredPackets)}
-        />
-        <Fact
-          label="Delivered bytes"
-          value={formatBytes(stats.deliveredBytes)}
-        />
-      </Stack>
+      <TrafficTotals stats={stats} />
       <Typography variant="caption" color="text.secondary">
-        Accepted packets may still be waiting, transmitting or travelling.
-        Delivered packets and bytes count arrival at the end of this link.
-        All byte totals include modeled protocol headers.
+        Tail drops reject new packets when the waiting queue is full. Random
+        losses happen after serialization and consume link bandwidth.
+        Accepted packets may still be waiting, transmitting or travelling;
+        delivered packets reached this link’s receiver. Byte totals include modeled headers.
       </Typography>
     </>
   );
@@ -251,8 +225,17 @@ function TopologyInspector({
   link,
   nodeLabels,
   running,
+  group,
+  bundle,
+  onToggleGroup,
+  onSelect,
+  topology,
 }: TopologyInspectorProps) {
-  const emptySelection = !node && !link;
+  const emptySelection = !node && !link && !group && !bundle;
+  const nodeById = useMemo(
+    () => new Map(topology?.nodes.map((entry) => [entry.id, entry])),
+    [topology],
+  );
 
   return (
     <Paper
@@ -285,11 +268,26 @@ function TopologyInspector({
           </>
         )}
 
-        {node && <NodeDetails node={node} />}
-        {link && (
+        {group ? (
+          <GroupDetails
+            group={group}
+            topology={topology}
+            onToggleGroup={onToggleGroup}
+            onSelect={onSelect}
+          />
+        ) : node && <NodeDetails node={node} topology={topology} />}
+        {bundle ? (
+          <BundleDetails
+            bundle={bundle}
+            nodeById={nodeById}
+            nodeLabels={nodeLabels}
+            onSelect={onSelect}
+          />
+        ) : link && (
           <LinkDetails
             link={link}
             nodeLabels={nodeLabels}
+            nodeById={nodeById}
             running={running}
           />
         )}

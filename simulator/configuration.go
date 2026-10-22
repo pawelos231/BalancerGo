@@ -73,7 +73,7 @@ func readConfiguration() (configuration, error) {
 		&c.ingress.QueueCapacity,
 		"lb-ingress-queue",
 		ingressDefaults.QueueCapacity,
-		"waiting packets at the shared load balancer ingress",
+		"waiting packets per load balancer input queue (clients and backends)",
 	)
 	flag.Float64Var(
 		&c.ingress.LossRate,

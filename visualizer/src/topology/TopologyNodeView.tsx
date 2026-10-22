@@ -7,15 +7,51 @@ import WidgetsOutlinedIcon from '@mui/icons-material/WidgetsOutlined';
 import { Handle, Position } from '@xyflow/react';
 import type { Node, NodeProps } from '@xyflow/react';
 import { memo } from 'react';
-import { formatMetric, kindLabel } from './format';
-import { NODE_HEIGHT, NODE_WIDTH } from './layout';
-import type { TopologyNode } from './types';
+import { formatMetric, formatNumber, kindLabel } from './format';
+import { nodeHeight, NODE_WIDTH } from './layout';
+import type { TopologyIngress, TopologyNode } from './types';
 
-export type FlowTopologyNode = Node<{ node: TopologyNode }, 'topologyNode'>;
+export type FlowTopologyNode = Node<{
+  node: TopologyNode;
+  ingress?: TopologyIngress;
+  domainLayout?: boolean;
+}, 'topologyNode'>;
+
+const inputSides = [
+  { side: 'clients', label: 'Frontside · clients' },
+  { side: 'backends', label: 'Backside · backends' },
+] as const;
+
+// Two waiting queues use one shared receiver; their slots stay independent.
+function LoadBalancerInputs({ ingress }: { ingress: TopologyIngress }) {
+  return (
+    <Stack spacing={0.75} sx={{ mt: 1.5, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+      <Typography variant="caption" fontWeight={600}>Input queues</Typography>
+      {inputSides.map(({ side, label }) => {
+        const queue = ingress.queues.find((entry) => entry.side === side);
+        if (!queue) return null;
+        const occupancy = `${formatNumber(queue.stats.queuedPackets)} / ${formatNumber(queue.capacity)}`;
+
+        return (
+          <Stack key={side} direction="row" justifyContent="space-between" spacing={1}>
+            <Typography variant="caption" color="text.secondary">{label}</Typography>
+            <Typography variant="caption" fontWeight={600} title="Waiting packets / waiting slots">
+              {occupancy}
+            </Typography>
+          </Stack>
+        );
+      })}
+      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
+        Both queues use the shared RX limit.
+      </Typography>
+    </Stack>
+  );
+}
 
 function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
   const theme = useTheme();
   const node = data.node;
+  const isLoadBalancer = node.kind === 'loadBalancer';
   let color = theme.palette.primary.main;
   let Icon = WidgetsOutlinedIcon;
 
@@ -42,13 +78,20 @@ function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
   }
 
   const subtitle = node.address ?? kindLabel(node.kind);
-  const displayedMetrics = node.metrics.slice(0, 2);
+  // Keep both shared LB limits visible directly on the diagram.
+  const limitMetrics = node.metrics.filter((metric) => (
+    metric.key === 'ingressBitsPerSecond' || metric.key === 'forwardingBitsPerSecond'
+  ));
+  const displayedMetrics = isLoadBalancer && limitMetrics.length > 0
+    ? limitMetrics.slice(0, 2)
+    : node.metrics.slice(0, 2);
 
   return (
     <Box
       sx={{
         width: NODE_WIDTH,
-        height: NODE_HEIGHT,
+        height: nodeHeight(node.kind),
+        position: 'relative',
         boxSizing: 'border-box',
         border: '2px solid',
         borderColor: selected ? 'primary.main' : 'divider',
@@ -62,30 +105,50 @@ function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
         id="in-left"
         type="target"
         position={Position.Left}
-        style={{ top: '32%', background: color }}
+        style={{ top: '25%', background: color }}
         isConnectable={false}
       />
       <Handle
         id="out-left"
         type="source"
         position={Position.Left}
-        style={{ top: '68%', background: color }}
+        style={{ top: '75%', background: color }}
         isConnectable={false}
       />
       <Handle
         id="out-right"
         type="source"
         position={Position.Right}
-        style={{ top: '32%', background: color }}
+        style={{ top: '25%', background: color }}
         isConnectable={false}
       />
       <Handle
         id="in-right"
         type="target"
         position={Position.Right}
-        style={{ top: '68%', background: color }}
+        style={{ top: '75%', background: color }}
         isConnectable={false}
       />
+
+      {isLoadBalancer && data.domainLayout && (
+        <>
+          {[
+            { label: 'RX', left: -27, top: '25%', title: 'Frontside input from clients' },
+            { label: 'TX', left: -27, top: '75%', title: 'Frontside output to clients' },
+            { label: 'TX', right: -27, top: '25%', title: 'Backside output to backends' },
+            { label: 'RX', right: -27, top: '75%', title: 'Backside input from backends' },
+          ].map(({ label, title, ...position }) => (
+            <Typography
+              key={title}
+              variant="caption"
+              title={title}
+              sx={{ position: 'absolute', ...position, transform: 'translateY(-50%)', fontSize: 10 }}
+            >
+              {label}
+            </Typography>
+          ))}
+        </>
+      )}
 
       <Stack direction="row" spacing={1} alignItems="center">
         <Icon sx={{ color }} fontSize="small" />
@@ -127,7 +190,11 @@ function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
               display="block"
               sx={{ fontSize: 10 }}
             >
-              {metric.label}
+              {isLoadBalancer && metric.key === 'ingressBitsPerSecond'
+                ? 'RX shared limit'
+                : isLoadBalancer && metric.key === 'forwardingBitsPerSecond'
+                  ? 'TX shared budget'
+                  : metric.label}
             </Typography>
             <Typography variant="caption" fontWeight={600} noWrap display="block">
               {formatMetric(metric)}
@@ -135,6 +202,7 @@ function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
           </Box>
         ))}
       </Stack>
+      {isLoadBalancer && data.ingress && <LoadBalancerInputs ingress={data.ingress} />}
     </Box>
   );
 }

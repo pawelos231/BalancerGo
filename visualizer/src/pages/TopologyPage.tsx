@@ -1,25 +1,23 @@
 import {
   Alert,
-  Autocomplete,
   Box,
   Chip,
-  createFilterOptions,
   Grid,
   Paper,
   Stack,
-  TextField,
   Typography,
 } from '@mui/material';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
-import { useMemo } from 'react';
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
+import RemoveOutlinedIcon from '@mui/icons-material/RemoveOutlined';
 import type { SimulationMetadata } from '../types';
 import TopologyCanvas from '../topology/TopologyCanvas';
 import TopologyInspector from '../topology/TopologyInspector';
+import TopologyLimits from '../topology/TopologyLimits';
+import TopologySearch from '../topology/TopologySearch';
 import { formatNumber, linkIsBusy } from '../topology/format';
-import { visibleGraph } from '../topology/layout';
 import type { TopologyGraph } from '../topology/types';
-import useTopologySelection from './useTopologySelection';
-import type { TopologySearchOption } from './useTopologySelection';
+import useTopologyView from './useTopologyView';
 
 interface TopologyPageProps {
   topology: TopologyGraph | null;
@@ -27,11 +25,7 @@ interface TopologyPageProps {
   connected: boolean;
 }
 
-const filterSearchOptions = createFilterOptions<TopologySearchOption>({
-  limit: 50,
-  stringify: (option) => `${option.label} ${option.detail} ${option.id}`,
-});
-
+// Coordinate the grouped drawing, physical search and live inspector.
 function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
   const {
     selection,
@@ -41,12 +35,13 @@ function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
     selectedNode,
     selectedLink,
     nodeLabels,
-  } = useTopologySelection(topology);
-
-  const graph = useMemo(
-    () => topology ? visibleGraph(topology, selection) : null,
-    [topology, selection],
-  );
+    graph,
+    grouped,
+    selectedGroup,
+    selectedBundle,
+    toggleGroup,
+    viewKey,
+  } = useTopologyView(topology);
 
   const status = simulation?.status;
   const running = status === 'running';
@@ -61,9 +56,10 @@ function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
   const totalLinks = topology?.links.length ?? 0;
   const visibleNodes = graph?.nodes.length ?? 0;
   const visibleLinks = graph?.links.length ?? 0;
+  const drawnNodes = grouped?.graph.nodes.length ?? 0;
+  const drawnLinks = grouped?.graph.links.length ?? 0;
   const empty = totalNodes === 0;
-  const limitedView = visibleNodes < totalNodes || visibleLinks < totalLinks;
-  const hasClients = topology?.nodes.some((node) => node.kind === 'client');
+  const limitedView = visibleNodes < drawnNodes || visibleLinks < drawnLinks;
 
   const busyLinks = topology?.links.filter(linkIsBusy).length ?? 0;
   const busyLinkDescription = frozen
@@ -146,13 +142,13 @@ function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
             {emptyMessage}
           </Typography>
         </Paper>
-      ) : graph && topology && (
+      ) : graph && topology && grouped && (
         <>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Chip size="small" label={`${formatNumber(totalNodes)} nodes`} />
+            <Chip size="small" label={`${formatNumber(totalNodes)} physical nodes`} />
             <Chip
               size="small"
-              label={`${formatNumber(totalLinks)} directed links`}
+              label={`${formatNumber(totalLinks)} independent directed links`}
             />
             <Chip
               size="small"
@@ -162,52 +158,46 @@ function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
             />
           </Stack>
 
-          <Autocomplete
+          {grouped.groups.length > 0 && (
+            <Stack spacing={1}>
+              <Typography variant="subtitle2">Client groups</Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {grouped.groups.map((group) => {
+                  const action = group.expanded ? 'Collapse' : 'Expand';
+                  const count = formatNumber(group.clients.length);
+
+                  return (
+                    <Chip
+                      key={group.id}
+                      label={`${action} ${group.label} (${count})`}
+                      icon={group.expanded ? <RemoveOutlinedIcon /> : <AddOutlinedIcon />}
+                      variant={group.expanded ? 'filled' : 'outlined'}
+                      onClick={() => toggleGroup(group.id)}
+                      aria-label={`${action} group ${group.label}`}
+                    />
+                  );
+                })}
+              </Stack>
+              <Typography variant="caption" color="text.secondary">
+                A label such as 100 × 100 Mbit/s means 100 separate links.
+                Their traffic still shares one LB ingress and one forwarding budget.
+                Search can show a single client while the rest stay grouped.
+              </Typography>
+            </Stack>
+          )}
+
+          <TopologySearch
             options={options}
             value={selectedOption}
-            onChange={(_, option) => {
-              const next = option ? { kind: option.kind, id: option.id } : null;
-              onSelect(next);
-            }}
-            getOptionLabel={(option) => option.label}
-            getOptionKey={(option) => JSON.stringify([option.kind, option.id])}
-            isOptionEqualToValue={(option, value) => (
-              option.id === value.id && option.kind === value.kind
-            )}
-            groupBy={(option) => (
-              option.kind === 'node' ? 'Nodes' : 'Directed links'
-            )}
-            filterOptions={filterSearchOptions}
-            renderOption={(props, option) => {
-              const { key, ...optionProps } = props;
-
-              return (
-                <Box component="li" key={key} {...optionProps}>
-                  <Box>
-                    <Typography variant="body2">{option.label}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {option.detail}
-                    </Typography>
-                  </Box>
-                </Box>
-              );
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Find a node or directed link"
-                size="small"
-                helperText="Search labels, addresses or IDs. Up to 50 matches are shown; all graph elements are searchable."
-              />
-            )}
+            onSelect={onSelect}
           />
 
           {limitedView && (
             <Alert severity="info">
-              Showing {formatNumber(visibleNodes)} of {formatNumber(totalNodes)}
-              {' '}nodes and {formatNumber(visibleLinks)} of {formatNumber(totalLinks)}
-              {' '}links to keep the view responsive. Search selects any element
-              and brings it into the graph.
+              Showing {formatNumber(visibleNodes)} of {formatNumber(drawnNodes)}
+              {' '}display nodes and {formatNumber(visibleLinks)} of {formatNumber(drawnLinks)}
+              {' '}display arrows to keep the view responsive.
+              Collapse a group for an overview, or search for a specific resource.
             </Alert>
           )}
 
@@ -218,6 +208,7 @@ function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
                   graph={graph}
                   selection={selection}
                   onSelect={onSelect}
+                  viewKey={viewKey}
                 />
               </Paper>
 
@@ -231,17 +222,15 @@ function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
                 Press Enter to inspect a focused node or link
               </Typography>
 
-              {hasClients && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  display="block"
-                  sx={{ mt: 0.5 }}
-                >
-                  Each client has its own links. Nodes and directed arrows
-                  come from the running model.
-                </Typography>
-              )}
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+                sx={{ mt: 0.5 }}
+              >
+                Clients connect on the left and backends on the right.
+                Both input queues share one RX limit; all outputs share one TX limit.
+              </Typography>
             </Grid>
 
             <Grid size={{ xs: 12, lg: 4 }}>
@@ -250,9 +239,16 @@ function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
                 link={selectedLink}
                 nodeLabels={nodeLabels}
                 running={running && connected}
+                topology={topology}
+                group={selectedGroup}
+                bundle={selectedBundle}
+                onToggleGroup={toggleGroup}
+                onSelect={onSelect}
               />
             </Grid>
           </Grid>
+
+          <TopologyLimits topology={topology} />
         </>
       )}
     </Stack>

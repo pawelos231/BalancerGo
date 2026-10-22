@@ -141,8 +141,8 @@ const detailFields: Field[] = [
     help:
       'Default maximum bitrate of each client or backend link, including modeled IPv4 and TCP headers. ' +
       'One gigabit per second is 1,000,000,000 bit/s, or 125 MB/s of raw traffic. ' +
-      'Each client and backend has its own links. Incoming packets reach upstream, ' +
-      'then share the separately configured LB ingress link. ' +
+      'Each client and backend has its own links. Incoming packets join their side\'s LB input queue, ' +
+      'then use one shared LB input bandwidth limit. ' +
       'Links leaving the LB also share its independent forwarding budget.',
   },
   {
@@ -178,7 +178,7 @@ const detailFields: Field[] = [
       'and packets already travelling. LB output packets may wait for their link ' +
       'or the shared forwarding budget. New packets are dropped when the waiting slots are full; ' +
       '0 admits a packet only when it can start transmitting immediately. ' +
-      'The common ingress FIFO has its own queue capacity setting.',
+      'The client-side and backend-side LB input queues have a separate capacity setting.',
   },
   {
     name: 'loss',
@@ -198,10 +198,10 @@ const detailFields: Field[] = [
     min: 0,
     exclusiveMin: true,
     help:
-      'Bitrate of the single physical path from upstream aggregation into the load balancer. ' +
+      'One shared input bitrate for the client-side and backend-side queues. ' +
       'Packets from all clients and replies from all backends share this limit, ' +
       'including modeled headers, acknowledgements and retransmissions. ' +
-      'Access links and this ingress link serialize packets on separate physical sections. ' +
+      'Access-link transmission finishes before a packet joins its LB input queue. ' +
       'This setting is independent of the LB forwarding budget.',
   },
   {
@@ -209,18 +209,19 @@ const detailFields: Field[] = [
     label: 'LB ingress packet travel time (virtual ms)',
     min: 0,
     help:
-      'Virtual travel time on the shared upstream-to-LB link after its transmission finishes. ' +
+      'Extra virtual travel time after a packet finishes transmission through the shared LB input. ' +
       'It applies to both client packets and backend replies and is added to travel time on their access links. ' +
       'The LB receives the packet only after it completes both physical sections.',
   },
   {
     name: 'ingressQueueCapacity',
-    label: 'LB ingress queue slots (packets)',
+    label: 'LB input slots per queue (packets)',
     integer: true,
     min: 0,
     help:
-      'Packet slots in the shared upstream FIFO before the LB receives a packet. ' +
-      'Client packets and backend replies compete for the same waiting slots. ' +
+      'Waiting slots in each of the two LB input queues: one for clients and one for backends. ' +
+      'A value of 1024 gives each queue 1024 slots; they still share one input bitrate limit. ' +
+      'The oldest waiting packet across both queues uses the shared receiver next. ' +
       'Active transmissions and packets already travelling do not occupy waiting slots. ' +
       'With 0 slots, a packet is admitted only if transmission can start immediately; otherwise it is dropped. ' +
       'This is a physical network queue, not a kernel receive queue.',
@@ -231,7 +232,7 @@ const detailFields: Field[] = [
     min: 0,
     max: 1,
     help:
-      'Probability of losing a packet after transmission on the shared upstream-to-LB link. ' +
+      'Probability of losing a packet after transmission through the shared LB input. ' +
       'It applies to client packets and backend replies, including acknowledgements and retransmissions. ' +
       '0 means no random loss; 1 loses every packet on this link. ' +
       'A lost packet still consumes ingress bandwidth and can trigger a retry or timeout.',

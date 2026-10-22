@@ -34,10 +34,9 @@ function SimulationPage({ data }: SimulationPageProps) {
           title="Load balancer"
           action={(
             <HelpTooltip label="Network topology">
-              Each client and backend has its own link to upstream and its own
-              return link from the load balancer. All incoming traffic then
-              shares the upstream-to-LB ingress link. Outgoing links share
-              one forwarding budget across clients and backends.
+              Clients and backends connect to opposite sides of the load balancer.
+              Their separate input queues share one input bandwidth limit.
+              Outgoing links keep their own queues and share one forwarding budget.
             </HelpTooltip>
           )}
         />

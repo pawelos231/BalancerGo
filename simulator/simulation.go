@@ -25,11 +25,13 @@ type simulation struct {
 	lb           *balancer.LoadBalancer
 	algorithmRNG *rand.Rand
 
-	egress       *network.Egress
-	ingress      *network.Link
-	links        []namedLink
-	clientGroups []runtimeClientGroup
-	clients      []runtimeClient
+	egress         *network.Egress
+	ingress        *network.Ingress
+	clientIngress  *network.Input
+	backendIngress *network.Input
+	links          []namedLink
+	clientGroups   []runtimeClientGroup
+	clients        []runtimeClient
 
 	publishState   func() error
 	commandHandled func(error)
@@ -100,14 +102,8 @@ func newScenarioSimulation(resolved scenario.Normalized) *simulation {
 	)
 	s.egress = network.NewEgress(e, resolved.LoadBalancer.ForwardingBitsPerSecond)
 
-	// Every incoming path joins this physical input before LB processing.
-	s.ingress = s.addLink(
-		"link/infrastructure/ingress",
-		"upstream -> LB",
-		upstreamNodeID,
-		loadBalancerNodeID,
-		resolved.LoadBalancer.Ingress,
-	)
+	// Two input queues share one physical receiver before LB processing.
+	s.connectIngress(resolved.LoadBalancer.Ingress)
 	for _, backend := range resolved.Backends {
 		s.addBackend(backend)
 	}
@@ -239,6 +235,13 @@ type linkResult struct {
 	network.Stats
 }
 
+// ingressQueueResult separates client and backend traffic at the shared receiver.
+type ingressQueueResult struct {
+	Side     string
+	Capacity int
+	network.Stats
+}
+
 // simulationResult reports completed work and unfinished queues at the end time.
 // Forwarding counts packets once, when they start on any LB output.
 type simulationResult struct {
@@ -256,6 +259,7 @@ type simulationResult struct {
 	EventsExecuted uint64
 	PendingEvents  int
 	Ingress        linkResult
+	IngressQueues  []ingressQueueResult
 	Forwarding     network.ForwardingStats
 	Links          []linkResult
 	State          model.LoadBalancerState
@@ -286,9 +290,21 @@ func (s *simulation) result(elapsed time.Duration) simulationResult {
 		EventsExecuted: s.engine.EventsExecuted(),
 		PendingEvents:  s.engine.Pending(),
 		Ingress: linkResult{
-			Name:   "upstream -> LB",
+			Name:   "Shared LB input",
 			Config: s.ingress.Config(),
 			Stats:  s.ingress.Stats(),
+		},
+		IngressQueues: []ingressQueueResult{
+			{
+				Side:     "clients",
+				Capacity: s.ingress.Config().QueueCapacity,
+				Stats:    s.clientIngress.Stats(),
+			},
+			{
+				Side:     "backends",
+				Capacity: s.ingress.Config().QueueCapacity,
+				Stats:    s.backendIngress.Stats(),
+			},
 		},
 		Forwarding: s.egress.Stats(),
 		Links:      links,

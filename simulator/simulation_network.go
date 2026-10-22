@@ -28,14 +28,7 @@ func (s *simulation) addLink(
 	id, name, source, target string,
 	config scenario.LinkConfig,
 ) *network.Link {
-	linkConfig := network.Config{
-		BandwidthBitsPerSecond: config.BandwidthBitsPerSecond,
-		PacketTravelTime:       config.PacketTravelTime,
-		QueueCapacity:          config.QueueCapacity,
-		LossRate:               config.LossRate,
-	}
-
-	link := network.NewLink(s.engine, linkConfig, s.resourceRNG(id))
+	link := network.NewLink(s.engine, configuredLink(config), s.resourceRNG(id))
 
 	s.links = append(s.links, namedLink{
 		ID:     id,
@@ -45,6 +38,28 @@ func (s *simulation) addLink(
 		Link:   link,
 	})
 	return link
+}
+
+// configuredLink copies the scenario's link settings into the network model.
+func configuredLink(config scenario.LinkConfig) network.Config {
+	return network.Config{
+		BandwidthBitsPerSecond: config.BandwidthBitsPerSecond,
+		PacketTravelTime:       config.PacketTravelTime,
+		QueueCapacity:          config.QueueCapacity,
+		LossRate:               config.LossRate,
+	}
+}
+
+// connectIngress creates two waiting queues served by one shared input link.
+func (s *simulation) connectIngress(config scenario.LinkConfig) {
+	link := network.NewLink(
+		s.engine,
+		configuredLink(config),
+		s.resourceRNG("link/infrastructure/ingress"),
+	)
+	s.ingress = network.NewIngress(link)
+	s.clientIngress = s.ingress.AddInput()
+	s.backendIngress = s.ingress.AddInput()
 }
 
 // addOutput registers one directed path in the shared LB dispatcher.
@@ -80,19 +95,19 @@ func (s *simulation) addBackend(config scenario.NormalizedBackend) {
 		endpointID,
 		config.Network.FromLoadBalancer,
 	)
-	toIngress := s.addLink(
-		"link/"+endpointID+"/to-upstream",
-		config.ID+" -> upstream",
+	toInput := s.addLink(
+		"link/"+endpointID+"/to-lb",
+		config.ID+" -> LB input",
 		endpointID,
-		upstreamNodeID,
+		loadBalancerNodeID,
 		config.Network.ToLoadBalancer,
 	)
 
 	// A backend reply crosses its return link and then the common LB input.
 	srv.SetSender(func(pkt model.Packet) {
 		originalClient := s.lb.GetClient(pkt.Key)
-		toIngress.Transmit(pkt.WireSize(), func() {
-			s.ingress.Transmit(pkt.WireSize(), func() {
+		toInput.Transmit(pkt.WireSize(), func() {
+			s.backendIngress.Transmit(pkt.WireSize(), func() {
 				if s.lb.HasClient(originalClient) {
 					s.lb.HandleServerPacket(srv, pkt)
 				}

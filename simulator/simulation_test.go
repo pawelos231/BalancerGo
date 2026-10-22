@@ -154,9 +154,8 @@ func TestSimulationSharesForwardingBudget(t *testing.T) {
 	wantArrivals := map[string]time.Duration{
 		loadBalancerNodeID + " -> " + backendNodeID("srv-00"): 2 * time.Millisecond,
 		loadBalancerNodeID + " -> " + backendNodeID("srv-01"): 3 * time.Millisecond,
-		backendNodeID("srv-00") + " -> " + upstreamNodeID:     2 * time.Millisecond,
-		backendNodeID("srv-01") + " -> " + upstreamNodeID:     2 * time.Millisecond,
-		upstreamNodeID + " -> " + loadBalancerNodeID:          2 * time.Millisecond,
+		backendNodeID("srv-00") + " -> " + loadBalancerNodeID: 2 * time.Millisecond,
+		backendNodeID("srv-01") + " -> " + loadBalancerNodeID: 2 * time.Millisecond,
 	}
 	if !reflect.DeepEqual(arrivals, wantArrivals) {
 		t.Fatalf("arrivals = %v, want %v", arrivals, wantArrivals)
@@ -260,7 +259,20 @@ func assertSimulationLinkSnapshots(t *testing.T, s *simulation, want network.Sta
 		t.Fatal("report or topology omitted a wired link")
 	}
 
-	wantGraphStats := model.TopologyLinkStats{
+	wantGraphStats := topologyStatsForTest(want)
+	for i, link := range s.links {
+		if report.Links[i].Name != link.Name || report.Links[i].Stats != want {
+			t.Errorf("report for %s: got %+v, want %+v", link.Name, report.Links[i], want)
+		}
+		if graph.Links[i].ID != link.ID || graph.Links[i].Stats != wantGraphStats {
+			t.Errorf("topology for %s: got %+v, want %+v", link.Name, graph.Links[i], wantGraphStats)
+		}
+	}
+}
+
+// topologyStatsForTest expresses all public packet counters without live state.
+func topologyStatsForTest(want network.Stats) model.TopologyLinkStats {
+	return model.TopologyLinkStats{
 		QueuedPackets:       want.QueuedPackets,
 		Transmitting:        want.Transmitting,
 		TravellingPackets:   want.TravellingPackets,
@@ -274,13 +286,5 @@ func assertSimulationLinkSnapshots(t *testing.T, s *simulation, want network.Sta
 		LostPackets:         want.LostPackets,
 		LostBytes:           want.LostBytes,
 		DeliveredBytes:      want.DeliveredBytes,
-	}
-	for i, link := range s.links {
-		if report.Links[i].Name != link.Name || report.Links[i].Stats != want {
-			t.Errorf("report for %s: got %+v, want %+v", link.Name, report.Links[i], want)
-		}
-		if graph.Links[i].ID != link.ID || graph.Links[i].Stats != wantGraphStats {
-			t.Errorf("topology for %s: got %+v, want %+v", link.Name, graph.Links[i], wantGraphStats)
-		}
 	}
 }

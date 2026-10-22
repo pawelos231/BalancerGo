@@ -3,7 +3,7 @@ import { Background, Controls, MarkerType, ReactFlow } from '@xyflow/react';
 import type { EdgeChange, NodeChange, ReactFlowInstance } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/style.css';
-import { layoutTopology, NODE_HEIGHT, NODE_WIDTH, structureKey } from './layout';
+import { layoutTopology, nodeHeight, NODE_HEIGHT, NODE_WIDTH, structureKey } from './layout';
 import TopologyNodeView from './TopologyNodeView';
 import type { FlowTopologyNode } from './TopologyNodeView';
 import TopologyLinkView from './TopologyLinkView';
@@ -22,6 +22,7 @@ interface TopologyCanvasProps {
   graph: TopologyGraph;
   selection: TopologySelection;
   onSelect: (selection: TopologySelection) => void;
+  viewKey: string;
 }
 
 function updateMeasurements(previous: Measurements, changes: NodeChanges): Measurements {
@@ -60,12 +61,13 @@ function findFocusedNodeId(selection: TopologySelection, links: TopologyLink[]) 
   return undefined;
 }
 
-function TopologyCanvas({ graph, selection, onSelect }: TopologyCanvasProps) {
+function TopologyCanvas({ graph, selection, onSelect, viewKey }: TopologyCanvasProps) {
   const theme = useTheme();
   const instance = useRef<FlowInstance | null>(null);
   const [measurements, setMeasurements] = useState<Measurements>(() => new Map());
   const key = structureKey(graph);
   const layout = useMemo(() => layoutTopology(key), [key]);
+  const singleLoadBalancer = graph.nodes.filter((node) => node.kind === 'loadBalancer').length === 1;
 
   const selectLink = useCallback(
     (id: string) => {
@@ -82,22 +84,29 @@ function TopologyCanvas({ graph, selection, onSelect }: TopologyCanvasProps) {
         position: layout.positions.get(node.id)!,
         // Retain measurements so fresh snapshots cannot hide nodes or reset handles.
         measured: measurements.get(node.id),
-        data: { node },
+        data: {
+          node,
+          ingress: node.kind === 'loadBalancer' && singleLoadBalancer ? graph.ingress : undefined,
+          domainLayout: layout.domainLayout,
+        },
         selected: selection?.kind === 'node' && selection.id === node.id,
         draggable: false,
         connectable: false,
         deletable: false,
         ariaLabel: `${node.label}, ${kindLabel(node.kind)}. Press Enter to inspect.`,
-        style: { width: NODE_WIDTH, height: NODE_HEIGHT },
+        style: { width: NODE_WIDTH, height: nodeHeight(node.kind) },
       })),
-    [graph.nodes, layout, selection, measurements]
+    [graph.nodes, graph.ingress, layout, selection, measurements, singleLoadBalancer]
   );
 
   const edges = useMemo<FlowTopologyLink[]>(
     () =>
       graph.links.map((link) => {
         const route = layout.routes.get(link.id)!;
-        const bandwidth = formatBandwidth(link.config.bandwidthBitsPerSecond);
+        const perLinkBandwidth = formatBandwidth(link.config.bandwidthBitsPerSecond);
+        const bandwidth = link.memberCount && link.memberCount > 1
+          ? `${link.memberCount} independent links at ${perLinkBandwidth} each`
+          : perLinkBandwidth;
         const activity = linkIsBusy(link) ? 'busy' : 'idle';
 
         return {
@@ -128,6 +137,16 @@ function TopologyCanvas({ graph, selection, onSelect }: TopologyCanvasProps) {
   );
 
   const focusedNodeId = findFocusedNodeId(selection, graph.links);
+  const focusedNode = graph.nodes.find((node) => node.id === focusedNodeId);
+  const focusedHeight = focusedNode ? nodeHeight(focusedNode.kind) : NODE_HEIGHT;
+
+  // Fit after an explicit expand/collapse; ordinary metric updates keep the view.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      void instance.current?.fitView({ padding: 0.2, minZoom: 0.08, maxZoom: 1 });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [viewKey]);
 
   // Only selection or placement changes may move the viewport.
   useEffect(() => {
@@ -142,11 +161,11 @@ function TopologyCanvas({ graph, selection, onSelect }: TopologyCanvasProps) {
     }
 
     const centerX = position.x + NODE_WIDTH / 2;
-    const centerY = position.y + NODE_HEIGHT / 2;
+    const centerY = position.y + focusedHeight / 2;
     const zoom = Math.max(flow.getZoom(), 0.65);
 
     void flow.setCenter(centerX, centerY, { zoom, duration: 180 });
-  }, [focusedNodeId, layout]);
+  }, [focusedNodeId, focusedHeight, layout]);
 
   function handleNodesChange(changes: NodeChanges) {
     const hasMeasurements = changes.some((change) => change.type === 'dimensions' && change.dimensions);

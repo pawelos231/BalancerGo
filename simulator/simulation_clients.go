@@ -125,11 +125,11 @@ func (s *simulation) startClient(
 		model.TCP,
 	)
 
-	toIngress := s.addLink(
-		"link/"+config.ID+"/to-upstream",
-		config.ID+" -> upstream",
+	toInput := s.addLink(
+		"link/"+config.ID+"/to-lb",
+		config.ID+" -> LB input",
 		config.ID,
-		upstreamNodeID,
+		loadBalancerNodeID,
 		config.Network.ToLoadBalancer,
 	)
 	toClient := s.addOutput(
@@ -142,8 +142,8 @@ func (s *simulation) startClient(
 
 	// Every SYN, data packet and retry crosses both access and shared ingress.
 	cl.SetSender(func(pkt model.Packet) {
-		toIngress.Transmit(pkt.WireSize(), func() {
-			s.ingress.Transmit(pkt.WireSize(), func() {
+		toInput.Transmit(pkt.WireSize(), func() {
+			s.clientIngress.Transmit(pkt.WireSize(), func() {
 				if s.lb.HasClient(cl) {
 					s.lb.HandleClientPacket(pkt)
 				}

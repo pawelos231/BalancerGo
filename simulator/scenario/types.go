@@ -78,7 +78,7 @@ type ResourcesConfig struct {
 }
 
 // LoadBalancerConfig separates the shared input from backend selection and forwarding.
-// Output queues use each endpoint's FromLoadBalancer.QueueCapacity.
+// Ingress.QueueCapacity sizes each input queue; outputs use endpoint settings.
 type LoadBalancerConfig struct {
 	ID                      string     `json:"id"`
 	Algorithm               string     `json:"algorithm"`

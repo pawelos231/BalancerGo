@@ -53,7 +53,7 @@ port 8081 to port 8080 inside the backend container by default.
 
 ## Run locally without Docker
 
-Requirements: Go 1.23.2 or newer, Node.js, and npm.
+Requirements: Go 1.23.2 or newer, Node.js 24, and npm.
 
 ## Run the simulator
 
@@ -105,7 +105,7 @@ parameters (see `go run . -help` for all options):
 | `-lb-bandwidth` | `1000000000` | One shared forwarding budget in bits/s for all LB outputs, toward both clients and backends. |
 | `-lb-ingress-bandwidth` | `1000000000` | Bitrate of the shared physical link delivering client and backend traffic into the LB. |
 | `-lb-ingress-packet-travel-time` | `0s` | Additional virtual travel time after transmission on the shared input link. |
-| `-lb-ingress-queue`, `-lb-ingress-loss` | `1024`, `0` | Waiting slots before the shared input link and its independent loss probability. |
+| `-lb-ingress-queue`, `-lb-ingress-loss` | `1024`, `0` | Waiting slots in each input FIFO (clients and backends), and the shared receiver's loss probability. |
 | `-link-queue`, `-loss` | `1024`, `0` | Waiting slots and independent loss on each access or outgoing LB link. |
 | `-algorithm` | `roundRobin` | `roundRobin` or seeded `random`. |
 | `-snapshot-interval`, `-speed` | `100ms`, `1` | Virtual snapshot interval and virtual seconds per real second; speed `0` is unpaced. |
@@ -149,9 +149,10 @@ The existing CLI and frontend form create one group with shared defaults.
 Starting a complete scenario document through HTTP or importing it in the UI
 is planned separately; the internal entry point is `newScenarioSimulation`.
 
-Access links feed an upstream aggregator, followed by one shared physical input
-link. All LB outputs share a separate forwarding budget. Both limits remain
-independent of endpoint link speeds. `resources.loadBalancer.ingress` configures
+Access links feed two LB input FIFOs: one for clients and one for backends.
+Both use one shared physical input link. All LB outputs share a separate
+forwarding budget. Both limits remain independent of endpoint link speeds.
+`resources.loadBalancer.ingress` configures
 the common input; `scenario.DefaultIngressConfig()` supplies its Go defaults.
 Each output has one FIFO, configured by the destination's
 `network.fromLoadBalancer.queueCapacity`, falling back to `network.defaults`.
@@ -182,6 +183,9 @@ values across JavaScript and Go; it must not round them through JavaScript numbe
   the packet to arrive. Reports and topology include the managed queue's counters.
   A packet pacer shares one forwarding budget across all LB outputs. Each link
   also enforces its own rate.
+- `simulator/network/ingress.go` owns separate client and backend input FIFOs.
+  One shared link serves the oldest waiting packet across both queues. Each FIFO
+  has its own waiting slots; neither side reserves a share of the common rate.
 - `client/`, `server/` and `balancer/` use short packet handlers and scheduled
   callbacks. Connections coexist as state objects. There is no waiting goroutine
   or channel per client, connection or backend.
@@ -189,8 +193,8 @@ values across JavaScript and Go; it must not round them through JavaScript numbe
   and applies UI commands as events at virtual step boundaries.
   `simulation_clients.go` creates clients lazily from compact groups;
   `simulation_network.go` connects each endpoint's own directed links.
-  Client access links and backend return links reach an upstream aggregator,
-  followed by one shared physical input link into the LB.
+  Client access links and backend return links reach their respective input
+  FIFOs, followed by one shared physical input link into the LB.
   Link IDs and random sources follow resource identities instead of creation
   order. Topology uses separate namespaces for infrastructure and endpoints.
   The optional real clock pacing belongs to this application runner.
@@ -201,38 +205,43 @@ values across JavaScript and Go; it must not round them through JavaScript numbe
 The **LB ingress link** limits traffic before either LB packet handler runs:
 
 ```text
-clients -------- access link -------+
-                                    +--> upstream FIFO --> shared ingress --> LB handlers
-backends ------- return links ------+
+clients -------- access links ------> client FIFO --+
+                                                   +--> shared RX --> LB handlers
+backends ------- return links ------> backend FIFO -+
 ```
 
-The aggregator adds no processing delay or second queue. Its FIFO belongs to
-the shared ingress `Link` and represents a network buffer before the last
-physical section into the LB. It is separate from the future kernel RX model.
-All client and backend packets use it, including ACK, SYN, FIN and retransmissions.
+`Ingress` owns these two waiting queues and controls one physical `Link`.
+That link has no second waiting buffer. These are network buffers before the
+last physical section into the LB, separate from the future kernel RX model.
+All client and backend packets use this receiver, including ACK, SYN, FIN and retransmissions.
 Each packet completes its access-link transmission and travel, then its ingress
 transmission and travel. These are two physical sections; the ingress travel
 default is zero additional time. Outgoing LB packets retain their existing paths.
 
-When upstream traffic fills the ingress FIFO, new packets are tail-dropped before
-the LB can handle them. Capacity excludes active transmission and travelling
+When one input FIFO fills, new packets from that side are tail-dropped before
+the LB can handle them. The other side keeps its own waiting slots. For example,
+a capacity of 1024 gives 1024 client slots and 1024 backend slots. The oldest
+waiting packet across both FIFO heads gets the next transmission; there are no
+fixed bandwidth shares. Capacity excludes active transmission and travelling
 packets. Capacity zero admits only an immediate transmission. Random ingress
 loss still consumes its bandwidth. Drops do not notify the remote sender
 immediately; the existing transport reacts through its normal timers.
 
 For example, with access links at 10 Gbit/s and ingress at 1 Gbit/s, a sufficiently
-long actual input burst can overflow the upstream FIFO. Configured access rates
+long actual input burst can overflow the client input FIFO. Configured access rates
 are maximum capacities, not guaranteed generation rates: clients still use
 stop-and-wait. With no congestion control or adaptive retransmission timers,
 drop and retry results describe this simplified transport, not a validated TCP
 response to overload. LB packet handlers still have zero modeled CPU cost.
 
 The frontend has separate **LB ingress** settings for bandwidth, packet travel
-time, queue slots and loss. Headless `Ingress` includes the shared link's `Config`
-and complete packet/byte counters; the same physical link also appears in `Links`.
-Every link in `Links` now includes its own `Config`. Headless `PacketTravelTime`
-is in nanoseconds. The topology shows one upstream node and one shared ingress
-arrow; its counters distinguish drops before the LB from drops at LB outputs.
+time, slots per input queue and loss. Headless `Ingress` includes the shared
+link's `Config` and aggregate packet/byte counters; `IngressQueues` reports each
+side separately. `Links` contains only endpoint paths, each with its own `Config`.
+Headless `PacketTravelTime` is in nanoseconds. The topology places clients left
+of the LB and backends right. `topology.ingress` describes the common receiver
+and its queues once, independently of arrows. Its counters distinguish input
+drops from drops at LB outputs.
 
 The **LB forwarding budget** counts each outgoing packet once, at transmission
 start, including its modeled headers. SYN, ACK, FIN and retransmissions use the
@@ -313,22 +322,27 @@ starting Vite to override the browser WebSocket URL.
 
 Both pages share the WebSocket connection and current experiment in `App`.
 Switching pages preserves the configuration draft and keeps the run advancing.
-The topology groups clients into one node; each arrow represents a directed link
-reported by the backend, including the return direction. Select a node or link
-to inspect its configuration and counters, or use search to find any element.
-The upstream aggregation node and shared input link show where client and backend
-traffic joins before entering the LB. Finished runs retain their final graph and state.
+The topology starts with client groups collapsed. Bundled arrows such as
+`100 × 100 Mbit/s` represent separate links with matching settings. Expand a
+group or search for one client to see its physical links. Inspect a node, link
+or bundle to see its configuration, member links and counters.
+The LB shows its client-side and backend-side input queues, common RX limit and
+common TX budget. Finished runs retain their final graph and state.
 
-The view displays each link's own bandwidth and other settings from the graph
-DTO. The current model initializes all links from one global configuration.
+The view displays each link's own settings from the graph DTO. Separate summaries
+show incoming access links, the two input FIFOs with one shared receiver, and LB
+outputs with their common forwarding budget. Configured rates are limits;
+delivery and drop counters refer
+to each physical hop. Profiles and endpoint overrides can give links different
+settings; the current simple form sets uniform endpoint defaults.
 Additional topologies or load-balancer resources require corresponding backend
 models and snapshot projections. See [the visualizer guide](visualizer/README.md)
 for the frontend extension points.
 
 ## Verify the project
 
-Run `go test ./...` from `simulator/`. From `visualizer/`, run `npm run build`
-and `npm run lint`.
+Run `go test ./...` from `simulator/`. From `visualizer/`, run `npm test`,
+`npm run build` and `npm run lint`.
 
 Dependencies, build output, runtime traces, and local repository backups are
 excluded from Git by the root `.gitignore`.
