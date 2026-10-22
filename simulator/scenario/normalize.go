@@ -181,10 +181,6 @@ func validateLoadBalancer(config LoadBalancerConfig) error {
 		return fmt.Errorf("resources.loadBalancer.forwardingBitsPerSecond: must be positive")
 	}
 
-	if config.QueueCapacity < 0 {
-		return fmt.Errorf("resources.loadBalancer.queueCapacity: must be nonnegative")
-	}
-
 	return validateLink(config.Ingress, "resources.loadBalancer.ingress")
 }
 

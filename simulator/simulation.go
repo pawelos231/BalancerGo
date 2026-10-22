@@ -7,12 +7,11 @@ import (
 	"fmt"
 	"load-balancer/algorithms"
 	"load-balancer/balancer"
-	"load-balancer/client"
 	"load-balancer/engine"
 	httpserver "load-balancer/http"
 	"load-balancer/model"
 	"load-balancer/network"
-	"load-balancer/server"
+	"load-balancer/scenario"
 	"log"
 	"math/rand"
 	"time"
@@ -21,16 +20,16 @@ import (
 // Application wiring and optional wall-clock pacing live outside the engine.
 // A simulation and every endpoint/link it creates have one owner: run's caller.
 type simulation struct {
-	config       configuration
+	scenario     scenario.Normalized
 	engine       *engine.Engine
 	lb           *balancer.LoadBalancer
 	algorithmRNG *rand.Rand
 
-	egress   *network.Egress
-	ingress  *network.Link
-	uplink   *network.Link
-	downlink *network.Output
-	links    []namedLink
+	egress       *network.Egress
+	ingress      *network.Link
+	links        []namedLink
+	clientGroups []runtimeClientGroup
+	clients      []runtimeClient
 
 	publishState   func() error
 	commandHandled func(error)
@@ -61,198 +60,61 @@ func (link namedLink) Stats() network.Stats {
 	return link.Link.Stats()
 }
 
-// newSimulation connects the endpoints and schedules the first model events.
+// newSimulation adapts the existing CLI and browser form to a scenario.
 func newSimulation(cfg configuration) *simulation {
-	e := engine.New(cfg.duration)
-	e.MaxEvents = cfg.maxEvents
+	if cfg.headless {
+		cfg.speed = 0
+	}
+
+	resolved, err := scenario.Normalize(cfg.scenarioDefinition())
+	if err != nil {
+		panic(fmt.Errorf("simulation: invalid configuration: %w", err))
+	}
+	return newScenarioSimulation(resolved)
+}
+
+// newScenarioSimulation builds a runtime from a validated scenario kept read-only.
+// Clients and their two links are created only when their arrival event runs.
+func newScenarioSimulation(resolved scenario.Normalized) *simulation {
+	execution := resolved.Execution
+	e := engine.New(execution.Duration)
+	e.MaxEvents = execution.MaxEvents
 
 	s := &simulation{
-		config:       cfg,
-		engine:       e,
-		algorithmRNG: rand.New(rand.NewSource(cfg.seed + 2)),
+		scenario: resolved,
+		engine:   e,
+	}
+	s.algorithmRNG = s.resourceRNG("algorithm")
+
+	var algorithm algorithms.Algorithm = &algorithms.RoundRobin{}
+	if resolved.LoadBalancer.Algorithm == "random" {
+		algorithm = &algorithms.Random{RNG: s.algorithmRNG}
 	}
 
-	// Backend selection and packet forwarding use separate random sources.
-	var algo algorithms.Algorithm = &algorithms.RoundRobin{}
-	if cfg.algorithm == "random" {
-		algo = &algorithms.Random{RNG: s.algorithmRNG}
-	}
-
-	balancerRNG := rand.New(rand.NewSource(cfg.seed + 1))
 	s.lb = balancer.NewLoadBalancer(
 		e,
 		model.LBModeNAT,
-		algo,
-		cfg.snapshotInterval,
-		balancerRNG,
+		algorithm,
+		execution.SnapshotInterval,
+		s.resourceRNG("balancer"),
 	)
-	s.egress = network.NewEgress(e, cfg.forwardingBitsPerSecond)
+	s.egress = network.NewEgress(e, resolved.LoadBalancer.ForwardingBitsPerSecond)
 
-	// Client traffic reaches the upstream aggregator before the shared LB input.
-	s.uplink = s.addLink("clients -> upstream", "clients", "upstream")
-	s.downlink = s.addOutput("LB -> clients", "lb", "clients")
-
-	for i := 0; i < cfg.servers; i++ {
-		// Give each backend a stable identity and address.
-		serverID := fmt.Sprintf("srv-%02d", i)
-		serverName := fmt.Sprintf("backend-%02d", i)
-		serverAddress := fmt.Sprintf("10.0.%d.%d", i/254, i%254+1)
-
-		srv := server.NewServer(
-			e,
-			serverID,
-			serverName,
-			serverAddress,
-			80,  // Port.
-			0,   // Distance.
-			1,   // Initial weight.
-			100, // Half-open connection limit.
-		)
-
-		// The LB owns the outgoing FIFO; the return link owns its own queue.
-		toBackend := s.addOutput("LB -> "+srv.ID, "lb", srv.ID)
-		toIngress := s.addLink(srv.ID+" -> upstream", srv.ID, "upstream")
-
-		// Backend -> upstream -> LB: both input directions share the final link.
-		srv.SetSender(func(pkt model.Packet) {
-			client := s.lb.GetClient(pkt.Key)
-
-			toIngress.Transmit(pkt.WireSize(), func() {
-				s.ingress.Transmit(pkt.WireSize(), func() {
-					if s.lb.HasClient(client) {
-						s.lb.HandleServerPacket(srv, pkt)
-					}
-				})
-			})
-		})
-
-		// LB -> backend: queue the packet and deliver it if its client is still active.
-		err := s.lb.AddServer(srv, func(pkt model.Packet) {
-			client := s.lb.GetClient(pkt.Key)
-
-			toBackend.Transmit(pkt.WireSize(), func() {
-				if s.lb.HasClient(client) {
-					srv.HandlePacket(pkt)
-				}
-			})
-		})
-		if err != nil {
-			panic(err)
-		}
-
-		srv.Start()
+	// Every incoming path joins this physical input before LB processing.
+	s.ingress = s.addLink(
+		"link/infrastructure/ingress",
+		"upstream -> LB",
+		upstreamNodeID,
+		loadBalancerNodeID,
+		resolved.LoadBalancer.Ingress,
+	)
+	for _, backend := range resolved.Backends {
+		s.addBackend(backend)
 	}
 
-	// Add the shared input after existing links to keep their IDs and RNGs stable.
-	s.ingress = s.addIngress()
-
-	// Schedule client arrivals and the first snapshot at virtual time zero.
-	s.scheduleClients(cfg.clients)
+	s.initializeClients()
 	e.ScheduleAt(0, s.sample)
-
 	return s
-}
-
-// addIngress creates the shared physical path from upstream to the LB.
-// Its FIFO holds arriving packets before either LB packet handler can run.
-func (s *simulation) addIngress() *network.Link {
-	config := s.config.ingress
-	linkConfig := network.Config{
-		BandwidthBitsPerSecond: config.BandwidthBitsPerSecond,
-		PacketTravelTime:       config.PacketTravelTime,
-		QueueCapacity:          config.QueueCapacity,
-		LossRate:               config.LossRate,
-	}
-
-	// The ingress has its own random source, independent of the backend count.
-	rng := rand.New(rand.NewSource(s.config.seed + 3))
-	link := network.NewLink(s.engine, linkConfig, rng)
-	s.links = append(s.links, namedLink{
-		ID:     "link-ingress",
-		Name:   "upstream -> LB",
-		Source: "upstream",
-		Target: "lb",
-		Link:   link,
-	})
-	return link
-}
-
-// addLink creates an autonomous link with stable labels and a seeded RNG.
-func (s *simulation) addLink(name, source, target string) *network.Link {
-	link := network.NewLink(s.engine, network.Config{
-		BandwidthBitsPerSecond: s.config.bandwidth,
-		PacketTravelTime:       s.config.packetTravelTime,
-		QueueCapacity:          s.config.queue,
-		LossRate:               s.config.loss,
-	}, rand.New(rand.NewSource(s.config.seed+100+int64(len(s.links)))))
-	s.links = append(s.links, namedLink{
-		ID:     fmt.Sprintf("link-%03d", len(s.links)),
-		Name:   name,
-		Source: source,
-		Target: target,
-		Link:   link,
-	})
-	return link
-}
-
-// addOutput gives the LB exclusive ownership of this outgoing link's FIFO.
-func (s *simulation) addOutput(name, source, target string) *network.Output {
-	link := s.addLink(name, source, target)
-	output := s.egress.AddOutput(link)
-	s.links[len(s.links)-1].Output = output
-	return output
-}
-
-func (s *simulation) scheduleClients(count int) {
-	s.scheduledClients += count
-	var arrival func()
-	arrival = func() {
-		if count == 0 {
-			return
-		}
-		s.startClient()
-		count--
-		if count > 0 {
-			s.engine.ScheduleAfter(s.config.clientGap, arrival)
-		}
-	}
-	if count > 0 {
-		s.engine.ScheduleAfter(0, arrival)
-	}
-}
-
-func (s *simulation) startClient() {
-	id := s.createdClients + 1
-	s.createdClients++
-	cl := client.NewClient(s.engine,
-		fmt.Sprintf("192.%d.%d.%d", byte(id>>16), byte(id>>8), byte(id)),
-		uint16(40000+id%20000), "lb.local", 80, model.TCP)
-	cl.SetSender(func(pkt model.Packet) {
-		// Access-link arrival joins the shared input FIFO, before LB processing.
-		s.uplink.Transmit(pkt.WireSize(), func() {
-			s.ingress.Transmit(pkt.WireSize(), func() {
-				if s.lb.HasClient(cl) {
-					s.lb.HandleClientPacket(pkt)
-				}
-			})
-		})
-	})
-	cl.OnStreamComplete = func() {
-		s.completedStreams++
-		s.completedPayloadBytes += uint64(s.config.streamBytes)
-	}
-	cl.OnClose = func() { s.closedClients++ }
-	if err := s.lb.AddClient(cl, func(pkt model.Packet) {
-		s.downlink.Transmit(pkt.WireSize(), func() {
-			if s.lb.HasClient(cl) {
-				cl.HandlePacket(pkt)
-			}
-		})
-	}); err != nil {
-		panic(err)
-	}
-	cl.SendCompleteStream(s.config.streamBytes, s.config.packetGap)
-	cl.EstablishConnection()
 }
 
 func (s *simulation) sample() {
@@ -261,7 +123,7 @@ func (s *simulation) sample() {
 			log.Printf("snapshot: %v", err)
 		}
 	}
-	s.engine.ScheduleAfter(s.config.snapshotInterval, s.sample)
+	s.engine.ScheduleAfter(s.scenario.Execution.SnapshotInterval, s.sample)
 }
 
 func (s *simulation) applyCommand(command httpserver.Envelope) error {
@@ -284,10 +146,7 @@ func (s *simulation) applyCommand(command httpserver.Envelope) error {
 		if err := json.Unmarshal(command.Payload, &msg); err != nil {
 			return err
 		}
-		if msg.Count < 1 || msg.Count > 10000 || s.scheduledClients > (1<<24-1)-msg.Count {
-			return errors.New("spawn count must be 1..10000 and fit the client address range")
-		}
-		s.scheduleClients(msg.Count)
+		return s.spawnClients(msg)
 	default:
 		return fmt.Errorf("unsupported command: %s", command.Type)
 	}
@@ -302,13 +161,14 @@ func (s *simulation) run(ctx context.Context, commands <-chan httpserver.Envelop
 		}
 		next := s.engine.Now()
 		remaining := s.engine.EndTime() - next
-		if remaining > s.config.snapshotInterval {
-			remaining = s.config.snapshotInterval
+		if remaining > s.scenario.Execution.SnapshotInterval {
+			remaining = s.scenario.Execution.SnapshotInterval
 		}
 		next += remaining
-		if s.config.speed > 0 {
+		if s.scenario.Execution.Speed > 0 {
 			// Pacing changes only real execution speed; protocol timers stay in DES.
-			deadline := wallStart.Add(time.Duration(float64(next) / s.config.speed))
+			pacedTime := time.Duration(float64(next) / s.scenario.Execution.Speed)
+			deadline := wallStart.Add(pacedTime)
 			if delay := time.Until(deadline); delay > 0 {
 				timer := time.NewTimer(delay)
 				select {
@@ -414,7 +274,7 @@ func (s *simulation) result(elapsed time.Duration) simulationResult {
 	return simulationResult{
 		VirtualTime: s.engine.Now().String(),
 		WallTime:    elapsed.String(),
-		Seed:        s.config.seed,
+		Seed:        s.scenario.Execution.Seed,
 
 		ScheduledClients:      s.scheduledClients,
 		CreatedClients:        s.createdClients,

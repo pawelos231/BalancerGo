@@ -110,7 +110,7 @@ const detailFields: Field[] = [
     help:
       'Virtual delay between creating successive clients. ' +
       'Set 0 to schedule all clients at the same virtual time; ' +
-      'their shared network links still transmit packets one at a time.',
+      'each has its own links, while shared LB ingress and forwarding limits still apply.',
   },
   {
     name: 'packetGapMs',
@@ -139,9 +139,9 @@ const detailFields: Field[] = [
     min: 0,
     exclusiveMin: true,
     help:
-      'Maximum bitrate of each access link and each link leaving the LB, including modeled IPv4 and TCP headers. ' +
+      'Default maximum bitrate of each client or backend link, including modeled IPv4 and TCP headers. ' +
       'One gigabit per second is 1,000,000,000 bit/s, or 125 MB/s of raw traffic. ' +
-      'Client packets and backend replies first reach the upstream aggregation point through access links, ' +
+      'Each client and backend has its own links. Incoming packets reach upstream, ' +
       'then share the separately configured LB ingress link. ' +
       'Links leaving the LB also share its independent forwarding budget.',
   },
@@ -163,7 +163,7 @@ const detailFields: Field[] = [
     label: 'Packet travel time (virtual ms)',
     min: 0,
     help:
-      'Virtual travel time after transmission on each access link and each link leaving the LB. ' +
+      'Default virtual travel time after transmission on each client or backend link. ' +
       'On a link with 1 ms of travel time, a packet finishing transmission at 5 ms arrives at 6 ms. ' +
       'The link can transmit the next packet while the previous one is still travelling. ' +
       'The common ingress link has a separate travel time setting.',
@@ -174,7 +174,7 @@ const detailFields: Field[] = [
     integer: true,
     min: 0,
     help:
-      'Waiting packet slots on each access link and outgoing LB path, excluding active transmissions ' +
+      'Waiting packet slots on each client or backend access link and outgoing LB path, excluding active transmissions ' +
       'and packets already travelling. LB output packets may wait for their link ' +
       'or the shared forwarding budget. New packets are dropped when the waiting slots are full; ' +
       '0 admits a packet only when it can start transmitting immediately. ' +
@@ -186,7 +186,7 @@ const detailFields: Field[] = [
     min: 0,
     max: 1,
     help:
-      'Independent probability of losing a packet on each access link or outgoing LB link after transmission; ' +
+      'Independent probability of losing a packet on each client or backend link after transmission; ' +
       '0.1 means a 10% chance on each link. Use 0 for no random loss or 1 to lose every packet. ' +
       'Lost packets still consume link bandwidth and can trigger client retries or timeouts. ' +
       'The common ingress link has a separate loss probability setting.',

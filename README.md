@@ -142,13 +142,25 @@ validates identifiers and settings, and resolves stream sizes. Patch fields use
 pointers so an explicit zero differs from an omitted value. Groups remain compact;
 normalization does not allocate one object for every configured client.
 
-The existing CLI and frontend settings pass through this validation model.
-Clients still share their access links. Access/outgoing link settings, the shared
-physical input link and the LB forwarding budget are independent and enforced
-by the runtime. `resources.loadBalancer.ingress` describes the shared input link
-in the scenario format; `scenario.DefaultIngressConfig()` supplies its Go defaults.
-The new scenario document is not accepted by Start until its network and API
-integration are implemented.
+The runtime now uses the normalized scenario. Each client gets its own access
+and return link when it arrives; each backend also has its own pair. Groups,
+profiles and individual overrides can assign different settings in each direction.
+The existing CLI and frontend form create one group with shared defaults.
+Starting a complete scenario document through HTTP or importing it in the UI
+is planned separately; the internal entry point is `newScenarioSimulation`.
+
+Access links feed an upstream aggregator, followed by one shared physical input
+link. All LB outputs share a separate forwarding budget. Both limits remain
+independent of endpoint link speeds. `resources.loadBalancer.ingress` configures
+the common input; `scenario.DefaultIngressConfig()` supplies its Go defaults.
+Each output has one FIFO, configured by the destination's
+`network.fromLoadBalancer.queueCapacity`, falling back to `network.defaults`.
+
+The `spawnClient` command uses the group's network and stream settings. Its
+optional `groupId` selects that group and is required when more than one group
+exists. Spawned clients arrive from the current virtual time, separated by the
+group's `clientGapNanoseconds`. Their indices follow the group's initial range,
+even when some initial clients have not arrived yet.
 
 Scenario duration fields have explicit `Nanoseconds` JSON names and retain native
 `time.Duration` precision in Go. The future import API must preserve large integer
@@ -173,11 +185,14 @@ values across JavaScript and Go; it must not round them through JavaScript numbe
 - `client/`, `server/` and `balancer/` use short packet handlers and scheduled
   callbacks. Connections coexist as state objects. There is no waiting goroutine
   or channel per client, connection or backend.
-- `simulator/simulation.go` wires endpoints and links, schedules client arrivals
-  and snapshots, and applies UI commands as events at virtual step boundaries.
-  Clients share their access and return links; each backend has its own pair.
+- `simulator/simulation.go` builds the normalized runtime, schedules snapshots
+  and applies UI commands as events at virtual step boundaries.
+  `simulation_clients.go` creates clients lazily from compact groups;
+  `simulation_network.go` connects each endpoint's own directed links.
   Client access links and backend return links reach an upstream aggregator,
   followed by one shared physical input link into the LB.
+  Link IDs and random sources follow resource identities instead of creation
+  order. Topology uses separate namespaces for infrastructure and endpoints.
   The optional real clock pacing belongs to this application runner.
 - `http/` handles real HTTP/WebSocket I/O. It receives detached JSON snapshots,
   keeps the latest frame for new subscribers and replaces queued UI frames when

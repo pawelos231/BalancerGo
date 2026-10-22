@@ -42,18 +42,40 @@ func runIngressUntil(t *testing.T, s *simulation, until time.Duration) {
 // firstIngressClient returns the first client created by production wiring.
 func firstIngressClient(t *testing.T, s *simulation) *client.Client {
 	t.Helper()
-	key := model.ClientKey{
-		SrcIP:    "192.0.0.1",
-		SrcPort:  40001,
-		DstIP:    "lb.local",
-		DstPort:  80,
-		Protocol: model.TCP,
-	}
-	cl := s.lb.GetClient(key)
-	if cl == nil {
+	if len(s.clients) == 0 {
 		t.Fatal("production client has not been created")
 	}
-	return cl
+	return s.clients[0].Client
+}
+
+// firstIngressClientOutput finds the first client's private LB output FIFO.
+func firstIngressClientOutput(t *testing.T, s *simulation) *network.Output {
+	t.Helper()
+	firstIngressClient(t, s)
+	id := s.clients[0].ID
+	for _, link := range s.links {
+		if link.Source == loadBalancerNodeID && link.Target == id {
+			if link.Output == nil {
+				t.Fatal("client output has no managed FIFO")
+			}
+			return link.Output
+		}
+	}
+	t.Fatalf("client %q has no LB output", id)
+	return nil
+}
+
+// ingressClientAccessDeliveries sums successful arrivals from all private links.
+func ingressClientAccessDeliveries(s *simulation) uint64 {
+	var deliveries uint64
+	for _, cl := range s.clients {
+		for _, link := range s.links {
+			if link.Source == cl.ID && link.Target == upstreamNodeID {
+				deliveries += link.Stats().DeliveredPackets
+			}
+		}
+	}
+	return deliveries
 }
 
 // TestIngressDelaysBothClientAndBackendPackets checks both real sender callbacks.
@@ -102,13 +124,13 @@ func TestIngressDelaysBothClientAndBackendPackets(t *testing.T) {
 	if input.OfferedPackets != 2 || input.OfferedBytes != 80 {
 		t.Fatalf("backend reply did not join the same physical ingress: %+v", input)
 	}
-	if s.downlink.Stats().OfferedPackets != 0 {
+	if firstIngressClientOutput(t, s).Stats().OfferedPackets != 0 {
 		t.Fatal("backend reply bypassed ingress on its way to the client")
 	}
 
 	// The reply pays the same ingress cost before the LB can send it onward.
 	runIngressUntil(t, s, 303*time.Millisecond-time.Nanosecond)
-	if s.downlink.Stats().OfferedPackets != 0 {
+	if firstIngressClientOutput(t, s).Stats().OfferedPackets != 0 {
 		t.Fatal("LB handled the backend reply before its ingress delivery")
 	}
 	runIngressUntil(t, s, 303*time.Millisecond)
@@ -141,7 +163,7 @@ func TestIngressClientBurstUsesOneFiniteFIFO(t *testing.T) {
 			cfg.ingress.QueueCapacity = capacity
 			s := newSimulation(cfg)
 
-			// Three SYNs leave access at 1, 2 and 3 ms; ingress needs 40 ms each.
+			// Private access links deliver all three SYNs at 1 ms; ingress needs 40 ms each.
 			if err := s.run(context.Background(), nil); err != nil {
 				t.Fatal(err)
 			}
@@ -160,7 +182,7 @@ func TestIngressClientBurstUsesOneFiniteFIFO(t *testing.T) {
 			if got := s.result(0).Ingress.Stats; got != want {
 				t.Fatalf("shared ingress = %+v, want %+v", got, want)
 			}
-			if s.uplink.Stats().DeliveredPackets != 3 {
+			if ingressClientAccessDeliveries(s) != 3 {
 				t.Fatal("client SYNs were dropped before reaching ingress")
 			}
 			if s.egress.Stats().ForwardedPackets != 0 {
@@ -180,7 +202,7 @@ func TestIngressLossPreventsLBReception(t *testing.T) {
 	}
 
 	// Access succeeds, but the common link loses the SYN after consuming bandwidth.
-	if s.uplink.Stats().DeliveredPackets != 1 {
+	if ingressClientAccessDeliveries(s) != 1 {
 		t.Fatal("SYN did not reach the common ingress")
 	}
 	input := s.result(0).Ingress
@@ -203,6 +225,7 @@ func TestIngressLossPreventsLBReception(t *testing.T) {
 func replaceIngressClient(t *testing.T, s *simulation, old *client.Client) *client.Client {
 	t.Helper()
 	key := old.Key()
+	output := firstIngressClientOutput(t, s)
 	old.Shutdown()
 	replacement := client.NewClient(
 		s.engine,
@@ -213,7 +236,7 @@ func replaceIngressClient(t *testing.T, s *simulation, old *client.Client) *clie
 		key.Protocol,
 	)
 	if err := s.lb.AddClient(replacement, func(pkt model.Packet) {
-		s.downlink.Transmit(pkt.WireSize(), func() {
+		output.Transmit(pkt.WireSize(), func() {
 			replacement.HandlePacket(pkt)
 		})
 	}); err != nil {
@@ -281,7 +304,7 @@ func TestIngressPreservesClientIdentityAcrossBothHops(t *testing.T) {
 			if s.egress.Stats().ForwardedPackets != wantForwarded {
 				t.Fatal("old packet was forwarded on behalf of the replacement client")
 			}
-			if s.downlink.Stats().OfferedPackets != 0 {
+			if firstIngressClientOutput(t, s).Stats().OfferedPackets != 0 {
 				t.Fatal("stale backend reply reached the replacement client's output")
 			}
 			if s.lb.HasClient(old) || !s.lb.HasClient(replacement) {

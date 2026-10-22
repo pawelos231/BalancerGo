@@ -8,6 +8,7 @@ type Topology struct {
 }
 
 const (
+	TopologyNodeClient            = "client"
 	TopologyNodeClientGroup       = "clientGroup"
 	TopologyNodeLoadBalancer      = "loadBalancer"
 	TopologyNodeBackend           = "backend"
@@ -20,6 +21,8 @@ type TopologyNode struct {
 	ID          string           `json:"id"`
 	Kind        string           `json:"kind"`
 	Label       string           `json:"label"`
+	ResourceID  string           `json:"resourceId,omitempty"`
+	GroupID     string           `json:"groupId,omitempty"`
 	Description string           `json:"description,omitempty"`
 	Address     string           `json:"address,omitempty"`
 	Active      *bool            `json:"active,omitempty"`

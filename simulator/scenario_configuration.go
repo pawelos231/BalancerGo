@@ -41,7 +41,6 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 				Algorithm:               c.algorithm,
 				Ingress:                 c.ingress,
 				ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
-				QueueCapacity:           c.queue,
 			},
 			Backends: backends,
 		},

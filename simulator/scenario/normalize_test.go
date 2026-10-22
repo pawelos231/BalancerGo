@@ -561,13 +561,6 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 			errorFragment: "resources.loadBalancer.forwardingBitsPerSecond",
 		},
 		{
-			name: "lb queue",
-			change: func(input *Scenario) {
-				input.Resources.LoadBalancer.QueueCapacity = -1
-			},
-			errorFragment: "resources.loadBalancer.queueCapacity",
-		},
-		{
 			name: "algorithm",
 			change: func(input *Scenario) {
 				input.Resources.LoadBalancer.Algorithm = "unknown"

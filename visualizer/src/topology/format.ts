@@ -15,6 +15,7 @@ const byteUnits = [
 ] as const;
 
 const kindLabels: Record<string, string> = {
+  client: 'TCP client',
   clientGroup: 'Client group',
   loadBalancer: 'Load balancer',
   networkAggregator: 'Upstream aggregation',

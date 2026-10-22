@@ -1,11 +1,23 @@
 package main
 
 import (
+	"fmt"
 	"load-balancer/model"
 	"net"
 	"strconv"
 	"time"
 )
+
+// Graph namespaces keep scenario resource IDs separate from infrastructure IDs.
+const (
+	loadBalancerNodeID = "infrastructure/lb"
+	upstreamNodeID     = "infrastructure/upstream"
+)
+
+// backendNodeID keeps native backend IDs separate from infrastructure and clients.
+func backendNodeID(resourceID string) string {
+	return "backend/" + resourceID
+}
 
 // topology projects the existing model on its owner goroutine. It uses the
 // already sampled backend DTOs and copies each link's own configuration and
@@ -18,22 +30,12 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 		routedConnections += len(backend.Clients)
 	}
 	graph := model.Topology{
-		Nodes: make([]model.TopologyNode, 0, len(state.Servers)+3),
+		Nodes: make([]model.TopologyNode, 0, len(state.Servers)+len(s.clients)+2),
 		Links: make([]model.TopologyLink, 0, len(s.links)),
 	}
 	graph.Nodes = append(graph.Nodes,
 		model.TopologyNode{
-			ID: "clients", Kind: model.TopologyNodeClientGroup, Label: "Clients",
-			Description: "Clients share an access link to upstream and a return link from the load balancer.",
-			Metrics: []model.TopologyMetric{
-				{Key: "scheduledClients", Label: "Scheduled clients", Value: float64(s.scheduledClients), Unit: "clients"},
-				{Key: "createdClients", Label: "Created clients", Value: float64(s.createdClients), Unit: "clients"},
-				{Key: "activeClients", Label: "Active clients", Value: float64(s.createdClients - s.closedClients), Unit: "clients"},
-				{Key: "completedStreams", Label: "Completed streams", Value: float64(s.completedStreams), Unit: "streams"},
-			},
-		},
-		model.TopologyNode{
-			ID:          "upstream",
+			ID:          upstreamNodeID,
 			Kind:        model.TopologyNodeNetworkAggregator,
 			Label:       "Upstream aggregation",
 			Description: "Client and backend return traffic joins the FIFO before the shared physical LB input. This is an upstream network buffer.",
@@ -59,7 +61,10 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 			},
 		},
 		model.TopologyNode{
-			ID: "lb", Kind: model.TopologyNodeLoadBalancer, Label: "Load balancer",
+			ID:          loadBalancerNodeID,
+			Kind:        model.TopologyNodeLoadBalancer,
+			Label:       "Load balancer",
+			ResourceID:  s.scenario.LoadBalancer.ID,
 			Description: "Assigns backends and shares one forwarding budget across packets sent to clients and backends.",
 			Metrics: []model.TopologyMetric{
 				{
@@ -134,6 +139,30 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 					Value: float64(forwarding.BudgetWait) / float64(time.Millisecond),
 					Unit:  "ms",
 				},
+				{
+					Key:   "scheduledClients",
+					Label: "Scheduled clients",
+					Value: float64(s.scheduledClients),
+					Unit:  "clients",
+				},
+				{
+					Key:   "createdClients",
+					Label: "Created clients",
+					Value: float64(s.createdClients),
+					Unit:  "clients",
+				},
+				{
+					Key:   "activeClients",
+					Label: "Active clients",
+					Value: float64(s.createdClients - s.closedClients),
+					Unit:  "clients",
+				},
+				{
+					Key:   "completedStreams",
+					Label: "Completed streams",
+					Value: float64(s.completedStreams),
+					Unit:  "streams",
+				},
 			},
 		},
 	)
@@ -149,15 +178,37 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 		}
 		active := server.Active
 		graph.Nodes = append(graph.Nodes, model.TopologyNode{
-			ID: server.ID, Kind: model.TopologyNodeBackend, Label: label,
+			ID:          backendNodeID(server.ID),
+			Kind:        model.TopologyNodeBackend,
+			Label:       label,
+			ResourceID:  server.ID,
 			Description: "Receives packets for connections assigned by the load balancer.",
-			Address:     address, Active: &active,
+			Address:     address,
+			Active:      &active,
 			Metrics: []model.TopologyMetric{
-				{Key: "activeConnections", Label: "Active connections", Value: float64(server.ActiveConnections), Unit: "connections"},
-				{Key: "halfOpenConnections", Label: "Half-open connections", Value: float64(server.HalfOpenConnections), Unit: "connections"},
-				{Key: "receivedPackets", Label: "Packets received", Value: float64(server.NumberOfHandledPackets), Unit: "packets"},
+				{
+					Key:   "activeConnections",
+					Label: "Active connections",
+					Value: float64(server.ActiveConnections),
+					Unit:  "connections",
+				},
+				{
+					Key:   "halfOpenConnections",
+					Label: "Half-open connections",
+					Value: float64(server.HalfOpenConnections),
+					Unit:  "connections",
+				},
+				{
+					Key:   "receivedPackets",
+					Label: "Packets received",
+					Value: float64(server.NumberOfHandledPackets),
+					Unit:  "packets",
+				},
 			},
 		})
+	}
+	for _, runtime := range s.clients {
+		graph.Nodes = append(graph.Nodes, clientTopologyNode(runtime))
 	}
 	// Removing a backend unregisters it from the balancer while its old link
 	// objects can still retain historical counters. Only show current endpoints.
@@ -172,7 +223,10 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 		config := link.Link.Config()
 		stats := link.Stats()
 		graph.Links = append(graph.Links, model.TopologyLink{
-			ID: link.ID, Label: link.Name, Source: link.Source, Target: link.Target,
+			ID:     link.ID,
+			Label:  link.Name,
+			Source: link.Source,
+			Target: link.Target,
 			Config: model.TopologyLinkConfig{
 				BandwidthBitsPerSecond: config.BandwidthBitsPerSecond,
 				PacketTravelTimeMs:     float64(config.PacketTravelTime) / float64(time.Millisecond),
@@ -197,4 +251,56 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 		})
 	}
 	return graph
+}
+
+// clientTopologyNode copies one created endpoint's identity, stream and live state.
+// Closed clients remain visible with the historical counters on their own links.
+func clientTopologyNode(runtime runtimeClient) model.TopologyNode {
+	state := runtime.Client.GetState()
+	active := !runtime.Client.IsClosed()
+	completedStreams := 0.0
+	if runtime.Client.StreamCompleted() {
+		completedStreams = 1
+	}
+	return model.TopologyNode{
+		ID:          runtime.ID,
+		Kind:        model.TopologyNodeClient,
+		Label:       fmt.Sprintf("Client %d (%s)", runtime.Index+1, runtime.GroupID),
+		GroupID:     runtime.GroupID,
+		Description: "One created TCP client with its own links to upstream and from the load balancer.",
+		Address:     net.JoinHostPort(state.Key.SrcIP, strconv.Itoa(int(state.Key.SrcPort))),
+		Active:      &active,
+		Metrics: []model.TopologyMetric{
+			{
+				Key:   "payloadBytes",
+				Label: "Payload per stream",
+				Value: float64(runtime.Config.Stream.Bytes),
+				Unit:  "bytes",
+			},
+			{
+				Key:   "completedStreams",
+				Label: "Completed streams",
+				Value: completedStreams,
+				Unit:  "streams",
+			},
+			{
+				Key:   "packetGapMs",
+				Label: "Pause before data segments",
+				Value: float64(runtime.Config.Stream.PacketGap) / float64(time.Millisecond),
+				Unit:  "ms",
+			},
+			{
+				Key:   "synRetries",
+				Label: "Current SYN retries",
+				Value: float64(state.RetrySyn),
+				Unit:  "retries",
+			},
+			{
+				Key:   "dataRetries",
+				Label: "Current segment retries",
+				Value: float64(state.RetryData),
+				Unit:  "retries",
+			},
+		},
+	}
 }

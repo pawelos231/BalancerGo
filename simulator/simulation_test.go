@@ -39,7 +39,7 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 			arrivals := 0
 			for _, link := range s.links {
 				transmit := link.Link.Transmit
-				if link.Source == "lb" {
+				if link.Source == loadBalancerNodeID {
 					if link.Output == nil {
 						t.Fatalf("LB output has no managed FIFO: %s", link.Name)
 					}
@@ -95,11 +95,11 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 	}
 }
 
-// TestSimulationSharesForwardingBudget checks both LB directions and both snapshots.
+// TestSimulationSharesForwardingBudget checks shared outputs and both snapshots.
 func TestSimulationSharesForwardingBudget(t *testing.T) {
 	cfg := legacyTestConfiguration()
 	cfg.clients = 0
-	cfg.servers = 1
+	cfg.servers = 2
 	cfg.bandwidth = 8_000
 	cfg.ingress.BandwidthBitsPerSecond = cfg.bandwidth
 	cfg.ingress.PacketTravelTime = cfg.packetTravelTime
@@ -115,7 +115,8 @@ func TestSimulationSharesForwardingBudget(t *testing.T) {
 		if link.Output != nil {
 			transmit = link.Output.Transmit
 		}
-		if !transmit(1, func() { arrivals[link.Name] = s.engine.Now() }) {
+		path := link.Source + " -> " + link.Target
+		if !transmit(1, func() { arrivals[path] = s.engine.Now() }) {
 			t.Fatalf("first packet was rejected on %s", link.Name)
 		}
 	}
@@ -151,11 +152,11 @@ func TestSimulationSharesForwardingBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantArrivals := map[string]time.Duration{
-		"clients -> upstream": 2 * time.Millisecond,
-		"LB -> clients":       2 * time.Millisecond,
-		"LB -> srv-00":        3 * time.Millisecond,
-		"srv-00 -> upstream":  2 * time.Millisecond,
-		"upstream -> LB":      2 * time.Millisecond,
+		loadBalancerNodeID + " -> " + backendNodeID("srv-00"): 2 * time.Millisecond,
+		loadBalancerNodeID + " -> " + backendNodeID("srv-01"): 3 * time.Millisecond,
+		backendNodeID("srv-00") + " -> " + upstreamNodeID:     2 * time.Millisecond,
+		backendNodeID("srv-01") + " -> " + upstreamNodeID:     2 * time.Millisecond,
+		upstreamNodeID + " -> " + loadBalancerNodeID:          2 * time.Millisecond,
 	}
 	if !reflect.DeepEqual(arrivals, wantArrivals) {
 		t.Fatalf("arrivals = %v, want %v", arrivals, wantArrivals)
@@ -191,7 +192,7 @@ func TestSimulationCountsTCPWireTraffic(t *testing.T) {
 		// Count physical starts only on paths leaving the LB, including headers.
 		var startedPackets, startedBytes uint64
 		for _, link := range s.links {
-			if link.Source == "lb" {
+			if link.Source == loadBalancerNodeID {
 				physical := link.Link.Stats()
 				startedPackets += physical.AcceptedPackets
 				startedBytes += physical.AcceptedBytes
@@ -227,7 +228,7 @@ func assertForwardingSnapshots(t *testing.T, s *simulation, want network.Forward
 	graph := s.topology(report.State)
 	metrics := make(map[string]float64)
 	for _, node := range graph.Nodes {
-		if node.ID == "lb" {
+		if node.ID == loadBalancerNodeID {
 			for _, metric := range node.Metrics {
 				metrics[metric.Key] = metric.Value
 			}

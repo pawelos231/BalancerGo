@@ -10,6 +10,8 @@ export interface TopologyNode {
   id: string;
   kind: string;
   label: string;
+  resourceId?: string;
+  groupId?: string;
   description?: string;
   address?: string;
   active?: boolean;

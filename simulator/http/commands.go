@@ -24,6 +24,9 @@ type SetAlgorithmMsg struct {
 	Name string `json:"name"`
 }
 
+// SpawnClientMsg adds clients using an existing group's network and stream settings.
+// GroupID may be omitted when the scenario contains exactly one group.
 type SpawnClientMsg struct {
-	Count int `json:"count"`
+	Count   int    `json:"count"`
+	GroupID string `json:"groupId,omitempty"`
 }

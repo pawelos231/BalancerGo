@@ -29,18 +29,22 @@ its draft. Static hosting must serve `index.html` for `/topology`; the container
 ## Topology data and extension points
 
 The backend snapshot supplies `topology.nodes` and `topology.links` from the
-actual simulation wiring. Clients are aggregated into one node; forward and
-return links are separate arrows. Idle and cleared experiments have an empty
-graph; finished or failed runs retain their final snapshot.
+actual simulation wiring. Each created client and backend has its own node and
+two directed links. Their incoming traffic converges at upstream and then
+crosses one shared LB ingress. Idle and cleared experiments have an empty graph;
+finished or failed runs retain their final snapshot.
 
 - `src/topology/types.ts` defines the graph DTO. Node `kind` is an open string:
   unknown kinds use a generic renderer. Node metrics use `key`, `label`, numeric
   `value` and optional `unit`. Preserve stable node and link IDs; link `source`
-  and `target` reference node IDs independently of labels.
+  and `target` reference node IDs independently of labels. Optional `resourceId`
+  and `groupId` identify the scenario resource and client group separately from
+  graph IDs.
 - Each link carries its own `config` and `stats`, including bandwidth, packet
   travel time, queue capacity, loss and current packet counters. The view already
-  displays different bandwidths per link. The current backend still initializes
-  all links from one global configuration.
+  displays different bandwidths per link. The backend resolves settings from
+  scenario defaults, profiles and endpoint overrides; the current form supplies
+  uniform endpoint defaults and separate shared ingress/forwarding limits.
 - `src/topology/layout.ts` bounds the canvas to 200 nodes and 500 links while
   keeping every element searchable; selection brings its context into view.
   Search displays up to 50 matches. `structureKey` uses node IDs and link

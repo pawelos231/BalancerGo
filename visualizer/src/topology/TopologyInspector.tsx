@@ -87,6 +87,8 @@ function NodeDetails({ node }: { node: TopologyNode }) {
       )}
 
       <Stack component="dl" spacing={1.25} sx={{ m: 0 }}>
+        {node.resourceId && <Fact label="Resource ID" value={node.resourceId} />}
+        {node.groupId && <Fact label="Client group" value={node.groupId} />}
         {node.address && <Fact label="Address" value={node.address} />}
         {node.metrics.map((metric) => (
           <Fact

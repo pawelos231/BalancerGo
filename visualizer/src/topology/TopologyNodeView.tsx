@@ -1,5 +1,6 @@
 import { Box, Stack, Typography, useTheme } from '@mui/material';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import ComputerOutlinedIcon from '@mui/icons-material/ComputerOutlined';
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined';
 import WidgetsOutlinedIcon from '@mui/icons-material/WidgetsOutlined';
@@ -19,6 +20,10 @@ function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
   let Icon = WidgetsOutlinedIcon;
 
   switch (node.kind) {
+    case 'client':
+      color = theme.palette.secondary.main;
+      Icon = ComputerOutlinedIcon;
+      break;
     case 'clientGroup':
       color = theme.palette.secondary.main;
       Icon = GroupsOutlinedIcon;

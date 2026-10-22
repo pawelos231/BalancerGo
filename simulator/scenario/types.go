@@ -38,7 +38,7 @@ type NetworkConfig struct {
 }
 
 // LinkConfig describes one-way link speed, travel time, buffering and loss.
-// After normalization, each direction has its own complete LinkConfig.
+// For links leaving the LB, QueueCapacity sizes the FIFO owned by Egress.
 type LinkConfig struct {
 	BandwidthBitsPerSecond int64         `json:"bandwidthBitsPerSecond"`
 	PacketTravelTime       time.Duration `json:"packetTravelTimeNanoseconds"`
@@ -78,13 +78,12 @@ type ResourcesConfig struct {
 }
 
 // LoadBalancerConfig separates the shared input from backend selection and forwarding.
-// Ingress has its own link settings; the forwarding limit covers both output directions.
+// Output queues use each endpoint's FromLoadBalancer.QueueCapacity.
 type LoadBalancerConfig struct {
 	ID                      string     `json:"id"`
 	Algorithm               string     `json:"algorithm"`
 	Ingress                 LinkConfig `json:"ingress"`
 	ForwardingBitsPerSecond int64      `json:"forwardingBitsPerSecond"`
-	QueueCapacity           int        `json:"queueCapacity"` // Waiting packets per output branch.
 }
 
 // BackendConfig identifies one server and its network settings.

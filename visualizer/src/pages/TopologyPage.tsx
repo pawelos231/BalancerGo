@@ -63,7 +63,7 @@ function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
   const visibleLinks = graph?.links.length ?? 0;
   const empty = totalNodes === 0;
   const limitedView = visibleNodes < totalNodes || visibleLinks < totalLinks;
-  const hasClientGroup = topology?.nodes.some((node) => node.kind === 'clientGroup');
+  const hasClients = topology?.nodes.some((node) => node.kind === 'client');
 
   const busyLinks = topology?.links.filter(linkIsBusy).length ?? 0;
   const busyLinkDescription = frozen
@@ -231,15 +231,15 @@ function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
                 Press Enter to inspect a focused node or link
               </Typography>
 
-              {hasClientGroup && (
+              {hasClients && (
                 <Typography
                   variant="caption"
                   color="text.secondary"
                   display="block"
                   sx={{ mt: 0.5 }}
                 >
-                  Client groups aggregate simulated clients. Each arrow
-                  represents one directed link reported by the model.
+                  Each client has its own links. Nodes and directed arrows
+                  come from the running model.
                 </Typography>
               )}
             </Grid>

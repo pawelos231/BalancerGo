@@ -48,7 +48,7 @@ export type SimulationCommand =
     }
   | {
       Type: CommandType.SpawnClient;
-      Payload: { Count: number };
+      Payload: { Count: number; groupId?: string };
     }
   | {
       Type: CommandType.StartSimulation;
