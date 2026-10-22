@@ -39,7 +39,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 			LoadBalancer: scenario.LoadBalancerConfig{
 				ID:                      "lb",
 				Algorithm:               c.algorithm,
-				ForwardingBitsPerSecond: c.bandwidth,
+				ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
 				QueueCapacity:           c.queue,
 			},
 			Backends: backends,

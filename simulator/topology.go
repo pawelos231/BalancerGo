@@ -11,6 +11,7 @@ import (
 // already sampled backend DTOs and copies each link's own configuration and
 // counters; it neither schedules events nor exposes live model references.
 func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
+	forwarding := s.egress.Stats()
 	routedConnections := 0
 	for _, backend := range state.Servers {
 		routedConnections += len(backend.Clients)
@@ -32,10 +33,62 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 		},
 		model.TopologyNode{
 			ID: "lb", Kind: model.TopologyNodeLoadBalancer, Label: "Load balancer",
-			Description: "Assigns backend servers to client connections and forwards packets.",
+			Description: "Assigns backends and shares one forwarding budget across packets sent to clients and backends.",
 			Metrics: []model.TopologyMetric{
-				{Key: "backendCount", Label: "Backends", Value: float64(len(state.Servers)), Unit: "backends"},
-				{Key: "routedConnections", Label: "Routed connections", Value: float64(routedConnections), Unit: "connections"},
+				{
+					Key:   "backendCount",
+					Label: "Backends",
+					Value: float64(len(state.Servers)),
+					Unit:  "backends",
+				},
+				{
+					Key:   "routedConnections",
+					Label: "Routed connections",
+					Value: float64(routedConnections),
+					Unit:  "connections",
+				},
+				{
+					Key:   "forwardingBitsPerSecond",
+					Label: "Shared forwarding limit",
+					Value: float64(forwarding.ForwardingBitsPerSecond),
+					Unit:  "bit/s",
+				},
+				{
+					Key:   "forwardedPackets",
+					Label: "Packets started",
+					Value: float64(forwarding.ForwardedPackets),
+					Unit:  "packets",
+				},
+				{
+					Key:   "forwardedBytes",
+					Label: "Wire bytes started",
+					Value: float64(forwarding.ForwardedBytes),
+					Unit:  "bytes",
+				},
+				{
+					Key:   "forwardingQueuedPackets",
+					Label: "Packets waiting across LB outputs",
+					Value: float64(forwarding.QueuedPackets),
+					Unit:  "packets",
+				},
+				{
+					Key:   "forwardingQueueDroppedPackets",
+					Label: "LB output queue drops",
+					Value: float64(forwarding.QueueDroppedPackets),
+					Unit:  "packets",
+				},
+				{
+					Key:   "forwardingQueueDroppedBytes",
+					Label: "Bytes dropped by LB output queues",
+					Value: float64(forwarding.QueueDroppedBytes),
+					Unit:  "bytes",
+				},
+				{
+					Key:   "forwardingBudgetWaitMs",
+					Label: "Time waiting for the shared budget",
+					Value: float64(forwarding.BudgetWait) / float64(time.Millisecond),
+					Unit:  "ms",
+				},
 			},
 		},
 	)

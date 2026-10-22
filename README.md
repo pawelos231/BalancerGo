@@ -102,6 +102,7 @@ parameters (see `go run . -help` for all options):
 | `-duration`, `-seed` | `2m`, `1` | Virtual end time (inclusive) and experiment seed. |
 | `-client-gap`, `-packet-gap` | `0s`, `0s` | Virtual inter-arrival interval and sender pause before each data segment. |
 | `-bandwidth`, `-packet-travel-time` | `1000000000`, `1ms` | Bits/s and virtual packet travel time after transmission per directed link. |
+| `-lb-bandwidth` | `1000000000` | One shared forwarding budget in bits/s for all LB outputs, toward both clients and backends. |
 | `-link-queue`, `-loss` | `1024`, `0` | Waiting packets per link and independent loss probability per transmission. |
 | `-algorithm` | `roundRobin` | `roundRobin` or seeded `random`. |
 | `-snapshot-interval`, `-speed` | `100ms`, `1` | Virtual snapshot interval and virtual seconds per real second; speed `0` is unpaced. |
@@ -138,9 +139,9 @@ validates identifiers and settings, and resolves stream sizes. Patch fields use
 pointers so an explicit zero differs from an omitted value. Groups remain compact;
 normalization does not allocate one object for every configured client.
 
-The existing CLI and frontend settings pass through this validation model. Their
-flags, WebSocket payload and runtime topology remain unchanged: clients still
-share their access links, and the new forwarding budget is not enforced yet.
+The existing CLI and frontend settings pass through this validation model.
+Clients still share their access links. Link bandwidth and the shared LB forwarding
+budget are independent settings, and both are enforced by the runtime.
 The new scenario document is not accepted by Start until its network and API
 integration are implemented.
 
@@ -162,7 +163,8 @@ values across JavaScript and Go; it must not round them through JavaScript numbe
   busy links do not block other destinations. Managed links have no second
   waiting queue. Readiness follows transmission completion, without waiting for
   the packet to arrive. Reports and topology include the managed queue's counters.
-  The LB has no shared forwarding rate limit yet; each link enforces its own rate.
+  A packet pacer shares one forwarding budget across all LB outputs. Each link
+  also enforces its own rate.
 - `client/`, `server/` and `balancer/` use short packet handlers and scheduled
   callbacks. Connections coexist as state objects. There is no waiting goroutine
   or channel per client, connection or backend.
@@ -173,6 +175,32 @@ values across JavaScript and Go; it must not round them through JavaScript numbe
 - `http/` handles real HTTP/WebSocket I/O. It receives detached JSON snapshots,
   keeps the latest frame for new subscribers and replaces queued UI frames when
   a browser is slow. Model execution does not wait for a WebSocket writer.
+
+The **LB forwarding budget** counts each outgoing packet once, at transmission
+start, including its modeled headers. SYN, ACK, FIN and retransmissions use the
+same budget. Queue drops consume none; a packet lost after transmission starts
+still consumes its grant. Incoming traffic is not charged a second time.
+
+After starting a packet, the next LB grant becomes available after
+`ceil(wire bytes * 8 * 1e9 / lb bandwidth)` virtual nanoseconds. This wait runs
+alongside the destination link's transmission, with no additional network hop.
+An occupied link does not block other ready outputs. The oldest ready queue head
+wins; equally old packets follow their admission order. Idle time does not build
+up credit for a later burst. The limit has packet granularity, including the first
+packet starting immediately when the budget and link are free.
+
+A zero-capacity output admits a packet only when it can start immediately;
+otherwise it drops it even when its link is free but the shared budget is busy.
+The pacer schedules at most one budget wakeup at a time, only while a ready output
+is waiting. There are no periodic budget ticks or new model goroutines.
+
+Headless results include `Forwarding`: the configured limit, packets and wire
+bytes started, waiting packets, queue drops, `BudgetWait` and `BudgetBlocked`.
+`BudgetWait` is virtual nanoseconds spent with at least one ready output waiting
+for the shared budget. It counts each interval once across all outputs and
+excludes time waiting only for a busy link. `BudgetBlocked` describes the current
+state, including unfinished work at the end time. The topology's LB inspector
+shows the same counters, with budget wait converted to milliseconds.
 
 `startSimulation` carries the initial configuration through a bounded command
 queue to the simulation owner. Configuration is validated before models are

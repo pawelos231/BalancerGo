@@ -10,18 +10,42 @@ import (
 // Egress means outgoing traffic: LB -> backends and LB -> clients.
 // It controls all LB outputs in one place.
 type Egress struct {
-	engine       *engine.Engine
-	readyOutputs readyOutputs
-	nextSequence uint64
-	dispatching  bool
+	engine                  *engine.Engine
+	forwardingBitsPerSecond int64
+	readyOutputs            readyOutputs
+	nextSequence            uint64
+	dispatching             bool
+
+	nextGrantAt    time.Duration
+	grantBeyondEnd bool
+	wakeEvent      engine.EventID
+	wakeAt         time.Duration
+
+	stats               ForwardingStats
+	budgetWaiting       bool
+	budgetWaitStartedAt time.Duration
+}
+
+// ForwardingStats counts packets when transmission starts, including later losses.
+// BudgetWait is virtual time with ready traffic held back by the shared limit.
+type ForwardingStats struct {
+	ForwardingBitsPerSecond int64
+	ForwardedPackets        uint64
+	ForwardedBytes          uint64
+	QueuedPackets           int
+	QueueDroppedPackets     uint64
+	QueueDroppedBytes       uint64
+	BudgetWait              time.Duration
+	BudgetBlocked           bool
 }
 
 // egressPacket keeps one waiting packet and its stable admission order.
 type egressPacket struct {
-	sizeBytes int
-	onArrival func()
-	queuedAt  time.Duration
-	sequence  uint64
+	sizeBytes      int
+	onArrival      func()
+	forwardingCost time.Duration
+	queuedAt       time.Duration
+	sequence       uint64
 }
 
 // Output is one LB exit, e.g. the path to backend 1.
@@ -35,12 +59,22 @@ type Output struct {
 	stats      Stats
 }
 
-// NewEgress creates an output dispatcher without adding engine events.
-func NewEgress(e *engine.Engine) *Egress {
+// NewEgress creates a dispatcher with a positive shared limit and no idle events.
+func NewEgress(e *engine.Engine, forwardingBitsPerSecond int64) *Egress {
 	if e == nil {
 		panic("network: egress engine must not be nil")
 	}
-	return &Egress{engine: e}
+	if forwardingBitsPerSecond <= 0 {
+		panic("network: forwarding bandwidth must be positive bits per second")
+	}
+
+	return &Egress{
+		engine:                  e,
+		forwardingBitsPerSecond: forwardingBitsPerSecond,
+		stats: ForwardingStats{
+			ForwardingBitsPerSecond: forwardingBitsPerSecond,
+		},
+	}
 }
 
 // AddOutput registers an existing link, e.g. LB -> backend, as an LB output.
@@ -54,9 +88,13 @@ func (e *Egress) AddOutput(link *Link) *Output {
 		panic("network: output link must use the egress engine")
 	}
 
-	output := &Output{egress: e, link: link, readyIndex: -1}
+	output := &Output{
+		egress:     e,
+		link:       link,
+		readyIndex: -1,
+	}
 	link.useExternalQueue(func() {
-		// Completion already scheduled travel, so dispatch without another event.
+		// Travel is scheduled; try dispatch now and wait for a grant only if needed.
 		e.markReady(output)
 		e.dispatch()
 	})
@@ -74,9 +112,13 @@ func (output *Output) Transmit(sizeBytes int, onArrival func()) bool {
 		panic("network: arrival callback must not be nil")
 	}
 	serializationDuration(sizeBytes, output.link.config.BandwidthBitsPerSecond)
+	forwardingCost := serializationDuration(sizeBytes, output.egress.forwardingBitsPerSecond)
 
 	// An immediate transmission does not consume a waiting slot, even at zero.
-	canStartNow := output.link.Ready() && output.queued() == 0
+	linkFree := output.link.Ready() && output.queued() == 0
+	budgetFree := !output.egress.budgetUnavailable()
+	noOlderReadyHeads := output.egress.readyOutputs.Len() == 0
+	canStartNow := linkFree && budgetFree && noOlderReadyHeads && !output.egress.dispatching
 	queueFull := output.queued() >= output.link.config.QueueCapacity
 	accepted := canStartNow || !queueFull
 	if accepted && output.egress.nextSequence == ^uint64(0) {
@@ -88,23 +130,35 @@ func (output *Output) Transmit(sizeBytes int, onArrival func()) bool {
 	if !accepted {
 		output.stats.QueueDroppedPackets++
 		output.stats.QueueDroppedBytes += uint64(sizeBytes)
+		output.egress.stats.QueueDroppedPackets++
+		output.egress.stats.QueueDroppedBytes += uint64(sizeBytes)
 		return false
 	}
 
 	output.stats.AcceptedPackets++
 	output.stats.AcceptedBytes += uint64(sizeBytes)
 	output.egress.nextSequence++
+	output.egress.stats.QueuedPackets++
 	output.queue = append(output.queue, egressPacket{
-		sizeBytes: sizeBytes,
-		onArrival: onArrival,
-		queuedAt:  output.egress.engine.Now(),
-		sequence:  output.egress.nextSequence,
+		sizeBytes:      sizeBytes,
+		onArrival:      onArrival,
+		forwardingCost: forwardingCost,
+		queuedAt:       output.egress.engine.Now(),
+		sequence:       output.egress.nextSequence,
 	})
 
 	// Starting synchronously preserves the existing link event order.
 	output.egress.markReady(output)
 	output.egress.dispatch()
 	return true
+}
+
+// Stats includes the current budget wait without changing counters or events.
+func (e *Egress) Stats() ForwardingStats {
+	stats := e.stats
+	stats.BudgetWait += e.currentBudgetWait()
+	stats.BudgetBlocked = e.budgetBlocked()
+	return stats
 }
 
 // Stats combines this FIFO's admissions with the link's physical progress.
@@ -144,9 +198,14 @@ func (e *Egress) dispatch() {
 	}
 
 	e.dispatching = true
-	defer func() { e.dispatching = false }()
+	e.accountBudgetWait()
+	defer func() {
+		e.accountBudgetWait()
+		e.scheduleBudgetWake()
+		e.dispatching = false
+	}()
 
-	for e.readyOutputs.Len() > 0 {
+	for e.readyOutputs.Len() > 0 && !e.budgetUnavailable() {
 		// Choose the ready output whose first waiting packet is the oldest.
 		output := heap.Pop(&e.readyOutputs).(*Output)
 		packet := output.queue[output.queueHead]
@@ -158,7 +217,80 @@ func (e *Egress) dispatch() {
 
 		// Remove it from the FIFO; the link now handles its transmission and arrival.
 		output.removeHead()
+		e.stats.QueuedPackets--
+		e.stats.ForwardedPackets++
+		e.stats.ForwardedBytes += uint64(packet.sizeBytes)
+		e.reserveBudget(packet.forwardingCost)
 	}
+}
+
+// budgetUnavailable includes grants whose waiting time extends past the horizon.
+func (e *Egress) budgetUnavailable() bool {
+	return e.grantBeyondEnd || e.engine.Now() < e.nextGrantAt
+}
+
+// budgetBlocked requires a free output, so busy-link waiting is not budget wait.
+func (e *Egress) budgetBlocked() bool {
+	return e.readyOutputs.Len() > 0 && e.budgetUnavailable()
+}
+
+// reserveBudget runs alongside link serialization and never accumulates idle credit.
+func (e *Egress) reserveBudget(cost time.Duration) {
+	now := e.engine.Now()
+	remaining := e.engine.EndTime() - now
+	e.grantBeyondEnd = cost > remaining
+	if e.grantBeyondEnd {
+		// The flag keeps the budget blocked without adding an overflowing duration.
+		e.nextGrantAt = e.engine.EndTime()
+		return
+	}
+	e.nextGrantAt = now + cost
+}
+
+// currentBudgetWait measures one shared blocked interval, not one per output.
+func (e *Egress) currentBudgetWait() time.Duration {
+	if !e.budgetWaiting {
+		return 0
+	}
+
+	until := e.engine.Now()
+	if !e.grantBeyondEnd && until > e.nextGrantAt {
+		until = e.nextGrantAt
+	}
+	if until <= e.budgetWaitStartedAt {
+		return 0
+	}
+	return until - e.budgetWaitStartedAt
+}
+
+// accountBudgetWait closes the previous interval before tracking the current one.
+func (e *Egress) accountBudgetWait() {
+	e.stats.BudgetWait += e.currentBudgetWait()
+	e.budgetWaiting = e.budgetBlocked()
+	e.budgetWaitStartedAt = e.engine.Now()
+}
+
+// scheduleBudgetWake keeps one useful grant event and removes obsolete wakeups.
+func (e *Egress) scheduleBudgetWake() {
+	needsWake := e.budgetBlocked() && !e.grantBeyondEnd
+	wakeAlreadyScheduled := e.wakeEvent != 0 && e.wakeAt == e.nextGrantAt
+	if needsWake && wakeAlreadyScheduled {
+		return
+	}
+
+	if e.wakeEvent != 0 {
+		e.engine.Cancel(e.wakeEvent)
+		e.wakeEvent = 0
+	}
+	if !needsWake {
+		return
+	}
+
+	e.wakeAt = e.nextGrantAt
+	e.wakeEvent = e.engine.ScheduleAt(e.wakeAt, func() {
+		e.wakeEvent = 0
+		e.dispatch()
+	})
 }
 
 // removeHead releases a packet's callback and occasionally compacts the FIFO.

@@ -85,7 +85,7 @@ func newSimulation(cfg configuration) *simulation {
 		cfg.snapshotInterval,
 		balancerRNG,
 	)
-	s.egress = network.NewEgress(e)
+	s.egress = network.NewEgress(e, cfg.forwardingBitsPerSecond)
 
 	// Clients currently share one link in each direction.
 	s.uplink = s.addLink("clients -> LB", "clients", "lb")
@@ -345,28 +345,52 @@ type linkResult struct {
 	network.Stats
 }
 
+// simulationResult reports completed work and unfinished queues at the end time.
+// Forwarding counts packets once, when they start on any LB output.
 type simulationResult struct {
-	VirtualTime                                                                          string
-	WallTime                                                                             string
-	Seed                                                                                 int64
-	ScheduledClients, CreatedClients, CompletedStreams, ClosedClients, IncompleteStreams int
-	CompletedPayloadBytes                                                                uint64
-	EventsExecuted                                                                       uint64
-	PendingEvents                                                                        int
-	Links                                                                                []linkResult
-	State                                                                                model.LoadBalancerState
+	VirtualTime string
+	WallTime    string
+	Seed        int64
+
+	ScheduledClients      int
+	CreatedClients        int
+	CompletedStreams      int
+	ClosedClients         int
+	IncompleteStreams     int
+	CompletedPayloadBytes uint64
+
+	EventsExecuted uint64
+	PendingEvents  int
+	Forwarding     network.ForwardingStats
+	Links          []linkResult
+	State          model.LoadBalancerState
 }
 
 func (s *simulation) result(elapsed time.Duration) simulationResult {
 	links := make([]linkResult, 0, len(s.links))
 	for _, link := range s.links {
-		links = append(links, linkResult{Name: link.Name, Stats: link.Stats()})
+		links = append(links, linkResult{
+			Name:  link.Name,
+			Stats: link.Stats(),
+		})
 	}
+
 	return simulationResult{
-		VirtualTime: s.engine.Now().String(), WallTime: elapsed.String(), Seed: s.config.seed,
-		ScheduledClients: s.scheduledClients, CreatedClients: s.createdClients,
-		CompletedStreams: s.completedStreams, ClosedClients: s.closedClients,
-		IncompleteStreams: s.createdClients - s.completedStreams, CompletedPayloadBytes: s.completedPayloadBytes,
-		EventsExecuted: s.engine.EventsExecuted(), PendingEvents: s.engine.Pending(), Links: links, State: s.lb.Tick(),
+		VirtualTime: s.engine.Now().String(),
+		WallTime:    elapsed.String(),
+		Seed:        s.config.seed,
+
+		ScheduledClients:      s.scheduledClients,
+		CreatedClients:        s.createdClients,
+		CompletedStreams:      s.completedStreams,
+		ClosedClients:         s.closedClients,
+		IncompleteStreams:     s.createdClients - s.completedStreams,
+		CompletedPayloadBytes: s.completedPayloadBytes,
+
+		EventsExecuted: s.engine.EventsExecuted(),
+		PendingEvents:  s.engine.Pending(),
+		Forwarding:     s.egress.Stats(),
+		Links:          links,
+		State:          s.lb.Tick(),
 	}
 }

@@ -70,6 +70,7 @@ export interface SimulationConfig {
   packetGapMs: number;
   snapshotIntervalMs: number;
   bandwidthBitsPerSecond: number;
+  forwardingBitsPerSecond: number;
   packetTravelTimeMs: number;
   linkQueue: number;
   loss: number;

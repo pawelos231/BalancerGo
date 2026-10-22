@@ -40,12 +40,17 @@ func expectEgressPanic(t *testing.T, callback func()) {
 
 // TestEgressIndependentBranches checks FIFO without blocking an unrelated link.
 func TestEgressIndependentBranches(t *testing.T) {
-	// Give each branch its own transmitter and one waiting slot.
+	// Give each branch its own transmitter; the fast branch also waits for a grant.
 	e := engine.New(4 * time.Second)
-	dispatcher := NewEgress(e)
-	config := Config{BandwidthBitsPerSecond: 8, QueueCapacity: 1}
-	slow := dispatcher.AddOutput(NewLink(e, config, nil))
-	fast := dispatcher.AddOutput(NewLink(e, config, nil))
+	dispatcher := NewEgress(e, 8_000_000_000)
+	slow := dispatcher.AddOutput(NewLink(e, Config{
+		BandwidthBitsPerSecond: 8,
+		QueueCapacity:          1,
+	}, nil))
+	fast := dispatcher.AddOutput(NewLink(e, Config{
+		BandwidthBitsPerSecond: 8,
+		QueueCapacity:          2,
+	}, nil))
 
 	var arrivals []string
 	record := func(name string) func() {
@@ -59,6 +64,7 @@ func TestEgressIndependentBranches(t *testing.T) {
 	slow.Transmit(1, record("slow-2"))
 	fast.Transmit(1, record("fast-1"))
 	fast.Transmit(1, record("fast-2"))
+	runEgress(t, e, 2*time.Nanosecond)
 
 	if dispatcher.readyOutputs.Len() != 0 {
 		t.Fatal("busy branches must stay outside the ready heap")
@@ -72,9 +78,9 @@ func TestEgressIndependentBranches(t *testing.T) {
 
 	// Each branch keeps FIFO order while the fast branch progresses independently.
 	expected := []string{
-		"fast-1@1s",
+		"fast-1@1.000000002s",
 		"slow-1@2s",
-		"fast-2@2s",
+		"fast-2@2.000000002s",
 		"slow-2@3s",
 	}
 	if !reflect.DeepEqual(arrivals, expected) {
@@ -91,7 +97,7 @@ func TestEgressQueueCapacity(t *testing.T) {
 		t.Run(strconv.Itoa(capacity), func(t *testing.T) {
 			// Fill the transmitter, then offer more packets than the FIFO can hold.
 			e := engine.New(10 * time.Nanosecond)
-			output := NewEgress(e).AddOutput(egressLink(e, capacity))
+			output := NewEgress(e, 8_000_000_000).AddOutput(egressLink(e, capacity))
 			arrivals := 0
 			arrive := func() { arrivals++ }
 
@@ -164,7 +170,7 @@ func TestEgressPhysicalStatsRemainSingleCounts(t *testing.T) {
 				QueueCapacity:          1,
 				LossRate:               loss,
 			}, nil)
-			output := NewEgress(e).AddOutput(link)
+			output := NewEgress(e, 8_000_000_000).AddOutput(link)
 			arrivals := 0
 			arrive := func() { arrivals++ }
 
@@ -208,7 +214,7 @@ func TestEgressTravelDoesNotBlockReadiness(t *testing.T) {
 		PacketTravelTime:       10 * time.Nanosecond,
 		QueueCapacity:          1,
 	}, nil)
-	output := NewEgress(e).AddOutput(link)
+	output := NewEgress(e, 8_000_000_000).AddOutput(link)
 
 	output.Transmit(1, func() {})
 	output.Transmit(1, func() {})
@@ -233,7 +239,7 @@ func TestEgressTravelDoesNotBlockReadiness(t *testing.T) {
 func TestEgressRetainsUnfinishedPacketsAtHorizon(t *testing.T) {
 	// The first packet cannot finish before the configured horizon.
 	e := engine.New(time.Nanosecond)
-	output := NewEgress(e).AddOutput(egressLink(e, 1))
+	output := NewEgress(e, 8_000_000_000).AddOutput(egressLink(e, 1))
 	if !output.Transmit(2, func() {}) {
 		t.Fatal("first packet should be admitted even when completion is beyond the horizon")
 	}
@@ -256,7 +262,7 @@ func TestEgressRetainsUnfinishedPacketsAtHorizon(t *testing.T) {
 func TestEgressZeroTimePreservesCompletionOrder(t *testing.T) {
 	// Registration alone must leave the engine event queue empty.
 	e := engine.New(0)
-	dispatcher := NewEgress(e)
+	dispatcher := NewEgress(e, 8_000_000_000)
 	first := dispatcher.AddOutput(egressLink(e, 1))
 	second := dispatcher.AddOutput(egressLink(e, 1))
 	if e.Pending() != 0 {
@@ -288,7 +294,7 @@ func TestEgressZeroTimePreservesCompletionOrder(t *testing.T) {
 // TestEgressReadyHeapUsesAdmissionOrder checks ordering independently of registration.
 func TestEgressReadyHeapUsesAdmissionOrder(t *testing.T) {
 	e := engine.New(time.Nanosecond)
-	dispatcher := NewEgress(e)
+	dispatcher := NewEgress(e, 8_000_000_000)
 	first := dispatcher.AddOutput(egressLink(e, 2))
 	second := dispatcher.AddOutput(egressLink(e, 2))
 	var arrivals []string
@@ -348,7 +354,7 @@ func TestEgressRejectsInvalidPacketsBeforeCounting(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			e := engine.New(time.Second)
 			link := NewLink(e, Config{BandwidthBitsPerSecond: 1}, nil)
-			output := NewEgress(e).AddOutput(link)
+			output := NewEgress(e, 8_000_000_000).AddOutput(link)
 
 			expectEgressPanic(t, func() {
 				output.Transmit(test.sizeBytes, test.arrival)
@@ -364,9 +370,9 @@ func TestEgressRejectsInvalidPacketsBeforeCounting(t *testing.T) {
 // TestEgressRejectsInvalidAttachment checks exclusive ownership and engine identity.
 func TestEgressRejectsInvalidAttachment(t *testing.T) {
 	// Reject missing engines, missing links and links owned by another engine.
-	expectEgressPanic(t, func() { NewEgress(nil) })
+	expectEgressPanic(t, func() { NewEgress(nil, 8_000_000_000) })
 	e := engine.New(0)
-	dispatcher := NewEgress(e)
+	dispatcher := NewEgress(e, 8_000_000_000)
 	expectEgressPanic(t, func() { dispatcher.AddOutput(nil) })
 	foreignLink := egressLink(engine.New(0), 0)
 	expectEgressPanic(t, func() { dispatcher.AddOutput(foreignLink) })
@@ -375,7 +381,7 @@ func TestEgressRejectsInvalidAttachment(t *testing.T) {
 	link := egressLink(e, 0)
 	dispatcher.AddOutput(link)
 	expectEgressPanic(t, func() { dispatcher.AddOutput(link) })
-	expectEgressPanic(t, func() { NewEgress(e).AddOutput(link) })
+	expectEgressPanic(t, func() { NewEgress(e, 8_000_000_000).AddOutput(link) })
 	expectEgressPanic(t, func() { link.Transmit(0, func() {}) })
 
 	// A completed transmission still makes a link unsuitable for attachment.
@@ -388,7 +394,7 @@ func TestEgressRejectsInvalidAttachment(t *testing.T) {
 // TestEgressSequenceOverflowFailsExplicitly checks the stable order counter guard.
 func TestEgressSequenceOverflowFailsExplicitly(t *testing.T) {
 	e := engine.New(0)
-	dispatcher := NewEgress(e)
+	dispatcher := NewEgress(e, 8_000_000_000)
 	output := dispatcher.AddOutput(egressLink(e, 0))
 	dispatcher.nextSequence = ^uint64(0)
 
@@ -403,7 +409,7 @@ func TestEgressSequenceOverflowFailsExplicitly(t *testing.T) {
 func TestEgressReleasesConsumedCallbacks(t *testing.T) {
 	// Enough waiting packets force the FIFO to compact its consumed prefix.
 	e := engine.New(0)
-	output := NewEgress(e).AddOutput(egressLink(e, 3000))
+	output := NewEgress(e, 8_000_000_000).AddOutput(egressLink(e, 3000))
 	for index := 0; index < 3000; index++ {
 		if !output.Transmit(0, func() {}) {
 			t.Fatal("unexpected admission failure")

@@ -11,16 +11,28 @@ import (
 )
 
 type configuration struct {
-	clients, servers, packets, streamBytes                             int
-	clientGap, packetGap, duration, snapshotInterval, packetTravelTime time.Duration
-	bandwidth                                                          int64
-	queue                                                              int
-	loss, speed                                                        float64
-	seed                                                               int64
-	algorithm                                                          string
-	maxEvents                                                          uint64
-	headless                                                           bool
-	tracePath                                                          string
+	clients     int
+	servers     int
+	packets     int
+	streamBytes int
+
+	clientGap        time.Duration
+	packetGap        time.Duration
+	duration         time.Duration
+	snapshotInterval time.Duration
+	packetTravelTime time.Duration
+
+	bandwidth               int64
+	forwardingBitsPerSecond int64
+	queue                   int
+	loss                    float64
+
+	speed     float64
+	seed      int64
+	algorithm string
+	maxEvents uint64
+	headless  bool
+	tracePath string
 }
 
 func readConfiguration() (configuration, error) {
@@ -34,6 +46,12 @@ func readConfiguration() (configuration, error) {
 	flag.DurationVar(&c.duration, "duration", 2*time.Minute, "virtual experiment end time (inclusive)")
 	flag.DurationVar(&c.snapshotInterval, "snapshot-interval", 100*time.Millisecond, "virtual snapshot and runner step interval")
 	flag.Int64Var(&c.bandwidth, "bandwidth", 1_000_000_000, "bandwidth of each directed link in bits/s")
+	flag.Int64Var(
+		&c.forwardingBitsPerSecond,
+		"lb-bandwidth",
+		1_000_000_000,
+		"shared load balancer forwarding budget in bits/s",
+	)
 	flag.DurationVar(&c.packetTravelTime, "packet-travel-time", time.Millisecond, "virtual packet travel time after transmission on each directed link")
 	flag.IntVar(&c.queue, "link-queue", 1024, "waiting packets per link, excluding its active transmission")
 	flag.Float64Var(&c.loss, "loss", 0, "independent packet loss probability on each link")
@@ -80,35 +98,44 @@ func (c configuration) normalized() (configuration, error) {
 // simulationConfig is the frontend-visible experiment configuration. Process
 // options such as tracing and headless mode are deliberately absent.
 type simulationConfig struct {
-	Clients                int     `json:"clients"`
-	Servers                int     `json:"servers"`
-	Packets                int     `json:"packets"`
-	Bytes                  int     `json:"bytes"`
-	DurationSeconds        float64 `json:"durationSeconds"`
-	ClientGapMs            float64 `json:"clientGapMs"`
-	PacketGapMs            float64 `json:"packetGapMs"`
-	SnapshotIntervalMs     float64 `json:"snapshotIntervalMs"`
-	BandwidthBitsPerSecond int64   `json:"bandwidthBitsPerSecond"`
-	PacketTravelTimeMs     float64 `json:"packetTravelTimeMs"`
-	LinkQueue              int     `json:"linkQueue"`
-	Loss                   float64 `json:"loss"`
-	Seed                   int64   `json:"seed"`
-	Algorithm              string  `json:"algorithm"`
-	Speed                  float64 `json:"speed"`
-	MaxEvents              uint64  `json:"maxEvents"`
+	Clients                 int     `json:"clients"`
+	Servers                 int     `json:"servers"`
+	Packets                 int     `json:"packets"`
+	Bytes                   int     `json:"bytes"`
+	DurationSeconds         float64 `json:"durationSeconds"`
+	ClientGapMs             float64 `json:"clientGapMs"`
+	PacketGapMs             float64 `json:"packetGapMs"`
+	SnapshotIntervalMs      float64 `json:"snapshotIntervalMs"`
+	BandwidthBitsPerSecond  int64   `json:"bandwidthBitsPerSecond"`
+	ForwardingBitsPerSecond int64   `json:"forwardingBitsPerSecond"`
+	PacketTravelTimeMs      float64 `json:"packetTravelTimeMs"`
+	LinkQueue               int     `json:"linkQueue"`
+	Loss                    float64 `json:"loss"`
+	Seed                    int64   `json:"seed"`
+	Algorithm               string  `json:"algorithm"`
+	Speed                   float64 `json:"speed"`
+	MaxEvents               uint64  `json:"maxEvents"`
 }
 
 func (c configuration) publicConfig() simulationConfig {
 	return simulationConfig{
-		Clients: c.clients, Servers: c.servers, Packets: c.packets, Bytes: c.streamBytes,
-		DurationSeconds:        float64(c.duration) / float64(time.Second),
-		ClientGapMs:            float64(c.clientGap) / float64(time.Millisecond),
-		PacketGapMs:            float64(c.packetGap) / float64(time.Millisecond),
-		SnapshotIntervalMs:     float64(c.snapshotInterval) / float64(time.Millisecond),
-		BandwidthBitsPerSecond: c.bandwidth,
-		PacketTravelTimeMs:     float64(c.packetTravelTime) / float64(time.Millisecond),
-		LinkQueue:              c.queue, Loss: c.loss, Seed: c.seed, Algorithm: c.algorithm,
-		Speed: c.speed, MaxEvents: c.maxEvents,
+		Clients:                 c.clients,
+		Servers:                 c.servers,
+		Packets:                 c.packets,
+		Bytes:                   c.streamBytes,
+		DurationSeconds:         float64(c.duration) / float64(time.Second),
+		ClientGapMs:             float64(c.clientGap) / float64(time.Millisecond),
+		PacketGapMs:             float64(c.packetGap) / float64(time.Millisecond),
+		SnapshotIntervalMs:      float64(c.snapshotInterval) / float64(time.Millisecond),
+		BandwidthBitsPerSecond:  c.bandwidth,
+		ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
+		PacketTravelTimeMs:      float64(c.packetTravelTime) / float64(time.Millisecond),
+		LinkQueue:               c.queue,
+		Loss:                    c.loss,
+		Seed:                    c.seed,
+		Algorithm:               c.algorithm,
+		Speed:                   c.speed,
+		MaxEvents:               c.maxEvents,
 	}
 }
 
@@ -118,6 +145,7 @@ func (c simulationConfig) configuration(base configuration) (configuration, erro
 	base.clients, base.servers = c.Clients, c.Servers
 	base.packets, base.streamBytes = c.Packets, c.Bytes
 	base.bandwidth, base.queue = c.BandwidthBitsPerSecond, c.LinkQueue
+	base.forwardingBitsPerSecond = c.ForwardingBitsPerSecond
 	base.loss, base.seed = c.Loss, c.Seed
 	base.algorithm, base.speed, base.maxEvents = c.Algorithm, c.Speed, c.MaxEvents
 	for _, field := range []struct {

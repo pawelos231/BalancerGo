@@ -142,7 +142,21 @@ const detailFields: Field[] = [
       'Maximum bitrate of each directed link, including the modeled IPv4 and TCP headers. ' +
       'One gigabit per second is 1,000,000,000 bit/s, or 125 MB/s of raw traffic. ' +
       'Clients share their links to and from the load balancer, ' +
-      'while each backend has its own pair of links.',
+      'while each backend has its own pair of links. ' +
+      'This sets each link separately; the LB forwarding budget limits their combined output.',
+  },
+  {
+    name: 'forwardingBitsPerSecond',
+    label: 'LB forwarding budget (bits/s)',
+    integer: true,
+    min: 0,
+    exclusiveMin: true,
+    help:
+      'One shared bitrate limit for all packets leaving the load balancer, ' +
+      'both toward backend servers and toward clients. ' +
+      'Each packet is counted once when its outgoing transmission starts, ' +
+      'including modeled headers, control packets and retransmissions. ' +
+      'Packets entering the load balancer are not counted against this budget.',
   },
   {
     name: 'packetTravelTimeMs',
@@ -159,9 +173,10 @@ const detailFields: Field[] = [
     integer: true,
     min: 0,
     help:
-      'Number of packet slots waiting for a busy link, excluding the packet currently transmitting ' +
-      'and packets already travelling. New packets are dropped when the waiting slots are full; ' +
-      '0 allows one active transmission with no waiting queue.',
+      'Waiting packet slots on each directed path, excluding active transmissions ' +
+      'and packets already travelling. LB output packets may wait for their link ' +
+      'or the shared forwarding budget. New packets are dropped when the waiting slots are full; ' +
+      '0 admits a packet only when it can start transmitting immediately.',
   },
   {
     name: 'loss',
