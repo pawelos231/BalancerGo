@@ -49,11 +49,17 @@ export class ScenarioApi {
   }
 
   async validate(scenario: Scenario, signal?: AbortSignal): Promise<ValidatedScenario> {
-    const result = await this.request<unknown>('/api/scenarios/validate', 'POST', scenario, signal);
+    return this.validateDocument(JSON.stringify(scenario), signal);
+  }
+
+  // Send file text unchanged so Go can reject duplicate keys and unsafe number tokens.
+  async validateDocument(document: string, signal?: AbortSignal): Promise<ValidatedScenario> {
+    const result = await this.request<unknown>('/api/scenarios/validate', 'POST', document, signal);
     const summary = isRecord(result) ? result.summary : undefined;
     const summaryKeys = ['totalClients', 'backendCount', 'clientGroupCount'];
     const validSummary = isRecord(summary) && summaryKeys.every((key) => isExactInteger(summary[key]));
     if (!isRecord(result) || !isScenario(result.scenario) || !validSummary) throw invalidResponse();
+    if (result.resolved !== undefined && !isResolvedScenario(result.resolved)) throw invalidResponse();
     return result as unknown as ValidatedScenario;
   }
 
@@ -93,7 +99,7 @@ export class ScenarioApi {
   private async request<T>(
     path: string,
     method: 'GET' | 'POST',
-    scenario?: Scenario,
+    scenario?: Scenario | string,
     signal?: AbortSignal,
   ): Promise<T> {
     const controller = new AbortController();
@@ -107,8 +113,8 @@ export class ScenarioApi {
       const fetcher = this.fetcher;
       const response = await fetcher(`${this.baseUrl}${path}`, {
         method,
-        headers: scenario ? { 'Content-Type': 'application/json' } : undefined,
-        body: scenario ? JSON.stringify(scenario) : undefined,
+        headers: scenario !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+        body: typeof scenario === 'string' ? scenario : scenario && JSON.stringify(scenario),
         signal: controller.signal,
       });
       const body = await response.json().catch(() => null) as T | { error?: string } | null;
@@ -153,6 +159,17 @@ function isScenario(value: unknown): value is Scenario {
     && isRecord(resources) && isRecord(resources.loadBalancer)
     && isRecord(resources.loadBalancer.ingress) && Array.isArray(resources.backends)
     && isRecord(workload) && isRecord(workload.defaults) && Array.isArray(workload.clientGroups);
+}
+
+function isResolvedScenario(value: unknown): boolean {
+  return isRecord(value)
+    && isRecord(value.execution)
+    && isRecord(value.networkDefaults)
+    && isRecord(value.loadBalancer)
+    && isRecord(value.defaultStream)
+    && Array.isArray(value.backends)
+    && Array.isArray(value.clientGroups)
+    && isExactInteger(value.totalClients);
 }
 
 function isExactInteger(value: unknown): boolean {

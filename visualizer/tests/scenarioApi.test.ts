@@ -60,6 +60,59 @@ test('current run keeps its exact scenario and 404 represents no run', async () 
   assert.equal(await missing.current(), null);
 });
 
+test('file validation sends original JSON tokens and never starts a run', async () => {
+  const documents = [
+    '{"version":1,"version":2}',
+    '{"execution":{"seed":9007199254740993}}',
+    '{"execution":{"seed":9007199254740991.1}}',
+    '{"execution":{"seed":1e2}}',
+    '{"version":1} {"version":2}',
+    '{ invalid JSON',
+    '',
+  ];
+  const requests: string[] = [];
+  const api = new ScenarioApi('http://backend.test', async (url, options) => {
+    assert.equal(String(url), 'http://backend.test/api/scenarios/validate');
+    assert.equal(options?.method, 'POST');
+    assert.deepEqual(options?.headers, { 'Content-Type': 'application/json' });
+    requests.push(options?.body as string);
+    return Response.json({ error: 'scenario.execution.seed: invalid token' }, { status: 400 });
+  });
+
+  for (const document of documents) {
+    await assert.rejects(api.validateDocument(document), /scenario.execution.seed: invalid token/);
+  }
+  assert.deepEqual(requests, documents);
+});
+
+test('validation retains native data and a separate exact resolved preview', async () => {
+  const scenario = scenarioFixture();
+  const summary = { totalClients: 0, backendCount: 0, clientGroupCount: 0 };
+  const resolved = {
+    version: scenario.version,
+    execution: scenario.execution,
+    networkDefaults: scenario.network.defaults,
+    loadBalancer: scenario.resources.loadBalancer,
+    backends: [],
+    defaultStream: { ...scenario.workload.defaults, bytes: 99 * 1024 },
+    clientGroups: [],
+    totalClients: 0,
+  };
+  const api = new ScenarioApi('http://backend.test', async () => Response.json({ scenario, summary, resolved }));
+
+  const validated = await api.validateDocument(JSON.stringify(scenario));
+  assert.deepEqual(validated.scenario, scenario);
+  assert.deepEqual(validated.resolved, resolved);
+  assert.equal(validated.scenario.workload.defaults.bytes, -1);
+  assert.equal(validated.resolved?.defaultStream.bytes, 99 * 1024);
+  assert.equal(validated.resolved?.execution.seed, '-9007199254740993');
+
+  const invalid = new ScenarioApi('http://backend.test', async () => (
+    Response.json({ scenario, summary, resolved: { totalClients: 0 } })
+  ));
+  await assert.rejects(invalid.validate(scenario), /unexpected response/);
+});
+
 test('topology definitions use their separate endpoint and retain the revision token', async () => {
   let requestedUrl = '';
   const definition = topologyDefinition('9007199254740993');

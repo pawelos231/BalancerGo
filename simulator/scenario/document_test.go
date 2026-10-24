@@ -23,6 +23,117 @@ func documentObject(t *testing.T, data []byte) map[string]any {
 	return object
 }
 
+// TestNormalizedDocumentKeepsResolvedGroupsExact checks inherited values and compact exceptions.
+func TestNormalizedDocumentKeepsResolvedGroupsExact(t *testing.T) {
+	input := exampleScenario()
+	input.Execution.Duration = time.Duration(1<<53 + 1)
+	input.Execution.Seed = math.MinInt64
+	input.Execution.MaxEvents = math.MaxUint64
+	input.Network.Defaults.PacketTravelTime = time.Duration(1<<53 + 3)
+	input.Network.Profiles = []LinkProfile{{
+		ID: "fast",
+		Config: LinkPatch{
+			BandwidthBitsPerSecond: pointer[int64](math.MaxInt64),
+		},
+	}}
+	input.Resources.Backends[0].Network.Profile = "fast"
+	group := &input.Workload.ClientGroups[0]
+	group.Count = MaxClients
+	group.StartAt = time.Duration(1<<53 + 5)
+	group.ClientGap = time.Duration(1<<53 + 7)
+	group.Network.Profile = "fast"
+	group.Stream.Packets = pointer(20)
+	group.Overrides = []ClientOverride{{
+		Index: 2,
+		Network: EndpointNetworkConfig{
+			ToLoadBalancer: LinkPatch{QueueCapacity: pointer(0)},
+		},
+		Stream: StreamPatch{Packets: pointer(3)},
+	}}
+	resolved, err := Normalize(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := EncodeNormalizedDocument(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	object := documentObject(t, encoded)
+	if object["version"] != json.Number("1") || object["totalClients"] != json.Number(strconv.Itoa(MaxClients)) {
+		t.Fatal("the resolved view must expose its version and complete client total")
+	}
+	execution := object["execution"].(map[string]any)
+	if execution["durationNanoseconds"] != "9007199254740993" {
+		t.Fatal("resolved durations must retain every nanosecond")
+	}
+	if execution["seed"] != "-9223372036854775808" || execution["maxEvents"] != "18446744073709551615" {
+		t.Fatal("resolved native integer limits must remain decimal strings")
+	}
+	defaults := object["networkDefaults"].(map[string]any)
+	if defaults["packetTravelTimeNanoseconds"] != "9007199254740995" {
+		t.Fatal("resolved default link settings lost duration precision")
+	}
+	backend := object["backends"].([]any)[0].(map[string]any)
+	backendNetwork := backend["network"].(map[string]any)
+	for _, direction := range []string{"toLoadBalancer", "fromLoadBalancer"} {
+		link := backendNetwork[direction].(map[string]any)
+		if link["bandwidthBitsPerSecond"] != "9223372036854775807" {
+			t.Fatal("backend directions must contain the effective profile bandwidth")
+		}
+	}
+
+	groups := object["clientGroups"].([]any)
+	if len(groups) != 1 {
+		t.Fatal("a large group must not expand into individual clients")
+	}
+	resolvedGroup := groups[0].(map[string]any)
+	if resolvedGroup["startAtNanoseconds"] != "9007199254740997" || resolvedGroup["clientGapNanoseconds"] != "9007199254740999" {
+		t.Fatal("resolved arrival settings must use exact nanosecond fields")
+	}
+	groupStream := resolvedGroup["stream"].(map[string]any)
+	if groupStream["bytes"] != json.Number("20480") {
+		t.Fatal("group stream bytes must be resolved after applying its packet override")
+	}
+	overrides := resolvedGroup["overrides"].([]any)
+	if len(overrides) != 1 {
+		t.Fatal("the resolved view must retain only explicit client exceptions")
+	}
+	override := overrides[0].(map[string]any)
+	overrideStream := override["stream"].(map[string]any)
+	if override["index"] != json.Number("2") || overrideStream["bytes"] != json.Number("3072") {
+		t.Fatal("client stream bytes must resolve against its own packet override")
+	}
+	overrideNetwork := override["network"].(map[string]any)
+	toLB := overrideNetwork["toLoadBalancer"].(map[string]any)
+	if toLB["queueCapacity"] != json.Number("0") || toLB["bandwidthBitsPerSecond"] != "9223372036854775807" {
+		t.Fatal("explicit zero must override the queue while retaining inherited bandwidth")
+	}
+	if _, err := DecodeDocument(encoded); err == nil {
+		t.Fatal("the resolved view must not be accepted as an importable scenario")
+	}
+}
+
+// TestNormalizedDocumentEmptyCollections keeps optional-looking resolved lists predictable.
+func TestNormalizedDocumentEmptyCollections(t *testing.T) {
+	encoded, err := EncodeNormalizedDocument(Normalized{
+		ClientGroups: []NormalizedClientGroup{{ID: "empty"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	object := documentObject(t, encoded)
+	backends, ok := object["backends"].([]any)
+	if !ok || len(backends) != 0 {
+		t.Fatal("nil resolved backends must encode as an empty array")
+	}
+	group := object["clientGroups"].([]any)[0].(map[string]any)
+	overrides, ok := group["overrides"].([]any)
+	if !ok || len(overrides) != 0 {
+		t.Fatal("nil resolved overrides must encode as an empty array")
+	}
+}
+
 // TestDocumentNativeIntegerRoundTrip includes values that normalization may reject.
 func TestDocumentNativeIntegerRoundTrip(t *testing.T) {
 	input := exampleScenario()

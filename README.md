@@ -148,7 +148,8 @@ profiles and individual overrides can assign different settings in each directio
 The CLI creates one group with shared defaults. The frontend edits one scenario
 document, preserving its client groups, profiles and individual overrides.
 Its single **Start simulation** button sends that document through HTTP.
-File import/export remains planned separately.
+Native JSON files can be imported and exported through the frontend's
+**Scenario files** panel; ready examples are in [examples/scenarios](examples/scenarios/README.md).
 
 Access links feed two LB input FIFOs: one for clients and one for backends.
 Both use one shared physical input link. All LB outputs share a separate
@@ -181,7 +182,7 @@ and one complete scenario object, with a maximum body of 2 MiB.
 | Method | Route | Result |
 | --- | --- | --- |
 | GET | `/api/scenarios/defaults` | Initial scenario derived from the Go/CLI settings. |
-| POST | `/api/scenarios/validate` | Canonical scenario and counts of clients, backends and groups; no model is created. |
+| POST | `/api/scenarios/validate` | Canonical scenario, counts and resolved effective configuration; no model is created. |
 | POST | `/api/simulations` | `202` with `runId` and `status: "accepted"`. |
 | GET | `/api/simulations/current` | Run ID, lifecycle status and exact initial scenario; `404` when none exists. |
 | GET | `/api/simulations/current/topology` | Latest graph definition with `runId` and `revision`; `404` before publication or after Stop. |
@@ -211,13 +212,16 @@ Invoke-RestMethod "$base/api/simulations" -Method Post -ContentType 'application
 Invoke-RestMethod "$base/api/simulations/current"
 ```
 
-The frontend **Scenario library** has four topology presets: mixed client links,
-heterogeneous backend links, a shared input bottleneck and a shared output
-bottleneck. Choose a preset and click **Validate and load preset** to load it into the
-form. Review or edit the inputs, then click the single **Start simulation** button.
-The catalog lives in `visualizer/src/scenarios/presets.ts`; each factory builds
-on fetched backend defaults. Topology presets use 180 virtual seconds, speed 1 and 1 GiB
-per client. The active run's exact configuration can be expanded below the catalog.
+The frontend **Scenario library** has 18 presets across links, queues, loss,
+workloads, routing, edge cases and performance. Search or filter the catalog;
+six cards appear per page. Choose a preset and click **Validate and load preset**
+to load it into the form, then use the single **Start simulation** button.
+The catalog lives in `visualizer/src/scenarios/presets.ts`, with factories split
+into `scenarios/presets/`. The original four topology experiments inherit backend
+defaults; the twelve additional scenarios use an explicit repeatable baseline.
+Ordinary experiments use 180 virtual seconds, speed 1 and 1 GiB per client,
+except deliberately short or empty streams. The active run's exact configuration
+can be expanded below the catalog.
 Editing ordinary fields changes only their part of the scenario. Link settings
 edit network defaults; endpoint profiles and directional overrides remain intact.
 With multiple groups, changing the total client count redistributes it
@@ -234,6 +238,17 @@ demand per client and a 50-million-event safety limit. Its 4096-slot queues avoi
 buffer pressure with this stop-and-wait workload. The time horizon ends the
 benchmark while streams still have data to send.
 
+**Absolute simulator limits** is pinned first in the catalog. It schedules
+50,000 clients and 100 backends with 10 TB/s client links, 100 TB/s backend links
+and shared LB ingress/forwarding limits of 10 PB/s. The LB's 80,000,000,000,000,000
+bit/s settings are decimal strings to retain every digit. This unpaced run lasts
+1 virtual millisecond, with one 1-ms snapshot window, 1 GiB per client and a
+20-million-event limit. Endpoint queues have 4096 slots; each LB input FIFO has
+131072 slots to accommodate the initial burst. Travel, loss and sender gaps are zero.
+This stresses endpoint construction, DES, telemetry and UI together. The backend's
+existing 100 half-open connection slots still apply, so 50,000 created clients
+does not imply 50,000 established streams. Transmission still reaches the 1 ns floor.
+
 The **Simulation performance** card shows LB packets and engine events per real
 second, elapsed wall time and total work. Packets are counted once at LB output
 transmission start, including ACKs, control packets and retransmissions. Rates
@@ -247,6 +262,36 @@ rounds up to the engine's minimum 1 ns. The preset therefore approaches that
 numerical ceiling, rather than providing literally unlimited bandwidth. Compare
 real-time performance with the same scenario, snapshot interval and machine load;
 virtual packet rates describe the model and are a separate measurement.
+
+## Scenario files and effective configuration
+
+The **Scenario files** panel imports and exports the editable native scenario.
+**Import JSON** submits the original UTF-8 file text to backend validation before
+browser JSON parsing, preserving integer tokens for exact validation. Files are
+limited to 2 MiB of UTF-8 bytes. A successful import loads the draft; a failure
+preserves the current draft. Import never starts an experiment.
+
+**Export JSON** downloads the current draft, including manual edits, profiles,
+groups and individual overrides. **Validate draft** checks the draft without
+starting it. The **Native scenario** preview is the source used for export and
+Start; **Effective configuration** shows the resolved defaults, inherited links,
+streams and explicit overrides returned by validation. The resolved preview is
+read-only and is not the import format. Correct invalid form values before
+validation or export. The active run's original document remains separate.
+
+Nineteen ready documents, their units and expected settings are described in
+[examples/scenarios/README.md](examples/scenarios/README.md). Eighteen mirror the UI
+preset catalog; `advanced-overrides.json` demonstrates directional and individual
+client settings. Nanosecond fields store exact virtual time, bandwidth is in
+decimal bit/s, queue capacities count waiting packets and `bytes: -1` uses
+`packets * 1024`. Integers beyond JavaScript's safe range use decimal strings.
+
+For reproducible virtual results, retain the native file, seed, code revision
+and Go/model version, and replay runtime commands at the same virtual times.
+Wall time and simulator throughput depend on host load, pacing and snapshot work.
+The stop-and-wait model can remain ACK-limited even when configured client rates
+sum above an LB limit; their sum does not guarantee saturation. Queue/loss counters
+refer to separate physical hops, not unique application packets.
 
 ## Live telemetry
 

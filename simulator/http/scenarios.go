@@ -95,12 +95,19 @@ func (api scenarioAPI) validate(w http.ResponseWriter, r *http.Request) {
 		writeScenarioError(w, http.StatusInternalServerError, "unable to encode scenario")
 		return
 	}
+	resolvedDocument, err := scenario.EncodeNormalizedDocument(resolved)
+	if err != nil {
+		writeScenarioError(w, http.StatusInternalServerError, "unable to encode resolved scenario")
+		return
+	}
 
 	response := struct {
 		Scenario json.RawMessage `json:"scenario"`
 		Summary  scenarioSummary `json:"summary"`
+		Resolved json.RawMessage `json:"resolved"`
 	}{
 		Scenario: document,
+		Resolved: resolvedDocument,
 		Summary: scenarioSummary{
 			TotalClients:     resolved.TotalClients,
 			BackendCount:     len(resolved.Backends),

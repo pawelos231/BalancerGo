@@ -11,7 +11,9 @@ import { scenarioPresets } from '../src/scenarios/presets.ts';
 import { scenarioFixture } from './scenarioFixture.ts';
 
 function mixedScenario() {
-  const scenario = scenarioPresets[0].build(scenarioFixture());
+  const preset = scenarioPresets.find((entry) => entry.id === 'mixed-clients');
+  assert.ok(preset);
+  const scenario = preset.build(scenarioFixture());
   scenario.workload.clientGroups[0].network.toLoadBalancer.queueCapacity = 7;
   scenario.workload.clientGroups[0].stream = { bytes: 1234 };
   scenario.workload.clientGroups[0].overrides = [{
@@ -48,7 +50,17 @@ test('form projection retains exact native integers and nanosecond precision', (
 
 test('presets populate the same form while one manual edit keeps their native structure', () => {
   const defaults = scenarioFixture();
-  for (const preset of scenarioPresets) {
+  const originalIds = new Set([
+    'mixed-clients',
+    'mixed-backends',
+    'ingress-bottleneck',
+    'egress-bottleneck',
+    'simulator-throughput',
+  ]);
+  const originalPresets = scenarioPresets.filter((preset) => originalIds.has(preset.id));
+  assert.equal(originalPresets.length, 5);
+
+  for (const preset of originalPresets) {
     const scenario = preset.build(defaults);
     const before = structuredClone(scenario);
     const fields = scenarioFormValues(scenario);
@@ -71,6 +83,48 @@ test('presets populate the same form while one manual edit keeps their native st
     assert.deepEqual(scenario, before);
     assert.equal(updated.execution.seed, scenario.execution.seed);
     assert.equal(updated.execution.maxEvents, scenario.execution.maxEvents);
+  }
+});
+
+test('every catalog preset projects valid fields and keeps native settings after one edit', () => {
+  const defaults = scenarioFixture();
+
+  for (const preset of scenarioPresets) {
+    const scenario = preset.build(defaults);
+    const before = structuredClone(scenario);
+    const fields = scenarioFormValues(scenario);
+    const gaps = new Set(
+      scenario.workload.clientGroups.map((group) => String(group.clientGapNanoseconds)),
+    );
+
+    for (const [name, raw] of Object.entries(fields)) {
+      // A blank creation gap represents mixed group values without changing them.
+      if (name === 'clientGapMs' && raw === '') {
+        assert.ok(gaps.size > 1, `${preset.id}: mixed creation gaps`);
+        continue;
+      }
+
+      const error = validateScenarioField(name as ScenarioField, raw);
+      assert.equal(error, undefined, `${preset.id}: ${name}=${raw}`);
+    }
+
+    const count = scenario.workload.clientGroups.reduce(
+      (total, group) => total + BigInt(group.count),
+      0n,
+    );
+    assert.equal(fields.clients, String(count), `${preset.id}: total clients`);
+    assert.equal(
+      fields.servers,
+      String(scenario.resources.backends.length),
+      `${preset.id}: backend count`,
+    );
+
+    const edited = applyScenarioField(scenario, 'speed', '2.5');
+    const expected = structuredClone(scenario);
+    expected.execution.speed = 2.5;
+
+    assert.deepEqual(edited, expected, `${preset.id}: one field edit`);
+    assert.deepEqual(scenario, before, `${preset.id}: original draft`);
   }
 });
 

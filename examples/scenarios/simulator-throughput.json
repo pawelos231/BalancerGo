@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "execution": {
+    "durationNanoseconds": 5000000,
+    "snapshotIntervalNanoseconds": 50000,
+    "seed": 1,
+    "speed": 0,
+    "maxEvents": 50000000
+  },
+  "network": {
+    "defaults": {
+      "bandwidthBitsPerSecond": 80000000000000,
+      "packetTravelTimeNanoseconds": 0,
+      "queueCapacity": 4096,
+      "lossRate": 0
+    },
+    "profiles": [
+      {
+        "id": "throughput-backend",
+        "config": {
+          "bandwidthBitsPerSecond": 800000000000000
+        }
+      }
+    ]
+  },
+  "resources": {
+    "loadBalancer": {
+      "id": "lb",
+      "algorithm": "roundRobin",
+      "ingress": {
+        "bandwidthBitsPerSecond": 8000000000000000,
+        "packetTravelTimeNanoseconds": 0,
+        "queueCapacity": 4096,
+        "lossRate": 0
+      },
+      "forwardingBitsPerSecond": 8000000000000000
+    },
+    "backends": [
+      {
+        "id": "backend-1",
+        "name": "Backend 1",
+        "address": "10.0.0.1",
+        "port": 80,
+        "network": {
+          "profile": "throughput-backend",
+          "toLoadBalancer": {},
+          "fromLoadBalancer": {}
+        }
+      },
+      {
+        "id": "backend-2",
+        "name": "Backend 2",
+        "address": "10.0.0.2",
+        "port": 80,
+        "network": {
+          "profile": "throughput-backend",
+          "toLoadBalancer": {},
+          "fromLoadBalancer": {}
+        }
+      },
+      {
+        "id": "backend-3",
+        "name": "Backend 3",
+        "address": "10.0.0.3",
+        "port": 80,
+        "network": {
+          "profile": "throughput-backend",
+          "toLoadBalancer": {},
+          "fromLoadBalancer": {}
+        }
+      },
+      {
+        "id": "backend-4",
+        "name": "Backend 4",
+        "address": "10.0.0.4",
+        "port": 80,
+        "network": {
+          "profile": "throughput-backend",
+          "toLoadBalancer": {},
+          "fromLoadBalancer": {}
+        }
+      },
+      {
+        "id": "backend-5",
+        "name": "Backend 5",
+        "address": "10.0.0.5",
+        "port": 80,
+        "network": {
+          "profile": "throughput-backend",
+          "toLoadBalancer": {},
+          "fromLoadBalancer": {}
+        }
+      }
+    ]
+  },
+  "workload": {
+    "defaults": {
+      "packets": 10000,
+      "bytes": 1073741824,
+      "packetGapNanoseconds": 0
+    },
+    "clientGroups": [
+      {
+        "id": "clients",
+        "count": 50,
+        "startAtNanoseconds": 0,
+        "clientGapNanoseconds": 0,
+        "network": {
+          "toLoadBalancer": {},
+          "fromLoadBalancer": {}
+        },
+        "stream": {}
+      }
+    ]
+  }
+}

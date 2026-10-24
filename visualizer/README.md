@@ -39,11 +39,32 @@ its draft. Static hosting must serve `index.html` for `/topology`; the container
 JSON numbers or exact decimal strings; keep strings unchanged when sending or
 displaying the scenario. Nanosecond fields retain their explicit units.
 
-`presets.ts` contains four topology experiment factories. They clone backend defaults
-before changing their topology/workload: mixed client links, heterogeneous backend
-links, a shared input bottleneck, and a shared output bottleneck. Add a catalog
-entry to introduce another experiment. The topology presets run for 180 virtual
-seconds at speed 1 and send 1 GiB per client.
+`presets.ts` exposes 18 scenarios across links, queues, loss, workloads, routing,
+edge cases and performance. Search by title/description or filter by category;
+the library shows six cards per page. Choosing or filtering never starts a run.
+The original four topology presets still inherit backend defaults. The twelve
+additional factories in `scenarios/presets/` use a fixed baseline so CLI overrides
+do not silently change the experiment being tested. Ordinary experiments run
+for 180 virtual seconds at speed 1, with 1 GiB per client unless their workload
+deliberately includes short or empty streams.
+
+The additions cover asymmetric client links, mixed latency, a slow backend ACK
+return, lossy access, one blackholed backend link, tiny or absent ingress queues,
+staggered groups, mixed stream sizes, seeded random routing, no backends and no
+clients. The staggered scenario also schedules a group beyond the horizon, so
+not every configured client must appear in the graph. A blackholed link loses
+packets; it does not simulate backend health detection or failover.
+
+**Absolute simulator limits** is pinned first, including on the first page of
+the unfiltered library. It schedules 50,000 clients and 100 backends: client
+links are 10 TB/s, backend links 100 TB/s, and both shared LB limits are 10 PB/s.
+The latter are exact decimal strings (`"80000000000000000"` bit/s). It uses
+speed 0, zero travel/loss/gaps, a 1-ms virtual horizon and snapshot interval,
+1 GiB per client, a 20-million-event cap, 4096-slot endpoint queues and
+131072-slot LB input queues. Sparse snapshots limit telemetry work at this scale.
+Created clients may remain in handshake because backend half-open capacity is
+still 100 each. The 1 ns transmission floor and current frontend rendering costs
+remain part of the experiment.
 
 The separate **Simulator throughput** preset uses 50 clients and 5 backends with
 10 TB/s client links, 100 TB/s backend links and shared LB limits of 1 PB/s. It
@@ -77,7 +98,32 @@ visible, and edits that would invalidate explicit client overrides are rejected.
 
 The single Start action sends the native draft through HTTP for server validation
 and admission. Invalid visible input blocks Start. Drafts survive Stop, navigation
-and reconnect. JSON file import/export remains a later stage.
+and reconnect.
+
+## Scenario files
+
+The **Scenario files** panel has **Import JSON**, **Export JSON** and
+**Validate draft** actions. Import sends the original UTF-8 file text to the
+backend before browser JSON parsing, with a 2 MiB byte limit. Only successful
+validation replaces the draft; malformed or invalid files leave it unchanged.
+Import and validation never start a run. Correct invalid form values before
+validating or exporting.
+
+Export downloads the current native draft with its groups, profiles and overrides,
+including manual edits. **Native scenario** previews that export/Start document.
+**Effective configuration** shows the optional `resolved` result from backend
+validation: inherited link settings and streams for backends, groups and explicit
+client overrides. It is read-only and is not an import format. The active run's
+original scenario remains a separate document.
+
+See [example scenarios](../examples/scenarios/README.md) for all 18 catalog
+experiments and a smaller directional/client-override example. JSON duration
+fields use exact virtual nanoseconds, bandwidth uses decimal bit/s and capacities
+count waiting packets. Keep large integer decimal strings intact. The same file,
+seed, code/model version and runtime command timing reproduce virtual results;
+elapsed real time and simulator throughput still vary with host load and pacing.
+Configured link rates are maxima: stop-and-wait ACK feedback can prevent their
+sum from saturating the LB. Drop totals describe physical hops, not unique payloads.
 
 ## Topology data and extension points
 

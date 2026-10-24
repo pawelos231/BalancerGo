@@ -6,12 +6,15 @@ import {
   validateScenarioField,
 } from '../scenarios/draft';
 import type { ScenarioDraft, ScenarioField } from '../scenarios/draft';
+import { readScenarioFile, serializeScenario } from '../scenarios/files';
 import { scenarioPresets } from '../scenarios/presets';
 import { scenarioApi } from '../scenarios/runtimeApi';
-import type { CurrentSimulation, Scenario } from '../scenarios/types';
+import type { CurrentSimulation, Scenario, ValidatedScenario } from '../scenarios/types';
 import type { SimulationMetadata } from '../types';
 import ScenarioLibrary from './ScenarioLibrary';
 import type { AppliedPreset, PresetCandidate } from './ScenarioLibrary';
+import ScenarioFiles from './ScenarioFiles';
+import type { ScenarioFileNotice } from './ScenarioFiles';
 import ScenarioRunDetails from './ScenarioRunDetails';
 import SimulationForm from './SimulationForm';
 
@@ -52,6 +55,8 @@ function ExperimentSetup({
   const [applied, setApplied] = useState<AppliedPreset | null>(null);
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validation, setValidation] = useState<ValidatedScenario | null>(null);
+  const [fileNotice, setFileNotice] = useState<ScenarioFileNotice | null>(null);
   const validationRef = useRef<AbortController | null>(null);
   const scenarioRef = useRef<Scenario | null>(null);
   const errorsRef = useRef<FieldErrors>({});
@@ -67,8 +72,11 @@ function ExperimentSetup({
     scenarioApi.defaults(controller.signal).then((definition) => {
       if (controller.signal.aborted) return;
       setDefaults(definition);
-      setNativeScenario(definition);
-      setValues(scenarioFormValues(definition));
+      // A late defaults response must not overwrite an already imported draft.
+      if (!scenarioRef.current) {
+        setNativeScenario(definition);
+        setValues(scenarioFormValues(definition));
+      }
       setError(null);
     }).catch((failure: unknown) => {
       if (controller.signal.aborted) return;
@@ -90,42 +98,119 @@ function ExperimentSetup({
     setError(null);
   }
 
-  async function validatePreset() {
-    if (!candidate || validationRef.current || pending) return;
+  // Lock every draft action until reading and server validation have both finished.
+  // The old document and form stay intact unless the complete operation succeeds.
+  async function validateAndApply(
+    load: (signal: AbortSignal) => Promise<ValidatedScenario>,
+    onApplied: (result: ValidatedScenario) => void,
+  ) {
+    if (validationRef.current || pending) return;
     const controller = new AbortController();
     validationRef.current = controller;
     setValidating(true);
     setError(null);
+    setFileNotice(null);
 
     try {
-      const result = await scenarioApi.validate(candidate.scenario, controller.signal);
-      if (controller.signal.aborted) return;
+      const result = await load(controller.signal);
+      const nextValues = scenarioFormValues(result.scenario);
+      if (controller.signal.aborted || validationRef.current !== controller) return;
+
       countEditRef.current = null;
       setNativeScenario(result.scenario);
-      setValues(scenarioFormValues(result.scenario));
+      setValues(nextValues);
       errorsRef.current = {};
       setFieldErrors({});
-      setApplied({
-        id: candidate.id,
-        title: candidate.title,
-        summary: result.summary,
-        pristine: true,
-      });
+      setValidation(result);
+      onApplied(result);
     } catch (failure) {
       if (!controller.signal.aborted) {
-        setError(failure instanceof Error ? failure.message : 'Scenario validation failed.');
+        setFileNotice({
+          severity: 'error',
+          message: failure instanceof Error ? failure.message : 'Scenario validation failed.',
+        });
       }
     } finally {
-      if (!controller.signal.aborted) {
+      if (validationRef.current === controller) {
         validationRef.current = null;
-        setValidating(false);
+        if (!controller.signal.aborted) setValidating(false);
       }
     }
+  }
+
+  function validatePreset() {
+    if (!candidate) return;
+    const selected = candidate;
+    void validateAndApply(
+      (signal) => scenarioApi.validate(selected.scenario, signal),
+      (result) => {
+        setApplied({
+          id: selected.id,
+          title: selected.title,
+          summary: result.summary,
+          pristine: true,
+        });
+        setFileNotice({ severity: 'success', message: `Loaded preset: ${selected.title}.` });
+      },
+    );
+  }
+
+  function importScenario(file: File) {
+    void validateAndApply(
+      async (signal) => {
+        const document = await readScenarioFile(file);
+        return scenarioApi.validateDocument(document, signal);
+      },
+      () => {
+        setCandidate(null);
+        setApplied(null);
+        setFileNotice({ severity: 'success', message: `Imported ${file.name}. Ready for Start.` });
+      },
+    );
+  }
+
+  function validateDraft() {
+    const current = scenarioRef.current;
+    if (!current || Object.keys(errorsRef.current).length > 0) return;
+    void validateAndApply(
+      (signal) => scenarioApi.validate(current, signal),
+      () => setFileNotice({
+        severity: 'success',
+        message: 'Draft validated. Effective configuration is available below.',
+      }),
+    );
+  }
+
+  function exportScenario() {
+    const current = scenarioRef.current;
+    if (!current || Object.keys(errorsRef.current).length > 0) return;
+
+    // Reuse an unchanged validated draft; edited settings are checked before saving.
+    void validateAndApply(
+      async (signal) => {
+        const checked = validation?.scenario === current
+          ? validation
+          : await scenarioApi.validate(current, signal);
+        const document = serializeScenario(checked.scenario);
+        if (signal.aborted) throw signal.reason;
+
+        const blob = new Blob([document], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = createDownloadLink(url);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return checked;
+      },
+      () => setFileNotice({ severity: 'success', message: 'Exported scenario.json.' }),
+    );
   }
 
   function changeField(name: ScenarioField, raw: string) {
     const current = scenarioRef.current;
     if (!current || validationRef.current || pending) return;
+    setValidation(null);
+    setFileNotice(null);
     setValues((previous) => previous ? { ...previous, [name]: raw } : previous);
     setApplied((previous) => previous ? { ...previous, pristine: false } : null);
     let message = validateScenarioField(name, raw);
@@ -194,6 +279,18 @@ function ExperimentSetup({
         onRetryDefaults={reloadDefaults}
       />
 
+      <ScenarioFiles
+        scenario={scenario}
+        validation={validation}
+        busy={loading || pending || validating}
+        checking={validating}
+        invalid={Object.keys(fieldErrors).length > 0}
+        notice={fileNotice}
+        onImport={importScenario}
+        onExport={exportScenario}
+        onValidate={validateDraft}
+      />
+
       {scenario && values ? (
         <SimulationForm
           scenario={scenario}
@@ -235,3 +332,12 @@ function ExperimentSetup({
 }
 
 export default ExperimentSetup;
+
+// A temporary attached link lets the browser save the validated native document.
+function createDownloadLink(url: string): HTMLAnchorElement {
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'scenario.json';
+  document.body.appendChild(anchor);
+  return anchor;
+}

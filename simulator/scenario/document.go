@@ -23,6 +23,16 @@ func EncodeDocument(input Scenario) ([]byte, error) {
 	return json.Marshal(value)
 }
 
+// EncodeNormalizedDocument exposes effective settings without expanding client groups.
+// This view uses exact integers but is not an importable Scenario document.
+func EncodeNormalizedDocument(input Normalized) ([]byte, error) {
+	value, err := encodeDocumentValue(reflect.ValueOf(input), "resolved")
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(value)
+}
+
 // DecodeDocument reads one strict scenario document without normalizing it.
 // Missing fields keep zero values; null is allowed only for optional patch pointers.
 func DecodeDocument(data []byte) (Scenario, error) {

@@ -1,0 +1,89 @@
+{
+  "execution": {
+    "durationNanoseconds": 180000000000,
+    "snapshotIntervalNanoseconds": 100000000,
+    "seed": 1,
+    "speed": 1,
+    "maxEvents": 50000000
+  },
+  "network": {
+    "defaults": {
+      "bandwidthBitsPerSecond": 1000000000,
+      "packetTravelTimeNanoseconds": 1000000,
+      "queueCapacity": 1024,
+      "lossRate": 0
+    },
+    "profiles": []
+  },
+  "resources": {
+    "loadBalancer": {
+      "id": "lb",
+      "algorithm": "roundRobin",
+      "ingress": {
+        "bandwidthBitsPerSecond": 1000000000,
+        "packetTravelTimeNanoseconds": 0,
+        "queueCapacity": 1024,
+        "lossRate": 0
+      },
+      "forwardingBitsPerSecond": 1000000000
+    },
+    "backends": [
+      {
+        "id": "backend-1",
+        "name": "Backend 1",
+        "address": "10.0.0.1",
+        "port": 80,
+        "network": {
+          "toLoadBalancer": {},
+          "fromLoadBalancer": {}
+        }
+      },
+      {
+        "id": "backend-2",
+        "name": "Backend 2",
+        "address": "10.0.0.2",
+        "port": 80,
+        "network": {
+          "toLoadBalancer": {},
+          "fromLoadBalancer": {}
+        }
+      }
+    ]
+  },
+  "version": 1,
+  "workload": {
+    "defaults": {
+      "packets": 10000,
+      "bytes": 1073741824,
+      "packetGapNanoseconds": 0
+    },
+    "clientGroups": [
+      {
+        "id": "upload-limited",
+        "count": 8,
+        "startAtNanoseconds": 0,
+        "clientGapNanoseconds": 0,
+        "network": {
+          "toLoadBalancer": {
+            "bandwidthBitsPerSecond": 10000000
+          },
+          "fromLoadBalancer": {}
+        },
+        "stream": {}
+      },
+      {
+        "id": "download-limited",
+        "count": 8,
+        "startAtNanoseconds": 0,
+        "clientGapNanoseconds": 0,
+        "network": {
+          "toLoadBalancer": {},
+          "fromLoadBalancer": {
+            "bandwidthBitsPerSecond": 10000000
+          }
+        },
+        "stream": {}
+      }
+    ]
+  }
+}

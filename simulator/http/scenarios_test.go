@@ -142,6 +142,7 @@ func TestScenarioValidatePreservesExactDocument(t *testing.T) {
 	var result struct {
 		Scenario json.RawMessage `json:"scenario"`
 		Summary  scenarioSummary `json:"summary"`
+		Resolved json.RawMessage `json:"resolved"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
@@ -169,6 +170,39 @@ func TestScenarioValidatePreservesExactDocument(t *testing.T) {
 	}
 	if !bytes.Equal(encodedHTTPScenario(t, decoded), document) {
 		t.Fatal("validated document changed scenario settings")
+	}
+
+	// The effective view resolves inheritance without replacing the exportable input.
+	resolved, err := scenario.Normalize(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedResolved, err := scenario.EncodeNormalizedDocument(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(result.Resolved, expectedResolved) {
+		t.Fatalf("resolved view differs from the checked runtime settings: %s", result.Resolved)
+	}
+	var view struct {
+		Execution struct {
+			Seed      string `json:"seed"`
+			MaxEvents string `json:"maxEvents"`
+		} `json:"execution"`
+		ClientGroups []struct {
+			Stream struct {
+				Bytes int `json:"bytes"`
+			} `json:"stream"`
+		} `json:"clientGroups"`
+	}
+	if err := json.Unmarshal(result.Resolved, &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Execution.Seed != "-9223372036854775807" || view.Execution.MaxEvents != "18446744073709551615" {
+		t.Fatal("the effective view rounded native integer limits")
+	}
+	if len(view.ClientGroups) != 2 || view.ClientGroups[0].Stream.Bytes != 1024 {
+		t.Fatal("the effective view must resolve stream bytes and retain compact groups")
 	}
 	if service.startCalls != 0 || service.currentCalls != 0 || service.defaultsCalls != 0 {
 		t.Fatal("validation accessed the running simulation service")

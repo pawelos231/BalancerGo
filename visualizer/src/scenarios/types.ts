@@ -80,6 +80,44 @@ export interface ScenarioSummary {
 export interface ValidatedScenario {
   scenario: Scenario;
   summary: ScenarioSummary;
+  resolved?: ResolvedScenario;
+}
+
+// Read-only settings after the backend applies profiles and endpoint overrides.
+// Client groups stay compact; the native Scenario remains the file and Start format.
+export interface ResolvedScenario {
+  version: ExactInteger;
+  execution: Scenario['execution'];
+  networkDefaults: ScenarioLinkConfig;
+  loadBalancer: Scenario['resources']['loadBalancer'];
+  totalClients: ExactInteger;
+  defaultStream: ScenarioStream;
+  backends: {
+    id: string;
+    name: string;
+    address: string;
+    port: ExactInteger;
+    network: ResolvedLinks;
+  }[];
+  clientGroups: {
+    id: string;
+    count: ExactInteger;
+    startAtNanoseconds: ExactInteger;
+    clientGapNanoseconds: ExactInteger;
+    network: ResolvedLinks;
+    stream: ScenarioStream;
+    overrides: {
+      index: ExactInteger;
+      network: ResolvedLinks;
+      stream: ScenarioStream;
+    }[];
+  }[];
+}
+
+// Both directions have concrete values, with no inherited patches left to apply.
+export interface ResolvedLinks {
+  toLoadBalancer: ScenarioLinkConfig;
+  fromLoadBalancer: ScenarioLinkConfig;
 }
 
 export interface SimulationReceipt {
