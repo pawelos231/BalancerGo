@@ -184,6 +184,7 @@ and one complete scenario object, with a maximum body of 2 MiB.
 | POST | `/api/scenarios/validate` | Canonical scenario and counts of clients, backends and groups; no model is created. |
 | POST | `/api/simulations` | `202` with `runId` and `status: "accepted"`. |
 | GET | `/api/simulations/current` | Run ID, lifecycle status and exact initial scenario; `404` when none exists. |
+| GET | `/api/simulations/current/topology` | Latest graph definition with `runId` and `revision`; `404` before publication or after Stop. |
 
 The HTTP and WS paths share one start reservation. A concurrent Start returns
 `409`; malformed documents return `400`, invalid settings `422`, oversized bodies
@@ -210,12 +211,12 @@ Invoke-RestMethod "$base/api/simulations" -Method Post -ContentType 'application
 Invoke-RestMethod "$base/api/simulations/current"
 ```
 
-The frontend **Scenario library** has four presets: mixed client links,
+The frontend **Scenario library** has four topology presets: mixed client links,
 heterogeneous backend links, a shared input bottleneck and a shared output
 bottleneck. Choose a preset and click **Validate and load preset** to load it into the
 form. Review or edit the inputs, then click the single **Start simulation** button.
 The catalog lives in `visualizer/src/scenarios/presets.ts`; each factory builds
-on fetched backend defaults. Presets use 180 virtual seconds, speed 1 and 1 GiB
+on fetched backend defaults. Topology presets use 180 virtual seconds, speed 1 and 1 GiB
 per client. The active run's exact configuration can be expanded below the catalog.
 Editing ordinary fields changes only their part of the scenario. Link settings
 edit network defaults; endpoint profiles and directional overrides remain intact.
@@ -223,6 +224,61 @@ With multiple groups, changing the total client count redistributes it
 proportionally and shows the resulting group counts. Existing configured
 backends are retained when resizing the list; new backends use inherited settings.
 Validation and Start keep their errors visible and do not change the running model.
+
+The **Simulator throughput** preset measures the simulator's real execution rate:
+50 clients, 5 backends, 10 TB/s client links, 100 TB/s backend links and 1 PB/s
+shared LB ingress and forwarding limits (decimal bytes per second; the JSON uses
+bits/s). Travel times, sender pauses and random loss are zero. It runs unpaced
+(`speed: 0`) for 5 virtual milliseconds, with 50-microsecond snapshots, 1 GiB of
+demand per client and a 50-million-event safety limit. Its 4096-slot queues avoid
+buffer pressure with this stop-and-wait workload. The time horizon ends the
+benchmark while streams still have data to send.
+
+The **Simulation performance** card shows LB packets and engine events per real
+second, elapsed wall time and total work. Packets are counted once at LB output
+transmission start, including ACKs, control packets and retransmissions. Rates
+are cumulative averages from model creation through run execution, including
+setup, pacing and snapshot work. Finished and failed runs freeze the elapsed
+time; Stop clears the measurement. These are simulator throughput measurements,
+not a modeled CPU capacity of the load balancer or a kernel benchmark.
+
+At these bitrates, transmission of both a header-only ACK and a full segment
+rounds up to the engine's minimum 1 ns. The preset therefore approaches that
+numerical ceiling, rather than providing literally unlimited bandwidth. Compare
+real-time performance with the same scenario, snapshot interval and machine load;
+virtual packet rates describe the model and are a separate measurement.
+
+## Live telemetry
+
+The browser retrieves graph structure separately from frequent measurements:
+
+- HTTP `/api/simulations/current/topology` supplies node identities, addresses,
+  metric descriptions, physical link settings, input queue capacities and backend
+  identities. The owner caches one encoded definition before publishing its metrics.
+- WebSocket frames have `type: "simulationSnapshot"` and `version: 1`. They carry
+  lifecycle metadata, the live algorithm, backend counters and routed client IDs,
+  node metric values and measured traffic, and link/input queue counters.
+  They contain neither `simulation.config` nor graph labels, addresses or link settings.
+- `simulation.runId` and `topology.revision` identify the definition required by a
+  frame. Revisions are opaque decimal strings. Adding clients or removing a backend
+  replaces the definition; changing counters, activity or the algorithm does not.
+
+Each frame is a complete measurement for its revision, so the hub can keep only the
+latest frame without maintaining a chain of deltas. Routed client IDs resolve to
+connection keys in the HTTP definition. The full initial scenario remains available
+through `/api/simulations/current`, independently of runtime changes.
+
+The frontend coalesces graph requests and applies metrics only to a matching run
+and revision. Reconnect invalidates the old graph cache, including after a backend
+restart. Finished runs remain readable; Stop clears the graph and counters while
+preserving the form draft. The topology definition endpoint retains no history.
+The backend and browser use the same telemetry protocol and should be rebuilt together.
+
+For an active fixture with 2000 routed clients at 100 virtual milliseconds, the
+previous JSON frame measured 3,790,079 bytes and the compact frame 1,730,760 bytes
+(54.33% less). The one-time definition measured 2,411,176 bytes. One definition
+plus 100 frames for that unchanged topology uses 53.70% fewer JSON bytes. This
+measurement excludes framing and compression and does not measure simulation speed.
 
 ## Virtual-time architecture
 

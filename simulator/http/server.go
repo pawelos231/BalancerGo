@@ -24,6 +24,9 @@ func NewServer(hub *Hub, address string, api ...ScenarioService) *http.Server {
 	})
 	if len(api) == 1 && api[0] != nil {
 		mountScenarioRoutes(mux, api[0])
+		if topology, ok := api[0].(TopologyService); ok {
+			mountTopologyRoute(mux, topology)
+		}
 	}
 	return &http.Server{
 		Addr:              address,

@@ -52,18 +52,25 @@ test('presets populate the same form while one manual edit keeps their native st
     const scenario = preset.build(defaults);
     const before = structuredClone(scenario);
     const fields = scenarioFormValues(scenario);
-    assert.equal(fields.durationSeconds, '180');
+    const benchmark = preset.id === 'simulator-throughput';
+    assert.equal(fields.durationSeconds, benchmark ? '0.005' : '180');
     assert.equal(fields.bytes, '1073741824');
-    assert.equal(fields.servers, '2');
-    assert.equal(fields.clients, preset.id.endsWith('bottleneck') ? '32' : '16');
+    assert.equal(fields.servers, benchmark ? '5' : '2');
+    let clients = '16';
+    if (benchmark) {
+      clients = '50';
+    } else if (preset.id.endsWith('bottleneck')) {
+      clients = '32';
+    }
+    assert.equal(fields.clients, clients);
 
     const updated = applyScenarioField(scenario, 'speed', '2.5');
     const expected = structuredClone(scenario);
     expected.execution.speed = 2.5;
     assert.deepEqual(updated, expected);
     assert.deepEqual(scenario, before);
-    assert.equal(updated.execution.seed, '-9007199254740993');
-    assert.equal(updated.execution.maxEvents, '18446744073709551615');
+    assert.equal(updated.execution.seed, scenario.execution.seed);
+    assert.equal(updated.execution.maxEvents, scenario.execution.maxEvents);
   }
 });
 

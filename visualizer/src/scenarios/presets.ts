@@ -10,7 +10,7 @@ export interface ScenarioPreset {
 const fastBitsPerSecond = 1_000_000_000;
 const slowBitsPerSecond = 10_000_000;
 
-// Presets share duration and payload; remaining settings start from Go defaults.
+// Network presets share duration and payload; remaining settings start from Go defaults.
 function smallExperiment(defaults: Scenario): Scenario {
   const scenario = structuredClone(defaults);
   scenario.execution.durationNanoseconds = 180_000_000_000;
@@ -41,6 +41,45 @@ function clientGroup(id: string, count: number, profile?: string): ScenarioClien
     network: { profile, toLoadBalancer: {}, fromLoadBalancer: {} },
     stream: {},
   };
+}
+
+// Very high bitrates expose the engine's one-nanosecond serialization floor.
+function throughputExperiment(defaults: Scenario): Scenario {
+  const scenario = smallExperiment(defaults);
+  scenario.execution = {
+    durationNanoseconds: 5_000_000,
+    snapshotIntervalNanoseconds: 50_000,
+    seed: 1,
+    speed: 0,
+    maxEvents: 50_000_000,
+  };
+  scenario.network.defaults = {
+    bandwidthBitsPerSecond: 80_000_000_000_000,
+    packetTravelTimeNanoseconds: 0,
+    queueCapacity: 4096,
+    lossRate: 0,
+  };
+  scenario.network.profiles = [{
+    id: 'throughput-backend',
+    config: { bandwidthBitsPerSecond: 800_000_000_000_000 },
+  }];
+  scenario.resources.loadBalancer.algorithm = 'roundRobin';
+  scenario.resources.loadBalancer.forwardingBitsPerSecond = 8_000_000_000_000_000;
+  scenario.resources.loadBalancer.ingress = {
+    bandwidthBitsPerSecond: 8_000_000_000_000_000,
+    packetTravelTimeNanoseconds: 0,
+    queueCapacity: 4096,
+    lossRate: 0,
+  };
+  scenario.resources.backends = Array.from({ length: 5 }, (_, index) => ({
+    id: `backend-${index + 1}`,
+    name: `Backend ${index + 1}`,
+    address: `10.0.0.${index + 1}`,
+    port: 80,
+    network: { profile: 'throughput-backend', toLoadBalancer: {}, fromLoadBalancer: {} },
+  }));
+  scenario.workload.clientGroups = [clientGroup('clients', 50)];
+  return scenario;
 }
 
 // Add a factory here to extend the library without copying backend defaults into the UI.
@@ -97,5 +136,13 @@ export const scenarioPresets: readonly ScenarioPreset[] = [
       scenario.resources.loadBalancer.forwardingBitsPerSecond = slowBitsPerSecond;
       return scenario;
     },
+  },
+  {
+    id: 'simulator-throughput',
+    title: 'Simulator throughput',
+    description:
+      '50 clients at 10 TB/s, 5 backends at 100 TB/s, and shared LB limits of 1 PB/s. ' +
+      'Runs unpaced for 5 virtual ms; packet transmission reaches the 1 ns engine floor.',
+    build: throughputExperiment,
   },
 ];

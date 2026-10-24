@@ -4,6 +4,7 @@ import type {
   SimulationReceipt,
   ValidatedScenario,
 } from './types.ts';
+import type { TopologyDefinition } from '../telemetry/types';
 
 // Keep API failures readable while retaining the status for expected cases such as 404.
 export class ScenarioApiError extends Error {
@@ -78,6 +79,15 @@ export class ScenarioApi {
       if (error instanceof ScenarioApiError && error.status === 404) return null;
       throw error;
     }
+  }
+
+  async topology(signal?: AbortSignal): Promise<TopologyDefinition> {
+    const result = await this.request<unknown>('/api/simulations/current/topology', 'GET', undefined, signal);
+    const valid = isRecord(result) && isRunId(result.runId)
+      && typeof result.revision === 'string' && /^[1-9]\d*$/.test(result.revision)
+      && Array.isArray(result.nodes) && Array.isArray(result.links) && Array.isArray(result.servers);
+    if (!valid) throw invalidResponse();
+    return result as unknown as TopologyDefinition;
   }
 
   private async request<T>(

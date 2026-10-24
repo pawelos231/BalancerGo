@@ -1,5 +1,7 @@
 import {
+  Alert,
   Box,
+  Button,
   Container,
   CssBaseline,
   LinearProgress,
@@ -20,6 +22,7 @@ import {
 import AppHeader from './components/AppHeader';
 import ControlPanel from './components/ControlPanel';
 import ExperimentSetup from './components/ExperimentSetup';
+import SimulationPerformance from './components/SimulationPerformance';
 import useSimulation from './hooks/useSimulation';
 import SimulationPage from './pages/SimulationPage';
 import type { LoadBalancerState } from './types';
@@ -54,6 +57,9 @@ function App() {
     currentRun,
     currentRunError,
     refreshCurrent,
+    topologyLoading,
+    topologyError,
+    refreshTopology,
     sendMessage,
     startScenario,
   } = useSimulation();
@@ -122,6 +128,23 @@ function App() {
               label="Topology"
             />
           </Tabs>
+
+          {topologyLoading && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Updating network topology. Controls remain available while it loads.
+            </Alert>
+          )}
+          {topologyError && (
+            <Alert
+              severity="error"
+              sx={{ mt: 2 }}
+              action={<Button color="inherit" onClick={refreshTopology}>Retry topology</Button>}
+            >
+              {topologyError}
+            </Alert>
+          )}
+
+          <SimulationPerformance performance={simulation?.performance} />
 
           {/* Keep unsent settings when switching pages. */}
           <Box hidden={!showSimulation}>

@@ -39,11 +39,26 @@ its draft. Static hosting must serve `index.html` for `/topology`; the container
 JSON numbers or exact decimal strings; keep strings unchanged when sending or
 displaying the scenario. Nanosecond fields retain their explicit units.
 
-`presets.ts` contains four small experiment factories. They clone backend defaults
+`presets.ts` contains four topology experiment factories. They clone backend defaults
 before changing their topology/workload: mixed client links, heterogeneous backend
 links, a shared input bottleneck, and a shared output bottleneck. Add a catalog
-entry to introduce another experiment. All current presets run for 180 virtual
+entry to introduce another experiment. The topology presets run for 180 virtual
 seconds at speed 1 and send 1 GiB per client.
+
+The separate **Simulator throughput** preset uses 50 clients and 5 backends with
+10 TB/s client links, 100 TB/s backend links and shared LB limits of 1 PB/s. It
+removes travel delays, sender pauses and random loss, and runs without pacing
+for 5 virtual milliseconds. Snapshots are spaced by 50 virtual microseconds;
+the event limit is 50 million and queues have 4096 slots. Each client's 1 GiB
+stream remains unfinished when the benchmark reaches its time horizon.
+
+`SimulationPerformance.tsx` appears on both pages when the backend supplies
+`simulation.performance`. It shows cumulative LB packets and DES events per real
+second, wall time and work totals. The backend includes setup, pacing and snapshot
+work in the measurement and freezes it after completion or failure. Stop clears
+it. These rates measure simulator execution, independently of virtual-time TX/RX.
+With the throughput preset, transmission durations reach the model's 1 ns floor;
+the large configured bitrates do not represent literal unlimited bandwidth.
 
 `ExperimentSetup.tsx` owns one native scenario and its controlled form inputs.
 `ScenarioLibrary.tsx` selects a candidate and applies it only after successful
@@ -62,12 +77,19 @@ visible, and edits that would invalidate explicit client overrides are rejected.
 
 The single Start action sends the native draft through HTTP for server validation
 and admission. Invalid visible input blocks Start. Drafts survive Stop, navigation
-and reconnect. Compact snapshots and JSON file import/export remain later stages.
+and reconnect. JSON file import/export remains a later stage.
 
 ## Topology data and extension points
 
-The backend snapshot supplies `topology.nodes` and `topology.links` from the
-actual simulation wiring. Each created client and backend has its own node and
+HTTP `/api/simulations/current/topology` supplies graph definitions from the
+actual simulation wiring. Compact WebSocket frames carry complete current metrics
+and identify their definition with `simulation.runId` and `topology.revision`.
+The hook assembles these into the view's `topology.nodes` and `topology.links`,
+sharing static descriptors and settings between updates. It never combines data
+from different runs or revisions. Graph requests are coalesced; reconnect invalidates
+the old definition cache, and loading failures offer a retry without replacing the draft.
+
+Each created client and backend has its own node and
 two directed links. Clients appear left of the LB and backends right. Incoming
 arrows end at the corresponding LB input FIFO; both FIFOs use one shared receiver.
 `topology.ingress` carries that common resource's configuration, aggregate stats
@@ -141,7 +163,8 @@ npm test
 
 Tests use Node.js 24's TypeScript support and built-in test runner. They check
 scenario edits and exact integers, presets and API requests, grouping, physical
-counter scopes and bounded graph selection without adding a test framework dependency.
+counter scopes, bounded graph selection and topology loading races without adding a
+test framework dependency.
 
 Build output is written to `dist/`. `VITE_WS_URL` is embedded at build time, so
 changing the backend URL for a static deployment requires rebuilding.

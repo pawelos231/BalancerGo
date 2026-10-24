@@ -151,9 +151,25 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 	}
 
 	// Both the slow backend and slow client group's real links use the profile.
+	body = scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current/topology", nil, http.StatusOK)
+	var structure struct {
+		RunID    string `json:"runId"`
+		Revision string `json:"revision"`
+		Links    []struct {
+			Config struct {
+				BandwidthBitsPerSecond int64 `json:"bandwidthBitsPerSecond"`
+			} `json:"config"`
+		} `json:"links"`
+	}
+	if err := json.Unmarshal(body, &structure); err != nil {
+		t.Fatal(err)
+	}
+	if structure.RunID != snapshot.Simulation.RunID || structure.Revision != snapshot.Topology.Revision {
+		t.Fatal("HTTP topology does not match the live run and revision")
+	}
 	slowLinks := 0
 	fastLinks := 0
-	for _, link := range snapshot.Topology.Links {
+	for _, link := range structure.Links {
 		if link.Config.BandwidthBitsPerSecond == slowRate {
 			slowLinks++
 		} else {

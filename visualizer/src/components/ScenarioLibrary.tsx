@@ -65,9 +65,9 @@ function ScenarioLibrary({
       <CardContent>
         <Stack spacing={2}>
           <Typography variant="body2" color="text.secondary">
-            Each preset runs for 180 virtual seconds at speed 1, with 1 GiB per client.
-            Other settings start from backend defaults. Choosing a preset does not change
-            the form or start a run.
+            Choose a topology experiment or the unpaced simulator throughput benchmark.
+            Review its settings in the form before starting. Choosing a preset does not
+            change the form or start a run.
           </Typography>
 
           {loading && (

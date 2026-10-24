@@ -82,7 +82,7 @@ function ControlPanel({
   const canStop = connected && simulation !== null
     && simulation.status !== 'idle' && !lifecyclePending;
 
-  const currentAlgorithm = simulation?.config.algorithm;
+  const currentAlgorithm = simulation?.algorithm;
   const hasAlgorithmDraft = algorithm?.runId === simulation?.runId
     && algorithm?.current === currentAlgorithm;
   const selectedAlgorithm = hasAlgorithmDraft && algorithm

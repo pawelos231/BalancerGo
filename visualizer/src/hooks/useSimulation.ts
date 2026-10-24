@@ -3,6 +3,9 @@ import { CommandType } from '../commands';
 import { scenarioApi, websocketUrl } from '../scenarios/runtimeApi';
 import { httpStartAcknowledged } from '../scenarios/startAcknowledgement';
 import type { CurrentSimulation, Scenario } from '../scenarios/types';
+import { parseSnapshot } from '../telemetry/parse';
+import { TelemetryReceiver } from '../telemetry/receiver';
+import type { SimulationSnapshot } from '../telemetry/types';
 import type {
   CommandError,
   LoadBalancerState,
@@ -18,10 +21,10 @@ interface HttpStart {
   observedRunIds: Set<string>;
 }
 
-function isCommandError(
-  message: LoadBalancerState | CommandError,
-): message is CommandError {
-  return 'type' in message && message.type === 'commandError';
+function isCommandError(message: unknown): message is CommandError {
+  return message !== null && typeof message === 'object'
+    && 'type' in message && message.type === 'commandError'
+    && 'error' in message && typeof message.error === 'string';
 }
 
 function useSimulation() {
@@ -34,6 +37,8 @@ function useSimulation() {
   const [currentRun, setCurrentRun] = useState<CurrentSimulation | null>(null);
   const [currentRunError, setCurrentRunError] = useState<string | null>(null);
   const [runRefresh, setRunRefresh] = useState(0);
+  const [topologyLoading, setTopologyLoading] = useState(false);
+  const [topologyError, setTopologyError] = useState<string | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const simulationRef = useRef<SimulationMetadata | null>(null);
@@ -41,6 +46,7 @@ function useSimulation() {
   const stopPendingRef = useRef(false);
   const httpStartRef = useRef<HttpStart | null>(null);
   const mountedRef = useRef(false);
+  const telemetryRef = useRef<TelemetryReceiver | null>(null);
 
   // Refs guard repeated commands before React updates the buttons.
   const setStartPending = useCallback((pending: boolean) => {
@@ -57,6 +63,16 @@ function useSimulation() {
     mountedRef.current = true;
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    const receiver = new TelemetryReceiver(
+      (signal) => scenarioApi.topology(signal),
+      (view) => {
+        if (disposed) return;
+        setData(view.data);
+        setTopologyLoading(view.loading);
+        setTopologyError(view.error);
+      },
+    );
+    telemetryRef.current = receiver;
 
     function handleCommandError(message: CommandError) {
       setCommandError(message.error);
@@ -66,17 +82,8 @@ function useSimulation() {
       }
     }
 
-    function handleSnapshot(snapshot: LoadBalancerState) {
-      const hasConfiguration = Boolean(snapshot.simulation?.config);
-      const hasServers = Array.isArray(snapshot.servers);
-
-      if (!hasConfiguration || !hasServers) {
-        console.error('Snapshot is missing simulation metadata.');
-        return;
-      }
-
+    function handleSnapshot(snapshot: SimulationSnapshot) {
       simulationRef.current = snapshot.simulation;
-      setData(snapshot);
       setConnected(true);
 
       // HTTP needs its own run ID; an older idle frame cannot acknowledge Start.
@@ -98,6 +105,7 @@ function useSimulation() {
       if (snapshot.simulation.status === 'idle') {
         setStopPending(false);
       }
+      receiver.receive(snapshot);
     }
 
     function connect() {
@@ -109,6 +117,9 @@ function useSimulation() {
 
         // Wait for a fresh snapshot before enabling controls after reconnect.
         simulationRef.current = null;
+        receiver.reset();
+        setCurrentRun(null);
+        setCurrentRunError(null);
         if (!httpStartRef.current) setStartPending(false);
         setStopPending(false);
         setCommandError(null);
@@ -120,15 +131,16 @@ function useSimulation() {
         if (disposed) return;
 
         try {
-          const message = JSON.parse(event.data) as LoadBalancerState | CommandError;
+          const message: unknown = JSON.parse(event.data);
 
           if (isCommandError(message)) {
             handleCommandError(message);
           } else {
-            handleSnapshot(message);
+            handleSnapshot(parseSnapshot(message));
           }
         } catch (error) {
-          console.error('Error parsing JSON:', error);
+          setCommandError(error instanceof Error ? error.message : 'Cannot read the live simulation state.');
+          console.error('Cannot read the live simulation state:', error);
         }
       };
 
@@ -136,6 +148,7 @@ function useSimulation() {
         if (disposed) return;
 
         simulationRef.current = null;
+        receiver.reset();
         if (!httpStartRef.current) setStartPending(false);
         setStopPending(false);
         setConnected(false);
@@ -150,6 +163,8 @@ function useSimulation() {
     return () => {
       disposed = true;
       mountedRef.current = false;
+      receiver.dispose();
+      if (telemetryRef.current === receiver) telemetryRef.current = null;
       httpStartRef.current?.controller.abort();
       httpStartRef.current = null;
       clearTimeout(reconnectTimer);
@@ -192,6 +207,10 @@ function useSimulation() {
 
   const refreshCurrent = useCallback(() => {
     setRunRefresh((revision) => revision + 1);
+  }, []);
+
+  const refreshTopology = useCallback(() => {
+    telemetryRef.current?.retry();
   }, []);
 
   function reserveCommand(command: SimulationCommand): boolean {
@@ -282,6 +301,9 @@ function useSimulation() {
     commandError,
     currentRun,
     currentRunError,
+    topologyLoading,
+    topologyError,
+    refreshTopology,
     refreshCurrent,
     sendMessage,
     startScenario,

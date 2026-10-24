@@ -33,6 +33,7 @@ export interface ServerStateWithClients {
 }
 
 export interface LoadBalancerState {
+  mode?: string;
   algorithm: string;
   servers: ServerStateWithClients[];
   simulation: SimulationMetadata;
@@ -55,7 +56,7 @@ export type SimulationCommand =
       Payload: Record<string, never>;
     };
 
-// Compact settings retained in live snapshots; editable scenarios use scenarios/types.ts.
+// Form field names remain shared with the native scenario adapter; these are not live settings.
 export interface SimulationConfig {
   clients: number;
   servers: number;
@@ -83,9 +84,19 @@ export interface SimulationConfig {
 export interface SimulationMetadata {
   runId?: string;
   status: 'idle' | 'running' | 'finished' | 'failed';
-  config: SimulationConfig;
+  algorithm: AlgorithmName;
   virtualTimeSeconds: number;
   error?: string;
+  performance?: SimulationPerformanceMetrics;
+}
+
+// Session averages measure simulator execution over real time, independently of virtual limits.
+export interface SimulationPerformanceMetrics {
+  wallTimeSeconds: number;
+  eventsExecuted: number;
+  eventsPerWallSecond: number;
+  forwardedPackets: number;
+  forwardedPacketsPerWallSecond: number;
 }
 
 export interface CommandError {

@@ -8,6 +8,7 @@ import (
 	"load-balancer/scenario"
 	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 // startRequest carries a checked HTTP scenario or the original simple WS settings.
@@ -27,6 +28,7 @@ type simulationControl struct {
 	serviceCtx context.Context
 	nextRunID  uint64
 	current    *httpserver.RunRecord
+	topology   atomic.Pointer[publishedTopology]
 	runCtx     context.Context
 	cancelRun  context.CancelFunc
 	stopping   bool
@@ -164,6 +166,7 @@ func (c *simulationControl) forgetRun() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.current = nil
+	c.clearTopology()
 }
 
 func (c *simulationControl) contextForRun() context.Context {

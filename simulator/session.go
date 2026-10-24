@@ -13,23 +13,31 @@ import (
 
 // simulationMetadata describes the browser-controlled experiment lifecycle.
 type simulationMetadata struct {
-	Status             string           `json:"status"`
-	RunID              string           `json:"runId,omitempty"`
-	Config             simulationConfig `json:"config"`
-	VirtualTimeSeconds float64          `json:"virtualTimeSeconds"`
-	Error              string           `json:"error,omitempty"`
+	Status             string                 `json:"status"`
+	RunID              string                 `json:"runId,omitempty"`
+	Algorithm          string                 `json:"algorithm"`
+	VirtualTimeSeconds float64                `json:"virtualTimeSeconds"`
+	Error              string                 `json:"error,omitempty"`
+	Performance        *simulationPerformance `json:"performance,omitempty"`
 }
 
 type simulationSnapshot struct {
-	model.LoadBalancerState
-	Simulation simulationMetadata `json:"simulation"`
-	Topology   model.Topology     `json:"topology"`
+	Type       string                  `json:"type"`
+	Version    int                     `json:"version"`
+	Mode       model.LBMode            `json:"mode"`
+	Algorithm  string                  `json:"algorithm"`
+	Servers    []model.TelemetryServer `json:"servers"`
+	Simulation simulationMetadata      `json:"simulation"`
+	Topology   model.TelemetryTopology `json:"topology"`
 }
 
 // runInteractive waits for a validated start request before creating a model.
 // Subsequent experiments use fresh engines, endpoints, links and random sources.
 func runInteractive(ctx context.Context, defaults configuration, hub *httpserver.Hub, control *simulationControl) error {
 	var current *simulation
+	var telemetry *telemetryPublisher
+	var started time.Time
+	var elapsed time.Duration
 	config := defaults.publicConfig()
 	status := "idle"
 	lastError := ""
@@ -41,7 +49,13 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			state.Algorithm = "Random"
 		}
 		virtualTime := 0.0
-		topology := model.Topology{Nodes: []model.TopologyNode{}, Links: []model.TopologyLink{}}
+		topology := model.TelemetryTopology{
+			Revision: "0",
+			Nodes:    []model.TelemetryNode{},
+			Links:    []model.TelemetryLink{},
+		}
+		servers := []model.TelemetryServer{}
+		var performance *simulationPerformance
 		if current != nil {
 			state = current.lb.Tick()
 			// The small legacy summary follows runtime algorithm changes too.
@@ -50,16 +64,42 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 				config.Algorithm = "random"
 			}
 			virtualTime = current.engine.Now().Seconds()
-			topology = current.topology(state)
+			// The definition is replaced only when nodes or links change.
+			sample, err := telemetry.sample(current, state)
+			if err != nil {
+				return err
+			}
+			if sample.Document != nil {
+				if err := control.publishTopology(sample.Document); err != nil {
+					return err
+				}
+			}
+			topology, servers = sample.Topology, sample.Servers
+			wallTime := elapsed
+			if status == "running" {
+				wallTime = time.Since(started)
+			}
+			performance = measurePerformance(
+				wallTime,
+				current.engine.EventsExecuted(),
+				current.egress.Stats().ForwardedPackets,
+			)
+		} else {
+			control.clearTopology()
 		}
 		return hub.BroadcastState(simulationSnapshot{
-			LoadBalancerState: state,
+			Type:      "simulationSnapshot",
+			Version:   1,
+			Mode:      state.Mode,
+			Algorithm: state.Algorithm,
+			Servers:   servers,
 			Simulation: simulationMetadata{
 				Status:             status,
 				RunID:              runID,
-				Config:             config,
+				Algorithm:          config.Algorithm,
 				VirtualTimeSeconds: virtualTime,
 				Error:              lastError,
+				Performance:        performance,
 			},
 			Topology: topology,
 		})
@@ -70,6 +110,8 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 	clear := func() error {
 		// Discard the whole model, including event callbacks, link queues and TCP state.
 		current = nil
+		telemetry = nil
+		started, elapsed = time.Time{}, 0
 		status, lastError = "idle", ""
 		runID = ""
 		control.forgetRun()
@@ -123,7 +165,9 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 		} else {
 			control.setRunStatus(runID, status)
 		}
+		started, elapsed = time.Now(), 0
 		current = newScenarioSimulation(prepared.scenario)
+		telemetry = newTelemetryPublisher(runID)
 		current.publishState = publish
 		current.commandHandled = func(err error) {
 			lastError = ""
@@ -138,8 +182,8 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			return err
 		}
 		log.Printf("Starting simulation: %+v", config)
-		started := time.Now()
 		err = current.run(runCtx, control.commands)
+		elapsed = time.Since(started)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -149,7 +193,7 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			}
 			continue
 		}
-		if encodeErr := json.NewEncoder(os.Stdout).Encode(current.result(time.Since(started))); encodeErr != nil {
+		if encodeErr := json.NewEncoder(os.Stdout).Encode(current.result(elapsed)); encodeErr != nil {
 			return encodeErr
 		}
 

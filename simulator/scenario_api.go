@@ -49,6 +49,11 @@ func (api *scenarioAPI) CurrentRun() *httpserver.RunRecord {
 	return api.control.currentRun()
 }
 
+// CurrentTopology serves the last published graph, including finished experiments.
+func (api *scenarioAPI) CurrentTopology() json.RawMessage {
+	return api.control.currentTopology()
+}
+
 // prepareStart keeps WS settings compatible while HTTP supplies a checked scenario.
 func prepareStart(request startRequest, defaults configuration) (preparedStart, error) {
 	if request.scenario != nil {

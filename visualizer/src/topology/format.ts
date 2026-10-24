@@ -1,6 +1,7 @@
 import type { TopologyLink, TopologyMetric } from './types';
 
 const bandwidthUnits = [
+  [1e15, 'Pbit/s'],
   [1e12, 'Tbit/s'],
   [1e9, 'Gbit/s'],
   [1e6, 'Mbit/s'],
@@ -8,6 +9,7 @@ const bandwidthUnits = [
 ] as const;
 
 const byteUnits = [
+  [1e15, 'PB'],
   [1e12, 'TB'],
   [1e9, 'GB'],
   [1e6, 'MB'],

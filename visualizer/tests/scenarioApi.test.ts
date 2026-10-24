@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ScenarioApi, ScenarioApiError, resolveApiBase } from '../src/scenarios/api.ts';
 import { scenarioFixture } from './scenarioFixture.ts';
+import { topologyDefinition } from './telemetryFixture.ts';
 
 test('API address follows the WebSocket backend unless explicitly configured', () => {
   assert.equal(resolveApiBase(undefined, 'ws://localhost:8081/ws'), 'http://localhost:8081');
@@ -57,6 +58,17 @@ test('current run keeps its exact scenario and 404 represents no run', async () 
     Response.json({ error: 'No simulation exists.' }, { status: 404 })
   ));
   assert.equal(await missing.current(), null);
+});
+
+test('topology definitions use their separate endpoint and retain the revision token', async () => {
+  let requestedUrl = '';
+  const definition = topologyDefinition('9007199254740993');
+  const api = new ScenarioApi('http://backend.test', async (url) => {
+    requestedUrl = String(url);
+    return Response.json(definition);
+  });
+  assert.deepEqual(await api.topology(), definition);
+  assert.equal(requestedUrl, 'http://backend.test/api/simulations/current/topology');
 });
 
 test('server validation errors, conflicts and invalid responses remain readable', async () => {
