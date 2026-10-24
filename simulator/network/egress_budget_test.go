@@ -68,6 +68,13 @@ func TestEgressBudgetAndLinkRunInParallel(t *testing.T) {
 	if dispatcher.Stats().BudgetBlocked || dispatcher.Stats().BudgetWait != 0 {
 		t.Fatal("waiting only for the link must not count as budget wait")
 	}
+	if output.Stats().TransmittedBytes != 0 || dispatcher.Stats().ForwardedBytes != 4 {
+		t.Fatal("a forwarding grant must not count bytes before serialization completes")
+	}
+	runEgress(t, e, 8*time.Nanosecond)
+	if output.Stats().TransmittedBytes != 4 || dispatcher.Stats().ForwardedBytes != 8 {
+		t.Fatal("only the first completed packet should count while the next one transmits")
+	}
 	runEgress(t, e, e.EndTime())
 	expected := []time.Duration{8 * time.Nanosecond, 16 * time.Nanosecond}
 	if !reflect.DeepEqual(arrivals, expected) {
@@ -75,6 +82,9 @@ func TestEgressBudgetAndLinkRunInParallel(t *testing.T) {
 	}
 	if dispatcher.Stats().BudgetWait != 0 || e.EventsExecuted() != 4 {
 		t.Fatal("link-limited output created budget waits or idle wakeups")
+	}
+	if output.Stats().TransmittedBytes != 8 {
+		t.Fatal("managed output statistics must retain completed serialization bytes")
 	}
 }
 
@@ -243,6 +253,9 @@ func TestEgressLossAndRetriesConsumeGrants(t *testing.T) {
 	}
 	if physical.LostPackets != 3 || physical.LostBytes != 7 || physical.AcceptedPackets != 3 {
 		t.Fatalf("physical losses were counted incorrectly: %+v", physical)
+	}
+	if physical.TransmittedBytes != 7 {
+		t.Fatal("losses and retries consume wire bytes, while queue drops do not")
 	}
 }
 

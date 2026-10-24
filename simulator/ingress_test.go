@@ -247,6 +247,7 @@ func TestIngressQueuesShareOneReceiver(t *testing.T) {
 		QueueDroppedBytes:   40,
 		DeliveredPackets:    1,
 		DeliveredBytes:      40,
+		TransmittedBytes:    40,
 		QueuedPackets:       2,
 		Transmitting:        true,
 	}
@@ -523,6 +524,7 @@ func TestIngressFrozenWorkAndFreshRun(t *testing.T) {
 		OfferedBytes:      120,
 		AcceptedPackets:   3,
 		AcceptedBytes:     120,
+		TransmittedBytes:  40,
 		QueuedPackets:     1,
 		Transmitting:      true,
 		TravellingPackets: 1,

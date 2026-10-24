@@ -175,6 +175,11 @@ test('layout keys ignore live values and settings while retaining actual structu
     entry.label = `Updated ${entry.label}`;
     entry.active = false;
     entry.metrics = [{ key: 'packets', label: 'Packets', value: 1000 }];
+    entry.traffic = {
+      transmitBytesPerSecond: 125_000_000,
+      receiveBytesPerSecond: 625_000,
+      sampleWindowSeconds: 0.1,
+    };
   }
   for (const edge of update.links) {
     edge.label = `Updated ${edge.label}`;

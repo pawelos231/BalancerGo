@@ -59,6 +59,7 @@ func TestIngressOldestHead(t *testing.T) {
 		OfferedBytes:     5,
 		AcceptedPackets:  5,
 		AcceptedBytes:    5,
+		TransmittedBytes: 5,
 		DeliveredPackets: 5,
 		DeliveredBytes:   5,
 	}) {
@@ -219,6 +220,70 @@ func TestIngressLossAttribution(t *testing.T) {
 	}
 	if e.EventsExecuted() != 3 || e.Pending() != 0 {
 		t.Fatal("loss should consume transmission time without adding arrival events")
+	}
+}
+
+// TestIngressTransmittedBytes attributes shared wire work to the correct input.
+func TestIngressTransmittedBytes(t *testing.T) {
+	cases := []struct {
+		name string
+		loss float64
+	}{
+		{name: "travelling"},
+		{name: "lost", loss: 1},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			e := engine.New(10 * time.Millisecond)
+			ingress := NewIngress(NewLink(e, Config{
+				BandwidthBitsPerSecond: 8_000,
+				PacketTravelTime:       4 * time.Millisecond,
+				QueueCapacity:          1,
+				LossRate:               test.loss,
+			}, nil))
+			clients := ingress.AddInput()
+			backends := ingress.AddInput()
+			arrive := func() {}
+			clients.Transmit(2, arrive)
+			clients.Transmit(3, arrive)
+			backends.Transmit(4, arrive)
+			if backends.Transmit(5, func() { t.Error("queue-dropped packet arrived") }) {
+				t.Fatal("a full input FIFO must reject the next packet")
+			}
+
+			runLinkUntil(t, e, time.Millisecond)
+			if ingress.Stats().TransmittedBytes != 0 || clients.Stats().TransmittedBytes != 0 || backends.Stats().TransmittedBytes != 0 {
+				t.Fatal("no input should count bytes before the first serialization completes")
+			}
+			runLinkUntil(t, e, 2*time.Millisecond)
+			if clients.Stats().TransmittedBytes != 2 || backends.Stats().TransmittedBytes != 0 || ingress.Stats().TransmittedBytes != 2 {
+				t.Fatal("the first completion must belong only to the client input")
+			}
+			runLinkUntil(t, e, 5*time.Millisecond)
+			if clients.Stats().TransmittedBytes != 5 || backends.Stats().TransmittedBytes != 0 || ingress.Stats().TransmittedBytes != 5 {
+				t.Fatal("the waiting backend packet must not count before its own completion")
+			}
+			if !backends.Stats().Transmitting {
+				t.Fatal("the backend packet should now occupy the one shared transmitter")
+			}
+
+			runLinkUntil(t, e, e.EndTime())
+			clientStats := clients.Stats()
+			backendStats := backends.Stats()
+			shared := ingress.Stats()
+			if clientStats.TransmittedBytes != 5 || backendStats.TransmittedBytes != 4 || shared.TransmittedBytes != 9 {
+				t.Fatal("per-input completed bytes must sum to the shared physical total")
+			}
+			if shared.QueueDroppedBytes != 5 || shared.AcceptedBytes != 9 {
+				t.Fatal("pre-transmission drops must remain outside transmitted byte counters")
+			}
+			if test.loss == 0 && (backendStats.DeliveredBytes != 0 || backendStats.TravellingPackets != 1) {
+				t.Fatal("the backend's completed transmission must count while arrival stays beyond the end time")
+			}
+			if test.loss == 1 && (clientStats.LostBytes != 5 || backendStats.LostBytes != 4) {
+				t.Fatal("lost transmissions must retain per-input byte attribution")
+			}
+		})
 	}
 }
 

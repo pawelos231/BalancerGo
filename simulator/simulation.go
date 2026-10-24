@@ -32,6 +32,7 @@ type simulation struct {
 	links          []namedLink
 	clientGroups   []runtimeClientGroup
 	clients        []runtimeClient
+	traffic        trafficSampler
 
 	publishState   func() error
 	commandHandled func(error)
@@ -109,17 +110,8 @@ func newScenarioSimulation(resolved scenario.Normalized) *simulation {
 	}
 
 	s.initializeClients()
-	e.ScheduleAt(0, s.sample)
+	s.sampleTraffic()
 	return s
-}
-
-func (s *simulation) sample() {
-	if s.publishState != nil {
-		if err := s.publishState(); err != nil {
-			log.Printf("snapshot: %v", err)
-		}
-	}
-	s.engine.ScheduleAfter(s.scenario.Execution.SnapshotInterval, s.sample)
 }
 
 func (s *simulation) applyCommand(command httpserver.Envelope) error {
@@ -192,16 +184,20 @@ func (s *simulation) run(ctx context.Context, commands <-chan httpserver.Envelop
 				}
 			})
 		}
-		if err := s.advance(ctx, next); err != nil {
+		err := s.advance(ctx, next)
+		s.sampleTraffic()
+		if err != nil {
 			return err
+		}
+		// Publish after every event at this timestamp, including the final partial step.
+		if s.publishState != nil {
+			if err := s.publishState(); err != nil {
+				return err
+			}
 		}
 		if next == s.engine.EndTime() {
 			break
 		}
-	}
-	// A final frame is needed when the end time is not a multiple of the interval.
-	if s.publishState != nil {
-		return s.publishState()
 	}
 	return nil
 }

@@ -204,6 +204,9 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 			Stats:  topologyStats(stats),
 		})
 	}
+	for index := range graph.Nodes {
+		graph.Nodes[index].Traffic = s.nodeTraffic(graph.Nodes[index].ID)
+	}
 	return graph
 }
 

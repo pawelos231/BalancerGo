@@ -164,22 +164,88 @@ func TestManagedLinkLossStillReleasesOutput(t *testing.T) {
 	}
 }
 
+// TestLinkTransmittedBytes separates completed wire work from admission and arrival.
+func TestLinkTransmittedBytes(t *testing.T) {
+	cases := []struct {
+		name string
+		loss float64
+	}{
+		{name: "delivered"},
+		{name: "lost", loss: 1},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			e := engine.New(10 * time.Millisecond)
+			link := NewLink(e, Config{
+				BandwidthBitsPerSecond: 8_000,
+				PacketTravelTime:       3 * time.Millisecond,
+				QueueCapacity:          1,
+				LossRate:               test.loss,
+			}, nil)
+			arrivals := 0
+			arrive := func() { arrivals++ }
+			if !link.Transmit(2, arrive) || !link.Transmit(3, arrive) {
+				t.Fatal("one active and one waiting packet should be admitted")
+			}
+			if link.Transmit(5, func() { t.Error("queue-dropped packet arrived") }) {
+				t.Fatal("a full waiting FIFO must reject the next packet")
+			}
+
+			runLinkUntil(t, e, time.Millisecond)
+			if stats := link.Stats(); stats.TransmittedBytes != 0 || stats.AcceptedBytes != 5 || stats.QueueDroppedBytes != 5 {
+				t.Fatalf("admitted, queued or dropped bytes were counted as transmitted: %+v", stats)
+			}
+			runLinkUntil(t, e, 2*time.Millisecond)
+			if stats := link.Stats(); stats.TransmittedBytes != 2 || !stats.Transmitting || stats.DeliveredBytes != 0 {
+				t.Fatalf("only the first packet should have completed serialization: %+v", stats)
+			}
+			if test.loss == 0 && link.Stats().TravellingPackets != 1 {
+				t.Fatal("completed serialization must count before travel finishes")
+			}
+			if test.loss == 1 && link.Stats().LostBytes != 2 {
+				t.Fatal("a post-serialization loss must still consume transmitted bytes")
+			}
+
+			runLinkUntil(t, e, 4*time.Millisecond)
+			if link.Stats().TransmittedBytes != 2 {
+				t.Fatal("an unfinished second transmission must not add its whole packet")
+			}
+			runLinkUntil(t, e, 5*time.Millisecond)
+			if link.Stats().TransmittedBytes != 5 {
+				t.Fatal("the second completion must add its bytes exactly once")
+			}
+			runLinkUntil(t, e, e.EndTime())
+			stats := link.Stats()
+			if stats.TransmittedBytes != 5 || stats.DeliveredBytes+stats.LostBytes != 5 {
+				t.Fatalf("completed bytes should match final physical outcomes: %+v", stats)
+			}
+			if test.loss == 0 && arrivals != 2 {
+				t.Fatal("both surviving packets should arrive")
+			}
+			if test.loss == 1 && arrivals != 0 {
+				t.Fatal("lost packets must not reach the receiver")
+			}
+		})
+	}
+}
+
 // TestLinkZeroAndHorizon keeps zero-time delivery and hard end-time behavior explicit.
 func TestLinkZeroAndHorizon(t *testing.T) {
 	cases := []struct {
-		name       string
-		end        time.Duration
-		size       int
-		travel     time.Duration
-		readyCalls int
-		arrivals   int
-		ready      bool
-		travelling int
+		name        string
+		end         time.Duration
+		size        int
+		travel      time.Duration
+		readyCalls  int
+		arrivals    int
+		ready       bool
+		travelling  int
+		transmitted uint64
 	}{
 		{name: "zero size at zero horizon", readyCalls: 1, arrivals: 1, ready: true},
 		{name: "serialization beyond horizon", size: 1},
-		{name: "arrival at horizon", end: time.Millisecond, size: 1, readyCalls: 1, arrivals: 1, ready: true},
-		{name: "travel beyond horizon", end: time.Millisecond, size: 1, travel: time.Millisecond, readyCalls: 1, ready: true, travelling: 1},
+		{name: "arrival at horizon", end: time.Millisecond, size: 1, readyCalls: 1, arrivals: 1, ready: true, transmitted: 1},
+		{name: "travel beyond horizon", end: time.Millisecond, size: 1, travel: time.Millisecond, readyCalls: 1, ready: true, travelling: 1, transmitted: 1},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -200,6 +266,9 @@ func TestLinkZeroAndHorizon(t *testing.T) {
 			}
 			if stats.AcceptedPackets != 1 || stats.QueueDroppedPackets != 0 {
 				t.Fatalf("the horizon must not turn an accepted packet into a queue drop: %+v", stats)
+			}
+			if stats.TransmittedBytes != test.transmitted {
+				t.Fatalf("only serialization completed by the horizon should count: %+v", stats)
 			}
 		})
 	}

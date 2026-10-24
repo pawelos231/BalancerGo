@@ -177,6 +177,7 @@ func (ingress *Ingress) dispatch() {
 func (ingress *Ingress) finishTransmission() {
 	input := ingress.transmittingInput
 	input.stats.Transmitting = false
+	input.stats.TransmittedBytes += uint64(ingress.transmittingBytes)
 	if ingress.link.stats.LostPackets != ingress.lossesBefore {
 		input.stats.LostPackets++
 		input.stats.LostBytes += uint64(ingress.transmittingBytes)

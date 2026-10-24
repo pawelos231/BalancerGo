@@ -54,6 +54,14 @@ export function formatBytes(value: number): string {
   return `${formatNumber(value)} B`;
 }
 
+// Measured traffic uses bytes per second, separate from configured bitrates.
+export function formatBytesPerSecond(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value) || value < 0) {
+    return '—';
+  }
+  return `${formatBytes(value)}/s`;
+}
+
 export function formatMetric(metric: TopologyMetric): string {
   switch (metric.unit) {
     case 'bytes':

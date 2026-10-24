@@ -2,8 +2,8 @@ import dagre from '@dagrejs/dagre';
 import type { TopologyGraph, TopologySelection } from './types';
 
 export const NODE_WIDTH = 240;
-export const NODE_HEIGHT = 116;
-export const LOAD_BALANCER_HEIGHT = 252;
+export const NODE_HEIGHT = 200;
+export const LOAD_BALANCER_HEIGHT = 336;
 export const MAX_VISIBLE_NODES = 200;
 export const MAX_VISIBLE_LINKS = 500;
 
@@ -40,7 +40,7 @@ export interface TopologyLayout {
   domainLayout: boolean;
 }
 
-// The LB reserves room for its two input queues and common resource limits.
+// All nodes reserve room for measured traffic; the LB also shows limits and queues.
 export function nodeHeight(kind: string): number {
   return kind === 'loadBalancer' ? LOAD_BALANCER_HEIGHT : NODE_HEIGHT;
 }

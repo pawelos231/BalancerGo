@@ -9,6 +9,7 @@ import type { Node, NodeProps } from '@xyflow/react';
 import { memo } from 'react';
 import { formatMetric, formatNumber, kindLabel } from './format';
 import { nodeHeight, NODE_WIDTH } from './layout';
+import TopologyTrafficRates from './TopologyTrafficRates';
 import type { TopologyIngress, TopologyNode } from './types';
 
 export type FlowTopologyNode = Node<{
@@ -202,6 +203,7 @@ function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
           </Box>
         ))}
       </Stack>
+      <TopologyTrafficRates traffic={node.traffic} grouped={node.kind === 'clientGroup'} />
       {isLoadBalancer && data.ingress && <LoadBalancerInputs ingress={data.ingress} />}
     </Box>
   );

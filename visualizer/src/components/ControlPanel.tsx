@@ -16,15 +16,15 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { CommandType } from '../commands';
+import type { CurrentSimulation } from '../scenarios/types';
 import type {
   AlgorithmName,
   SimulationCommand,
-  SimulationConfig,
   SimulationMetadata,
 } from '../types';
 import HelpTooltip from './HelpTooltip';
-import SimulationForm from './SimulationForm';
 
 interface ControlPanelProps {
   connected: boolean;
@@ -32,7 +32,15 @@ interface ControlPanelProps {
   startPending: boolean;
   stopPending: boolean;
   commandError: string | null;
+  currentRun: CurrentSimulation | null;
   sendMessage: (command: SimulationCommand) => boolean;
+  children: ReactNode;
+}
+
+interface AlgorithmDraft {
+  runId?: string;
+  current: AlgorithmName;
+  selected: AlgorithmName;
 }
 
 const statusLabels: Record<SimulationMetadata['status'], string> = {
@@ -60,10 +68,13 @@ function ControlPanel({
   startPending,
   stopPending,
   commandError,
+  currentRun,
   sendMessage,
+  children,
 }: ControlPanelProps) {
-  const [algorithm, setAlgorithm] = useState<AlgorithmName | null>(null);
+  const [algorithm, setAlgorithm] = useState<AlgorithmDraft | null>(null);
   const [clientCount, setClientCount] = useState('1');
+  const [groupId, setGroupId] = useState('');
 
   const running = simulation?.status === 'running';
   const lifecyclePending = startPending || stopPending;
@@ -71,7 +82,18 @@ function ControlPanel({
   const canStop = connected && simulation !== null
     && simulation.status !== 'idle' && !lifecyclePending;
 
-  const selectedAlgorithm = algorithm ?? simulation?.config.algorithm ?? '';
+  const currentAlgorithm = simulation?.config.algorithm;
+  const hasAlgorithmDraft = algorithm?.runId === simulation?.runId
+    && algorithm?.current === currentAlgorithm;
+  const selectedAlgorithm = hasAlgorithmDraft && algorithm
+    ? algorithm.selected
+    : currentAlgorithm ?? '';
+  const currentRunMatches = currentRun !== null && currentRun.runId === simulation?.runId;
+  const clientGroups = currentRunMatches ? currentRun.scenario.workload.clientGroups : [];
+  const selectedGroupId = clientGroups.some((group) => group.id === groupId)
+    ? groupId
+    : clientGroups[0]?.id ?? '';
+  const canAddClients = actionsEnabled && selectedGroupId !== '';
   const virtualTime = simulation?.virtualTimeSeconds.toLocaleString('en-US', {
     maximumFractionDigits: 3,
   });
@@ -84,13 +106,6 @@ function ControlPanel({
     && count >= 1
     && count <= 10000;
   const countError = validCount ? undefined : 'Enter an integer from 1 to 10000.';
-
-  function startSimulation(config: SimulationConfig) {
-    return sendMessage({
-      Type: CommandType.StartSimulation,
-      Payload: config,
-    });
-  }
 
   function stopSimulation() {
     sendMessage({
@@ -107,9 +122,10 @@ function ControlPanel({
   }
 
   function addClients() {
+    if (!selectedGroupId) return;
     sendMessage({
       Type: CommandType.SpawnClient,
-      Payload: { Count: count },
+      Payload: { Count: count, groupId: selectedGroupId },
     });
   }
 
@@ -169,19 +185,7 @@ function ControlPanel({
           </Alert>
         )}
 
-        {simulation ? (
-          <SimulationForm
-            initialConfig={simulation.config}
-            connected={connected}
-            running={running}
-            pending={lifecyclePending}
-            onStart={startSimulation}
-          />
-        ) : (
-          <Alert severity="info">
-            Waiting for simulation settings from the server…
-          </Alert>
-        )}
+        {children}
       </Stack>
 
       <Grid container spacing={2} sx={{ width: '100%', mt: 2 }}>
@@ -210,7 +214,14 @@ function ControlPanel({
                     labelId="alg-label"
                     label="Algorithm"
                     value={selectedAlgorithm}
-                    onChange={(event) => setAlgorithm(event.target.value as AlgorithmName)}
+                    onChange={(event) => {
+                      if (!currentAlgorithm) return;
+                      setAlgorithm({
+                        runId: simulation?.runId,
+                        current: currentAlgorithm,
+                        selected: event.target.value as AlgorithmName,
+                      });
+                    }}
                   >
                     <MenuItem value="roundRobin">Round Robin</MenuItem>
                     <MenuItem value="random">Random</MenuItem>
@@ -236,12 +247,38 @@ function ControlPanel({
               action={(
                 <HelpTooltip label="About adding TCP clients">
                   Create the entered number of new simulated TCP clients.
-                  They use the current run's settings and each starts its own connection.
+                  Choose their group when the run has several groups; its stream and link
+                  settings apply to each new connection.
                 </HelpTooltip>
               )}
             />
 
             <CardContent>
+              {clientGroups.length > 1 && (
+                <FormControl
+                  fullWidth
+                  size="small"
+                  disabled={!canAddClients}
+                  sx={{ mb: 2 }}
+                >
+                  <InputLabel id="spawn-group-label">Client group</InputLabel>
+                  <Select
+                    labelId="spawn-group-label"
+                    label="Client group"
+                    value={selectedGroupId}
+                    onChange={(event) => setGroupId(event.target.value)}
+                  >
+                    {clientGroups.map((group) => (
+                      <MenuItem key={group.id} value={group.id}>{group.id}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
+              {running && clientGroups.length === 0 && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Waiting for this run's client groups from the scenario API.
+                </Typography>
+              )}
               <Stack
                 direction={{ xs: 'column', md: 'row' }}
                 spacing={1}
@@ -253,7 +290,7 @@ function ControlPanel({
                   type="number"
                   label="Additional clients"
                   value={clientCount}
-                  disabled={!actionsEnabled}
+                  disabled={!canAddClients}
                   onChange={(event) => setClientCount(event.target.value)}
                   inputProps={{ min: 1, max: 10000, step: 1 }}
                   error={!validCount}
@@ -262,7 +299,7 @@ function ControlPanel({
 
                 <Button
                   variant="contained"
-                  disabled={!actionsEnabled || !validCount}
+                  disabled={!canAddClients || !validCount}
                   onClick={addClients}
                 >
                   Add clients

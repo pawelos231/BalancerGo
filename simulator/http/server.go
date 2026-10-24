@@ -10,7 +10,10 @@ import (
 
 // NewServer creates an independently managed HTTP server. Its owner starts
 // ListenAndServe and calls Shutdown; canceling Hub.Run closes upgraded sockets.
-func NewServer(hub *Hub, address string) *http.Server {
+func NewServer(hub *Hub, address string, api ...ScenarioService) *http.Server {
+	if len(api) > 1 {
+		panic("httpserver: at most one scenario service is allowed")
+	}
 	if address == "" {
 		address = ":8080"
 	}
@@ -19,6 +22,9 @@ func NewServer(hub *Hub, address string) *http.Server {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
+	if len(api) == 1 && api[0] != nil {
+		mountScenarioRoutes(mux, api[0])
+	}
 	return &http.Server{
 		Addr:              address,
 		Handler:           mux,

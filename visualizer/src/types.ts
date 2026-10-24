@@ -51,15 +51,11 @@ export type SimulationCommand =
       Payload: { Count: number; groupId?: string };
     }
   | {
-      Type: CommandType.StartSimulation;
-      Payload: SimulationConfig;
-    }
-  | {
       Type: CommandType.StopSimulation;
       Payload: Record<string, never>;
     };
 
-// Configuration defaults arrive in the first backend WebSocket snapshot.
+// Compact settings retained in live snapshots; editable scenarios use scenarios/types.ts.
 export interface SimulationConfig {
   clients: number;
   servers: number;
@@ -85,6 +81,7 @@ export interface SimulationConfig {
 }
 
 export interface SimulationMetadata {
+  runId?: string;
   status: 'idle' | 'running' | 'finished' | 'failed';
   config: SimulationConfig;
   virtualTimeSeconds: number;

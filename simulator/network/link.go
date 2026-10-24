@@ -28,6 +28,8 @@ type Stats struct {
 	AcceptedBytes       uint64
 	QueueDroppedPackets uint64
 	QueueDroppedBytes   uint64
+	// Completed serialization includes packets later lost or still travelling.
+	TransmittedBytes uint64
 	// Randomly lost packets still consumed link bandwidth.
 	LostPackets       uint64
 	LostBytes         uint64
@@ -196,6 +198,7 @@ func (l *Link) start(packet transmission) {
 	l.engine.ScheduleAfter(packet.duration, func() {
 		// Transmission has finished, so the sender is available again.
 		l.transmitting = false
+		l.stats.TransmittedBytes += uint64(packet.sizeBytes)
 
 		lossRate := l.config.LossRate
 		packetLost := lossRate == 1

@@ -62,12 +62,13 @@ func run() error {
 	}
 
 	// The I/O queue carries requests; only runInteractive owns the model state.
-	control := newSimulationControl()
+	control := newSimulationControl(ctx)
 	hub := httpserver.NewHub(func(command httpserver.Envelope) error {
 		return control.submit(ctx, command)
 	})
 	go hub.Run(ctx)
-	srv := httpserver.NewServer(hub, os.Getenv("LB_HTTP_ADDR"))
+	api := &scenarioAPI{defaults: defaults, control: control}
+	srv := httpserver.NewServer(hub, os.Getenv("LB_HTTP_ADDR"), api)
 	listener, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
 		return err

@@ -16,6 +16,14 @@ export interface TopologyNode {
   address?: string;
   active?: boolean;
   metrics: TopologyMetric[];
+  traffic?: TopologyTraffic;
+}
+
+// Measured wire-byte rates share the previous virtual sampling window.
+export interface TopologyTraffic {
+  transmitBytesPerSecond: number;
+  receiveBytesPerSecond: number;
+  sampleWindowSeconds: number;
 }
 
 export interface TopologyLinkConfig {

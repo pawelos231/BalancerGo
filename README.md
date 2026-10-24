@@ -128,7 +128,7 @@ published port.
 
 ## Scenario configuration foundation
 
-`simulator/scenario/` defines version 1 of the upcoming scenario configuration:
+`simulator/scenario/` defines version 1 of the scenario configuration:
 
 | Part | Contents |
 | --- | --- |
@@ -145,9 +145,10 @@ normalization does not allocate one object for every configured client.
 The runtime now uses the normalized scenario. Each client gets its own access
 and return link when it arrives; each backend also has its own pair. Groups,
 profiles and individual overrides can assign different settings in each direction.
-The existing CLI and frontend form create one group with shared defaults.
-Starting a complete scenario document through HTTP or importing it in the UI
-is planned separately; the internal entry point is `newScenarioSimulation`.
+The CLI creates one group with shared defaults. The frontend edits one scenario
+document, preserving its client groups, profiles and individual overrides.
+Its single **Start simulation** button sends that document through HTTP.
+File import/export remains planned separately.
 
 Access links feed two LB input FIFOs: one for clients and one for backends.
 Both use one shared physical input link. All LB outputs share a separate
@@ -164,8 +165,64 @@ group's `clientGapNanoseconds`. Their indices follow the group's initial range,
 even when some initial clients have not arrived yet.
 
 Scenario duration fields have explicit `Nanoseconds` JSON names and retain native
-`time.Duration` precision in Go. The future import API must preserve large integer
-values across JavaScript and Go; it must not round them through JavaScript numbers.
+`time.Duration` precision in Go. HTTP documents use JSON numbers for safe integers
+and decimal strings outside ±(2^53−1), for example `"18446744073709551615"`
+for a large event limit. Integer strings are accepted for all integer fields;
+unsafe unquoted numbers, fractional integers and unknown fields are rejected.
+`scenario.EncodeDocument` and `DecodeDocument` handle this transport boundary;
+the model and normalizer continue using native Go types.
+
+## Scenario HTTP API
+
+All routes use the same `scenario.Normalize` rules, including profiles and
+directional overrides. POST requests require `Content-Type: application/json`
+and one complete scenario object, with a maximum body of 2 MiB.
+
+| Method | Route | Result |
+| --- | --- | --- |
+| GET | `/api/scenarios/defaults` | Initial scenario derived from the Go/CLI settings. |
+| POST | `/api/scenarios/validate` | Canonical scenario and counts of clients, backends and groups; no model is created. |
+| POST | `/api/simulations` | `202` with `runId` and `status: "accepted"`. |
+| GET | `/api/simulations/current` | Run ID, lifecycle status and exact initial scenario; `404` when none exists. |
+
+The HTTP and WS paths share one start reservation. A concurrent Start returns
+`409`; malformed documents return `400`, invalid settings `422`, oversized bodies
+`413`, unsupported content types `415`, and an unavailable command queue/service
+`503`. Errors have the shape `{ "error": "description" }`.
+Accepted runs belong to the service, so completing or canceling the HTTP request
+does not stop them. WS snapshots identify their run with `simulation.runId`.
+The current document remains available after completion or failure and reconnect;
+**Stop and clear** removes it. Runtime commands do not rewrite that initial document.
+
+For example, with Docker Compose running:
+
+```powershell
+$base = 'http://localhost:8081'
+$scenario = Invoke-RestMethod "$base/api/scenarios/defaults"
+$scenario.execution.durationNanoseconds = 1000000000
+$scenario.execution.speed = 0
+$scenario.workload.defaults.bytes = 1024
+$scenario.workload.clientGroups[0].count = 8
+$body = $scenario | ConvertTo-Json -Depth 32
+
+Invoke-RestMethod "$base/api/scenarios/validate" -Method Post -ContentType 'application/json' -Body $body
+Invoke-RestMethod "$base/api/simulations" -Method Post -ContentType 'application/json' -Body $body
+Invoke-RestMethod "$base/api/simulations/current"
+```
+
+The frontend **Scenario library** has four presets: mixed client links,
+heterogeneous backend links, a shared input bottleneck and a shared output
+bottleneck. Choose a preset and click **Validate and load preset** to load it into the
+form. Review or edit the inputs, then click the single **Start simulation** button.
+The catalog lives in `visualizer/src/scenarios/presets.ts`; each factory builds
+on fetched backend defaults. Presets use 180 virtual seconds, speed 1 and 1 GiB
+per client. The active run's exact configuration can be expanded below the catalog.
+Editing ordinary fields changes only their part of the scenario. Link settings
+edit network defaults; endpoint profiles and directional overrides remain intact.
+With multiple groups, changing the total client count redistributes it
+proportionally and shows the resulting group counts. Existing configured
+backends are retained when resizing the list; new backends use inherited settings.
+Validation and Start keep their errors visible and do not change the running model.
 
 ## Virtual-time architecture
 
@@ -189,8 +246,8 @@ values across JavaScript and Go; it must not round them through JavaScript numbe
 - `client/`, `server/` and `balancer/` use short packet handlers and scheduled
   callbacks. Connections coexist as state objects. There is no waiting goroutine
   or channel per client, connection or backend.
-- `simulator/simulation.go` builds the normalized runtime, schedules snapshots
-  and applies UI commands as events at virtual step boundaries.
+- `simulator/simulation.go` builds the normalized runtime, publishes snapshots
+  after virtual steps and applies UI commands as events at their boundaries.
   `simulation_clients.go` creates clients lazily from compact groups;
   `simulation_network.go` connects each endpoint's own directed links.
   Client access links and backend return links reach their respective input
@@ -269,9 +326,10 @@ excludes time waiting only for a busy link. `BudgetBlocked` describes the curren
 state, including unfinished work at the end time. The topology's LB inspector
 shows the same counters, with budget wait converted to milliseconds.
 
-`startSimulation` carries the initial configuration through a bounded command
-queue to the simulation owner. Configuration is validated before models are
-created. During a run, `setAlgorithm` and `spawnClient` are applied at virtual
+HTTP Start carries the native scenario through the bounded Start queue to the
+simulation owner. Configuration is validated before models are created. The
+legacy WebSocket `startSimulation` remains available for compatibility. During
+a run, `setAlgorithm` and `spawnClient` are applied at virtual
 step boundaries and logged with their virtual timestamp. After a run, these
 controls are disabled until another Start. Invalid requests are reported in the
 UI; starting an already running experiment is rejected.
@@ -338,6 +396,20 @@ settings; the current simple form sets uniform endpoint defaults.
 Additional topologies or load-balancer resources require corresponding backend
 models and snapshot projections. See [the visualizer guide](visualizer/README.md)
 for the frontend extension points.
+
+Node rectangles show **measured TX/RX** in B/s, kB/s or MB/s. Rates use the
+wire-byte counter increase over the latest virtual-time sampling window
+(`snapshotInterval`, 100 ms by default). TX counts completed link transmission,
+including packets subsequently lost; RX counts delivered bytes. Waiting packets
+and queue drops do not count as transmitted. Headers, ACKs and retries are included.
+The LB's RX uses the common receiver once; its TX sums outgoing links. Client
+groups sum only the members still represented by that rectangle.
+
+The runner samples after all events at a boundary have completed, including a
+short final interval. Reading topology or dropping WS frames changes no measurement.
+Before positive virtual time passes, rates show `—`; finished runs retain the
+last measured window. These are packet-completion averages, so a long transmission
+may produce a zero window followed by a burst when it finishes.
 
 ## Verify the project
 

@@ -83,6 +83,7 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 			finished.Transmitting = false
 			finished.DeliveredPackets = acceptedPackets
 			finished.DeliveredBytes = test.acceptedBytes
+			finished.TransmittedBytes = test.acceptedBytes
 			assertSimulationLinkSnapshots(t, s, finished)
 			if arrivals != len(s.links)*int(acceptedPackets) {
 				t.Fatalf("arrivals = %d, want %d", arrivals, len(s.links)*int(acceptedPackets))

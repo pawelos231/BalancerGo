@@ -5,6 +5,7 @@ import type {
   TopologyLinkStats,
   TopologyNode,
   TopologySelection,
+  TopologyTraffic,
 } from './types';
 
 // All members belong to this group; collapsedClients are still drawn as one node.
@@ -69,6 +70,7 @@ function collapsedNode(group: TopologyGroup): TopologyNode {
     groupId: group.id,
     description: 'These clients have independent directed links. Matching link settings are bundled in this view.',
     active,
+    traffic: collapsedTraffic(clients),
     metrics: [
       {
         key: 'clientCount',
@@ -84,6 +86,23 @@ function collapsedNode(group: TopologyGroup): TopologyNode {
       },
     ],
   };
+}
+
+// Sum only represented clients from the same complete window; missing data stays unknown.
+function collapsedTraffic(clients: TopologyNode[]): TopologyTraffic | undefined {
+  const sampleWindowSeconds = clients[0]?.traffic?.sampleWindowSeconds;
+  if (sampleWindowSeconds === undefined || sampleWindowSeconds <= 0) return undefined;
+
+  let transmitBytesPerSecond = 0;
+  let receiveBytesPerSecond = 0;
+  for (const client of clients) {
+    const traffic = client.traffic;
+    if (!traffic || traffic.sampleWindowSeconds !== sampleWindowSeconds) return undefined;
+    transmitBytesPerSecond += traffic.transmitBytesPerSecond;
+    receiveBytesPerSecond += traffic.receiveBytesPerSecond;
+  }
+
+  return { transmitBytesPerSecond, receiveBytesPerSecond, sampleWindowSeconds };
 }
 
 // Only the projected counters are changed; each physical link keeps its own DTO.

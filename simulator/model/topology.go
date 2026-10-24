@@ -46,6 +46,15 @@ type TopologyNode struct {
 	Address     string           `json:"address,omitempty"`
 	Active      *bool            `json:"active,omitempty"`
 	Metrics     []TopologyMetric `json:"metrics"`
+	Traffic     *TopologyTraffic `json:"traffic,omitempty"`
+}
+
+// TopologyTraffic measures wire bytes over the last completed virtual-time window.
+// TX counts completed serialization; RX counts packets delivered to this node.
+type TopologyTraffic struct {
+	TransmitBytesPerSecond float64 `json:"transmitBytesPerSecond"`
+	ReceiveBytesPerSecond  float64 `json:"receiveBytesPerSecond"`
+	SampleWindowSeconds    float64 `json:"sampleWindowSeconds"`
 }
 
 type TopologyMetric struct {

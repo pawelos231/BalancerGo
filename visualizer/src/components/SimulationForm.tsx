@@ -2,11 +2,14 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Alert,
   Button,
   Card,
   CardContent,
   CardHeader,
+  Chip,
   FormControl,
+  FormHelperText,
   InputAdornment,
   InputLabel,
   MenuItem,
@@ -17,13 +20,12 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { useState } from 'react';
 import type { FormEvent } from 'react';
-import type { AlgorithmName, SimulationConfig } from '../types';
+import type { ScenarioDraft, ScenarioField } from '../scenarios/draft';
+import type { Scenario } from '../scenarios/types';
 import HelpTooltip from './HelpTooltip';
 
-type NumericField = Exclude<keyof SimulationConfig, 'algorithm'>;
-type Draft = Record<keyof SimulationConfig, string>;
+type NumericField = Exclude<ScenarioField, 'algorithm'>;
 
 interface Field {
   name: NumericField;
@@ -41,14 +43,15 @@ interface Field {
 const mainFields: Field[] = [
   {
     name: 'clients',
-    label: 'TCP clients',
+    label: 'TCP clients (total)',
     integer: true,
     min: 0,
     max: 2 ** 24,
     exclusiveMax: true,
     help:
       'Number of clients scheduled for this run using the simplified TCP model. ' +
-      'Each client sends one finite stream through the load balancer, then closes its connection.',
+      'Changing the total redistributes clients proportionally across existing groups. ' +
+      'A change that would remove a client with explicit overrides is rejected.',
   },
   {
     name: 'servers',
@@ -62,12 +65,13 @@ const mainFields: Field[] = [
   },
   {
     name: 'packets',
-    label: 'Segments per client',
+    label: 'Default segments per client',
     integer: true,
     min: 0,
-    hint: 'Used when payload bytes per client = -1.',
+    hint: 'Used when default payload bytes per client = -1.',
     help:
       'Number of 1,024-byte payload segments per client when payload bytes per client is -1. ' +
+      'Explicit stream overrides on groups and clients stay unchanged. ' +
       'A client sends one segment at a time and waits for its acknowledgement before sending the next.',
   },
   {
@@ -94,32 +98,33 @@ const mainFields: Field[] = [
 const detailFields: Field[] = [
   {
     name: 'bytes',
-    label: 'Payload bytes per client',
+    label: 'Default payload bytes per client',
     integer: true,
     min: -1,
     hint: '-1 uses the segment count; 0 or more sets the exact payload size.',
     help:
       'Set -1 to use the segment count multiplied by 1,024 payload bytes per client. ' +
       'Any nonnegative value overrides that count with an exact payload size; 0 sends no data. ' +
-      'The final segment can be shorter than 1,024 bytes.',
+      'The final segment can be shorter than 1,024 bytes. Group and client overrides stay unchanged.',
   },
   {
     name: 'clientGapMs',
-    label: 'Client creation interval (virtual ms)',
+    label: 'Client creation interval (all groups, virtual ms)',
     min: 0,
     help:
-      'Virtual delay between creating successive clients. ' +
+      'Virtual delay between creating successive clients in each group. Editing this field applies to all groups. ' +
       'Set 0 to schedule all clients at the same virtual time; ' +
       'each has its own links, while shared LB ingress and forwarding limits still apply.',
   },
   {
     name: 'packetGapMs',
-    label: 'Pause between segments (virtual ms)',
+    label: 'Default pause between segments (virtual ms)',
     min: 0,
     help:
       'Virtual pause before each new data segment: after the handshake for the first segment, ' +
       'then after each acknowledgement. Since each client waits for an acknowledgement, ' +
-      'the actual interval between segments also includes the packet round trip.',
+      'the actual interval between segments also includes the packet round trip. ' +
+      'Explicit group and client stream overrides stay unchanged.',
   },
   {
     name: 'snapshotIntervalMs',
@@ -134,12 +139,13 @@ const detailFields: Field[] = [
   },
   {
     name: 'bandwidthBitsPerSecond',
-    label: 'Link bandwidth (bit/s)',
+    label: 'Default link bandwidth (bit/s)',
     integer: true,
     min: 0,
     exclusiveMin: true,
     help:
       'Default maximum bitrate of each client or backend link, including modeled IPv4 and TCP headers. ' +
+      'Profiles and directional overrides retain their configured values. ' +
       'One gigabit per second is 1,000,000,000 bit/s, or 125 MB/s of raw traffic. ' +
       'Each client and backend has its own links. Incoming packets join their side\'s LB input queue, ' +
       'then use one shared LB input bandwidth limit. ' +
@@ -160,17 +166,17 @@ const detailFields: Field[] = [
   },
   {
     name: 'packetTravelTimeMs',
-    label: 'Packet travel time (virtual ms)',
+    label: 'Default packet travel time (virtual ms)',
     min: 0,
     help:
       'Default virtual travel time after transmission on each client or backend link. ' +
       'On a link with 1 ms of travel time, a packet finishing transmission at 5 ms arrives at 6 ms. ' +
       'The link can transmit the next packet while the previous one is still travelling. ' +
-      'The common ingress link has a separate travel time setting.',
+      'The common ingress link has a separate travel time setting. Profiles and overrides stay unchanged.',
   },
   {
     name: 'linkQueue',
-    label: 'Link queue slots (packets)',
+    label: 'Default link queue slots (packets)',
     integer: true,
     min: 0,
     help:
@@ -182,7 +188,7 @@ const detailFields: Field[] = [
   },
   {
     name: 'loss',
-    label: 'Packet loss probability (0–1)',
+    label: 'Default packet loss probability (0–1)',
     min: 0,
     max: 1,
     help:
@@ -259,86 +265,49 @@ const detailFields: Field[] = [
   },
 ];
 
-const numericFields = [...mainFields, ...detailFields];
-
 const algorithmHelp =
   'Policy used to choose a backend for new connections at the start of the run. ' +
   'Round Robin rotates through eligible backends; Random chooses using the seeded random generator. ' +
   'Changing the policy during a run affects new connections while existing ones keep their backend.';
 
-function fieldError(field: Field, raw: string): string | undefined {
-  if (raw.trim() === '' || !Number.isFinite(Number(raw))) {
-    return 'Enter a finite number.';
-  }
-
-  const value = Number(raw);
-
-  if (field.integer && !Number.isSafeInteger(value)) {
-    return 'Enter an integer between -(2^53 - 1) and 2^53 - 1.';
-  }
-
-  const belowMinimum = field.min !== undefined && (
-    value < field.min || (field.exclusiveMin && value === field.min)
-  );
-
-  if (belowMinimum) {
-    const comparison = field.exclusiveMin ? 'greater than' : 'at least';
-    return `Value must be ${comparison} ${field.min}.`;
-  }
-
-  const aboveMaximum = field.max !== undefined && (
-    value > field.max || (field.exclusiveMax && value === field.max)
-  );
-
-  if (aboveMaximum) {
-    const comparison = field.exclusiveMax ? 'less than' : 'at most';
-    return `Value must be ${comparison} ${field.max}.`;
-  }
-}
-
-function createDraft(config: SimulationConfig): Draft {
-  const entries = Object.entries(config).map(([name, value]) => [name, String(value)]);
-  return Object.fromEntries(entries) as Draft;
-}
-
-function createStartConfig(draft: Draft): SimulationConfig {
-  const entries = numericFields.map((field) => [field.name, Number(draft[field.name])]);
-  const config = Object.fromEntries(entries) as Omit<SimulationConfig, 'algorithm'>;
-
-  return { ...config, algorithm: draft.algorithm as AlgorithmName };
-}
-
 interface SimulationFormProps {
-  initialConfig: SimulationConfig;
+  scenario: Scenario;
+  values: ScenarioDraft;
+  errors: Partial<Record<ScenarioField, string>>;
   connected: boolean;
   running: boolean;
   pending: boolean;
-  onStart: (config: SimulationConfig) => boolean;
+  validating: boolean;
+  onChange: (name: ScenarioField, raw: string) => void;
+  onFocus: (name: ScenarioField) => void;
+  onBlur: (name: ScenarioField) => void;
+  onStart: () => void;
 }
 
 function SimulationForm({
-  initialConfig,
+  scenario,
+  values,
+  errors,
   connected,
   running,
   pending,
+  validating,
+  onChange,
+  onFocus,
+  onBlur,
   onStart,
 }: SimulationFormProps) {
-  // Keep unsent edits when live snapshots update the initial configuration.
-  const [draft, setDraft] = useState<Draft>(() => createDraft(initialConfig));
-
-  const validNumbers = numericFields.every((field) => !fieldError(field, draft[field.name]));
-  const validAlgorithm = draft.algorithm === 'roundRobin' || draft.algorithm === 'random';
-  const canStart = connected && !running && !pending && validNumbers && validAlgorithm;
-  const fieldsDisabled = !connected || pending;
+  const hasErrors = Object.keys(errors).length > 0;
+  const canStart = connected && !running && !pending && !validating && !hasErrors;
+  const fieldsDisabled = !connected || pending || validating;
+  const groups = scenario.workload.clientGroups;
+  const displayedGroups = groups.slice(0, 12);
+  const profiles = scenario.network.profiles ?? [];
 
   const startLabel = pending ? 'Waiting for confirmation…' : 'Start simulation';
   const nextRunHint = running
     ? 'You can prepare the parameters for the next run.'
-    : 'You can start another experiment after this run finishes.';
-
-  function updateDraft(name: keyof SimulationConfig, value: string) {
-    setDraft((previous) => ({ ...previous, [name]: value }));
-  }
+    : 'Start uses the settings shown above.';
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -347,11 +316,13 @@ function SimulationForm({
       return;
     }
 
-    onStart(createStartConfig(draft));
+    onStart();
   }
 
   function renderField(field: Field) {
-    const error = fieldError(field, draft[field.name]);
+    const error = errors[field.name];
+    const mixed = field.name === 'clientGapMs' && values[field.name] === '' && !error;
+    const hint = mixed ? 'Mixed group intervals. Editing applies to every group.' : field.hint;
 
     return (
       <Grid size={{ xs: 12, sm: 6, md: 4 }} key={field.name}>
@@ -360,9 +331,12 @@ function SimulationForm({
           size="small"
           type="number"
           label={field.label}
-          value={draft[field.name]}
+          value={values[field.name]}
+          placeholder={mixed ? 'Mixed' : undefined}
           disabled={fieldsDisabled}
-          onChange={(event) => updateDraft(field.name, event.target.value)}
+          onChange={(event) => onChange(field.name, event.target.value)}
+          onFocus={() => onFocus(field.name)}
+          onBlur={() => onBlur(field.name)}
           inputProps={{
             min: field.min,
             max: field.max,
@@ -380,7 +354,7 @@ function SimulationForm({
             },
           }}
           error={Boolean(error)}
-          helperText={error ?? field.hint}
+          helperText={error ?? hint}
         />
       </Grid>
     );
@@ -395,11 +369,35 @@ function SimulationForm({
 
       <CardContent>
         <Stack spacing={2}>
+          <Alert severity="info">
+            {groups.length} client groups and {profiles.length} link profiles are retained.
+            Stream and link fields edit defaults; group, profile and client overrides stay in place.
+          </Alert>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            {displayedGroups.map((group) => (
+              <Chip key={group.id} label={`${group.id}: ${group.count} clients`} size="small" />
+            ))}
+            {displayedGroups.length < groups.length && (
+              <Typography variant="caption" color="text.secondary">
+                {groups.length - displayedGroups.length} more groups are retained in the scenario.
+              </Typography>
+            )}
+          </Stack>
+          {groups.length > 1 && (
+            <Typography variant="body2" color="text.secondary">
+              Changing the total redistributes clients proportionally across these groups.
+            </Typography>
+          )}
           <Grid container spacing={2}>
             {mainFields.map(renderField)}
 
             <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-              <FormControl fullWidth size="small" disabled={fieldsDisabled}>
+              <FormControl
+                fullWidth
+                size="small"
+                disabled={fieldsDisabled}
+                error={Boolean(errors.algorithm)}
+              >
                 <InputLabel id="start-alg-label">
                   Initial algorithm
                 </InputLabel>
@@ -407,8 +405,10 @@ function SimulationForm({
                 <Select
                   labelId="start-alg-label"
                   label="Initial algorithm"
-                  value={draft.algorithm}
-                  onChange={(event) => updateDraft('algorithm', event.target.value)}
+                  value={values.algorithm}
+                  onChange={(event) => onChange('algorithm', event.target.value)}
+                  onFocus={() => onFocus('algorithm')}
+                  onBlur={() => onBlur('algorithm')}
                   endAdornment={(
                     <InputAdornment position="end" sx={{ mr: 3 }}>
                       <HelpTooltip label="Initial algorithm">
@@ -420,6 +420,7 @@ function SimulationForm({
                   <MenuItem value="roundRobin">Round Robin</MenuItem>
                   <MenuItem value="random">Random</MenuItem>
                 </Select>
+                {errors.algorithm && <FormHelperText>{errors.algorithm}</FormHelperText>}
               </FormControl>
             </Grid>
           </Grid>
@@ -439,6 +440,12 @@ function SimulationForm({
               </Grid>
             </AccordionDetails>
           </Accordion>
+
+          {hasErrors && (
+            <Alert severity="error">
+              Correct the highlighted settings before starting.
+            </Alert>
+          )}
 
           <Stack
             direction={{ xs: 'column', sm: 'row' }}

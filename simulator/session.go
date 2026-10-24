@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	httpserver "load-balancer/http"
 	"load-balancer/model"
@@ -16,6 +14,7 @@ import (
 // simulationMetadata describes the browser-controlled experiment lifecycle.
 type simulationMetadata struct {
 	Status             string           `json:"status"`
+	RunID              string           `json:"runId,omitempty"`
 	Config             simulationConfig `json:"config"`
 	VirtualTimeSeconds float64          `json:"virtualTimeSeconds"`
 	Error              string           `json:"error,omitempty"`
@@ -34,6 +33,7 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 	config := defaults.publicConfig()
 	status := "idle"
 	lastError := ""
+	runID := ""
 
 	publish := func() error {
 		state := model.LoadBalancerState{Mode: model.LBModeNAT, Algorithm: "RoundRobin", Servers: []model.ServerStateWithClients{}}
@@ -44,13 +44,24 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 		topology := model.Topology{Nodes: []model.TopologyNode{}, Links: []model.TopologyLink{}}
 		if current != nil {
 			state = current.lb.Tick()
+			// The small legacy summary follows runtime algorithm changes too.
+			config.Algorithm = "roundRobin"
+			if state.Algorithm == "Random" {
+				config.Algorithm = "random"
+			}
 			virtualTime = current.engine.Now().Seconds()
 			topology = current.topology(state)
 		}
 		return hub.BroadcastState(simulationSnapshot{
 			LoadBalancerState: state,
-			Simulation:        simulationMetadata{Status: status, Config: config, VirtualTimeSeconds: virtualTime, Error: lastError},
-			Topology:          topology,
+			Simulation: simulationMetadata{
+				Status:             status,
+				RunID:              runID,
+				Config:             config,
+				VirtualTimeSeconds: virtualTime,
+				Error:              lastError,
+			},
+			Topology: topology,
 		})
 	}
 	if err := publish(); err != nil {
@@ -60,6 +71,8 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 		// Discard the whole model, including event callbacks, link queues and TCP state.
 		current = nil
 		status, lastError = "idle", ""
+		runID = ""
+		control.forgetRun()
 		control.finishRun()
 		err := control.acknowledgeStop(publish)
 		log.Print("Simulation stopped and cleared; waiting for another start")
@@ -67,7 +80,7 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 	}
 
 	for {
-		var command httpserver.Envelope
+		var request startRequest
 		select {
 		case <-ctx.Done():
 			return nil
@@ -76,14 +89,7 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 				return err
 			}
 			continue
-		case command = <-control.commands:
-		}
-		if command.Type != httpserver.StartSimulation {
-			lastError = "start the simulation before sending a command"
-			if err := publish(); err != nil {
-				return err
-			}
-			continue
+		case request = <-control.starts:
 		}
 		runCtx := control.contextForRun()
 		if runCtx.Err() != nil {
@@ -93,18 +99,8 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			continue
 		}
 
-		// Missing fields inherit the Go defaults; unknown or malformed fields fail.
-		requested := defaults.publicConfig()
-		decoder := json.NewDecoder(bytes.NewReader(command.Payload))
-		decoder.DisallowUnknownFields()
-		err := decoder.Decode(&requested)
-		var cfg configuration
-		if err == nil && bytes.Equal(bytes.TrimSpace(command.Payload), []byte("null")) {
-			err = errors.New("configuration must be a JSON object")
-		}
-		if err == nil {
-			cfg, err = requested.configuration(defaults)
-		}
+		// Both transports reach this owner before any engine or endpoint is created.
+		prepared, err := prepareStart(request, defaults)
 		if err != nil {
 			lastError = fmt.Sprintf("invalid configuration: %v", err)
 			control.finishRun()
@@ -113,9 +109,21 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			}
 			continue
 		}
+		if runCtx.Err() != nil {
+			if err := clear(); err != nil {
+				return err
+			}
+			continue
+		}
 
-		config, status, lastError = requested, "running", ""
-		current = newSimulation(cfg)
+		config, status, lastError = prepared.config, "running", ""
+		runID = request.runID
+		if prepared.document != nil {
+			control.rememberRun(runID, prepared.document)
+		} else {
+			control.setRunStatus(runID, status)
+		}
+		current = newScenarioSimulation(prepared.scenario)
 		current.publishState = publish
 		current.commandHandled = func(err error) {
 			lastError = ""
@@ -150,6 +158,7 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			status, lastError = "failed", err.Error()
 		}
 		// Runtime errors are reported to the UI; the service can accept a new run.
+		control.setRunStatus(runID, status)
 		control.finishRun()
 		if err := publish(); err != nil {
 			return err

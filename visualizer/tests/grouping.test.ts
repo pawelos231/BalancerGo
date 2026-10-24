@@ -374,3 +374,61 @@ test('grouping preserves one shared receiver and two input queues without extra 
   const expanded = groupTopology(input, new Set(['pool']), null);
   assert.equal(expanded.graph.ingress, input.ingress);
 });
+
+test('collapsed traffic sums only represented clients in their shared measured window', () => {
+  const input = fixture();
+  input.nodes.push(client('opaque-c'));
+  input.links.push(link('c-in', 'opaque-c', 'up'), link('c-out', 'lb', 'opaque-c'));
+  const clients = input.nodes.filter((node) => node.kind === 'client');
+  clients.forEach((node, index) => {
+    node.traffic = {
+      transmitBytesPerSecond: (index + 1) * 1000,
+      receiveBytesPerSecond: (index + 1) * 100,
+      sampleWindowSeconds: 0.1,
+    };
+  });
+  const original = structuredClone(input);
+  const collapsed = groupTopology(input, new Set(), null);
+  const groupNode = collapsed.graph.nodes.find((node) => node.kind === 'clientGroup')!;
+  assert.deepEqual(groupNode.traffic, {
+    transmitBytesPerSecond: 6000,
+    receiveBytesPerSecond: 600,
+    sampleWindowSeconds: 0.1,
+  });
+
+  for (const selection of [
+    { kind: 'node', id: 'opaque-a' },
+    { kind: 'link', id: 'a-in' },
+  ] as const) {
+    const focused = groupTopology(input, new Set(), selection);
+    const group = focused.graph.nodes.find((node) => node.kind === 'clientGroup')!;
+    const physical = focused.graph.nodes.find((node) => node.id === 'opaque-a')!;
+    assert.equal(group.traffic?.transmitBytesPerSecond, 5000);
+    assert.equal(group.traffic?.receiveBytesPerSecond, 500);
+    assert.equal(physical.traffic, clients[0].traffic);
+    assert.equal(group.traffic!.transmitBytesPerSecond + physical.traffic!.transmitBytesPerSecond, 6000);
+  }
+
+  const expanded = groupTopology(input, new Set(['pool']), null);
+  assert.ok(expanded.graph.nodes.every((node) => node.kind !== 'clientGroup'));
+  assert.deepEqual(input, original);
+});
+
+test('legacy, incomplete and inconsistent traffic windows do not produce group estimates', () => {
+  const input = fixture();
+  const clients = input.nodes.filter((node) => node.kind === 'client');
+  const groupTraffic = () => groupTopology(input, new Set(), null).graph.nodes
+    .find((node) => node.kind === 'clientGroup')?.traffic;
+  assert.equal(groupTraffic(), undefined);
+
+  clients[0].traffic = {
+    transmitBytesPerSecond: 1000,
+    receiveBytesPerSecond: 100,
+    sampleWindowSeconds: 0.1,
+  };
+  assert.equal(groupTraffic(), undefined);
+  clients[1].traffic = { ...clients[0].traffic, sampleWindowSeconds: 0.2 };
+  assert.equal(groupTraffic(), undefined);
+  clients[1].traffic.sampleWindowSeconds = 0.1;
+  assert.equal(groupTraffic()?.transmitBytesPerSecond, 2000);
+});

@@ -19,6 +19,7 @@ import {
 } from 'react-router';
 import AppHeader from './components/AppHeader';
 import ControlPanel from './components/ControlPanel';
+import ExperimentSetup from './components/ExperimentSetup';
 import useSimulation from './hooks/useSimulation';
 import SimulationPage from './pages/SimulationPage';
 import type { LoadBalancerState } from './types';
@@ -47,11 +48,14 @@ function App() {
   const {
     data,
     connected,
-    connectionEpoch,
     startPending,
     stopPending,
     commandError,
+    currentRun,
+    currentRunError,
+    refreshCurrent,
     sendMessage,
+    startScenario,
   } = useSimulation();
   const [darkMode, setDarkMode] = useState(readDarkMode);
 
@@ -122,14 +126,24 @@ function App() {
           {/* Keep unsent settings when switching pages. */}
           <Box hidden={!showSimulation}>
             <ControlPanel
-              key={connectionEpoch}
               connected={connected}
               simulation={simulation}
               startPending={startPending}
               stopPending={stopPending}
               commandError={commandError}
+              currentRun={currentRun}
               sendMessage={sendMessage}
-            />
+            >
+              <ExperimentSetup
+                connected={connected}
+                simulation={simulation}
+                pending={startPending || stopPending}
+                currentRun={currentRun}
+                currentRunError={currentRunError}
+                onRefreshCurrent={refreshCurrent}
+                onStart={startScenario}
+              />
+            </ControlPanel>
           </Box>
 
           <Suspense
