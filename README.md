@@ -120,6 +120,66 @@ counts and virtual duration summaries with sample count, mean, minimum and maxim
 `WallTime` describes the cost of running it. Clients still active at the end time
 remain in the final state; reaching that time does not imply successful completion.
 
+### Run a full JSON scenario from CLI
+
+The same scenario exported from the frontend can run directly from a file.
+From the repository root, for example in PowerShell:
+
+```powershell
+cd simulator
+$scenario = '../examples/scenarios/reference-near-fast-ack-short.json'
+go run . -scenario $scenario -output run.json
+```
+
+`-scenario` starts one experiment immediately, without HTTP, WebSocket or the
+frontend. It always runs without pacing, even if the document requests a positive
+speed. The runner uses the same strict decoder, validation and normalization as
+the scenario API, including decimal strings for integers outside JavaScript's
+safe range. Profiles, directional links, groups and individual overrides remain
+part of the full configuration.
+
+With `-output`, the report goes into that file and stdout stays empty. Omit
+`-output` to print the report as one JSON document to stdout. Output and trace
+paths must be new files in this mode; existing files are not overwritten. The
+parent directory must already exist.
+
+Scenario settings come entirely from the document. Combining `-scenario` with
+flags such as `-seed`, `-duration`, `-clients` or `-speed` is an error, including
+when their values equal the defaults. Only process flags `-scenario`, `-output`,
+`-headless` and `-trace` may be combined. `-headless` is optional in this mode,
+and `-output` requires `-scenario`. The older `-headless -clients ...` command
+continues to print its original result format.
+
+The version-1 report groups the result with information needed to repeat it:
+
+| Field | Meaning |
+| --- | --- |
+| `version` | Report schema version, currently `1`. |
+| `status` | Runner outcome: `finished`, `failed` or `cancelled`. |
+| `error` | Error message for a failed or cancelled run, when present. |
+| `manifest` | Model, input, effective execution settings and build metadata. |
+| `result` | The existing CLI result, including transfer outcomes and counters. |
+
+`manifest.scenario` retains the canonical input document, including its original
+requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
+so formatting changes to the source file do not change this identifier.
+`manifest.execution` records `headless: true`, the effective `speed: 0` and
+whether tracing was enabled. `manifest.model` identifies the current
+`tcp-stop-and-wait-v1` profile. Build metadata records the Go/module versions,
+OS and architecture; VCS revision and modification status appear when available.
+
+Invalid input or configuration returns a nonzero exit code without a report.
+An execution limit also returns nonzero, but saves a `failed` report containing
+the work completed so far. Cancellation saves the partial result with
+`status: cancelled` and returns nonzero. `finished` means the runner reached the
+virtual end time; individual transfers may still have failed or be incomplete.
+
+The runner keeps the document's sampling interval and samples virtual traffic
+without building frontend snapshots. As in the original headless mode,
+`result.WallTime` measures execution after world construction and before report
+assembly/encoding. It excludes loading, validation and world setup; it is not
+the same measurement boundary as the interactive UI run.
+
 CLI flags provide the form defaults, and configure immediate headless runs.
 The browser sends its selected configuration when Start is clicked. Useful
 parameters (see `go run . -help` for all options):

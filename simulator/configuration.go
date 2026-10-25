@@ -4,11 +4,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"load-balancer/engine"
-
-	"load-balancer/scenario"
 	"math"
+	"os"
 	"time"
+
+	"load-balancer/engine"
+	"load-balancer/scenario"
 )
 
 type configuration struct {
@@ -29,12 +30,14 @@ type configuration struct {
 	loss                    float64
 	ingress                 scenario.LinkConfig
 
-	speed     float64
-	seed      int64
-	algorithm string
-	maxEvents uint64
-	headless  bool
-	tracePath string
+	speed        float64
+	seed         int64
+	algorithm    string
+	maxEvents    uint64
+	headless     bool
+	tracePath    string
+	scenarioPath string
+	outputPath   string
 }
 
 func readConfiguration() (configuration, error) {
@@ -47,7 +50,12 @@ func readConfiguration() (configuration, error) {
 	flag.DurationVar(&c.clientGap, "client-gap", 0, "virtual interval between new clients")
 	flag.DurationVar(&c.packetGap, "packet-gap", 0, "virtual sender pause before each data segment")
 	flag.DurationVar(&c.duration, "duration", 2*time.Minute, "virtual experiment end time (inclusive)")
-	flag.DurationVar(&c.snapshotInterval, "snapshot-interval", 100*time.Millisecond, "virtual snapshot and runner step interval")
+	flag.DurationVar(
+		&c.snapshotInterval,
+		"snapshot-interval",
+		100*time.Millisecond,
+		"virtual snapshot and runner step interval",
+	)
 	flag.Int64Var(&c.bandwidth, "bandwidth", 1_000_000_000, "bandwidth of each directed link in bits/s")
 	flag.Int64Var(
 		&c.forwardingBitsPerSecond,
@@ -55,7 +63,12 @@ func readConfiguration() (configuration, error) {
 		1_000_000_000,
 		"shared load balancer forwarding budget in bits/s",
 	)
-	flag.DurationVar(&c.packetTravelTime, "packet-travel-time", time.Millisecond, "virtual packet travel time after transmission on each directed link")
+	flag.DurationVar(
+		&c.packetTravelTime,
+		"packet-travel-time",
+		time.Millisecond,
+		"virtual packet travel time after transmission on each directed link",
+	)
 	flag.IntVar(&c.queue, "link-queue", 1024, "waiting packets per link, excluding its active transmission")
 	flag.Float64Var(&c.loss, "loss", 0, "independent packet loss probability on each link")
 	flag.Int64Var(
@@ -85,17 +98,74 @@ func readConfiguration() (configuration, error) {
 	flag.Int64Var(&c.seed, "seed", 1, "reproducible experiment seed")
 	flag.StringVar(&c.algorithm, "algorithm", "roundRobin", "roundRobin or random")
 	flag.Float64Var(&c.speed, "speed", 1, "virtual seconds per real second; 0 runs without pacing")
-	flag.Uint64Var(&c.maxEvents, "max-events", engine.DefaultMaxEvents, "maximum callbacks executed in the experiment")
+	flag.Uint64Var(
+		&c.maxEvents,
+		"max-events",
+		engine.DefaultMaxEvents,
+		"maximum callbacks executed in the experiment",
+	)
 	flag.BoolVar(&c.headless, "headless", false, "run without HTTP or pacing, print JSON result and exit")
 	flag.StringVar(&c.tracePath, "trace", "", "optional Go runtime trace output path")
-	flag.Parse()
+	flag.StringVar(
+		&c.scenarioPath,
+		"scenario",
+		"",
+		"run a full scenario JSON file without HTTP or pacing",
+	)
+	flag.StringVar(
+		&c.outputPath,
+		"output",
+		"",
+		"write the scenario run report to a new file instead of stdout",
+	)
+	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
+		return c, err
+	}
 	if flag.NArg() != 0 {
 		return c, fmt.Errorf("unexpected arguments: %v", flag.Args())
+	}
+	if err := c.checkFileOptions(); err != nil {
+		return c, err
+	}
+
+	if c.scenarioPath != "" {
+		c.headless = true
+		return c, nil
 	}
 	// Keep the raw -1 byte sentinel for frontend defaults. Normalization must
 	// happen after the user has had a chance to change the packet count.
 	_, err := c.normalized()
 	return c, err
+}
+
+// checkFileOptions checks explicit paths and keeps JSON as the source of settings.
+// An empty scenario argument must fail rather than start the interactive server.
+func (c configuration) checkFileOptions() error {
+	var invalidOption error
+	flag.Visit(func(option *flag.Flag) {
+		if invalidOption != nil {
+			return
+		}
+		switch option.Name {
+		case "scenario", "output":
+			if option.Value.String() == "" {
+				invalidOption = fmt.Errorf("-%s requires a nonempty file path", option.Name)
+			}
+			return
+		case "headless", "trace":
+			return
+		}
+		if c.scenarioPath != "" {
+			invalidOption = fmt.Errorf("-%s cannot be combined with -scenario", option.Name)
+		}
+	})
+	if invalidOption != nil {
+		return invalidOption
+	}
+	if c.outputPath != "" && c.scenarioPath == "" {
+		return errors.New("-output requires -scenario")
+	}
+	return nil
 }
 
 // normalized validates a value copy and resolves options used by the model.

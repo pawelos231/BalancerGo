@@ -1,6 +1,9 @@
 package contract
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // LinkConfig preserves the CLI's PascalCase fields and nanosecond duration.
 type LinkConfig struct {
@@ -109,4 +112,42 @@ type SimulationResult struct {
 	Forwarding     ForwardingStats
 	Links          []LinkResult
 	State          LoadBalancerState
+}
+
+// ExperimentReport packages one CLI run with its input and build information.
+// Failed or cancelled execution still includes the work completed so far.
+type ExperimentReport struct {
+	Version  int                `json:"version"`
+	Status   string             `json:"status"`
+	Error    string             `json:"error,omitempty"`
+	Manifest ExperimentManifest `json:"manifest"`
+	Result   SimulationResult   `json:"result"`
+}
+
+// ExperimentManifest keeps the original importable document and identifies it.
+// Execution records process choices that differ from the document, such as pacing.
+type ExperimentManifest struct {
+	Model          string              `json:"model"`
+	Scenario       json.RawMessage     `json:"scenario"`
+	ScenarioSHA256 string              `json:"scenarioSha256"`
+	Execution      ExperimentExecution `json:"execution"`
+	Build          ExperimentBuild     `json:"build"`
+}
+
+// ExperimentExecution describes how the program ran, outside virtual traffic.
+type ExperimentExecution struct {
+	Headless     bool    `json:"headless"`
+	Speed        float64 `json:"speed"`
+	TraceEnabled bool    `json:"traceEnabled"`
+}
+
+// ExperimentBuild identifies the executable's Go build and target platform.
+// Missing VCS fields mean the build did not supply that information.
+type ExperimentBuild struct {
+	GoVersion     string `json:"goVersion"`
+	ModuleVersion string `json:"moduleVersion"`
+	GOOS          string `json:"goos"`
+	GOARCH        string `json:"goarch"`
+	VCSRevision   string `json:"vcsRevision,omitempty"`
+	VCSModified   *bool  `json:"vcsModified,omitempty"`
 }

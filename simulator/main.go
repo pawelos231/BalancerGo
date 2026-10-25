@@ -35,6 +35,11 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Full JSON scenarios use a standalone run and never start the HTTP service.
+	if defaults.scenarioPath != "" {
+		return runScenarioFile(ctx, defaults, os.Stdout)
+	}
+
 	if defaults.tracePath != "" {
 		file, err := os.Create(defaults.tracePath)
 		if err != nil {
@@ -61,7 +66,8 @@ func run() error {
 		sim := simulation.New(resolved)
 		started := time.Now()
 		err = runWorld(ctx, sim, nil, nil, nil)
-		if encodeErr := json.NewEncoder(os.Stdout).Encode(presentation.BuildResult(sim, time.Since(started))); encodeErr != nil {
+		result := presentation.BuildResult(sim, time.Since(started))
+		if encodeErr := json.NewEncoder(os.Stdout).Encode(result); encodeErr != nil {
 			return encodeErr
 		}
 		if errors.Is(err, context.Canceled) {
