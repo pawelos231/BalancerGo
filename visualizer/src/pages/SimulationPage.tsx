@@ -10,6 +10,7 @@ import {
 } from '@mui/material';
 import BackendCard from '../components/BackendCard';
 import HelpTooltip from '../components/HelpTooltip';
+import PayloadProgress from '../components/PayloadProgress';
 import type { LoadBalancerState } from '../types';
 
 interface SimulationPageProps {
@@ -29,6 +30,8 @@ function SimulationPage({ data }: SimulationPageProps) {
 
   return (
     <Stack spacing={3} sx={{ mt: 3 }}>
+      {data.simulation.status !== 'idle' && <PayloadProgress payload={data.simulation.payload} />}
+
       <Card variant="outlined">
         <CardHeader
           title="Load balancer"

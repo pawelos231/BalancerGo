@@ -1,8 +1,9 @@
 import { Box, Button, Divider, LinearProgress, Stack, Typography } from '@mui/material';
-import { formatBandwidth, formatNumber } from './format';
+import { formatBandwidth, formatBytes, formatNumber } from './format';
 import { Fact, TrafficTotals } from './TopologyFacts';
 import { describeLink, linkRole, linkValueRange, roleDetails, totalLinks } from './telemetry';
 import type { TopologyBundle, TopologyGroup } from './grouping';
+import { sumAcknowledgedPayloadBytes } from './grouping';
 import type { TopologyGraph, TopologyNode, TopologySelection } from './types';
 
 const MEMBER_LIMIT = 12;
@@ -21,6 +22,7 @@ export function GroupDetails({ group, topology, onToggleGroup, onSelect }: Group
   const allActivityKnown = group.clients.every((client) => client.active !== undefined);
   const individualClients = group.clients.length - group.collapsedClients.length;
   const displayedClients = group.clients.slice(0, MEMBER_LIMIT);
+  const acknowledgedPayloadBytes = sumAcknowledgedPayloadBytes(group.clients);
   const clientIds = new Set(group.clients.map((client) => client.id));
   const memberLinks = topology?.links.filter((link) => (
     clientIds.has(link.source) || clientIds.has(link.target)
@@ -50,6 +52,10 @@ export function GroupDetails({ group, topology, onToggleGroup, onSelect }: Group
         />
         <Fact label="Represented by the group" value={formatNumber(group.collapsedClients.length)} />
         <Fact label="Represented individually" value={formatNumber(individualClients)} />
+        <Fact
+          label="ACK-confirmed payload"
+          value={acknowledgedPayloadBytes === undefined ? 'Unknown' : formatBytes(acknowledgedPayloadBytes)}
+        />
         {memberLinks.length > 0 && <Fact label="Per-link bandwidth" value={bandwidth} />}
       </Stack>
       {onToggleGroup && (

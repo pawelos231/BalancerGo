@@ -42,6 +42,7 @@ type simulation struct {
 	completedStreams      int
 	closedClients         int
 	completedPayloadBytes uint64
+	payload               payloadProgress
 }
 
 // namedLink adds topology labels to a physical link and its optional LB output.
@@ -245,12 +246,14 @@ type simulationResult struct {
 	WallTime    string
 	Seed        int64
 
-	ScheduledClients      int
-	CreatedClients        int
-	CompletedStreams      int
-	ClosedClients         int
-	IncompleteStreams     int
-	CompletedPayloadBytes uint64
+	ScheduledClients         int
+	CreatedClients           int
+	CompletedStreams         int
+	ClosedClients            int
+	IncompleteStreams        int
+	CompletedPayloadBytes    uint64
+	ReceivedPayloadBytes     uint64
+	AcknowledgedPayloadBytes uint64
 
 	EventsExecuted uint64
 	PendingEvents  int
@@ -276,12 +279,14 @@ func (s *simulation) result(elapsed time.Duration) simulationResult {
 		WallTime:    elapsed.String(),
 		Seed:        s.scenario.Execution.Seed,
 
-		ScheduledClients:      s.scheduledClients,
-		CreatedClients:        s.createdClients,
-		CompletedStreams:      s.completedStreams,
-		ClosedClients:         s.closedClients,
-		IncompleteStreams:     s.createdClients - s.completedStreams,
-		CompletedPayloadBytes: s.completedPayloadBytes,
+		ScheduledClients:         s.scheduledClients,
+		CreatedClients:           s.createdClients,
+		CompletedStreams:         s.completedStreams,
+		ClosedClients:            s.closedClients,
+		IncompleteStreams:        s.createdClients - s.completedStreams,
+		CompletedPayloadBytes:    s.completedPayloadBytes,
+		ReceivedPayloadBytes:     s.payload.ReceivedBytes,
+		AcknowledgedPayloadBytes: s.payload.AcknowledgedBytes,
 
 		EventsExecuted: s.engine.EventsExecuted(),
 		PendingEvents:  s.engine.Pending(),

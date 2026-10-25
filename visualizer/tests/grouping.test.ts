@@ -432,3 +432,38 @@ test('legacy, incomplete and inconsistent traffic windows do not produce group e
   clients[1].traffic.sampleWindowSeconds = 0.1;
   assert.equal(groupTraffic()?.transmitBytesPerSecond, 2000);
 });
+
+test('collapsed payload sums only represented clients, including closed connections', () => {
+  const input = fixture();
+  const clients = input.nodes.filter((node) => node.kind === 'client');
+  clients.forEach((node, index) => {
+    node.metrics.push({
+      key: 'acknowledgedPayloadBytes', label: 'Payload acknowledged',
+      value: (index + 1) * 1024, unit: 'bytes',
+    });
+  });
+  const original = structuredClone(input);
+  const payload = (graph: TopologyGraph) => graph.nodes.find((node) => node.kind === 'clientGroup')!
+    .metrics.find((metric) => metric.key === 'acknowledgedPayloadBytes')?.value;
+
+  assert.equal(payload(groupTopology(input, new Set(), null).graph), 3072);
+  const focused = groupTopology(input, new Set(), { kind: 'node', id: clients[0].id });
+  assert.equal(payload(focused.graph), 2048);
+  assert.equal(focused.graph.nodes.find((node) => node.id === clients[0].id)!.metrics[0].value, 1024);
+  assert.deepEqual(input, original);
+});
+
+test('missing client payload measurements do not become a partial total or zero', () => {
+  const input = fixture();
+  const clients = input.nodes.filter((node) => node.kind === 'client');
+  const payload = () => groupTopology(input, new Set(), null).graph.nodes
+    .find((node) => node.kind === 'clientGroup')!.metrics
+    .find((metric) => metric.key === 'acknowledgedPayloadBytes')?.value;
+  assert.equal(payload(), undefined);
+  clients[0].metrics.push({ key: 'acknowledgedPayloadBytes', label: 'Payload acknowledged', value: 1024, unit: 'bytes' });
+  assert.equal(payload(), undefined);
+  clients[1].metrics.push({ key: 'acknowledgedPayloadBytes', label: 'Payload acknowledged', value: 0, unit: 'bytes' });
+  assert.equal(payload(), 1024);
+  clients[0].metrics[0].value = 0;
+  assert.equal(payload(), 0);
+});

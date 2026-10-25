@@ -87,7 +87,12 @@ go run . -headless -clients 6 -servers 2 -bytes 2050 -duration 1s
 
 `-headless` disables pacing, prints a JSON result and exits. The result includes
 completed and incomplete streams, closed clients, executed events, final backend
-state and per-link queue/loss counters. `VirtualTime` describes the model;
+state and per-link queue/loss counters. `ReceivedPayloadBytes` counts unique
+payload accepted by backends; `AcknowledgedPayloadBytes` counts payload confirmed
+to clients by ACK. Both include unfinished transfers and retain historical work
+after connections close. Headers, control packets and repeated data are excluded.
+`CompletedPayloadBytes` still counts only fully completed streams.
+`VirtualTime` describes the model;
 `WallTime` describes the cost of running it. Clients still active at the end time
 remain in the final state; reaching that time does not imply successful completion.
 
@@ -509,6 +514,13 @@ including packets subsequently lost; RX counts delivered bytes. Waiting packets
 and queue drops do not count as transmitted. Headers, ACKs and retries are included.
 The LB's RX uses the common receiver once; its TX sums outgoing links. Client
 groups sum only the members still represented by that rectangle.
+
+The Simulation page's **Payload progress** panel shows cumulative unique received
+and ACK-confirmed payload bytes, including unfinished transfers. ACKs in flight
+or lost can leave the confirmed total behind the received total. Backend cards
+show their received payload; the topology inspector exposes backend receipts,
+client confirmations and run totals on the LB. These are payload totals rather
+than wire-byte rates, and survive connection cleanup until Stop/reset.
 
 The runner samples after all events at a boundary have completed, including a
 short final interval. Reading topology or dropping WS frames changes no measurement.

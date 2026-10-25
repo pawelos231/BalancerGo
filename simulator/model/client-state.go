@@ -1,7 +1,8 @@
 package model
 
 type ClientState struct {
-	Key       ClientKey
-	RetrySyn  uint8
-	RetryData uint8
+	Key                      ClientKey
+	RetrySyn                 uint8
+	RetryData                uint8
+	AcknowledgedPayloadBytes uint64
 }

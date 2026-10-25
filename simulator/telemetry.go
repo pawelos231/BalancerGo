@@ -218,6 +218,8 @@ func (publisher *telemetryPublisher) topologyValues(s *simulation, state model.L
 			"scheduledClients":              float64(s.scheduledClients),
 			"activeClients":                 float64(s.createdClients - s.closedClients),
 			"completedStreams":              float64(s.completedStreams),
+			"receivedPayloadBytes":          float64(s.payload.ReceivedBytes),
+			"acknowledgedPayloadBytes":      float64(s.payload.AcknowledgedBytes),
 		},
 		Traffic: s.nodeTraffic(loadBalancerNodeID),
 	})
@@ -229,9 +231,10 @@ func (publisher *telemetryPublisher) topologyValues(s *simulation, state model.L
 			ID:     id,
 			Active: &active,
 			Metrics: map[string]float64{
-				"activeConnections":   float64(server.ActiveConnections),
-				"halfOpenConnections": float64(server.HalfOpenConnections),
-				"receivedPackets":     float64(server.NumberOfHandledPackets),
+				"activeConnections":    float64(server.ActiveConnections),
+				"halfOpenConnections":  float64(server.HalfOpenConnections),
+				"receivedPackets":      float64(server.NumberOfHandledPackets),
+				"receivedPayloadBytes": float64(server.ReceivedPayloadBytes),
 			},
 			Traffic: s.nodeTraffic(id),
 		})
@@ -248,9 +251,10 @@ func (publisher *telemetryPublisher) topologyValues(s *simulation, state model.L
 			ID:     runtime.ID,
 			Active: &active,
 			Metrics: map[string]float64{
-				"completedStreams": completed,
-				"synRetries":       float64(clientState.RetrySyn),
-				"dataRetries":      float64(clientState.RetryData),
+				"completedStreams":         completed,
+				"synRetries":               float64(clientState.RetrySyn),
+				"dataRetries":              float64(clientState.RetryData),
+				"acknowledgedPayloadBytes": float64(clientState.AcknowledgedPayloadBytes),
 			},
 			Traffic: s.nodeTraffic(runtime.ID),
 		})
@@ -278,6 +282,7 @@ func (publisher *telemetryPublisher) serverValues(state model.LoadBalancerState)
 			}
 			clients = append(clients, model.TelemetryClient{
 				ID: id, RetrySyn: client.RetrySyn, RetryData: client.RetryData,
+				AcknowledgedPayloadBytes: client.AcknowledgedPayloadBytes,
 			})
 		}
 		servers = append(servers, model.TelemetryServer{
@@ -287,6 +292,7 @@ func (publisher *telemetryPublisher) serverValues(state model.LoadBalancerState)
 			HalfOpenConnections:    server.HalfOpenConnections,
 			LatencyP95Milli:        server.LatencyP95Milli,
 			NumberOfHandledPackets: server.NumberOfHandledPackets,
+			ReceivedPayloadBytes:   server.ReceivedPayloadBytes,
 			CpuUsage:               server.CpuUsage,
 			Clients:                clients,
 		})

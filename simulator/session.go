@@ -19,6 +19,7 @@ type simulationMetadata struct {
 	VirtualTimeSeconds float64                `json:"virtualTimeSeconds"`
 	Error              string                 `json:"error,omitempty"`
 	Performance        *simulationPerformance `json:"performance,omitempty"`
+	Payload            *payloadProgress       `json:"payload,omitempty"`
 }
 
 type simulationSnapshot struct {
@@ -56,7 +57,11 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 		}
 		servers := []model.TelemetryServer{}
 		var performance *simulationPerformance
+		var payload *payloadProgress
 		if current != nil {
+			// Copy totals so a published snapshot keeps its values as the run advances.
+			progress := current.payload
+			payload = &progress
 			state = current.lb.Tick()
 			// The small legacy summary follows runtime algorithm changes too.
 			config.Algorithm = "roundRobin"
@@ -100,6 +105,7 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 				VirtualTimeSeconds: virtualTime,
 				Error:              lastError,
 				Performance:        performance,
+				Payload:            payload,
 			},
 			Topology: topology,
 		})

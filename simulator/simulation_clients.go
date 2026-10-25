@@ -150,6 +150,9 @@ func (s *simulation) startClient(
 			})
 		})
 	})
+	cl.OnPayloadAcknowledged = func(bytes int) {
+		s.payload.AcknowledgedBytes += uint64(bytes)
+	}
 	cl.OnStreamComplete = func() {
 		s.completedStreams++
 		s.completedPayloadBytes += uint64(config.Stream.Bytes)

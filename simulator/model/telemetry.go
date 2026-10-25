@@ -107,13 +107,15 @@ type TelemetryServer struct {
 	HalfOpenConnections    uint32            `json:"halfOpenConnections"`
 	LatencyP95Milli        uint32            `json:"latencyP95Milli"`
 	NumberOfHandledPackets uint32            `json:"numberOfHandledPackets"`
+	ReceivedPayloadBytes   uint64            `json:"receivedPayloadBytes"`
 	CpuUsage               float32           `json:"cpuUsage"`
 	Clients                []TelemetryClient `json:"clients"`
 }
 
 // TelemetryClient refers to the full client key in its node definition.
 type TelemetryClient struct {
-	ID        string `json:"id"`
-	RetrySyn  uint8  `json:"retrySyn"`
-	RetryData uint8  `json:"retryData"`
+	ID                       string `json:"id"`
+	RetrySyn                 uint8  `json:"retrySyn"`
+	RetryData                uint8  `json:"retryData"`
+	AcknowledgedPayloadBytes uint64 `json:"acknowledgedPayloadBytes"`
 }

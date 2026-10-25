@@ -90,6 +90,9 @@ func stopTelemetryScenario(t *testing.T, h *scenarioHarness) {
 	if frame.snapshot.Simulation.RunID != "" || frame.snapshot.Topology.Ingress != nil {
 		t.Fatal("Stop retained the old run or shared ingress")
 	}
+	if frame.snapshot.Simulation.Payload != nil {
+		t.Fatal("Stop retained the previous run's payload totals")
+	}
 	scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current/topology", nil, http.StatusNotFound)
 }
 

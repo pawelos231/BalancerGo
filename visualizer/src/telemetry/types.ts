@@ -74,8 +74,14 @@ export interface ServerTelemetry {
   halfOpenConnections: number;
   latencyP95Milli: number;
   numberOfHandledPackets: number;
+  receivedPayloadBytes?: number;
   cpuUsage?: number;
-  clients: { id: string; retrySyn: number; retryData: number }[];
+  clients: {
+    id: string;
+    retrySyn: number;
+    retryData: number;
+    acknowledgedPayloadBytes?: number;
+  }[];
 }
 
 export interface SimulationSnapshot {

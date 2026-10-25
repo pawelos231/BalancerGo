@@ -29,6 +29,8 @@ type Client struct {
 	segmentIndex    uint32
 	gap             time.Duration
 
+	acknowledgedPayloadBytes uint64
+
 	synSendEvent engine.EventID
 	synTimer     engine.EventID
 	dataTimer    engine.EventID
@@ -38,6 +40,10 @@ type Client struct {
 
 	OnClose          func()
 	OnStreamComplete func()
+
+	// Tells the simulation how many new payload bytes the client has ACK-confirmed.
+	// Repeated ACKs for the same segment do not count those bytes again.
+	OnPayloadAcknowledged func(int)
 }
 
 func NewClient(e *engine.Engine, srcIP string, srcPort uint16, dstIP string, dstPort uint16, proto model.Protocol) *Client {
@@ -191,6 +197,10 @@ func (c *Client) HandlePacket(pkt model.Packet) {
 		c.waitingForAck = false
 		c.retryData = 0
 		c.remainingBytes -= c.lastSent.Size
+		c.acknowledgedPayloadBytes += uint64(c.lastSent.Size)
+		if c.OnPayloadAcknowledged != nil {
+			c.OnPayloadAcknowledged(c.lastSent.Size)
+		}
 		c.segmentIndex++
 		c.queueSegment()
 	}
@@ -295,5 +305,10 @@ func (c *Client) cancelEvent(id *engine.EventID) {
 }
 
 func (c *Client) GetState() model.ClientState {
-	return model.ClientState{Key: c.key, RetrySyn: c.retrySyn, RetryData: c.retryData}
+	return model.ClientState{
+		Key:                      c.key,
+		RetrySyn:                 c.retrySyn,
+		RetryData:                c.retryData,
+		AcknowledgedPayloadBytes: c.acknowledgedPayloadBytes,
+	}
 }

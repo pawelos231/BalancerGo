@@ -87,6 +87,10 @@ func (s *simulation) addBackend(config scenario.NormalizedBackend) {
 		100, // Half-open connection limit.
 	)
 	endpointID := backendNodeID(config.ID)
+	// Keep received bytes after this backend's connections close or it is removed.
+	srv.OnPayloadReceived = func(bytes int) {
+		s.payload.ReceivedBytes += uint64(bytes)
+	}
 
 	toBackend := s.addOutput(
 		"link/"+endpointID+"/from-lb",

@@ -77,11 +77,13 @@ export function hydrateSnapshot(
         HalfOpenConnections: server.halfOpenConnections,
         LatencyP95Milli: server.latencyP95Milli,
         NumberOfHandledPackets: server.numberOfHandledPackets,
+        ReceivedPayloadBytes: server.receivedPayloadBytes,
       },
       clients: server.clients.map((client) => ({
         Key: required(required(nodeDefinitions.get(client.id)).clientKey),
         RetrySyn: client.retrySyn,
         RetryData: client.retryData,
+        AcknowledgedPayloadBytes: client.acknowledgedPayloadBytes,
       })),
     };
   });

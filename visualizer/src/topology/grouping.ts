@@ -53,6 +53,7 @@ function uniqueViewId(base: string, usedIds: Set<string>): string {
 
 function collapsedNode(group: TopologyGroup): TopologyNode {
   const clients = group.collapsedClients;
+  const acknowledgedPayloadBytes = sumAcknowledgedPayloadBytes(clients);
   const activeClients = clients.filter((client) => client.active === true).length;
   const allActivityKnown = clients.every((client) => client.active !== undefined);
 
@@ -84,8 +85,26 @@ function collapsedNode(group: TopologyGroup): TopologyNode {
         value: activeClients,
         unit: 'clients',
       },
+      ...(acknowledgedPayloadBytes === undefined ? [] : [{
+        key: 'acknowledgedPayloadBytes',
+        label: 'ACK-confirmed payload',
+        value: acknowledgedPayloadBytes,
+        unit: 'bytes',
+      }]),
     ],
   };
+}
+
+// A partial sum would make missing measurements look like zero.
+export function sumAcknowledgedPayloadBytes(clients: TopologyNode[]): number | undefined {
+  if (clients.length === 0) return undefined;
+  let total = 0;
+  for (const client of clients) {
+    const value = client.metrics.find((metric) => metric.key === 'acknowledgedPayloadBytes')?.value;
+    if (value === undefined || !Number.isFinite(value) || value < 0) return undefined;
+    total += value;
+  }
+  return total;
 }
 
 // Sum only represented clients from the same complete window; missing data stays unknown.

@@ -9,21 +9,28 @@ import {
   Typography,
 } from '@mui/material';
 import type { ServerStateWithClients } from '../types';
+import { formatBytes, formatNumber } from '../topology/format';
 import HelpTooltip from './HelpTooltip';
 
 interface BackendMetricProps {
   label: string;
-  value: number;
+  value: number | undefined;
   unit?: string;
   children: string;
 }
 
 function BackendMetric({ label, value, unit, children }: BackendMetricProps) {
-  const displayValue = unit ? `${value} ${unit}` : value;
+  let displayValue = 'Unknown';
+  if (value !== undefined) {
+    displayValue = unit === 'bytes' ? formatBytes(value) : `${value}${unit ? ` ${unit}` : ''}`;
+  }
+  const exactBytes = unit === 'bytes' && value !== undefined
+    ? `${formatNumber(value, 0)} bytes`
+    : undefined;
 
   return (
     <Stack direction="row" spacing={0.5} alignItems="center">
-      <Typography variant="body2">
+      <Typography variant="body2" title={exactBytes}>
         {label}: {displayValue}
       </Typography>
 
@@ -83,6 +90,12 @@ function BackendCard({ server, clients }: ServerStateWithClients) {
             All incoming TCP packets reaching this active server during the run,
             including handshake, data, closing packets and retransmissions.
             Includes packets the server later rejects.
+          </BackendMetric>
+
+          <BackendMetric label="Payload received" value={server.ReceivedPayloadBytes} unit="bytes">
+            Cumulative unique payload bytes received during this run, including unfinished transfers.
+            Excludes retransmissions, headers and control packets.
+            Remains counted after connections close, until reset.
           </BackendMetric>
 
           <Divider />

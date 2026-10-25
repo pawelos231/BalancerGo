@@ -160,6 +160,7 @@ func restoreTelemetryServers(t *testing.T, document *model.TopologyDocument, liv
 			}
 			clients = append(clients, model.ClientState{
 				Key: key, RetrySyn: client.RetrySyn, RetryData: client.RetryData,
+				AcknowledgedPayloadBytes: client.AcknowledgedPayloadBytes,
 			})
 		}
 		servers = append(servers, model.ServerStateWithClients{
@@ -173,6 +174,7 @@ func restoreTelemetryServers(t *testing.T, document *model.TopologyDocument, liv
 				HalfOpenConnections:    server.HalfOpenConnections,
 				LatencyP95Milli:        server.LatencyP95Milli,
 				NumberOfHandledPackets: server.NumberOfHandledPackets,
+				ReceivedPayloadBytes:   server.ReceivedPayloadBytes,
 				CpuUsage:               server.CpuUsage,
 			},
 			Clients: clients,

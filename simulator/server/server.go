@@ -52,16 +52,21 @@ type Server struct {
 	LastUpdated   time.Duration
 
 	NumberOfHandledPackets uint32
-	engine                 *engine.Engine
-	sender                 func(model.Packet)
-	connections            map[model.ClientKey]*connection
-	started                bool
-	statisticsEvent        engine.EventID
-	previousPacketCount    uint32
-	probeEvents            map[engine.EventID]struct{}
-	latencySamples         [100]int64
-	latencyCount           int
-	latencyPosition        int
+
+	// Called only for new payload accepted by a connection, before its ACK is sent.
+	OnPayloadReceived func(int)
+
+	receivedPayloadBytes uint64
+	engine               *engine.Engine
+	sender               func(model.Packet)
+	connections          map[model.ClientKey]*connection
+	started              bool
+	statisticsEvent      engine.EventID
+	previousPacketCount  uint32
+	probeEvents          map[engine.EventID]struct{}
+	latencySamples       [100]int64
+	latencyCount         int
+	latencyPosition      int
 }
 
 func NewServer(e *engine.Engine, id, name, address string, port uint16, distance, weight int16, maxHalfOpen uint32) *Server {
@@ -239,6 +244,10 @@ func (s *Server) HandlePacket(pkt model.Packet) {
 		}
 		if pkt.PlaceInStream == conn.nextSegment {
 			conn.nextSegment++
+			s.receivedPayloadBytes += uint64(pkt.Size)
+			if s.OnPayloadReceived != nil {
+				s.OnPayloadReceived(pkt.Size)
+			}
 		}
 		// Payload is not executed by an application model in this stage. An ACK
 		// carries zero payload bytes, and duplicate segments are acknowledged.
@@ -319,5 +328,6 @@ func (s *Server) GetState() model.ServerState {
 		HalfOpenConnections: s.HalfOpenConnections, LatencyP95Milli: s.LatencyP95Milli,
 		CpuUsage:               float32(s.CpuUsage) / float32(legacyCPUScale),
 		NumberOfHandledPackets: s.NumberOfHandledPackets,
+		ReceivedPayloadBytes:   s.receivedPayloadBytes,
 	}
 }

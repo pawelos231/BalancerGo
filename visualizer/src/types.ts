@@ -13,6 +13,7 @@ export interface ClientState {
   Key: ClientKey;
   RetrySyn: number;
   RetryData: number;
+  AcknowledgedPayloadBytes?: number;
 }
 
 export interface ServerState {
@@ -25,6 +26,7 @@ export interface ServerState {
   HalfOpenConnections: number;
   LatencyP95Milli: number;
   NumberOfHandledPackets: number;
+  ReceivedPayloadBytes?: number;
 }
 
 export interface ServerStateWithClients {
@@ -88,6 +90,12 @@ export interface SimulationMetadata {
   virtualTimeSeconds: number;
   error?: string;
   performance?: SimulationPerformanceMetrics;
+  payload?: SimulationPayloadProgress;
+}
+
+export interface SimulationPayloadProgress {
+  receivedBytes: number;
+  acknowledgedBytes: number;
 }
 
 // Session averages measure simulator execution over real time, independently of virtual limits.

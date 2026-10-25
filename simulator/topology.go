@@ -136,6 +136,18 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 					Value: float64(s.completedStreams),
 					Unit:  "streams",
 				},
+				{
+					Key:   "receivedPayloadBytes",
+					Label: "Unique payload received by backends",
+					Value: float64(s.payload.ReceivedBytes),
+					Unit:  "bytes",
+				},
+				{
+					Key:   "acknowledgedPayloadBytes",
+					Label: "Payload confirmed to clients by ACK",
+					Value: float64(s.payload.AcknowledgedBytes),
+					Unit:  "bytes",
+				},
 			},
 		},
 	)
@@ -176,6 +188,12 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 					Label: "Packets received",
 					Value: float64(server.NumberOfHandledPackets),
 					Unit:  "packets",
+				},
+				{
+					Key:   "receivedPayloadBytes",
+					Label: "Unique payload received",
+					Value: float64(server.ReceivedPayloadBytes),
+					Unit:  "bytes",
 				},
 			},
 		})
@@ -286,6 +304,12 @@ func clientTopologyNode(runtime runtimeClient) model.TopologyNode {
 				Key:   "payloadBytes",
 				Label: "Payload per stream",
 				Value: float64(runtime.Config.Stream.Bytes),
+				Unit:  "bytes",
+			},
+			{
+				Key:   "acknowledgedPayloadBytes",
+				Label: "Payload confirmed by ACK",
+				Value: float64(state.AcknowledgedPayloadBytes),
 				Unit:  "bytes",
 			},
 			{

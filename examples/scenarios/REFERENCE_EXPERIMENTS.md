@@ -68,7 +68,9 @@ the long variants give more time to observe traffic. The 60-second horizon is
 fixed across the matrix; always include unfinished streams in comparisons.
 
 Current `LatencyP95Milli` is SYN-to-FIN connection lifetime, not RTT or application
-response time. Completed-payload totals exclude unfinished streams; link counters
-include headers, ACKs and retransmissions. The planned metrics work will provide
-more precise transfer measurements. These are reference inputs for the present
+response time. **Payload progress** reports unique bytes received by backends and
+confirmed to clients by ACK, including unfinished transfers. The corresponding
+headless fields are `ReceivedPayloadBytes` and `AcknowledgedPayloadBytes`.
+`CompletedPayloadBytes` still excludes unfinished streams; link counters include
+headers, ACKs and retransmissions. These are reference inputs for the present
 model, not calibrated predictions of Linux or IPVS performance.

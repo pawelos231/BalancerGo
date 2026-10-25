@@ -35,6 +35,12 @@ its draft. Static hosting must serve `index.html` for `/topology`; the container
 
 ## Scenario library
 
+The Simulation page also shows **Payload progress**: cumulative unique payload
+received by backends and confirmed to clients by ACK, including unfinished
+transfers. The counters exclude headers and retransmissions and survive closed
+connections until reset. Backend cards show received payload; topology details
+show per-backend receipts, per-client confirmations and aggregate totals.
+
 `src/scenarios/types.ts` mirrors the backend document. Integer values may be safe
 JSON numbers or exact decimal strings; keep strings unchanged when sending or
 displaying the scenario. Nanosecond fields retain their explicit units.
