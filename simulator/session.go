@@ -4,126 +4,73 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	httpserver "load-balancer/http"
-	"load-balancer/model"
 	"log"
 	"os"
 	"time"
+
+	httpserver "load-balancer/http"
+	"load-balancer/internal/presentation"
+	"load-balancer/internal/simulation"
 )
 
-// simulationMetadata describes the browser-controlled experiment lifecycle.
-type simulationMetadata struct {
-	Status             string                 `json:"status"`
-	RunID              string                 `json:"runId,omitempty"`
-	Algorithm          string                 `json:"algorithm"`
-	VirtualTimeSeconds float64                `json:"virtualTimeSeconds"`
-	Error              string                 `json:"error,omitempty"`
-	Performance        *simulationPerformance `json:"performance,omitempty"`
-	Payload            *payloadProgress       `json:"payload,omitempty"`
-	Transfers          *transferSummary       `json:"transfers,omitempty"`
-}
-
-type simulationSnapshot struct {
-	Type       string                  `json:"type"`
-	Version    int                     `json:"version"`
-	Mode       model.LBMode            `json:"mode"`
-	Algorithm  string                  `json:"algorithm"`
-	Servers    []model.TelemetryServer `json:"servers"`
-	Simulation simulationMetadata      `json:"simulation"`
-	Topology   model.TelemetryTopology `json:"topology"`
-}
-
-// runInteractive waits for a validated start request before creating a model.
-// Subsequent experiments use fresh engines, endpoints, links and random sources.
-func runInteractive(ctx context.Context, defaults configuration, hub *httpserver.Hub, control *simulationControl) error {
-	var current *simulation
-	var telemetry *telemetryPublisher
+// runInteractive owns lifecycle; projection and publication stay outside World.
+// Every observation still executes synchronously on the model's owner goroutine.
+func runInteractive(
+	ctx context.Context,
+	defaults configuration,
+	hub *httpserver.Hub,
+	control *runController,
+	publication *httpserver.Publication,
+) error {
+	var current *simulation.World
+	var projector *presentation.Projector
 	var started time.Time
 	var elapsed time.Duration
 	config := defaults.publicConfig()
-	status := "idle"
-	lastError := ""
-	runID := ""
+	status, lastError, runID := "idle", "", ""
 
 	publish := func() error {
-		state := model.LoadBalancerState{Mode: model.LBModeNAT, Algorithm: "RoundRobin", Servers: []model.ServerStateWithClients{}}
-		if config.Algorithm == "random" {
-			state.Algorithm = "Random"
-		}
-		virtualTime := 0.0
-		topology := model.TelemetryTopology{
-			Revision: "0",
-			Nodes:    []model.TelemetryNode{},
-			Links:    []model.TelemetryLink{},
-		}
-		servers := []model.TelemetryServer{}
-		var performance *simulationPerformance
-		var payload *payloadProgress
-		var transfers *transferSummary
 		if current != nil {
-			// Copy totals so a published snapshot keeps its values as the run advances.
-			progress := current.payload
-			payload = &progress
-			state = current.lb.Tick()
-			// The small legacy summary follows runtime algorithm changes too.
-			config.Algorithm = "roundRobin"
-			if state.Algorithm == "Random" {
-				config.Algorithm = "random"
-			}
-			virtualTime = current.engine.Now().Seconds()
-			// The definition is replaced only when nodes or links change.
-			sample, err := telemetry.sample(current, state)
-			if err != nil {
+			config.Algorithm = current.Info().Algorithm
+		}
+		frame, definition, err := presentation.BuildSnapshot(current, projector, presentation.RunState{
+			Status:    status,
+			RunID:     runID,
+			Algorithm: config.Algorithm,
+			Error:     lastError,
+			Elapsed:   elapsed,
+		})
+		if err != nil {
+			return err
+		}
+		if current == nil {
+			publication.ClearTopology()
+		} else if definition != nil {
+			if err := publication.PublishTopology(definition); err != nil {
 				return err
 			}
-			if sample.Document != nil {
-				if err := control.publishTopology(sample.Document); err != nil {
-					return err
-				}
-			}
-			topology, servers = sample.Topology, sample.Servers
-			transfers = &sample.Transfers
-			wallTime := elapsed
-			if status == "running" {
-				wallTime = time.Since(started)
-			}
-			performance = measurePerformance(
-				wallTime,
-				current.engine.EventsExecuted(),
-				current.egress.Stats().ForwardedPackets,
-			)
-		} else {
-			control.clearTopology()
 		}
-		return hub.BroadcastState(simulationSnapshot{
-			Type:      "simulationSnapshot",
-			Version:   1,
-			Mode:      state.Mode,
-			Algorithm: state.Algorithm,
-			Servers:   servers,
-			Simulation: simulationMetadata{
-				Status:             status,
-				RunID:              runID,
-				Algorithm:          config.Algorithm,
-				VirtualTimeSeconds: virtualTime,
-				Error:              lastError,
-				Performance:        performance,
-				Payload:            payload,
-				Transfers:          transfers,
-			},
-			Topology: topology,
-		})
+
+		// Running measurements include projection and definition encoding, as before.
+		if current != nil && status == "running" {
+			counters := frame.Simulation.Performance
+			frame.Simulation.Performance = presentation.MeasurePerformance(
+				time.Since(started),
+				counters.EventsExecuted,
+				counters.ForwardedPackets,
+			)
+		}
+		return hub.BroadcastState(frame)
 	}
 	if err := publish(); err != nil {
 		return err
 	}
+
 	clear := func() error {
-		// Discard the whole model, including event callbacks, link queues and TCP state.
-		current = nil
-		telemetry = nil
+		// Stop discards the model rather than closing each connection separately.
+		current, projector = nil, nil
 		started, elapsed = time.Time{}, 0
-		status, lastError = "idle", ""
-		runID = ""
+		status, lastError, runID = "idle", "", ""
 		control.forgetRun()
 		control.finishRun()
 		err := control.acknowledgeStop(publish)
@@ -150,8 +97,6 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			}
 			continue
 		}
-
-		// Both transports reach this owner before any engine or endpoint is created.
 		prepared, err := prepareStart(request, defaults)
 		if err != nil {
 			lastError = fmt.Sprintf("invalid configuration: %v", err)
@@ -176,10 +121,9 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			control.setRunStatus(runID, status)
 		}
 		started, elapsed = time.Now(), 0
-		current = newScenarioSimulation(prepared.scenario)
-		telemetry = newTelemetryPublisher(runID)
-		current.publishState = publish
-		current.commandHandled = func(err error) {
+		current = simulation.New(prepared.scenario)
+		projector = presentation.NewProjector(runID)
+		handled := func(err error) {
 			lastError = ""
 			if err != nil {
 				lastError = err.Error()
@@ -192,7 +136,7 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			return err
 		}
 		log.Printf("Starting simulation: %+v", config)
-		err = current.run(runCtx, control.commands)
+		err = runWorld(runCtx, current, control.commands, publish, handled)
 		elapsed = time.Since(started)
 		if ctx.Err() != nil {
 			return nil
@@ -203,15 +147,13 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 			}
 			continue
 		}
-		if encodeErr := json.NewEncoder(os.Stdout).Encode(current.result(elapsed)); encodeErr != nil {
+		if encodeErr := json.NewEncoder(os.Stdout).Encode(presentation.BuildResult(current, elapsed)); encodeErr != nil {
 			return encodeErr
 		}
-
 		status = "finished"
 		if err != nil {
 			status, lastError = "failed", err.Error()
 		}
-		// Runtime errors are reported to the UI; the service can accept a new run.
 		control.setRunStatus(runID, status)
 		control.finishRun()
 		if err := publish(); err != nil {

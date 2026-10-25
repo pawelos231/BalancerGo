@@ -64,13 +64,13 @@ func (c *Client) GetTransferState() model.TransferState {
 		elapsed = end - c.transfer.startedAt
 	}
 	return model.TransferState{
-		Status:                   c.transfer.status,
-		FailureReason:            c.transfer.failureReason,
-		ElapsedSeconds:           elapsed.Seconds(),
-		HandshakeCompleted:       c.handshakeCompleted,
-		HandshakeDurationSeconds: c.transfer.handshakeDuration.Seconds(),
-		PayloadDurationSeconds:   c.transfer.payloadDuration.Seconds(),
-		SynRetransmissions:       c.transfer.synRetransmissions,
-		DataRetransmissions:      c.transfer.dataRetransmissions,
+		Status:              c.transfer.status,
+		FailureReason:       c.transfer.failureReason,
+		Elapsed:             elapsed,
+		HandshakeCompleted:  c.handshakeCompleted,
+		HandshakeDuration:   c.transfer.handshakeDuration,
+		PayloadDuration:     c.transfer.payloadDuration,
+		SynRetransmissions:  c.transfer.synRetransmissions,
+		DataRetransmissions: c.transfer.dataRetransmissions,
 	}
 }

@@ -4,14 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"load-balancer/internal/contract"
+	"load-balancer/internal/presentation"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	httpserver "load-balancer/http"
-	"load-balancer/model"
 	"load-balancer/scenario"
 
 	"github.com/gorilla/websocket"
@@ -19,7 +19,7 @@ import (
 
 // telemetryFrame retains the actual bytes so unknown wire fields cannot hide in decoding.
 type telemetryFrame struct {
-	snapshot simulationSnapshot
+	snapshot contract.SimulationSnapshot
 	data     []byte
 }
 
@@ -27,7 +27,7 @@ type telemetryFrame struct {
 func readTelemetryFrame(
 	t *testing.T,
 	socket *websocket.Conn,
-	ready func(simulationSnapshot) bool,
+	ready func(contract.SimulationSnapshot) bool,
 ) telemetryFrame {
 	t.Helper()
 	if err := socket.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
@@ -38,7 +38,7 @@ func readTelemetryFrame(
 		if err != nil {
 			t.Fatal(err)
 		}
-		var snapshot simulationSnapshot
+		var snapshot contract.SimulationSnapshot
 		if err := json.Unmarshal(data, &snapshot); err != nil {
 			t.Fatal(err)
 		}
@@ -49,14 +49,14 @@ func readTelemetryFrame(
 }
 
 // startTelemetryScenario uses real HTTP admission and returns its run identity.
-func startTelemetryScenario(t *testing.T, h *scenarioHarness, input scenario.Scenario) httpserver.RunReceipt {
+func startTelemetryScenario(t *testing.T, h *scenarioHarness, input scenario.Scenario) contract.RunReceipt {
 	t.Helper()
 	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	data := scenarioRequest(t, h.server, http.MethodPost, "/api/simulations", document, http.StatusAccepted)
-	var receipt httpserver.RunReceipt
+	var receipt contract.RunReceipt
 	if err := json.Unmarshal(data, &receipt); err != nil {
 		t.Fatal(err)
 	}
@@ -64,10 +64,10 @@ func startTelemetryScenario(t *testing.T, h *scenarioHarness, input scenario.Sce
 }
 
 // topologyDocument reads the definitions without accessing a live model from HTTP.
-func topologyDocument(t *testing.T, h *scenarioHarness) model.TopologyDocument {
+func topologyDocument(t *testing.T, h *scenarioHarness) contract.TopologyDocument {
 	t.Helper()
 	data := scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current/topology", nil, http.StatusOK)
-	var document model.TopologyDocument
+	var document contract.TopologyDocument
 	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
@@ -77,11 +77,11 @@ func topologyDocument(t *testing.T, h *scenarioHarness) model.TopologyDocument {
 // stopTelemetryScenario waits for the empty state before checking the HTTP cache.
 func stopTelemetryScenario(t *testing.T, h *scenarioHarness) {
 	t.Helper()
-	command := httpserver.Envelope{Type: httpserver.StopSimulation, Payload: []byte(`{}`)}
+	command := contract.Envelope{Type: contract.StopSimulation, Payload: []byte(`{}`)}
 	if err := h.socket.WriteJSON(command); err != nil {
 		t.Fatal(err)
 	}
-	frame := readTelemetryFrame(t, h.socket, func(snapshot simulationSnapshot) bool {
+	frame := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.Status == "idle"
 	})
 	if len(frame.snapshot.Topology.Nodes) != 0 || len(frame.snapshot.Topology.Links) != 0 {
@@ -100,7 +100,7 @@ func stopTelemetryScenario(t *testing.T, h *scenarioHarness) {
 }
 
 // assertTelemetryReferences checks the tuple and every resource ID in the snapshot.
-func assertTelemetryReferences(t *testing.T, snapshot simulationSnapshot, document model.TopologyDocument) {
+func assertTelemetryReferences(t *testing.T, snapshot contract.SimulationSnapshot, document contract.TopologyDocument) {
 	t.Helper()
 	if document.RunID != snapshot.Simulation.RunID || document.Revision != snapshot.Topology.Revision {
 		t.Fatalf("definitions %s/%s do not match snapshot %s/%s",
@@ -115,7 +115,7 @@ func assertTelemetryReferences(t *testing.T, snapshot simulationSnapshot, docume
 			t.Fatalf("duplicate definition node %q", node.ID)
 		}
 		nodes[node.ID] = true
-		if node.Kind == model.TopologyNodeClient && node.ClientKey == nil {
+		if node.Kind == contract.TopologyNodeClient && node.ClientKey == nil {
 			t.Fatalf("client definition %q has no restorable flow key", node.ID)
 		}
 	}
@@ -192,7 +192,7 @@ func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 		{ID: "later", Count: 1, StartAt: 500 * time.Millisecond},
 	}
 	receipt := startTelemetryScenario(t, h, input)
-	first := readTelemetryFrame(t, h.socket, func(snapshot simulationSnapshot) bool {
+	first := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && len(snapshot.Topology.Nodes) == 4
 	})
 	initialRevision := first.snapshot.Topology.Revision
@@ -200,17 +200,17 @@ func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 	assertCompactTelemetry(t, first)
 
 	// Metrics and runtime routing policy do not create new resource definitions.
-	next := readTelemetryFrame(t, h.socket, func(snapshot simulationSnapshot) bool {
+	next := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.VirtualTimeSeconds > first.snapshot.Simulation.VirtualTimeSeconds
 	})
 	if next.snapshot.Topology.Revision != initialRevision || reflect.DeepEqual(next.data, first.data) {
 		t.Fatal("changing measurements did not retain a stable definition revision")
 	}
-	command := httpserver.Envelope{Type: httpserver.SetAlgorithm, Payload: []byte(`{"Name":"random"}`)}
+	command := contract.Envelope{Type: contract.SetAlgorithm, Payload: []byte(`{"Name":"random"}`)}
 	if err := h.socket.WriteJSON(command); err != nil {
 		t.Fatal(err)
 	}
-	changed := readTelemetryFrame(t, h.socket, func(snapshot simulationSnapshot) bool {
+	changed := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.Algorithm == "random"
 	})
 	if changed.snapshot.Topology.Revision != initialRevision {
@@ -218,25 +218,25 @@ func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 	}
 
 	// Spawn publishes its new definition before the corresponding live snapshot.
-	command = httpserver.Envelope{Type: httpserver.SpawnClient, Payload: []byte(`{"Count":1,"groupId":"initial"}`)}
+	command = contract.Envelope{Type: contract.SpawnClient, Payload: []byte(`{"Count":1,"groupId":"initial"}`)}
 	if err := h.socket.WriteJSON(command); err != nil {
 		t.Fatal(err)
 	}
-	spawned := readTelemetryFrame(t, h.socket, func(snapshot simulationSnapshot) bool {
+	spawned := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return len(snapshot.Topology.Nodes) == 5
 	})
 	if spawned.snapshot.Simulation.RunID != receipt.RunID || spawned.snapshot.Topology.Revision == initialRevision {
 		t.Fatal("Spawn lost the run identity or retained an outdated definition")
 	}
 	assertTelemetryReferences(t, spawned.snapshot, topologyDocument(t, h))
-	copy := h.control.currentTopology()
+	copy := h.publication.CurrentTopology()
 	copy[0] = '!'
-	if h.control.currentTopology()[0] != '{' {
+	if h.publication.CurrentTopology()[0] != '{' {
 		t.Fatal("HTTP topology cache exposed mutable bytes")
 	}
 
 	// A scheduled arrival changes membership independently of runtime commands.
-	later := readTelemetryFrame(t, h.socket, func(snapshot simulationSnapshot) bool {
+	later := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return len(snapshot.Topology.Nodes) == 6
 	})
 	if later.snapshot.Topology.Revision == spawned.snapshot.Topology.Revision {
@@ -247,7 +247,7 @@ func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 
 	// A fresh model may reuse revision numbers, but never its previous run identity.
 	second := startTelemetryScenario(t, h, input)
-	fresh := readTelemetryFrame(t, h.socket, func(snapshot simulationSnapshot) bool {
+	fresh := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == second.RunID && len(snapshot.Topology.Nodes) == 4
 	})
 	if second.RunID == receipt.RunID || fresh.snapshot.Topology.Revision != initialRevision {
@@ -266,7 +266,7 @@ func TestTelemetryFinishedRunCanReconnect(t *testing.T) {
 	input.Workload.Defaults.Bytes = 0
 	input.Workload.ClientGroups[0].Count = 1
 	receipt := startTelemetryScenario(t, h, input)
-	finished := readTelemetryFrame(t, h.socket, func(snapshot simulationSnapshot) bool {
+	finished := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
 	})
 	assertCompactTelemetry(t, finished)
@@ -280,7 +280,7 @@ func TestTelemetryFinishedRunCanReconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer socket.Close()
-	reconnected := readTelemetryFrame(t, socket, func(snapshot simulationSnapshot) bool {
+	reconnected := readTelemetryFrame(t, socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.Status == "finished"
 	})
 	if !reflect.DeepEqual(reconnected.snapshot, finished.snapshot) {
@@ -301,15 +301,15 @@ func TestTelemetryPayloadSize(t *testing.T) {
 	cfg.ingress.QueueCapacity = 4096
 	cfg.maxEvents = 1_000_000
 	s := newSimulation(cfg)
-	if err := s.advance(context.Background(), 100*time.Millisecond); err != nil {
+	if err := s.Advance(context.Background(), 100*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	s.sampleTraffic()
-	state := s.lb.Tick()
-	graph := s.topology(state)
+	s.SampleTraffic()
+	state := presentation.BuildResult(s, 0).State
+	graph := presentation.BuildTopology(s)
 	const runID = "payload-measurement"
-	publisher := newTelemetryPublisher(runID)
-	sample, err := publisher.sample(s, state)
+	publisher := presentation.NewProjector(runID)
+	sample, err := publisher.Sample(s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,30 +319,30 @@ func TestTelemetryPayloadSize(t *testing.T) {
 
 	// Reproduce the previous full WS envelope without changing model counters.
 	legacy := struct {
-		model.LoadBalancerState
+		contract.LoadBalancerState
 		Simulation struct {
-			Status             string           `json:"status"`
-			RunID              string           `json:"runId"`
-			Config             simulationConfig `json:"config"`
-			VirtualTimeSeconds float64          `json:"virtualTimeSeconds"`
+			Status             string                    `json:"status"`
+			RunID              string                    `json:"runId"`
+			Config             contract.SimulationConfig `json:"config"`
+			VirtualTimeSeconds float64                   `json:"virtualTimeSeconds"`
 		} `json:"simulation"`
-		Topology model.Topology `json:"topology"`
+		Topology contract.Topology `json:"topology"`
 	}{LoadBalancerState: state, Topology: graph}
 	legacy.Simulation.Status = "running"
 	legacy.Simulation.RunID = runID
 	legacy.Simulation.Config = cfg.publicConfig()
-	legacy.Simulation.VirtualTimeSeconds = s.engine.Now().Seconds()
-	current := simulationSnapshot{
+	legacy.Simulation.VirtualTimeSeconds = s.Now().Seconds()
+	current := contract.SimulationSnapshot{
 		Type:      "simulationSnapshot",
 		Version:   1,
 		Mode:      state.Mode,
 		Algorithm: state.Algorithm,
 		Servers:   sample.Servers,
-		Simulation: simulationMetadata{
+		Simulation: contract.SimulationMetadata{
 			Status:             "running",
 			RunID:              runID,
 			Algorithm:          cfg.algorithm,
-			VirtualTimeSeconds: s.engine.Now().Seconds(),
+			VirtualTimeSeconds: s.Now().Seconds(),
 		},
 		Topology: sample.Topology,
 	}
@@ -362,7 +362,7 @@ func TestTelemetryPayloadSize(t *testing.T) {
 		routed += len(backend.Clients)
 	}
 	t.Logf("active fixture: %d created clients, %d routed, %d nodes, %d links at %s",
-		len(s.clients), routed, len(graph.Nodes), len(graph.Links), s.engine.Now())
+		s.Info().CreatedClients, routed, len(graph.Nodes), len(graph.Links), s.Now())
 	t.Logf("JSON bytes: previous WS=%d, compact WS=%d, HTTP definitions=%d; WS reduction=%.2f%%",
 		before, after, definitions, 100*(1-float64(after)/float64(before)))
 	t.Logf("100 frames + one definition: previous=%d bytes, compact=%d bytes; reduction=%.2f%%",

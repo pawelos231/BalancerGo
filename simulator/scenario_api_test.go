@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	httpserver "load-balancer/http"
+	"load-balancer/internal/contract"
 	"load-balancer/scenario"
 	"net/http"
 	"net/http/httptest"
@@ -21,25 +22,27 @@ import (
 
 // scenarioHarness runs the real owner with HTTP and WebSocket connections.
 type scenarioHarness struct {
-	server   *httptest.Server
-	control  *simulationControl
-	socket   *websocket.Conn
-	defaults configuration
+	server      *httptest.Server
+	control     *runController
+	publication *httpserver.Publication
+	socket      *websocket.Conn
+	defaults    configuration
 }
 
 func newScenarioHarness(t *testing.T) *scenarioHarness {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	control := newSimulationControl(ctx)
-	hub := httpserver.NewHub(func(command httpserver.Envelope) error {
-		return control.submit(ctx, command)
+	control := newRunController(ctx)
+	publication := &httpserver.Publication{}
+	hub := httpserver.NewHub(func(command contract.Envelope) error {
+		return submitFrontendCommand(control, ctx, command)
 	})
 	go hub.Run(ctx)
 	defaults := legacyTestConfiguration()
-	api := &scenarioAPI{defaults: defaults, control: control}
+	api := &scenarioAPI{defaults: defaults, control: control, publication: publication}
 	server := httptest.NewServer(httpserver.NewServer(hub, "", api).Handler)
 	done := make(chan error, 1)
-	go func() { done <- runInteractive(ctx, defaults, hub, control) }()
+	go func() { done <- runInteractive(ctx, defaults, hub, control, publication) }()
 
 	url := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 	socket, _, err := websocket.DefaultDialer.Dial(url, nil)
@@ -61,14 +64,14 @@ func newScenarioHarness(t *testing.T) *scenarioHarness {
 			t.Error("simulation owner did not stop")
 		}
 	})
-	return &scenarioHarness{server: server, control: control, socket: socket, defaults: defaults}
+	return &scenarioHarness{server: server, control: control, publication: publication, socket: socket, defaults: defaults}
 }
 
-func readScenarioSnapshot(t *testing.T, socket *websocket.Conn, ready func(simulationSnapshot) bool) simulationSnapshot {
+func readScenarioSnapshot(t *testing.T, socket *websocket.Conn, ready func(contract.SimulationSnapshot) bool) contract.SimulationSnapshot {
 	t.Helper()
 	socket.SetReadDeadline(time.Now().Add(3 * time.Second))
 	for {
-		var snapshot simulationSnapshot
+		var snapshot contract.SimulationSnapshot
 		if err := socket.ReadJSON(&snapshot); err != nil {
 			t.Fatal(err)
 		}
@@ -136,14 +139,14 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 
 	// The HTTP handler returns before the paced run finishes, closing its request context.
 	body := scenarioRequest(t, h.server, http.MethodPost, "/api/simulations", document, http.StatusAccepted)
-	var receipt httpserver.RunReceipt
+	var receipt contract.RunReceipt
 	if err := json.Unmarshal(body, &receipt); err != nil {
 		t.Fatal(err)
 	}
 	if receipt.RunID == "" || receipt.Status != "accepted" {
 		t.Fatalf("invalid receipt: %+v", receipt)
 	}
-	snapshot := readScenarioSnapshot(t, h.socket, func(snapshot simulationSnapshot) bool {
+	snapshot := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && len(snapshot.Topology.Nodes) == 6
 	})
 	if snapshot.Simulation.Status != "running" || h.control.contextForRun().Err() != nil {
@@ -180,7 +183,7 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 		t.Fatalf("profile settings did not reach runtime links: slow=%d fast=%d", slowLinks, fastLinks)
 	}
 	body = scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusOK)
-	var record httpserver.RunRecord
+	var record contract.RunRecord
 	if err := json.Unmarshal(body, &record); err != nil {
 		t.Fatal(err)
 	}
@@ -194,14 +197,14 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 
 	// HTTP and WS cannot start another model while this one owns the slot.
 	scenarioRequest(t, h.server, http.MethodPost, "/api/simulations", document, http.StatusConflict)
-	err = h.control.submit(context.Background(), httpserver.Envelope{Type: httpserver.StartSimulation, Payload: []byte(`{}`)})
-	if !errors.Is(err, httpserver.ErrSimulationBusy) {
+	err = submitFrontendCommand(h.control, context.Background(), contract.Envelope{Type: contract.StartSimulation, Payload: []byte(`{}`)})
+	if !errors.Is(err, errSimulationBusy) {
 		t.Fatalf("WS bypassed HTTP admission: %v", err)
 	}
-	if err := h.socket.WriteJSON(httpserver.Envelope{Type: httpserver.StopSimulation, Payload: []byte(`{}`)}); err != nil {
+	if err := h.socket.WriteJSON(contract.Envelope{Type: contract.StopSimulation, Payload: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
-	readScenarioSnapshot(t, h.socket, func(snapshot simulationSnapshot) bool { return snapshot.Simulation.Status == "idle" })
+	readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool { return snapshot.Simulation.Status == "idle" })
 	scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusNotFound)
 }
 
@@ -209,7 +212,7 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 func TestScenarioStartAdmission(t *testing.T) {
 	serviceCtx, cancelService := context.WithCancel(context.Background())
 	defer cancelService()
-	control := newSimulationControl(serviceCtx)
+	control := newRunController(serviceCtx)
 	input := legacyTestConfiguration().scenarioDefinition()
 	resolved, err := scenario.Normalize(input)
 	if err != nil {
@@ -238,7 +241,7 @@ func TestScenarioStartAdmission(t *testing.T) {
 	for err := range errorsCh {
 		if err == nil {
 			accepted++
-		} else if !errors.Is(err, httpserver.ErrSimulationBusy) {
+		} else if !errors.Is(err, errSimulationBusy) {
 			t.Fatal(err)
 		}
 	}
@@ -253,7 +256,7 @@ func TestScenarioStartAdmission(t *testing.T) {
 
 	// Stop interrupts the reserved run and blocks new admission until the empty snapshot.
 	runCtx := control.contextForRun()
-	if err := control.submit(context.Background(), httpserver.Envelope{Type: httpserver.StopSimulation}); err != nil {
+	if err := submitFrontendCommand(control, context.Background(), contract.Envelope{Type: contract.StopSimulation}); err != nil {
 		t.Fatal(err)
 	}
 	if !errors.Is(runCtx.Err(), context.Canceled) {
@@ -261,7 +264,7 @@ func TestScenarioStartAdmission(t *testing.T) {
 	}
 	control.finishRun()
 	_, err = control.startScenario(context.Background(), document, resolved)
-	if !errors.Is(err, httpserver.ErrSimulationBusy) {
+	if !errors.Is(err, errSimulationBusy) {
 		t.Fatal("new Start bypassed pending Stop")
 	}
 	control.forgetRun()
@@ -288,15 +291,15 @@ func TestScenarioStartAdmission(t *testing.T) {
 // TestLegacyStartStillCreatesScenarioRecord checks the existing form's WS path.
 func TestLegacyStartStillCreatesScenarioRecord(t *testing.T) {
 	h := newScenarioHarness(t)
-	if err := h.socket.WriteJSON(httpserver.Envelope{Type: httpserver.StartSimulation, Payload: []byte(`{"clients":1,"speed":0}`)}); err != nil {
+	if err := h.socket.WriteJSON(contract.Envelope{Type: contract.StartSimulation, Payload: []byte(`{"clients":1,"speed":0}`)}); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := readScenarioSnapshot(t, h.socket, func(snapshot simulationSnapshot) bool { return snapshot.Simulation.Status == "finished" })
+	snapshot := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool { return snapshot.Simulation.Status == "finished" })
 	if snapshot.Simulation.RunID == "" {
 		t.Fatal("legacy run has no identity")
 	}
 	body := scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusOK)
-	var record httpserver.RunRecord
+	var record contract.RunRecord
 	if err := json.Unmarshal(body, &record); err != nil {
 		t.Fatal(err)
 	}

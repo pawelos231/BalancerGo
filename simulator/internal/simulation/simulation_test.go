@@ -1,4 +1,4 @@
-package main
+package simulation
 
 import (
 	"context"
@@ -7,11 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"load-balancer/model"
 	"load-balancer/network"
 )
 
-// TestSimulationQueueSnapshots checks reports and topology with both queue owners.
+// TestSimulationQueueSnapshots checks native observations with both queue owners.
 func TestSimulationQueueSnapshots(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -24,24 +23,24 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			cfg := legacyTestConfiguration()
-			cfg.clients = 0
-			cfg.bandwidth = 8_000
-			cfg.ingress.BandwidthBitsPerSecond = cfg.bandwidth
-			cfg.ingress.PacketTravelTime = cfg.packetTravelTime
-			cfg.ingress.QueueCapacity = test.capacity
-			cfg.forwardingBitsPerSecond = math.MaxInt64
-			cfg.queue = test.capacity
-			cfg.duration = 5 * time.Millisecond
-			s := newSimulation(cfg)
+			definition := baseScenario()
+			definition.Workload.ClientGroups[0].Count = 0
+			definition.Network.Defaults.BandwidthBitsPerSecond = 8_000
+			definition.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = definition.Network.Defaults.BandwidthBitsPerSecond
+			definition.Resources.LoadBalancer.Ingress.PacketTravelTime = definition.Network.Defaults.PacketTravelTime
+			definition.Resources.LoadBalancer.Ingress.QueueCapacity = test.capacity
+			definition.Resources.LoadBalancer.ForwardingBitsPerSecond = math.MaxInt64
+			definition.Network.Defaults.QueueCapacity = test.capacity
+			definition.Execution.Duration = 5 * time.Millisecond
+			s := New(normalizedRuntimeScenario(t, definition))
 
 			// Every path gets one active packet, then waiting packets or tail drops.
 			arrivals := 0
 			for _, link := range s.links {
 				transmit := link.Link.Transmit
-				if link.Source == loadBalancerNodeID {
+				if link.Source == LoadBalancerNodeID {
 					if link.Output == nil {
-						t.Fatalf("LB output has no managed FIFO: %s", link.Name)
+						t.Fatalf("LB output has no managed FIFO: %s", link.ID)
 					}
 					transmit = link.Output.Transmit
 				}
@@ -70,12 +69,12 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 			assertSimulationLinkSnapshots(t, s, waiting)
 			for _, link := range s.links {
 				if link.Output != nil && link.Link.Stats().QueuedPackets != 0 {
-					t.Fatalf("LB output has a second hidden queue: %s", link.Name)
+					t.Fatalf("LB output has a second hidden queue: %s", link.ID)
 				}
 			}
 
 			// All admitted packets finish; rejected callbacks never run.
-			if err := s.engine.RunUntil(cfg.duration); err != nil {
+			if err := s.engine.RunUntil(definition.Execution.Duration); err != nil {
 				t.Fatal(err)
 			}
 			finished := waiting
@@ -90,24 +89,24 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 			}
 
 			// A new run starts with empty physical links and empty managed FIFOs.
-			fresh := newSimulation(cfg)
+			fresh := New(normalizedRuntimeScenario(t, definition))
 			assertSimulationLinkSnapshots(t, fresh, network.Stats{})
 		})
 	}
 }
 
-// TestSimulationSharesForwardingBudget checks shared outputs and both snapshots.
+// TestSimulationSharesForwardingBudget checks shared outputs and native readings.
 func TestSimulationSharesForwardingBudget(t *testing.T) {
-	cfg := legacyTestConfiguration()
-	cfg.clients = 0
-	cfg.servers = 2
-	cfg.bandwidth = 8_000
-	cfg.ingress.BandwidthBitsPerSecond = cfg.bandwidth
-	cfg.ingress.PacketTravelTime = cfg.packetTravelTime
-	cfg.forwardingBitsPerSecond = 8_000
-	cfg.queue = 1
-	cfg.duration = 4 * time.Millisecond
-	s := newSimulation(cfg)
+	definition := baseScenario()
+	definition.Workload.ClientGroups[0].Count = 0
+	definition.Resources.Backends = definition.Resources.Backends[:2]
+	definition.Network.Defaults.BandwidthBitsPerSecond = 8_000
+	definition.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = definition.Network.Defaults.BandwidthBitsPerSecond
+	definition.Resources.LoadBalancer.Ingress.PacketTravelTime = definition.Network.Defaults.PacketTravelTime
+	definition.Resources.LoadBalancer.ForwardingBitsPerSecond = 8_000
+	definition.Network.Defaults.QueueCapacity = 1
+	definition.Execution.Duration = 4 * time.Millisecond
+	s := New(normalizedRuntimeScenario(t, definition))
 
 	// Physical input links do not consume the LB's output forwarding budget.
 	arrivals := make(map[string]time.Duration)
@@ -118,7 +117,7 @@ func TestSimulationSharesForwardingBudget(t *testing.T) {
 		}
 		path := link.Source + " -> " + link.Target
 		if !transmit(1, func() { arrivals[path] = s.engine.Now() }) {
-			t.Fatalf("first packet was rejected on %s", link.Name)
+			t.Fatalf("first packet was rejected on %s", link.ID)
 		}
 	}
 
@@ -149,14 +148,14 @@ func TestSimulationSharesForwardingBudget(t *testing.T) {
 	}
 	assertForwardingSnapshots(t, s, started)
 
-	if err := s.engine.RunUntil(cfg.duration); err != nil {
+	if err := s.engine.RunUntil(definition.Execution.Duration); err != nil {
 		t.Fatal(err)
 	}
 	wantArrivals := map[string]time.Duration{
-		loadBalancerNodeID + " -> " + backendNodeID("srv-00"): 2 * time.Millisecond,
-		loadBalancerNodeID + " -> " + backendNodeID("srv-01"): 3 * time.Millisecond,
-		backendNodeID("srv-00") + " -> " + loadBalancerNodeID: 2 * time.Millisecond,
-		backendNodeID("srv-01") + " -> " + loadBalancerNodeID: 2 * time.Millisecond,
+		LoadBalancerNodeID + " -> " + BackendNodeID("srv-00"): 2 * time.Millisecond,
+		LoadBalancerNodeID + " -> " + BackendNodeID("srv-01"): 3 * time.Millisecond,
+		BackendNodeID("srv-00") + " -> " + LoadBalancerNodeID: 2 * time.Millisecond,
+		BackendNodeID("srv-01") + " -> " + LoadBalancerNodeID: 2 * time.Millisecond,
 	}
 	if !reflect.DeepEqual(arrivals, wantArrivals) {
 		t.Fatalf("arrivals = %v, want %v", arrivals, wantArrivals)
@@ -164,35 +163,64 @@ func TestSimulationSharesForwardingBudget(t *testing.T) {
 	assertForwardingSnapshots(t, s, started)
 
 	// A new simulation owns a fresh pacer and fresh counters.
-	fresh := newSimulation(cfg)
+	fresh := New(normalizedRuntimeScenario(t, definition))
 	assertForwardingSnapshots(t, fresh, network.ForwardingStats{
-		ForwardingBitsPerSecond: cfg.forwardingBitsPerSecond,
+		ForwardingBitsPerSecond: definition.Resources.LoadBalancer.ForwardingBitsPerSecond,
 	})
+}
+
+// assertForwardingSnapshots verifies a detached reading without consuming budget
+// or changing its virtual-time wait measurement.
+func assertForwardingSnapshots(t *testing.T, s *World, want network.ForwardingStats) {
+	t.Helper()
+	if got := s.Info().Forwarding; got != want {
+		t.Fatalf("forwarding = %+v, want %+v", got, want)
+	}
+}
+
+// assertSimulationLinkSnapshots checks every physical and managed queue through
+// the same detached observations used by the presentation boundary.
+func assertSimulationLinkSnapshots(t *testing.T, s *World, want network.Stats) {
+	t.Helper()
+	index := 0
+	s.VisitLinks(func(link LinkObservation) {
+		if index >= len(s.links) {
+			t.Fatal("observation introduced an unwired link")
+		}
+		wired := s.links[index]
+		if link.ID != wired.ID || link.Stats != want {
+			t.Errorf("observation for %s: got %+v, want %+v", wired.ID, link, want)
+		}
+		index++
+	})
+	if index != len(s.links) {
+		t.Fatal("observation omitted a wired link")
+	}
 }
 
 // TestSimulationCountsTCPWireTraffic checks that real model packets use the budget.
 func TestSimulationCountsTCPWireTraffic(t *testing.T) {
-	cfg := legacyTestConfiguration()
-	cfg.clients = 2
-	cfg.servers = 1
-	cfg.streamBytes = 1024
-	cfg.forwardingBitsPerSecond = 1_000_000
+	definition := baseScenario()
+	definition.Workload.ClientGroups[0].Count = 2
+	definition.Resources.Backends = definition.Resources.Backends[:1]
+	definition.Workload.Defaults.Bytes = 1024
+	definition.Resources.LoadBalancer.ForwardingBitsPerSecond = 1_000_000
 
-	var first simulationResult
+	var first worldReadings
 	for run := 0; run < 2; run++ {
-		s := newSimulation(cfg)
-		if err := s.run(context.Background(), nil); err != nil {
+		s := New(normalizedRuntimeScenario(t, definition))
+		if err := runWorld(context.Background(), s); err != nil {
 			t.Fatal(err)
 		}
-		report := s.result(0)
-		if report.CompletedStreams != cfg.clients || report.ClosedClients != cfg.clients {
+		report := readWorld(s)
+		if report.CompletedStreams != definition.Workload.ClientGroups[0].Count || report.ClosedClients != definition.Workload.ClientGroups[0].Count {
 			t.Fatalf("TCP streams did not finish: completed=%d closed=%d", report.CompletedStreams, report.ClosedClients)
 		}
 
 		// Count physical starts only on paths leaving the LB, including headers.
 		var startedPackets, startedBytes uint64
 		for _, link := range s.links {
-			if link.Source == loadBalancerNodeID {
+			if link.Source == LoadBalancerNodeID {
 				physical := link.Link.Stats()
 				startedPackets += physical.AcceptedPackets
 				startedBytes += physical.AcceptedBytes
@@ -214,78 +242,5 @@ func TestSimulationCountsTCPWireTraffic(t *testing.T) {
 		} else if !reflect.DeepEqual(first, report) {
 			t.Fatal("identical scenarios produced different virtual results")
 		}
-	}
-}
-
-// assertForwardingSnapshots checks shared counters in the report and LB inspector.
-func assertForwardingSnapshots(t *testing.T, s *simulation, want network.ForwardingStats) {
-	t.Helper()
-	report := s.result(0)
-	if report.Forwarding != want {
-		t.Fatalf("forwarding = %+v, want %+v", report.Forwarding, want)
-	}
-
-	graph := s.topology(report.State)
-	metrics := make(map[string]float64)
-	for _, node := range graph.Nodes {
-		if node.ID == loadBalancerNodeID {
-			for _, metric := range node.Metrics {
-				metrics[metric.Key] = metric.Value
-			}
-		}
-	}
-	wantMetrics := map[string]float64{
-		"forwardingBitsPerSecond":       float64(want.ForwardingBitsPerSecond),
-		"forwardedPackets":              float64(want.ForwardedPackets),
-		"forwardedBytes":                float64(want.ForwardedBytes),
-		"forwardingQueuedPackets":       float64(want.QueuedPackets),
-		"forwardingQueueDroppedPackets": float64(want.QueueDroppedPackets),
-		"forwardingQueueDroppedBytes":   float64(want.QueueDroppedBytes),
-		"forwardingBudgetWaitMs":        float64(want.BudgetWait) / float64(time.Millisecond),
-	}
-	for key, value := range wantMetrics {
-		got, exists := metrics[key]
-		if !exists || got != value {
-			t.Errorf("topology metric %s = %v (exists=%v), want %v", key, got, exists, value)
-		}
-	}
-}
-
-// assertSimulationLinkSnapshots checks both public projections of link counters.
-func assertSimulationLinkSnapshots(t *testing.T, s *simulation, want network.Stats) {
-	t.Helper()
-	report := s.result(0)
-	graph := s.topology(report.State)
-	if len(report.Links) != len(s.links) || len(graph.Links) != len(s.links) {
-		t.Fatal("report or topology omitted a wired link")
-	}
-
-	wantGraphStats := topologyStatsForTest(want)
-	for i, link := range s.links {
-		if report.Links[i].Name != link.Name || report.Links[i].Stats != want {
-			t.Errorf("report for %s: got %+v, want %+v", link.Name, report.Links[i], want)
-		}
-		if graph.Links[i].ID != link.ID || graph.Links[i].Stats != wantGraphStats {
-			t.Errorf("topology for %s: got %+v, want %+v", link.Name, graph.Links[i], wantGraphStats)
-		}
-	}
-}
-
-// topologyStatsForTest expresses all public packet counters without live state.
-func topologyStatsForTest(want network.Stats) model.TopologyLinkStats {
-	return model.TopologyLinkStats{
-		QueuedPackets:       want.QueuedPackets,
-		Transmitting:        want.Transmitting,
-		TravellingPackets:   want.TravellingPackets,
-		OfferedPackets:      want.OfferedPackets,
-		OfferedBytes:        want.OfferedBytes,
-		AcceptedPackets:     want.AcceptedPackets,
-		AcceptedBytes:       want.AcceptedBytes,
-		DeliveredPackets:    want.DeliveredPackets,
-		QueueDroppedPackets: want.QueueDroppedPackets,
-		QueueDroppedBytes:   want.QueueDroppedBytes,
-		LostPackets:         want.LostPackets,
-		LostBytes:           want.LostBytes,
-		DeliveredBytes:      want.DeliveredBytes,
 	}
 }

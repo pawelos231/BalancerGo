@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"load-balancer/internal/contract"
 )
 
 const (
@@ -31,12 +32,6 @@ var errHubClosed = errors.New("websocket hub is closed")
 
 type snapshotFrame struct {
 	data []byte
-}
-
-type commandErrorFrame struct {
-	Type        string      `json:"type"`
-	CommandType CommandType `json:"commandType"`
-	Error       string      `json:"error"`
 }
 
 type wsClient struct {
@@ -83,7 +78,7 @@ func (c *wsClient) queueLatest(frame []byte) {
 // it must not read or mutate live simulation state. BroadcastState serializes a
 // detached snapshot and never waits for a WebSocket connection or its writer.
 type Hub struct {
-	submit     func(Envelope) error
+	submit     func(contract.Envelope) error
 	latest     atomic.Pointer[snapshotFrame]
 	wake       chan struct{}
 	register   chan *wsClient
@@ -92,7 +87,7 @@ type Hub struct {
 	runOnce    sync.Once
 }
 
-func NewHub(submit func(Envelope) error) *Hub {
+func NewHub(submit func(contract.Envelope) error) *Hub {
 	return &Hub{
 		submit:     submit,
 		wake:       make(chan struct{}, 1),
@@ -171,7 +166,7 @@ func (h *Hub) readCommands(c *wsClient) {
 		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 	for {
-		var envelope Envelope
+		var envelope contract.Envelope
 		if err := c.conn.ReadJSON(&envelope); err != nil {
 			return
 		}
@@ -182,7 +177,7 @@ func (h *Hub) readCommands(c *wsClient) {
 			log.Printf("UI command %q rejected: %v", envelope.Type, err)
 			// String-only fields cannot fail JSON encoding. Keep errors separate
 			// from replaceable snapshots, and use the same connection writer.
-			frame, _ := json.Marshal(commandErrorFrame{
+			frame, _ := json.Marshal(contract.CommandErrorFrame{
 				Type: "commandError", CommandType: envelope.Type, Error: err.Error(),
 			})
 			select {

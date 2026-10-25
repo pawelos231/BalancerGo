@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"load-balancer/engine"
+
 	"load-balancer/scenario"
 	"math"
 	"time"
@@ -119,113 +120,4 @@ func (c configuration) normalized() (configuration, error) {
 	}
 	c.streamBytes = resolved.DefaultStream.Bytes
 	return c, nil
-}
-
-// simulationConfig is the frontend-visible experiment configuration. Process
-// options such as tracing and headless mode are deliberately absent.
-type simulationConfig struct {
-	Clients                 int     `json:"clients"`
-	Servers                 int     `json:"servers"`
-	Packets                 int     `json:"packets"`
-	Bytes                   int     `json:"bytes"`
-	DurationSeconds         float64 `json:"durationSeconds"`
-	ClientGapMs             float64 `json:"clientGapMs"`
-	PacketGapMs             float64 `json:"packetGapMs"`
-	SnapshotIntervalMs      float64 `json:"snapshotIntervalMs"`
-	BandwidthBitsPerSecond  int64   `json:"bandwidthBitsPerSecond"`
-	ForwardingBitsPerSecond int64   `json:"forwardingBitsPerSecond"`
-	PacketTravelTimeMs      float64 `json:"packetTravelTimeMs"`
-	LinkQueue               int     `json:"linkQueue"`
-	Loss                    float64 `json:"loss"`
-
-	IngressBandwidthBitsPerSecond int64   `json:"ingressBandwidthBitsPerSecond"`
-	IngressPacketTravelTimeMs     float64 `json:"ingressPacketTravelTimeMs"`
-	IngressQueueCapacity          int     `json:"ingressQueueCapacity"`
-	IngressLoss                   float64 `json:"ingressLoss"`
-
-	Seed      int64   `json:"seed"`
-	Algorithm string  `json:"algorithm"`
-	Speed     float64 `json:"speed"`
-	MaxEvents uint64  `json:"maxEvents"`
-}
-
-func (c configuration) publicConfig() simulationConfig {
-	return simulationConfig{
-		Clients:                 c.clients,
-		Servers:                 c.servers,
-		Packets:                 c.packets,
-		Bytes:                   c.streamBytes,
-		DurationSeconds:         float64(c.duration) / float64(time.Second),
-		ClientGapMs:             float64(c.clientGap) / float64(time.Millisecond),
-		PacketGapMs:             float64(c.packetGap) / float64(time.Millisecond),
-		SnapshotIntervalMs:      float64(c.snapshotInterval) / float64(time.Millisecond),
-		BandwidthBitsPerSecond:  c.bandwidth,
-		ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
-		PacketTravelTimeMs:      float64(c.packetTravelTime) / float64(time.Millisecond),
-		LinkQueue:               c.queue,
-		Loss:                    c.loss,
-
-		IngressBandwidthBitsPerSecond: c.ingress.BandwidthBitsPerSecond,
-		IngressPacketTravelTimeMs:     float64(c.ingress.PacketTravelTime) / float64(time.Millisecond),
-		IngressQueueCapacity:          c.ingress.QueueCapacity,
-		IngressLoss:                   c.ingress.LossRate,
-
-		Seed:      c.seed,
-		Algorithm: c.algorithm,
-		Speed:     c.speed,
-		MaxEvents: c.maxEvents,
-	}
-}
-
-// configuration overlays the experiment fields while retaining base's process
-// options. Callers can decode omitted JSON fields into base.publicConfig().
-func (c simulationConfig) configuration(base configuration) (configuration, error) {
-	base.clients, base.servers = c.Clients, c.Servers
-	base.packets, base.streamBytes = c.Packets, c.Bytes
-	base.bandwidth, base.queue = c.BandwidthBitsPerSecond, c.LinkQueue
-	base.forwardingBitsPerSecond = c.ForwardingBitsPerSecond
-	base.loss, base.seed = c.Loss, c.Seed
-	base.algorithm, base.speed, base.maxEvents = c.Algorithm, c.Speed, c.MaxEvents
-	base.ingress.BandwidthBitsPerSecond = c.IngressBandwidthBitsPerSecond
-	base.ingress.QueueCapacity = c.IngressQueueCapacity
-	base.ingress.LossRate = c.IngressLoss
-	for _, field := range []struct {
-		name  string
-		value float64
-		unit  time.Duration
-		out   *time.Duration
-	}{
-		{"durationSeconds", c.DurationSeconds, time.Second, &base.duration},
-		{"clientGapMs", c.ClientGapMs, time.Millisecond, &base.clientGap},
-		{"packetGapMs", c.PacketGapMs, time.Millisecond, &base.packetGap},
-		{"snapshotIntervalMs", c.SnapshotIntervalMs, time.Millisecond, &base.snapshotInterval},
-		{"packetTravelTimeMs", c.PacketTravelTimeMs, time.Millisecond, &base.packetTravelTime},
-		{
-			name:  "ingressPacketTravelTimeMs",
-			value: c.IngressPacketTravelTimeMs,
-			unit:  time.Millisecond,
-			out:   &base.ingress.PacketTravelTime,
-		},
-	} {
-		duration, err := configDuration(field.name, field.value, field.unit)
-		if err != nil {
-			return configuration{}, err
-		}
-		*field.out = duration
-	}
-	return base.normalized()
-}
-
-// Convert only after checking the floating-point input and scaled value.
-// float64(MaxInt64) rounds to 2^63, so equality is already outside the safe
-// conversion range. Positive fractions of a nanosecond truncate to zero.
-func configDuration(name string, value float64, unit time.Duration) (time.Duration, error) {
-	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
-		return 0, fmt.Errorf("%s must be finite and nonnegative", name)
-	}
-	nanoseconds := value * float64(unit)
-	if math.IsInf(nanoseconds, 0) || nanoseconds >= float64(math.MaxInt64) {
-		return 0, fmt.Errorf("%s exceeds time.Duration range", name)
-	}
-	return time.Duration(nanoseconds), nil
 }

@@ -1,4 +1,4 @@
-package main
+package simulation
 
 import (
 	"errors"
@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"load-balancer/client"
-	httpserver "load-balancer/http"
 	"load-balancer/model"
 	"load-balancer/scenario"
 )
@@ -32,7 +31,7 @@ type runtimeClient struct {
 
 // initializeClients reserves address ranges and schedules one arrival per group.
 // The remaining arrivals form a chain, rather than one upfront event per client.
-func (s *simulation) initializeClients() {
+func (s *World) initializeClients() {
 	groups := s.scenario.ClientGroups
 	s.clientGroups = make([]runtimeClientGroup, len(groups))
 	s.scheduledClients = s.scenario.TotalClients
@@ -74,7 +73,7 @@ func (s *simulation) initializeClients() {
 
 // scheduleClientBatch creates each client at its own virtual arrival time.
 // The address range is reserved already, including clients beyond the end time.
-func (s *simulation) scheduleClientBatch(
+func (s *World) scheduleClientBatch(
 	group *runtimeClientGroup,
 	firstIndex, count, firstAddress int,
 	startAt time.Duration,
@@ -105,7 +104,7 @@ func (s *simulation) scheduleClientBatch(
 }
 
 // startClient creates two private links and starts the configured TCP stream.
-func (s *simulation) startClient(
+func (s *World) startClient(
 	config scenario.ClientConfig,
 	groupID string,
 	index, address int,
@@ -127,15 +126,13 @@ func (s *simulation) startClient(
 
 	toInput := s.addLink(
 		"link/"+config.ID+"/to-lb",
-		config.ID+" -> LB input",
 		config.ID,
-		loadBalancerNodeID,
+		LoadBalancerNodeID,
 		config.Network.ToLoadBalancer,
 	)
 	toClient := s.addOutput(
 		"link/"+config.ID+"/from-lb",
-		"LB -> "+config.ID,
-		loadBalancerNodeID,
+		LoadBalancerNodeID,
 		config.ID,
 		config.Network.FromLoadBalancer,
 	)
@@ -182,16 +179,15 @@ func (s *simulation) startClient(
 	cl.EstablishConnection()
 }
 
-// spawnClients adds a batch to one group's settings, starting at the current time.
+// SpawnClients adds a batch to one group's settings, starting at the current time.
 // Multiple groups require an explicit groupId so profiles are never guessed.
-func (s *simulation) spawnClients(message httpserver.SpawnClientMsg) error {
-	invalidCount := message.Count < 1 || message.Count > 10000
-	addressRangeExceeded := s.scheduledClients > scenario.MaxClients-message.Count
+func (s *World) SpawnClients(count int, groupID string) error {
+	invalidCount := count < 1 || count > 10000
+	addressRangeExceeded := s.scheduledClients > scenario.MaxClients-count
 	if invalidCount || addressRangeExceeded {
 		return errors.New("spawn count must be 1..10000 and fit the client address range")
 	}
 
-	groupID := message.GroupID
 	if groupID == "" {
 		if len(s.clientGroups) != 1 {
 			return errors.New("spawn groupId is required unless the scenario has exactly one client group")
@@ -207,9 +203,9 @@ func (s *simulation) spawnClients(message httpserver.SpawnClientMsg) error {
 
 		firstIndex := group.NextIndex
 		firstAddress := s.scheduledClients + 1
-		group.NextIndex += message.Count
-		s.scheduledClients += message.Count
-		s.scheduleClientBatch(group, firstIndex, message.Count, firstAddress, s.engine.Now())
+		group.NextIndex += count
+		s.scheduledClients += count
+		s.scheduleClientBatch(group, firstIndex, count, firstAddress, s.engine.Now())
 		return nil
 	}
 	return fmt.Errorf("unknown client group: %s", groupID)

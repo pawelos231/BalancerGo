@@ -1,6 +1,9 @@
 package main
 
 import (
+	"load-balancer/internal/contract"
+	"load-balancer/internal/presentation"
+	"load-balancer/internal/simulation"
 	"math"
 	"reflect"
 	"strings"
@@ -12,8 +15,8 @@ import (
 
 // TestPerformanceUsesWallTime keeps event and packet rates separate from virtual time.
 func TestPerformanceUsesWallTime(t *testing.T) {
-	got := measurePerformance(2*time.Second, 500, 100)
-	want := &simulationPerformance{
+	got := presentation.MeasurePerformance(2*time.Second, 500, 100)
+	want := &contract.SimulationPerformance{
 		WallTimeSeconds:               2,
 		EventsExecuted:                500,
 		EventsPerWallSecond:           250,
@@ -36,8 +39,8 @@ func TestPerformanceHandlesNonpositiveTime(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			got := measurePerformance(test.elapsed, 500, 100)
-			want := &simulationPerformance{
+			got := presentation.MeasurePerformance(test.elapsed, 500, 100)
+			want := &contract.SimulationPerformance{
 				EventsExecuted:   500,
 				ForwardedPackets: 100,
 			}
@@ -51,7 +54,7 @@ func TestPerformanceHandlesNonpositiveTime(t *testing.T) {
 // TestPerformanceLifecycle freezes completed measurements and starts new runs at zero.
 func TestPerformanceLifecycle(t *testing.T) {
 	h := newScenarioHarness(t)
-	initial := readScenarioSnapshot(t, h.socket, func(snapshot simulationSnapshot) bool {
+	initial := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.Status == "idle"
 	})
 	if initial.Simulation.Performance != nil {
@@ -71,7 +74,7 @@ func TestPerformanceLifecycle(t *testing.T) {
 	input.Workload.Defaults.Bytes = 1 << 30
 	input.Workload.ClientGroups[0].Count = 4
 	receipt := startTelemetryScenario(t, h, input)
-	finished := readScenarioSnapshot(t, h.socket, func(snapshot simulationSnapshot) bool {
+	finished := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
 	})
 	assertPerformanceCoherent(t, finished)
@@ -90,7 +93,7 @@ func TestPerformanceLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reconnected.Close()
-	late := readScenarioSnapshot(t, reconnected, func(snapshot simulationSnapshot) bool {
+	late := readScenarioSnapshot(t, reconnected, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.Status == "finished"
 	})
 	if !reflect.DeepEqual(late.Simulation.Performance, finished.Simulation.Performance) {
@@ -99,7 +102,7 @@ func TestPerformanceLifecycle(t *testing.T) {
 
 	// Stop removes measurements along with the model and cached graph.
 	stopTelemetryScenario(t, h)
-	idle := readScenarioSnapshot(t, reconnected, func(snapshot simulationSnapshot) bool {
+	idle := readScenarioSnapshot(t, reconnected, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.Status == "idle"
 	})
 	if idle.Simulation.Performance != nil {
@@ -110,7 +113,7 @@ func TestPerformanceLifecycle(t *testing.T) {
 	input.Workload.ClientGroups[0].Count = 1
 	input.Workload.Defaults.Bytes = 0
 	second := startTelemetryScenario(t, h, input)
-	fresh := readScenarioSnapshot(t, h.socket, func(snapshot simulationSnapshot) bool {
+	fresh := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == second.RunID && snapshot.Simulation.Status == "finished"
 	})
 	assertPerformanceCoherent(t, fresh)
@@ -138,7 +141,7 @@ func TestPerformanceFailedRunFreezes(t *testing.T) {
 	input.Network.Defaults.PacketTravelTime = 0
 	input.Workload.Defaults.Bytes = 1024 * 1024
 	receipt := startTelemetryScenario(t, h, input)
-	failed := readScenarioSnapshot(t, h.socket, func(snapshot simulationSnapshot) bool {
+	failed := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "failed"
 	})
 	assertPerformanceCoherent(t, failed)
@@ -157,7 +160,7 @@ func TestPerformanceFailedRunFreezes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reconnected.Close()
-	late := readScenarioSnapshot(t, reconnected, func(snapshot simulationSnapshot) bool {
+	late := readScenarioSnapshot(t, reconnected, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.Status == "failed"
 	})
 	if !reflect.DeepEqual(late.Simulation.Performance, failed.Simulation.Performance) {
@@ -167,7 +170,7 @@ func TestPerformanceFailedRunFreezes(t *testing.T) {
 }
 
 // assertPerformanceCoherent checks that the owner reports finite real-time rates.
-func assertPerformanceCoherent(t *testing.T, snapshot simulationSnapshot) {
+func assertPerformanceCoherent(t *testing.T, snapshot contract.SimulationSnapshot) {
 	t.Helper()
 	performance := snapshot.Simulation.Performance
 	if performance == nil {
@@ -202,7 +205,7 @@ func assertPerformanceCoherent(t *testing.T, snapshot simulationSnapshot) {
 		}
 	}
 	for _, node := range snapshot.Topology.Nodes {
-		if node.ID == loadBalancerNodeID {
+		if node.ID == simulation.LoadBalancerNodeID {
 			if uint64(node.Metrics["forwardedPackets"]) != performance.ForwardedPackets {
 				t.Fatal("execution packet counter disagrees with the LB forwarding counter")
 			}

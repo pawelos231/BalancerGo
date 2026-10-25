@@ -1,14 +1,12 @@
-package main
+package simulation
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"reflect"
 	"testing"
 	"time"
 
-	httpserver "load-balancer/http"
 	"load-balancer/model"
 	"load-balancer/network"
 	"load-balancer/scenario"
@@ -16,7 +14,7 @@ import (
 
 // scenarioRuntimeDefinition supplies a small, fast native scenario for these tests.
 func scenarioRuntimeDefinition() scenario.Scenario {
-	definition := legacyTestConfiguration().scenarioDefinition()
+	definition := baseScenario()
 	definition.Execution.Duration = 500 * time.Millisecond
 	definition.Network.Defaults = scenario.LinkConfig{
 		BandwidthBitsPerSecond: 8_000_000,
@@ -43,7 +41,7 @@ func normalizedRuntimeScenario(t *testing.T, definition scenario.Scenario) scena
 }
 
 // scenarioRuntimeLink locates a physical path by its actual graph endpoints.
-func scenarioRuntimeLink(t *testing.T, s *simulation, source, target string) namedLink {
+func scenarioRuntimeLink(t *testing.T, s *World, source, target string) namedLink {
 	t.Helper()
 	for _, link := range s.links {
 		if link.Source == source && link.Target == target {
@@ -55,7 +53,7 @@ func scenarioRuntimeLink(t *testing.T, s *simulation, source, target string) nam
 }
 
 // scenarioRuntimeClient locates a created client by its stable scenario ID.
-func scenarioRuntimeClient(t *testing.T, s *simulation, id string) runtimeClient {
+func scenarioRuntimeClient(t *testing.T, s *World, id string) runtimeClient {
 	t.Helper()
 	for _, cl := range s.clients {
 		if cl.ID == id {
@@ -88,9 +86,9 @@ func TestScenarioRuntimeGroupsAreLazy(t *testing.T) {
 		Count:   1,
 		StartAt: time.Second,
 	}}
-	small := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+	small := New(normalizedRuntimeScenario(t, definition))
 	definition.Workload.ClientGroups[0].Count = scenario.MaxClients
-	large := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+	large := New(normalizedRuntimeScenario(t, definition))
 
 	// Changing only the planned count must not allocate clients, links or events.
 	if len(large.clients) != 0 || large.createdClients != 0 {
@@ -179,7 +177,7 @@ func TestScenarioRuntimeUsesDirectionalProfilesAndArrivalTimes(t *testing.T) {
 		},
 	}
 	resolved := normalizedRuntimeScenario(t, definition)
-	s := newScenarioSimulation(resolved)
+	s := New(resolved)
 	initialLinks := len(s.links)
 
 	// No client or private link exists before its exact group arrival time.
@@ -206,9 +204,9 @@ func TestScenarioRuntimeUsesDirectionalProfilesAndArrivalTimes(t *testing.T) {
 
 	// Each endpoint direction receives its own resolved physical settings.
 	for _, backend := range resolved.Backends {
-		id := backendNodeID(backend.ID)
-		incoming := scenarioRuntimeLink(t, s, id, loadBalancerNodeID)
-		outgoing := scenarioRuntimeLink(t, s, loadBalancerNodeID, id)
+		id := BackendNodeID(backend.ID)
+		incoming := scenarioRuntimeLink(t, s, id, LoadBalancerNodeID)
+		outgoing := scenarioRuntimeLink(t, s, LoadBalancerNodeID, id)
 		assertRuntimeLinkConfig(t, incoming, backend.Network.ToLoadBalancer)
 		assertRuntimeLinkConfig(t, outgoing, backend.Network.FromLoadBalancer)
 	}
@@ -222,8 +220,8 @@ func TestScenarioRuntimeUsesDirectionalProfilesAndArrivalTimes(t *testing.T) {
 			if got.Config != want || got.GroupID != group.ID || got.Index != index {
 				t.Fatalf("client %q lost its group or individual settings", want.ID)
 			}
-			incoming := scenarioRuntimeLink(t, s, want.ID, loadBalancerNodeID)
-			outgoing := scenarioRuntimeLink(t, s, loadBalancerNodeID, want.ID)
+			incoming := scenarioRuntimeLink(t, s, want.ID, LoadBalancerNodeID)
+			outgoing := scenarioRuntimeLink(t, s, LoadBalancerNodeID, want.ID)
 			assertRuntimeLinkConfig(t, incoming, want.Network.ToLoadBalancer)
 			assertRuntimeLinkConfig(t, outgoing, want.Network.FromLoadBalancer)
 		}
@@ -233,8 +231,8 @@ func TestScenarioRuntimeUsesDirectionalProfilesAndArrivalTimes(t *testing.T) {
 	}
 
 	// The first slow SYN needs 20 ms transmission plus 2 ms travel after 10 ms.
-	slowAccess := scenarioRuntimeLink(t, s, "client/slow/0", loadBalancerNodeID)
-	overriddenAccess := scenarioRuntimeLink(t, s, "client/slow/1", loadBalancerNodeID)
+	slowAccess := scenarioRuntimeLink(t, s, "client/slow/0", LoadBalancerNodeID)
+	overriddenAccess := scenarioRuntimeLink(t, s, "client/slow/1", LoadBalancerNodeID)
 	runIngressUntil(t, s, 32*time.Millisecond-time.Nanosecond)
 	if slowAccess.Stats().DeliveredPackets != 0 || overriddenAccess.Stats().DeliveredPackets != 0 {
 		t.Fatal("a slow client SYN arrived before its private link finished")
@@ -255,10 +253,10 @@ func TestScenarioRuntimeUsesDirectionalProfilesAndArrivalTimes(t *testing.T) {
 	}
 
 	// Completion bytes must use each client's stream, including the explicit zero.
-	if err := s.run(context.Background(), nil); err != nil {
+	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	report := s.result(0)
+	report := readWorld(s)
 	if report.CompletedStreams != 3 || report.ClosedClients != 3 {
 		t.Fatalf("heterogeneous streams did not finish: %+v", report)
 	}
@@ -272,7 +270,7 @@ func TestScenarioRuntimeSharesBudgetAcrossClientAndBackendOutputs(t *testing.T) 
 	definition := scenarioRuntimeDefinition()
 	definition.Workload.ClientGroups[0].Count = 2
 	definition.Resources.LoadBalancer.ForwardingBitsPerSecond = 320_000
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+	s := New(normalizedRuntimeScenario(t, definition))
 
 	// The first SYN leaves the LB at 80 us. Its next grants are spaced by 1 ms.
 	thirdGrant := 2080 * time.Microsecond
@@ -299,7 +297,7 @@ func TestScenarioRuntimeSharesBudgetAcrossClientAndBackendOutputs(t *testing.T) 
 			}
 		}
 		for _, backend := range s.scenario.Backends {
-			if link.Target == backendNodeID(backend.ID) {
+			if link.Target == BackendNodeID(backend.ID) {
 				backendStarts += physicalStarts
 			}
 		}
@@ -331,33 +329,23 @@ func TestScenarioRuntimeSpawnUsesExplicitGroupSettings(t *testing.T) {
 			Stream:  scenario.StreamPatch{Bytes: scenarioRuntimeValue(5)},
 		},
 	}
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+	s := New(normalizedRuntimeScenario(t, definition))
 	initialEvents := s.engine.Pending()
-	invalid := []string{
-		`{"count":2}`,
-		`{"count":2,"groupId":"unknown"}`,
-		`{"count":0,"groupId":"alpha"}`,
-		`{"count":10001,"groupId":"alpha"}`,
-	}
 
-	// Rejected commands must leave planned clients and arrival events unchanged.
-	for _, payload := range invalid {
-		err := s.applyCommand(httpserver.Envelope{
-			Type:    httpserver.SpawnClient,
-			Payload: json.RawMessage(payload),
-		})
-		if err == nil {
-			t.Fatalf("invalid spawn accepted: %s", payload)
+	invalid := []struct {
+		count   int
+		groupID string
+	}{{2, ""}, {2, "unknown"}, {0, "alpha"}, {10001, "alpha"}}
+	// Rejected typed operations leave planned clients and arrival events unchanged.
+	for _, request := range invalid {
+		if err := s.SpawnClients(request.count, request.groupID); err == nil {
+			t.Fatalf("invalid spawn accepted: %+v", request)
 		}
 		if s.scheduledClients != 2 || s.engine.Pending() != initialEvents {
 			t.Fatal("rejected spawn changed the scenario schedule")
 		}
 	}
-	err := s.applyCommand(httpserver.Envelope{
-		Type:    httpserver.SpawnClient,
-		Payload: json.RawMessage(`{"count":2,"groupId":"alpha"}`),
-	})
-	if err != nil {
+	if err := s.SpawnClients(2, "alpha"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -391,27 +379,25 @@ func TestScenarioRuntimeSpawnUsesExplicitGroupSettings(t *testing.T) {
 	if spawned.Config.Stream.Bytes != 11 {
 		t.Fatal("spawn inherited an unrelated individual override")
 	}
-	if err := s.run(context.Background(), nil); err != nil {
+	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	if s.result(0).CompletedPayloadBytes != 34 {
+	if readWorld(s).CompletedPayloadBytes != 34 {
 		t.Fatal("completed payload did not use both initial and spawned stream settings")
 	}
 }
 
 // TestScenarioRuntimeSpawnAllowsCountOnlyForOneGroup preserves the current UI command.
 func TestScenarioRuntimeSpawnAllowsCountOnlyForOneGroup(t *testing.T) {
-	cfg := legacyTestConfiguration()
-	cfg.clients = 0
-	cfg.servers = 0
-	s := newSimulation(cfg)
-	err := s.applyCommand(httpserver.Envelope{
-		Type:    httpserver.SpawnClient,
-		Payload: json.RawMessage(`{"count":2}`),
-	})
-	if err != nil {
+
+	definition := baseScenario()
+	definition.Workload.ClientGroups[0].Count = 0
+	definition.Resources.Backends = nil
+	s := New(normalizedRuntimeScenario(t, definition))
+	if err := s.SpawnClients(2, ""); err != nil {
 		t.Fatal(err)
 	}
+
 	runIngressUntil(t, s, 0)
 	if len(s.clients) != 2 || s.scheduledClients != 2 {
 		t.Fatal("single empty group did not accept the existing count-only spawn command")
@@ -431,18 +417,21 @@ func TestScenarioRuntimeTopologyNamespaces(t *testing.T) {
 	definition.Resources.LoadBalancer.ID = "edge"
 	definition.Resources.Backends[0].ID = "lb"
 	definition.Resources.Backends[1].ID = "upstream"
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+	s := New(normalizedRuntimeScenario(t, definition))
 	runIngressUntil(t, s, 0)
-	graph := s.topology(s.lb.Tick())
-	ids := make(map[string]bool)
-	for _, node := range graph.Nodes {
-		if ids[node.ID] {
-			t.Fatalf("duplicate topology node id: %s", node.ID)
+
+	ids := map[string]bool{LoadBalancerNodeID: true}
+	addID := func(id string) {
+		if ids[id] {
+			t.Fatalf("duplicate world node id: %s", id)
 		}
-		ids[node.ID] = true
+		ids[id] = true
 	}
+	s.VisitBackends(func(backend BackendObservation) { addID(BackendNodeID(backend.State.ID)) })
+	s.VisitClients(func(client ClientObservation) { addID(client.ID) })
+
 	expected := []string{
-		loadBalancerNodeID,
+		LoadBalancerNodeID,
 		"backend/lb",
 		"backend/upstream",
 		"client/clients/0",
@@ -455,11 +444,11 @@ func TestScenarioRuntimeTopologyNamespaces(t *testing.T) {
 			t.Fatalf("missing namespaced node %q", id)
 		}
 	}
-	for _, link := range graph.Links {
+	s.VisitLinks(func(link LinkObservation) {
 		if !ids[link.Source] || !ids[link.Target] {
 			t.Fatalf("link %q references a missing endpoint", link.ID)
 		}
-	}
+	})
 	if s.scenario.LoadBalancer.ID != "edge" {
 		t.Fatal("infrastructure namespacing replaced the configured LB resource id")
 	}
@@ -478,7 +467,7 @@ func observeScenarioResources(
 	inspectSnapshots bool,
 ) resourceObservations {
 	t.Helper()
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+	s := New(normalizedRuntimeScenario(t, definition))
 	for _, srv := range s.lb.GetServers() {
 		srv.MarkFailed()
 	}
@@ -497,11 +486,10 @@ func observeScenarioResources(
 		until := time.Duration(index)*time.Millisecond + 500*time.Microsecond
 		runIngressUntil(t, s, until)
 		if inspectSnapshots {
-			s.result(0)
-			s.topology(s.lb.Tick())
+			readWorld(s)
 		}
 		for _, cl := range s.clients {
-			link := scenarioRuntimeLink(t, s, cl.ID, loadBalancerNodeID)
+			link := scenarioRuntimeLink(t, s, cl.ID, LoadBalancerNodeID)
 			observed.stats[cl.ID] = append(observed.stats[cl.ID], link.Stats())
 		}
 	}

@@ -4,56 +4,83 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	httpserver "load-balancer/http"
-	"load-balancer/scenario"
 	"strconv"
 	"sync"
-	"sync/atomic"
+
+	"load-balancer/scenario"
 )
 
-// startRequest carries a checked HTTP scenario or the original simple WS settings.
-// Only the simulation owner creates the model from this request.
+// commandKind identifies an application action, independently of its HTTP/WS name.
+type commandKind uint8
+
+const (
+	startCommand commandKind = iota
+	stopCommand
+	algorithmCommand
+	spawnCommand
+)
+
+// runtimeCommand keeps decoding at the existing virtual boundary. Only the
+// input adapter interprets Payload; World receives a typed operation.
+type runtimeCommand struct {
+	kind    commandKind
+	Payload []byte
+}
+
+type runReceipt struct{ RunID, Status string }
+type runRecord struct {
+	RunID, Status string
+	Scenario      []byte
+}
+
+var (
+	errSimulationBusy   = errors.New("simulation is already running or a request is pending")
+	errCommandQueueFull = errors.New("simulation command queue is full")
+	errServiceClosed    = errors.New("simulation service is closed")
+)
+
+// startRequest carries a checked scenario or settings awaiting validation.
+// Only the simulation owner creates the world from this request.
 type startRequest struct {
 	runID    string
-	legacy   *httpserver.Envelope
+	legacy   *runtimeCommand
 	scenario *scenario.Normalized
 }
 
-// simulationControl coordinates I/O requests without accessing live models.
-type simulationControl struct {
+// runController coordinates I/O requests without accessing live models.
+type runController struct {
 	mu         sync.Mutex
-	commands   chan httpserver.Envelope
+	commands   chan runtimeCommand
 	starts     chan startRequest
 	stops      chan struct{}
 	serviceCtx context.Context
 	nextRunID  uint64
-	current    *httpserver.RunRecord
-	topology   atomic.Pointer[publishedTopology]
+	current    *runRecord
 	runCtx     context.Context
 	cancelRun  context.CancelFunc
 	stopping   bool
 }
 
-func newSimulationControl(ctx context.Context) *simulationControl {
-	return &simulationControl{
-		commands:   make(chan httpserver.Envelope, 64),
+func newRunController(ctx context.Context) *runController {
+	return &runController{
+		commands:   make(chan runtimeCommand, 64),
 		starts:     make(chan startRequest, 1),
 		stops:      make(chan struct{}, 1),
 		serviceCtx: ctx,
 	}
 }
 
-// submit checks frontend commands and queues Start/runtime commands for the
+// submit checks application requests and queues Start/runtime commands for the
 // simulation owner. Stop cancels the run and signals the owner to clear its state.
-func (c *simulationControl) submit(ctx context.Context, command httpserver.Envelope) error {
+func (c *runController) submit(ctx context.Context, command runtimeCommand) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	switch command.Type {
-	case httpserver.StopSimulation:
+	switch command.kind {
+	case stopCommand:
 		if !c.stopping {
 			c.stopping = true
 			if c.cancelRun != nil {
@@ -63,49 +90,49 @@ func (c *simulationControl) submit(ctx context.Context, command httpserver.Envel
 			c.stops <- struct{}{}
 		}
 		return nil
-	case httpserver.StartSimulation:
+	case startCommand:
 		_, err := c.enqueueStart(startRequest{legacy: &command}, nil)
 		return err
-	case httpserver.SetAlgorithm, httpserver.SpawnClient:
+	case algorithmCommand, spawnCommand:
 		if c.cancelRun == nil || c.stopping {
 			return errors.New("start the simulation before sending a command")
 		}
 	default:
-		return fmt.Errorf("unsupported command: %s", command.Type)
+		return fmt.Errorf("unsupported application command: %d", command.kind)
 	}
 
 	select {
 	case c.commands <- command:
 		return nil
 	default:
-		return httpserver.ErrCommandQueueFull
+		return errCommandQueueFull
 	}
 }
 
 // startScenario reserves the same start slot as WS, independent of request lifetime.
-func (c *simulationControl) startScenario(
+func (c *runController) startScenario(
 	ctx context.Context,
 	document []byte,
 	resolved scenario.Normalized,
-) (httpserver.RunReceipt, error) {
+) (runReceipt, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return httpserver.RunReceipt{}, err
+		return runReceipt{}, err
 	}
 	return c.enqueueStart(startRequest{scenario: &resolved}, document)
 }
 
 // enqueueStart requires the control lock; all transports use this admission check.
-func (c *simulationControl) enqueueStart(request startRequest, document []byte) (httpserver.RunReceipt, error) {
+func (c *runController) enqueueStart(request startRequest, document []byte) (runReceipt, error) {
 	if c.serviceCtx.Err() != nil {
-		return httpserver.RunReceipt{}, httpserver.ErrServiceClosed
+		return runReceipt{}, errServiceClosed
 	}
 	if c.cancelRun != nil || c.stopping {
-		return httpserver.RunReceipt{}, httpserver.ErrSimulationBusy
+		return runReceipt{}, errSimulationBusy
 	}
 	if c.nextRunID == ^uint64(0) {
-		return httpserver.RunReceipt{}, errors.New("simulation run ID limit reached")
+		return runReceipt{}, errors.New("simulation run ID limit reached")
 	}
 
 	runID := "run-" + strconv.FormatUint(c.nextRunID+1, 10)
@@ -115,25 +142,25 @@ func (c *simulationControl) enqueueStart(request startRequest, document []byte) 
 	case c.starts <- request:
 		c.nextRunID++
 		if document != nil {
-			c.current = &httpserver.RunRecord{
+			c.current = &runRecord{
 				RunID:    runID,
 				Status:   "accepted",
 				Scenario: append([]byte(nil), document...),
 			}
 		}
-		return httpserver.RunReceipt{RunID: runID, Status: "accepted"}, nil
+		return runReceipt{RunID: runID, Status: "accepted"}, nil
 	default:
 		c.cancelRun()
 		c.runCtx, c.cancelRun = nil, nil
-		return httpserver.RunReceipt{}, httpserver.ErrCommandQueueFull
+		return runReceipt{}, errCommandQueueFull
 	}
 }
 
 // rememberRun records a validated legacy start without exposing model references.
-func (c *simulationControl) rememberRun(runID string, document []byte) {
+func (c *runController) rememberRun(runID string, document []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.current = &httpserver.RunRecord{
+	c.current = &runRecord{
 		RunID:    runID,
 		Status:   "running",
 		Scenario: append([]byte(nil), document...),
@@ -141,7 +168,7 @@ func (c *simulationControl) rememberRun(runID string, document []byte) {
 }
 
 // setRunStatus updates lifecycle metadata; the scenario remains the initial document.
-func (c *simulationControl) setRunStatus(runID, status string) {
+func (c *runController) setRunStatus(runID, status string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current != nil && c.current.RunID == runID {
@@ -150,7 +177,7 @@ func (c *simulationControl) setRunStatus(runID, status string) {
 }
 
 // currentRun returns a detached record for HTTP readers, never the live simulation.
-func (c *simulationControl) currentRun() *httpserver.RunRecord {
+func (c *runController) currentRun() *runRecord {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current == nil {
@@ -162,20 +189,19 @@ func (c *simulationControl) currentRun() *httpserver.RunRecord {
 }
 
 // forgetRun removes configuration metadata when Stop clears the experiment.
-func (c *simulationControl) forgetRun() {
+func (c *runController) forgetRun() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.current = nil
-	c.clearTopology()
 }
 
-func (c *simulationControl) contextForRun() context.Context {
+func (c *runController) contextForRun() context.Context {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.runCtx
 }
 
-func (c *simulationControl) finishRun() {
+func (c *runController) finishRun() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.cancelRun != nil {
@@ -192,7 +218,7 @@ func (c *simulationControl) finishRun() {
 }
 
 // acknowledgeStop publishes the empty state before allowing new starts.
-func (c *simulationControl) acknowledgeStop(publish func() error) error {
+func (c *runController) acknowledgeStop(publish func() error) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	select {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	httpserver "load-balancer/http"
 	"log"
 	"net"
 	"net/http"
@@ -13,6 +12,12 @@ import (
 	"runtime/trace"
 	"syscall"
 	"time"
+
+	httpserver "load-balancer/http"
+	"load-balancer/internal/contract"
+	"load-balancer/internal/presentation"
+	"load-balancer/internal/simulation"
+	"load-balancer/scenario"
 )
 
 func main() {
@@ -49,10 +54,14 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		sim := newSimulation(cfg)
+		resolved, err := scenario.Normalize(cfg.scenarioDefinition())
+		if err != nil {
+			return err
+		}
+		sim := simulation.New(resolved)
 		started := time.Now()
-		err = sim.run(ctx, nil)
-		if encodeErr := json.NewEncoder(os.Stdout).Encode(sim.result(time.Since(started))); encodeErr != nil {
+		err = runWorld(ctx, sim, nil, nil, nil)
+		if encodeErr := json.NewEncoder(os.Stdout).Encode(presentation.BuildResult(sim, time.Since(started))); encodeErr != nil {
 			return encodeErr
 		}
 		if errors.Is(err, context.Canceled) {
@@ -62,12 +71,13 @@ func run() error {
 	}
 
 	// The I/O queue carries requests; only runInteractive owns the model state.
-	control := newSimulationControl(ctx)
-	hub := httpserver.NewHub(func(command httpserver.Envelope) error {
-		return control.submit(ctx, command)
+	control := newRunController(ctx)
+	publication := &httpserver.Publication{}
+	hub := httpserver.NewHub(func(command contract.Envelope) error {
+		return submitFrontendCommand(control, ctx, command)
 	})
 	go hub.Run(ctx)
-	api := &scenarioAPI{defaults: defaults, control: control}
+	api := &scenarioAPI{defaults: defaults, control: control, publication: publication}
 	srv := httpserver.NewServer(hub, os.Getenv("LB_HTTP_ADDR"), api)
 	listener, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
@@ -85,5 +95,5 @@ func run() error {
 		srv.Shutdown(shutdown)
 	}()
 	log.Printf("WebSocket server listening on %s/ws; waiting for simulation start", srv.Addr)
-	return runInteractive(ctx, defaults, hub, control)
+	return runInteractive(ctx, defaults, hub, control, publication)
 }

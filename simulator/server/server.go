@@ -8,12 +8,7 @@ import (
 	"time"
 )
 
-const (
-	statisticsInterval = 100 * time.Millisecond
-	// Preserve the old UI proxy: packets received per 100 ms, divided by this
-	// scale. It is not measured CPU utilization or a backend capacity model.
-	legacyCPUScale = 10000
-)
+const statisticsInterval = 100 * time.Millisecond
 
 type connection struct {
 	startedAt   time.Duration
@@ -326,7 +321,7 @@ func (s *Server) GetState() model.ServerState {
 		ID: s.ID, Name: s.Name, Address: s.Address, Port: s.Port,
 		Active: s.Active, ActiveConnections: s.ActiveConnections,
 		HalfOpenConnections: s.HalfOpenConnections, LatencyP95Milli: s.LatencyP95Milli,
-		CpuUsage:               float32(s.CpuUsage) / float32(legacyCPUScale),
+		CpuUsage:               s.CpuUsage,
 		NumberOfHandledPackets: s.NumberOfHandledPackets,
 		ReceivedPayloadBytes:   s.receivedPayloadBytes,
 	}

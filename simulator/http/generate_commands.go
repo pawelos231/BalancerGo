@@ -19,7 +19,7 @@ func main() {
 }
 
 func generate() error {
-	source, err := parser.ParseFile(token.NewFileSet(), "commands.go", nil, 0)
+	source, err := parser.ParseFile(token.NewFileSet(), "../internal/contract/commands.go", nil, 0)
 	if err != nil {
 		return err
 	}

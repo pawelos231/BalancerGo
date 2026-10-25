@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	httpserver "load-balancer/http"
+	"load-balancer/internal/contract"
 	"load-balancer/scenario"
 	"time"
 )
@@ -14,15 +15,16 @@ import (
 // scenarioAPI connects HTTP to admission control without accessing live models.
 // Defaults and run records are configuration documents, independent of snapshots.
 type scenarioAPI struct {
-	defaults configuration
-	control  *simulationControl
+	defaults    configuration
+	control     *runController
+	publication *httpserver.Publication
 }
 
 // preparedStart keeps runtime settings and the temporary form summary together.
 // Document is set only when the legacy WS input still needs a stored scenario.
 type preparedStart struct {
 	scenario scenario.Normalized
-	config   simulationConfig
+	config   contract.SimulationConfig
 	document []byte
 }
 
@@ -36,22 +38,27 @@ func (api *scenarioAPI) StartScenario(
 	ctx context.Context,
 	input scenario.Scenario,
 	resolved scenario.Normalized,
-) (httpserver.RunReceipt, error) {
+) (contract.RunReceipt, error) {
 	document, err := scenario.EncodeDocument(input)
 	if err != nil {
-		return httpserver.RunReceipt{}, err
+		return contract.RunReceipt{}, err
 	}
-	return api.control.startScenario(ctx, document, resolved)
+	receipt, err := api.control.startScenario(ctx, document, resolved)
+	return contract.RunReceipt{RunID: receipt.RunID, Status: receipt.Status}, admissionError(err)
 }
 
 // CurrentRun returns initial settings and lifecycle metadata, including finished runs.
-func (api *scenarioAPI) CurrentRun() *httpserver.RunRecord {
-	return api.control.currentRun()
+func (api *scenarioAPI) CurrentRun() *contract.RunRecord {
+	record := api.control.currentRun()
+	if record == nil {
+		return nil
+	}
+	return &contract.RunRecord{RunID: record.RunID, Status: record.Status, Scenario: record.Scenario}
 }
 
 // CurrentTopology serves the last published graph, including finished experiments.
 func (api *scenarioAPI) CurrentTopology() json.RawMessage {
-	return api.control.currentTopology()
+	return api.publication.CurrentTopology()
 }
 
 // prepareStart keeps WS settings compatible while HTTP supplies a checked scenario.
@@ -74,7 +81,7 @@ func prepareStart(request startRequest, defaults configuration) (preparedStart, 
 		return preparedStart{}, errors.New("configuration must contain exactly one JSON object")
 	}
 
-	cfg, err := requested.configuration(defaults)
+	cfg, err := configurationFromPublic(requested, defaults)
 	if err != nil {
 		return preparedStart{}, err
 	}
@@ -90,12 +97,12 @@ func prepareStart(request startRequest, defaults configuration) (preparedStart, 
 
 // scenarioSummary adapts shared defaults for the old form during the HTTP migration.
 // Profiles and overrides remain available in full through CurrentRun.
-func scenarioSummary(resolved scenario.Normalized) simulationConfig {
+func scenarioSummary(resolved scenario.Normalized) contract.SimulationConfig {
 	execution := resolved.Execution
 	links := resolved.NetworkDefaults
 	stream := resolved.DefaultStream
 	ingress := resolved.LoadBalancer.Ingress
-	return simulationConfig{
+	return contract.SimulationConfig{
 		Clients:                       resolved.TotalClients,
 		Servers:                       len(resolved.Backends),
 		Packets:                       stream.Packets,

@@ -1,4 +1,4 @@
-package main
+package simulation
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 // catalogScenario shortens detached examples while keeping their network and arrival settings.
 func catalogScenario(t *testing.T, id string, duration time.Duration, payload int) scenario.Scenario {
 	t.Helper()
-	path := filepath.Join("..", "examples", "scenarios", id+".json")
+	path := filepath.Join("..", "..", "..", "examples", "scenarios", id+".json")
 	document, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -46,10 +46,10 @@ func catalogScenario(t *testing.T, id string, duration time.Duration, payload in
 }
 
 // runCatalogScenario retains the model so tests can inspect individual physical paths.
-func runCatalogScenario(t *testing.T, input scenario.Scenario) *simulation {
+func runCatalogScenario(t *testing.T, input scenario.Scenario) *World {
 	t.Helper()
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, input))
-	if err := s.run(context.Background(), nil); err != nil {
+	s := New(normalizedRuntimeScenario(t, input))
+	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
 	if s.engine.Now() != input.Execution.Duration {
@@ -59,10 +59,10 @@ func runCatalogScenario(t *testing.T, input scenario.Scenario) *simulation {
 }
 
 // catalogClientTraffic counts original uplinks once, without their second ingress hop.
-func catalogClientTraffic(t *testing.T, s *simulation) (offered, lost uint64) {
+func catalogClientTraffic(t *testing.T, s *World) (offered, lost uint64) {
 	t.Helper()
 	for _, cl := range s.clients {
-		stats := scenarioRuntimeLink(t, s, cl.ID, loadBalancerNodeID).Stats()
+		stats := scenarioRuntimeLink(t, s, cl.ID, LoadBalancerNodeID).Stats()
 		offered += stats.OfferedPackets
 		lost += stats.LostPackets
 	}
@@ -100,7 +100,7 @@ func TestCatalogIngressBurst(t *testing.T) {
 			arrival := time.Duration(serialization) + access.PacketTravelTime
 			var first network.Stats
 			for run := 0; run < 2; run++ {
-				s := newScenarioSimulation(resolved)
+				s := New(resolved)
 				if s.ingress.Stats() != (network.Stats{}) {
 					t.Fatal("a fresh model retained the previous burst")
 				}
@@ -135,7 +135,7 @@ func TestCatalogSlowACKPath(t *testing.T) {
 	control := scenarioFileRoundTrip(t, input)
 	var slowData uint64
 	for index, backend := range slow.scenario.Backends {
-		returnLink := scenarioRuntimeLink(t, slow, backendNodeID(backend.ID), loadBalancerNodeID)
+		returnLink := scenarioRuntimeLink(t, slow, BackendNodeID(backend.ID), LoadBalancerNodeID)
 		stats := returnLink.Stats()
 		config := returnLink.Link.Config()
 		if config.BandwidthBitsPerSecond != 64_000 || backend.Network.FromLoadBalancer.BandwidthBitsPerSecond != 1_000_000_000 {
@@ -146,14 +146,14 @@ func TestCatalogSlowACKPath(t *testing.T) {
 		if stats.TransmittedBytes == 0 || stats.TransmittedBytes > byteLimit || stats.QueuedPackets == 0 {
 			t.Fatalf("return traffic did not exercise its physical bottleneck: %+v", stats)
 		}
-		dataLink := scenarioRuntimeLink(t, slow, loadBalancerNodeID, backendNodeID(backend.ID))
+		dataLink := scenarioRuntimeLink(t, slow, LoadBalancerNodeID, BackendNodeID(backend.ID))
 		slowData += dataLink.Stats().DeliveredBytes
 		control.Resources.Backends[index].Network.ToLoadBalancer.BandwidthBitsPerSecond = scenarioRuntimeValue[int64](1_000_000_000)
 	}
 	fast := runCatalogScenario(t, control)
 	var fastData uint64
 	for _, backend := range fast.scenario.Backends {
-		fastData += scenarioRuntimeLink(t, fast, loadBalancerNodeID, backendNodeID(backend.ID)).Stats().DeliveredBytes
+		fastData += scenarioRuntimeLink(t, fast, LoadBalancerNodeID, BackendNodeID(backend.ID)).Stats().DeliveredBytes
 	}
 	if slowData == 0 || fastData <= 2*slowData {
 		t.Fatalf("removing only the ACK bottleneck did not increase data progress: slow=%d fast=%d", slowData, fastData)
@@ -178,7 +178,7 @@ func TestCatalogLossyAccessReplays(t *testing.T) {
 		t.Fatalf("loss did not produce extra client attempts: lossy=%d clean=%d losses=%d", offered, cleanOffered, lost)
 	}
 	replay := runCatalogScenario(t, scenarioFileRoundTrip(t, input))
-	if !reflect.DeepEqual(lossy.result(0), replay.result(0)) {
+	if !reflect.DeepEqual(readWorld(lossy), readWorld(replay)) {
 		t.Fatal("the same lossy file and seed did not reproduce virtual results")
 	}
 }
@@ -186,8 +186,8 @@ func TestCatalogLossyAccessReplays(t *testing.T) {
 // TestCatalogBlackholedBackend keeps failure on one physical branch without moving its flows.
 func TestCatalogBlackholedBackend(t *testing.T) {
 	s := runCatalogScenario(t, catalogScenario(t, "blackholed-backend", 7*time.Second, 2050))
-	bad := scenarioRuntimeLink(t, s, loadBalancerNodeID, backendNodeID("backend-1")).Stats()
-	good := scenarioRuntimeLink(t, s, loadBalancerNodeID, backendNodeID("backend-2")).Stats()
+	bad := scenarioRuntimeLink(t, s, LoadBalancerNodeID, BackendNodeID("backend-1")).Stats()
+	good := scenarioRuntimeLink(t, s, LoadBalancerNodeID, BackendNodeID("backend-2")).Stats()
 	if bad.LostPackets == 0 || bad.DeliveredPackets != 0 || good.LostPackets != 0 || good.DeliveredPackets == 0 {
 		t.Fatalf("the two backend paths did not have distinct physical outcomes: bad=%+v good=%+v", bad, good)
 	}
@@ -204,7 +204,7 @@ func TestCatalogBlackholedBackend(t *testing.T) {
 // TestCatalogArrivalWaves checks lazy creation at each wave and skips the wave beyond the horizon.
 func TestCatalogArrivalWaves(t *testing.T) {
 	input := catalogScenario(t, "staggered-arrivals", 180*time.Second, 2050)
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, input))
+	s := New(normalizedRuntimeScenario(t, input))
 	if s.createdClients != 0 || s.scheduledClients != 16 {
 		t.Fatal("future groups must reserve identities without constructing clients")
 	}
@@ -253,7 +253,7 @@ func TestCatalogMixedStreams(t *testing.T) {
 		// Uplink includes SYN, standalone handshake ACK, data and FIN.
 		wantPackets := uint64(segments + 3)
 		wantBytes := uint64(bytes) + 40*wantPackets
-		stats := scenarioRuntimeLink(t, s, cl.ID, loadBalancerNodeID).Stats()
+		stats := scenarioRuntimeLink(t, s, cl.ID, LoadBalancerNodeID).Stats()
 		if stats.DeliveredPackets != wantPackets || stats.DeliveredBytes != wantBytes {
 			t.Fatalf("client %s wire traffic = %+v, want %d packets / %d bytes", cl.ID, stats, wantPackets, wantBytes)
 		}

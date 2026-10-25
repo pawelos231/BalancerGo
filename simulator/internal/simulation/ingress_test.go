@@ -1,4 +1,4 @@
-package main
+package simulation
 
 import (
 	"context"
@@ -14,25 +14,21 @@ import (
 )
 
 // ingressTestConfiguration keeps packet timings exact and retries out of range.
-func ingressTestConfiguration() configuration {
-	cfg := legacyTestConfiguration()
-	cfg.clients = 1
-	cfg.servers = 1
-	cfg.streamBytes = 0
-	cfg.bandwidth = 8_000
-	cfg.forwardingBitsPerSecond = math.MaxInt64
-	cfg.packetTravelTime = 3 * time.Millisecond
-	cfg.duration = 500 * time.Millisecond
-	cfg.ingress = scenario.LinkConfig{
-		BandwidthBitsPerSecond: 4_000,
-		PacketTravelTime:       7 * time.Millisecond,
-		QueueCapacity:          16,
-	}
+func ingressTestConfiguration() scenario.Scenario {
+	cfg := baseScenario()
+	cfg.Workload.ClientGroups[0].Count = 1
+	cfg.Resources.Backends = cfg.Resources.Backends[:1]
+	cfg.Workload.Defaults.Bytes = 0
+	cfg.Network.Defaults.BandwidthBitsPerSecond = 8_000
+	cfg.Resources.LoadBalancer.ForwardingBitsPerSecond = math.MaxInt64
+	cfg.Network.Defaults.PacketTravelTime = 3 * time.Millisecond
+	cfg.Execution.Duration = 500 * time.Millisecond
+	cfg.Resources.LoadBalancer.Ingress = scenario.LinkConfig{BandwidthBitsPerSecond: 4_000, PacketTravelTime: 7 * time.Millisecond, QueueCapacity: 16}
 	return cfg
 }
 
 // runIngressUntil advances only virtual time, without starting HTTP or pacing.
-func runIngressUntil(t *testing.T, s *simulation, until time.Duration) {
+func runIngressUntil(t *testing.T, s *World, until time.Duration) {
 	t.Helper()
 	if err := s.engine.RunUntil(until); err != nil {
 		t.Fatal(err)
@@ -40,7 +36,7 @@ func runIngressUntil(t *testing.T, s *simulation, until time.Duration) {
 }
 
 // firstIngressClient returns the first client created by production wiring.
-func firstIngressClient(t *testing.T, s *simulation) *client.Client {
+func firstIngressClient(t *testing.T, s *World) *client.Client {
 	t.Helper()
 	if len(s.clients) == 0 {
 		t.Fatal("production client has not been created")
@@ -49,12 +45,12 @@ func firstIngressClient(t *testing.T, s *simulation) *client.Client {
 }
 
 // firstIngressClientOutput finds the first client's private LB output FIFO.
-func firstIngressClientOutput(t *testing.T, s *simulation) *network.Output {
+func firstIngressClientOutput(t *testing.T, s *World) *network.Output {
 	t.Helper()
 	firstIngressClient(t, s)
 	id := s.clients[0].ID
 	for _, link := range s.links {
-		if link.Source == loadBalancerNodeID && link.Target == id {
+		if link.Source == LoadBalancerNodeID && link.Target == id {
 			if link.Output == nil {
 				t.Fatal("client output has no managed FIFO")
 			}
@@ -66,11 +62,11 @@ func firstIngressClientOutput(t *testing.T, s *simulation) *network.Output {
 }
 
 // ingressClientAccessDeliveries sums successful arrivals from all private links.
-func ingressClientAccessDeliveries(s *simulation) uint64 {
+func ingressClientAccessDeliveries(s *World) uint64 {
 	var deliveries uint64
 	for _, cl := range s.clients {
 		for _, link := range s.links {
-			if link.Source == cl.ID && link.Target == loadBalancerNodeID {
+			if link.Source == cl.ID && link.Target == LoadBalancerNodeID {
 				deliveries += link.Stats().DeliveredPackets
 			}
 		}
@@ -81,7 +77,7 @@ func ingressClientAccessDeliveries(s *simulation) uint64 {
 // TestIngressDelaysBothClientAndBackendPackets checks both real sender callbacks.
 func TestIngressDelaysBothClientAndBackendPackets(t *testing.T) {
 	cfg := ingressTestConfiguration()
-	s := newSimulation(cfg)
+	s := New(normalizedRuntimeScenario(t, cfg))
 	srv := s.lb.GetServers()[0]
 
 	// A SYN has 40 wire bytes: 40 ms access transmission plus 3 ms travel.
@@ -160,16 +156,16 @@ func TestIngressClientBurstUsesOneFiniteFIFO(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			cfg := ingressTestConfiguration()
-			cfg.clients = 3
-			cfg.bandwidth = 320_000
-			cfg.packetTravelTime = 0
-			cfg.duration = 10 * time.Millisecond
-			cfg.ingress.BandwidthBitsPerSecond = 8_000
-			cfg.ingress.QueueCapacity = capacity
-			s := newSimulation(cfg)
+			cfg.Workload.ClientGroups[0].Count = 3
+			cfg.Network.Defaults.BandwidthBitsPerSecond = 320_000
+			cfg.Network.Defaults.PacketTravelTime = 0
+			cfg.Execution.Duration = 10 * time.Millisecond
+			cfg.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = 8_000
+			cfg.Resources.LoadBalancer.Ingress.QueueCapacity = capacity
+			s := New(normalizedRuntimeScenario(t, cfg))
 
 			// Private access links deliver all three SYNs at 1 ms; ingress needs 40 ms each.
-			if err := s.run(context.Background(), nil); err != nil {
+			if err := runWorld(context.Background(), s); err != nil {
 				t.Fatal(err)
 			}
 			accepted := uint64(1 + capacity)
@@ -184,7 +180,7 @@ func TestIngressClientBurstUsesOneFiniteFIFO(t *testing.T) {
 				QueuedPackets:       capacity,
 				Transmitting:        true,
 			}
-			if got := s.result(0).Ingress.Stats; got != want {
+			if got := readWorld(s).Ingress.Stats; got != want {
 				t.Fatalf("shared ingress = %+v, want %+v", got, want)
 			}
 			if ingressClientAccessDeliveries(s) != 3 {
@@ -200,13 +196,13 @@ func TestIngressClientBurstUsesOneFiniteFIFO(t *testing.T) {
 // TestIngressQueuesShareOneReceiver checks isolation without multiplying bandwidth.
 func TestIngressQueuesShareOneReceiver(t *testing.T) {
 	cfg := ingressTestConfiguration()
-	cfg.bandwidth = 320_000
-	cfg.packetTravelTime = 0
-	cfg.ingress = scenario.LinkConfig{
+	cfg.Network.Defaults.BandwidthBitsPerSecond = 320_000
+	cfg.Network.Defaults.PacketTravelTime = 0
+	cfg.Resources.LoadBalancer.Ingress = scenario.LinkConfig{
 		BandwidthBitsPerSecond: 8_000,
 		QueueCapacity:          1,
 	}
-	definition := cfg.scenarioDefinition()
+	definition := cfg
 	definition.Workload.ClientGroups = []scenario.ClientGroup{
 		{ID: "initial", Count: 2},
 		{
@@ -215,7 +211,7 @@ func TestIngressQueuesShareOneReceiver(t *testing.T) {
 			StartAt: 43 * time.Millisecond,
 		},
 	}
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+	s := New(normalizedRuntimeScenario(t, definition))
 
 	// Two initial SYNs share one transmitter: one starts and the other waits.
 	runIngressUntil(t, s, time.Millisecond)
@@ -284,91 +280,54 @@ func TestIngressQueuesShareOneReceiver(t *testing.T) {
 	}
 }
 
-// assertIngressSnapshots checks separate input queues and a detached shared resource.
-func assertIngressSnapshots(t *testing.T, s *simulation) {
+// assertIngressSnapshots checks native aggregate, queue and link observations.
+func assertIngressSnapshots(t *testing.T, s *World) {
 	t.Helper()
-	report := s.result(0)
-	graph := s.topology(report.State)
+	observed := s.Ingress()
 	aggregate := s.ingress.Stats()
-	if graph.Ingress == nil {
-		t.Fatal("topology omitted the shared ingress resource")
+	if observed.Stats != aggregate || observed.Config != s.ingress.Config() {
+		t.Fatal("ingress observation lost aggregate counters or physical configuration")
 	}
-	if report.Ingress.Name != "Shared LB input" || report.Ingress.Stats != aggregate {
-		t.Fatalf("report omitted aggregate ingress counters: %+v", report.Ingress)
-	}
-	if graph.Ingress.Stats != topologyStatsForTest(aggregate) {
-		t.Fatalf("topology omitted aggregate ingress counters: %+v", graph.Ingress.Stats)
-	}
-	if len(report.IngressQueues) != 2 || len(graph.Ingress.Queues) != 2 {
-		t.Fatal("report and topology must expose exactly two input queues")
-	}
-
-	// Queue capacity belongs to each side; the common resource carries the rate once.
 	capacity := s.ingress.Config().QueueCapacity
-	wantQueues := map[string]network.Stats{
-		"clients":  s.clientIngress.Stats(),
-		"backends": s.backendIngress.Stats(),
-	}
+	wantQueues := map[string]network.Stats{"clients": s.clientIngress.Stats(), "backends": s.backendIngress.Stats()}
 	seenSides := make(map[string]bool)
 	seenIDs := make(map[string]bool)
-	for _, queue := range graph.Ingress.Queues {
+	for _, queue := range observed.Inputs {
 		want, exists := wantQueues[queue.Side]
 		if !exists || seenSides[queue.Side] {
-			t.Fatalf("topology repeated or invented an input side: %q", queue.Side)
+			t.Fatalf("observation repeated or invented an input side: %q", queue.Side)
 		}
-		if queue.ID != "ingress/"+queue.Side || seenIDs[queue.ID] || queue.Label == "" {
-			t.Fatalf("input queue lacks a unique identity or label: %+v", queue)
+		if queue.ID != "ingress/"+queue.Side || seenIDs[queue.ID] {
+			t.Fatalf("input queue lacks unique identity: %+v", queue)
 		}
-		if queue.Capacity != capacity || queue.Stats != topologyStatsForTest(want) {
-			t.Fatalf("topology queue %q lost its capacity or counters: %+v", queue.Side, queue)
+		if queue.Capacity != capacity || queue.Stats != want {
+			t.Fatalf("queue %q lost capacity or counters: %+v", queue.Side, queue)
 		}
 		seenSides[queue.Side] = true
 		seenIDs[queue.ID] = true
 	}
-	for _, queue := range report.IngressQueues {
-		want, exists := wantQueues[queue.Side]
-		if !exists || queue.Capacity != capacity || queue.Stats != want {
-			t.Fatalf("report queue lost its own capacity or counters: %+v", queue)
+	links := 0
+	s.VisitLinks(func(link LinkObservation) {
+		links++
+		if link.Source != LoadBalancerNodeID && link.Target != LoadBalancerNodeID {
+			t.Fatalf("private path is not attached to LB: %+v", link)
 		}
+	})
+	if links != 2*(len(s.clients)+len(s.lb.GetServers())) {
+		t.Fatal("observation omitted a private path or added an invented ingress hop")
 	}
-	sharedRate := s.ingress.Config().BandwidthBitsPerSecond
-	if graph.Ingress.Config.BandwidthBitsPerSecond != sharedRate {
-		t.Fatal("topology multiplied the shared ingress rate")
+	// Mutating retained observations must leave physical queues and future reads intact.
+	sharedRate := observed.Config.BandwidthBitsPerSecond
+	observed.Config.BandwidthBitsPerSecond = 0
+	observed.Stats.QueuedPackets = -1
+	observed.Inputs[0].Stats.QueuedPackets = -1
+	fresh := s.Ingress()
+	if fresh.Config.BandwidthBitsPerSecond != sharedRate || fresh.Stats != aggregate {
+		t.Fatal("physical ingress escaped as a live reference")
 	}
-
-	// Graph arrows show endpoint access sections, without an invented shared hop.
-	if len(graph.Nodes) != 1+len(s.clients)+len(s.lb.GetServers()) {
-		t.Fatal("topology added a synthetic network node")
-	}
-	if len(graph.Links) != 2*(len(s.clients)+len(s.lb.GetServers())) {
-		t.Fatal("topology omitted a private path or added a fake ingress arrow")
-	}
-	for _, link := range graph.Links {
-		if link.Source != loadBalancerNodeID && link.Target != loadBalancerNodeID {
-			t.Fatalf("access or output path is not attached to the LB: %+v", link)
-		}
-	}
-
-	// Editing a returned snapshot cannot change a later snapshot or the model.
-	graph.Ingress.Config.BandwidthBitsPerSecond = 0
-	graph.Ingress.Stats.QueuedPackets = -1
-	graph.Ingress.Queues[0].Stats.QueuedPackets = -1
-	report.IngressQueues[0].Stats.QueuedPackets = -1
-	fresh := s.topology(report.State)
-	if fresh.Ingress.Config.BandwidthBitsPerSecond != sharedRate {
-		t.Fatal("ingress configuration escaped as a live reference")
-	}
-	if fresh.Ingress.Stats != topologyStatsForTest(aggregate) {
-		t.Fatal("shared ingress counters escaped as a live reference")
-	}
-	for _, queue := range fresh.Ingress.Queues {
-		if queue.Stats != topologyStatsForTest(wantQueues[queue.Side]) {
-			t.Fatal("input queue counters escaped as a live reference")
-		}
-	}
-	for _, queue := range s.result(0).IngressQueues {
+	for _, queue := range fresh.Inputs {
 		if queue.Stats != wantQueues[queue.Side] {
-			t.Fatal("report queue counters escaped as a live reference")
+			t.Fatal("input queue escaped as a live reference")
 		}
 	}
 }
@@ -376,9 +335,9 @@ func assertIngressSnapshots(t *testing.T, s *simulation) {
 // TestIngressLossPreventsLBReception distinguishes ingress loss from access loss.
 func TestIngressLossPreventsLBReception(t *testing.T) {
 	cfg := ingressTestConfiguration()
-	cfg.ingress.LossRate = 1
-	s := newSimulation(cfg)
-	if err := s.run(context.Background(), nil); err != nil {
+	cfg.Resources.LoadBalancer.Ingress.LossRate = 1
+	s := New(normalizedRuntimeScenario(t, cfg))
+	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
 
@@ -386,7 +345,7 @@ func TestIngressLossPreventsLBReception(t *testing.T) {
 	if ingressClientAccessDeliveries(s) != 1 {
 		t.Fatal("SYN did not reach the common ingress")
 	}
-	input := s.result(0).Ingress
+	input := readWorld(s).Ingress
 	if input.LostPackets != 1 || input.LostBytes != 40 {
 		t.Fatalf("ingress did not account for the lost wire packet: %+v", input)
 	}
@@ -408,7 +367,7 @@ func TestIngressLossPreventsLBReception(t *testing.T) {
 }
 
 // replaceIngressClient reuses a flow key while retaining a distinct client instance.
-func replaceIngressClient(t *testing.T, s *simulation, old *client.Client) *client.Client {
+func replaceIngressClient(t *testing.T, s *World, old *client.Client) *client.Client {
 	t.Helper()
 	key := old.Key()
 	output := firstIngressClientOutput(t, s)
@@ -465,7 +424,7 @@ func TestIngressPreservesClientIdentityAcrossBothHops(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			s := newSimulation(ingressTestConfiguration())
+			s := New(normalizedRuntimeScenario(t, ingressTestConfiguration()))
 			runIngressUntil(t, s, test.closeAt)
 			old := firstIngressClient(t, s)
 			replacement := replaceIngressClient(t, s, old)
@@ -503,22 +462,22 @@ func TestIngressPreservesClientIdentityAcrossBothHops(t *testing.T) {
 // TestIngressFrozenWorkAndFreshRun checks all unfinished link states together.
 func TestIngressFrozenWorkAndFreshRun(t *testing.T) {
 	cfg := ingressTestConfiguration()
-	cfg.clients = 3
-	cfg.bandwidth = 320_000
-	cfg.packetTravelTime = 0
-	cfg.duration = 45 * time.Millisecond
-	cfg.ingress = scenario.LinkConfig{
+	cfg.Workload.ClientGroups[0].Count = 3
+	cfg.Network.Defaults.BandwidthBitsPerSecond = 320_000
+	cfg.Network.Defaults.PacketTravelTime = 0
+	cfg.Execution.Duration = 45 * time.Millisecond
+	cfg.Resources.LoadBalancer.Ingress = scenario.LinkConfig{
 		BandwidthBitsPerSecond: 8_000,
 		PacketTravelTime:       10 * time.Millisecond,
 		QueueCapacity:          2,
 	}
-	s := newSimulation(cfg)
-	if err := s.run(context.Background(), nil); err != nil {
+	s := New(normalizedRuntimeScenario(t, cfg))
+	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
 
 	// At 45 ms, packet 1 travels, packet 2 transmits and packet 3 waits.
-	first := s.result(0)
+	first := readWorld(s)
 	want := network.Stats{
 		OfferedPackets:    3,
 		OfferedBytes:      120,
@@ -538,7 +497,7 @@ func TestIngressFrozenWorkAndFreshRun(t *testing.T) {
 	assertIngressSnapshots(t, s)
 
 	// A fresh simulation owns new queues, links and counters before it starts.
-	fresh := newSimulation(cfg)
+	fresh := New(normalizedRuntimeScenario(t, cfg))
 	if fresh.ingress == s.ingress || fresh.engine == s.engine {
 		t.Fatal("a fresh simulation reused the old model graph")
 	}
@@ -547,14 +506,14 @@ func TestIngressFrozenWorkAndFreshRun(t *testing.T) {
 	if reusedClientInput || reusedBackendInput {
 		t.Fatal("a fresh simulation reused an old input queue")
 	}
-	if fresh.result(0).Ingress.Stats != (network.Stats{}) {
+	if readWorld(fresh).Ingress.Stats != (network.Stats{}) {
 		t.Fatal("fresh ingress retained old counters or unfinished packets")
 	}
 	assertIngressSnapshots(t, fresh)
-	if err := fresh.run(context.Background(), nil); err != nil {
+	if err := runWorld(context.Background(), fresh); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(first, fresh.result(0)) {
+	if !reflect.DeepEqual(first, readWorld(fresh)) {
 		t.Fatal("fresh simulation did not reproduce the same virtual result")
 	}
 }

@@ -1,7 +1,6 @@
 package client_test
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -57,10 +56,10 @@ func (h *transferHarness) count(flag model.Flag) int {
 	return count
 }
 
-func assertTransferSeconds(t *testing.T, name string, got float64, want time.Duration) {
+func assertTransferDuration(t *testing.T, name string, got time.Duration, want time.Duration) {
 	t.Helper()
-	if math.Abs(got-want.Seconds()) > 1e-9 {
-		t.Fatalf("%s = %g seconds, want %g", name, got, want.Seconds())
+	if got != want {
+		t.Fatalf("%s = %s, want %s", name, got, want)
 	}
 }
 
@@ -69,7 +68,7 @@ func TestTransferTimingUsesHandshakeAndPayloadMilestones(t *testing.T) {
 	h.runUntil(2 * time.Second)
 	h.client.SendCompleteStream(model.SEGMENT_SIZE+7, 1500*time.Millisecond)
 	h.client.EstablishConnection()
-	if state := h.transfer(); state.Status != model.TransferInProgress || state.HandshakeCompleted || state.ElapsedSeconds != 0 {
+	if state := h.transfer(); state.Status != model.TransferInProgress || state.HandshakeCompleted || state.Elapsed != 0 {
 		t.Fatalf("newly requested transfer = %+v", state)
 	}
 
@@ -79,20 +78,20 @@ func TestTransferTimingUsesHandshakeAndPayloadMilestones(t *testing.T) {
 	if !state.HandshakeCompleted || state.SynRetransmissions != 1 || h.client.GetState().RetrySyn != 0 {
 		t.Fatalf("completed handshake = %+v, retry SYN = %d", state, h.client.GetState().RetrySyn)
 	}
-	assertTransferSeconds(t, "handshake duration", state.HandshakeDurationSeconds, 1250*time.Millisecond)
-	assertTransferSeconds(t, "elapsed after handshake", state.ElapsedSeconds, 1250*time.Millisecond)
+	assertTransferDuration(t, "handshake duration", state.HandshakeDuration, 1250*time.Millisecond)
+	assertTransferDuration(t, "elapsed after handshake", state.Elapsed, 1250*time.Millisecond)
 
 	// Duplicate SYN ACKs and repeated requests cannot move either milestone.
 	h.runUntil(3500 * time.Millisecond)
 	h.receive(model.FlagSYN|model.FlagACK, 1)
 	h.client.EstablishConnection()
 	h.client.SendCompleteStream(1, 0)
-	assertTransferSeconds(t, "handshake after duplicate", h.transfer().HandshakeDurationSeconds, 1250*time.Millisecond)
+	assertTransferDuration(t, "handshake after duplicate", h.transfer().HandshakeDuration, 1250*time.Millisecond)
 	h.runUntil(4750 * time.Millisecond)
 	if got := h.count(model.FlagPSH); got != 1 {
 		t.Fatalf("payload transmissions after initial gap = %d, want 1", got)
 	}
-	assertTransferSeconds(t, "elapsed after initial gap", h.transfer().ElapsedSeconds, 2750*time.Millisecond)
+	assertTransferDuration(t, "elapsed after initial gap", h.transfer().Elapsed, 2750*time.Millisecond)
 	h.runUntil(5 * time.Second)
 	h.receive(model.FlagACK, 1)
 	h.runUntil(6500 * time.Millisecond)
@@ -103,9 +102,9 @@ func TestTransferTimingUsesHandshakeAndPayloadMilestones(t *testing.T) {
 	if state.Status != model.TransferSucceeded || state.FailureReason != "" || !h.client.StreamCompleted() {
 		t.Fatalf("completed transfer = %+v", state)
 	}
-	assertTransferSeconds(t, "total elapsed", state.ElapsedSeconds, 4750*time.Millisecond)
+	assertTransferDuration(t, "total elapsed", state.Elapsed, 4750*time.Millisecond)
 	// The initial gap is excluded; the gap between payload segments is included.
-	assertTransferSeconds(t, "payload duration", state.PayloadDurationSeconds, 2*time.Second)
+	assertTransferDuration(t, "payload duration", state.PayloadDuration, 2*time.Second)
 	h.runUntil(7 * time.Second)
 	if got := h.transfer(); got != state {
 		t.Fatalf("completed transfer changed with time: before %+v, after %+v", state, got)
@@ -129,8 +128,8 @@ func TestTransferAllowsZeroDurationSuccess(t *testing.T) {
 				h.receive(model.FlagACK, 1)
 			}
 			state := h.transfer()
-			if state.Status != model.TransferSucceeded || !state.HandshakeCompleted || state.ElapsedSeconds != 0 ||
-				state.HandshakeDurationSeconds != 0 || state.PayloadDurationSeconds != 0 || state.FailureReason != "" {
+			if state.Status != model.TransferSucceeded || !state.HandshakeCompleted || state.Elapsed != 0 ||
+				state.HandshakeDuration != 0 || state.PayloadDuration != 0 || state.FailureReason != "" {
 				t.Fatalf("zero-duration transfer = %+v", state)
 			}
 			if got := h.count(model.FlagPSH); got != size {
@@ -138,7 +137,7 @@ func TestTransferAllowsZeroDurationSuccess(t *testing.T) {
 			}
 			copy := h.client.GetTransferState()
 			copy.Status = model.TransferFailed
-			copy.ElapsedSeconds = 100
+			copy.Elapsed = 100
 			if got := h.transfer(); got != state {
 				t.Fatalf("editing returned state changed client: %+v", got)
 			}
@@ -177,7 +176,7 @@ func TestTransferRetriesAccumulateAcrossAcknowledgments(t *testing.T) {
 	if h.count(model.FlagSYN) != 2 || h.count(model.FlagPSH) != 5 {
 		t.Fatalf("transmissions do not match retries: %+v", h.sent)
 	}
-	assertTransferSeconds(t, "payload including retries", state.PayloadDurationSeconds, 3100*time.Millisecond)
+	assertTransferDuration(t, "payload including retries", state.PayloadDuration, 3100*time.Millisecond)
 	h.client.Shutdown()
 	if got := h.transfer(); got != state {
 		t.Fatalf("shutdown reset transfer metrics: %+v", got)
@@ -214,11 +213,11 @@ func TestTransferFailuresRetainPartialProgress(t *testing.T) {
 			test.close(h)
 			state := h.transfer()
 			if state.Status != model.TransferFailed || state.FailureReason != test.reason || !state.HandshakeCompleted ||
-				state.DataRetransmissions != 1 || state.PayloadDurationSeconds != 0 {
+				state.DataRetransmissions != 1 || state.PayloadDuration != 0 {
 				t.Fatalf("failed partial transfer = %+v", state)
 			}
-			assertTransferSeconds(t, "failed elapsed", state.ElapsedSeconds, 1500*time.Millisecond)
-			assertTransferSeconds(t, "retained handshake duration", state.HandshakeDurationSeconds, 250*time.Millisecond)
+			assertTransferDuration(t, "failed elapsed", state.Elapsed, 1500*time.Millisecond)
+			assertTransferDuration(t, "retained handshake duration", state.HandshakeDuration, 250*time.Millisecond)
 			if got := h.client.GetState().AcknowledgedPayloadBytes; got != model.SEGMENT_SIZE {
 				t.Fatalf("partial acknowledged payload = %d, want %d", got, model.SEGMENT_SIZE)
 			}
@@ -254,7 +253,7 @@ func TestTransferManualCloseBeforeHandshake(t *testing.T) {
 	if !h.client.IsClosed() || state.Status != model.TransferFailed || state.FailureReason != model.TransferClosedEarly || state.HandshakeCompleted {
 		t.Fatalf("close during handshake = %+v, closed = %v", state, h.client.IsClosed())
 	}
-	assertTransferSeconds(t, "elapsed before early close", state.ElapsedSeconds, 250*time.Millisecond)
+	assertTransferDuration(t, "elapsed before early close", state.Elapsed, 250*time.Millisecond)
 	h.runUntil(30 * time.Second)
 	if got := h.transfer(); got != state || h.count(model.FlagFIN) != 0 {
 		t.Fatalf("closed handshake changed: %+v, FINs = %d", got, h.count(model.FlagFIN))
@@ -306,10 +305,10 @@ func TestTransferReadTimeout(t *testing.T) {
 			h.runUntil(model.READ_DEADLINE)
 			state := h.transfer()
 			if !h.client.IsClosed() || state.Status != model.TransferFailed || state.FailureReason != model.TransferReadTimeout ||
-				state.HandshakeCompleted != handshake || state.PayloadDurationSeconds != 0 {
+				state.HandshakeCompleted != handshake || state.PayloadDuration != 0 {
 				t.Fatalf("read timeout = %+v, closed = %v", state, h.client.IsClosed())
 			}
-			assertTransferSeconds(t, "read timeout elapsed", state.ElapsedSeconds, model.READ_DEADLINE)
+			assertTransferDuration(t, "read timeout elapsed", state.Elapsed, model.READ_DEADLINE)
 			if handshake {
 				if state.DataRetransmissions == 0 || state.DataRetransmissions != uint64(h.count(model.FlagPSH)-1) {
 					t.Fatalf("payload retries at timeout = %+v", state)
@@ -360,7 +359,7 @@ func TestTransferRetryLimits(t *testing.T) {
 			if !h.client.IsClosed() || state.Status != model.TransferFailed || state.FailureReason != reason {
 				t.Fatalf("retry exhaustion = %+v, closed = %v", state, h.client.IsClosed())
 			}
-			assertTransferSeconds(t, "retry limit elapsed", state.ElapsedSeconds, (model.MAX_RETRANSMISIONS+1)*timeout)
+			assertTransferDuration(t, "retry limit elapsed", state.Elapsed, (model.MAX_RETRANSMISIONS+1)*timeout)
 			if got := h.count(flag); got != model.MAX_RETRANSMISIONS+1 {
 				t.Fatalf("transmissions = %d, want one original plus %d retries", got, model.MAX_RETRANSMISIONS)
 			}

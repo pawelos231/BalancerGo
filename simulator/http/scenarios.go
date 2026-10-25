@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 
+	"load-balancer/internal/contract"
 	"load-balancer/scenario"
 )
 
@@ -24,29 +25,8 @@ var (
 // The request context applies to admission, not the accepted run's lifetime.
 type ScenarioService interface {
 	Defaults() scenario.Scenario
-	StartScenario(context.Context, scenario.Scenario, scenario.Normalized) (RunReceipt, error)
-	CurrentRun() *RunRecord
-}
-
-// RunReceipt identifies an accepted request before its model starts running.
-type RunReceipt struct {
-	RunID  string `json:"runId"`
-	Status string `json:"status"`
-}
-
-// RunRecord keeps the canonical request alongside its latest lifecycle status.
-// Scenario must contain an encoded scenario document with exact integer values.
-type RunRecord struct {
-	RunID    string          `json:"runId"`
-	Status   string          `json:"status"`
-	Scenario json.RawMessage `json:"scenario"`
-}
-
-// scenarioSummary describes a validated workload without expanding its clients.
-type scenarioSummary struct {
-	TotalClients     int `json:"totalClients"`
-	BackendCount     int `json:"backendCount"`
-	ClientGroupCount int `json:"clientGroupCount"`
+	StartScenario(context.Context, scenario.Scenario, scenario.Normalized) (contract.RunReceipt, error)
+	CurrentRun() *contract.RunRecord
 }
 
 // scenarioAPI translates bounded HTTP documents into calls on the owner service.
@@ -101,14 +81,10 @@ func (api scenarioAPI) validate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := struct {
-		Scenario json.RawMessage `json:"scenario"`
-		Summary  scenarioSummary `json:"summary"`
-		Resolved json.RawMessage `json:"resolved"`
-	}{
+	response := contract.ScenarioValidationResponse{
 		Scenario: document,
 		Resolved: resolvedDocument,
-		Summary: scenarioSummary{
+		Summary: contract.ScenarioSummary{
 			TotalClients:     resolved.TotalClients,
 			BackendCount:     len(resolved.Backends),
 			ClientGroupCount: len(resolved.ClientGroups),
@@ -197,9 +173,7 @@ func readScenario(w http.ResponseWriter, r *http.Request) (scenario.Scenario, sc
 
 // writeScenarioError keeps HTTP failures separate from WebSocket command errors.
 func writeScenarioError(w http.ResponseWriter, status int, message string) {
-	writeScenarioJSON(w, status, struct {
-		Error string `json:"error"`
-	}{Error: message})
+	writeScenarioJSON(w, status, contract.ErrorResponse{Error: message})
 }
 
 // writeScenarioJSON encodes before writing headers so failures stay valid JSON.

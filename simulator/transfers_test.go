@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"load-balancer/model"
+	"load-balancer/internal/contract"
+	"load-balancer/internal/presentation"
+	"load-balancer/internal/simulation"
 	"load-balancer/scenario"
 )
 
@@ -27,34 +29,36 @@ func TestTransferResultsPartitionAttempts(t *testing.T) {
 		{ID: "active", Count: 1, Stream: scenario.StreamPatch{Bytes: scenarioRuntimeValue(1 << 20)}},
 		{ID: "future", Count: 2, StartAt: time.Second},
 	}
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, input))
-	before := s.transferResults()
+	s := simulation.New(normalizedRuntimeScenario(t, input))
+	before := presentation.TransferResults(s)
 	if before.Started != 0 || before.NotStarted != 5 || before.Handshake.Samples != 0 {
 		t.Fatalf("before arrivals = %+v", before)
 	}
-	s.engine.ScheduleAt(19*time.Millisecond, func() {
-		for _, runtime := range s.clients {
+	s.ScheduleAt(19*time.Millisecond, func() {
+		s.VisitClients(func(runtime simulation.ClientObservation) {
 			if runtime.GroupID == "interrupted" {
-				runtime.Client.Shutdown()
+				if err := s.StopClient(runtime.ID); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
+		})
 	})
-	if err := s.run(context.Background(), nil); err != nil {
+	if err := runWorld(context.Background(), s, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
 	// One short transfer succeeds, one is interrupted, and the long transfer reaches the horizon.
-	result := s.result(0)
+	result := presentation.BuildResult(s, 0)
 	summary := result.Transfers
 	if summary.Started != 3 || summary.Succeeded != 1 || summary.Failed != 1 ||
 		summary.InProgress != 1 || summary.NotStarted != 2 {
 		t.Fatalf("transfer partition = %+v", summary)
 	}
 	if summary.Succeeded+summary.Failed+summary.InProgress != summary.Started ||
-		summary.Started+summary.NotStarted != s.scheduledClients {
+		summary.Started+summary.NotStarted != s.Info().ScheduledClients {
 		t.Fatal("attempt counts do not balance")
 	}
-	if summary.Failures[model.TransferInterrupted] != 1 || len(summary.Failures) != 1 {
+	if summary.Failures[contract.TransferInterrupted] != 1 || len(summary.Failures) != 1 {
 		t.Fatalf("failure reasons = %v", summary.Failures)
 	}
 	if result.IncompleteStreams != 2 {
@@ -69,20 +73,20 @@ func TestTransferResultsPartitionAttempts(t *testing.T) {
 	}
 
 	// Reading summaries is pure; later cleanup retains earlier, detached results.
-	executed := s.engine.EventsExecuted()
-	if !reflect.DeepEqual(summary, s.transferResults()) || s.engine.EventsExecuted() != executed {
+	executed := s.EventsExecuted()
+	if !reflect.DeepEqual(summary, presentation.TransferResults(s)) || s.EventsExecuted() != executed {
 		t.Fatal("reading transfer results advanced or changed the model")
 	}
-	telemetry := sampleTelemetry(t, newTelemetryPublisher("mixed-transfers"), s)
+	telemetry := payloadTelemetry(t, presentation.NewProjector("mixed-transfers"), s)
 	if !reflect.DeepEqual(telemetry.Transfers, summary) ||
 		telemetry.Topology.Nodes[0].Metrics["failedTransfers"] != 1 ||
 		telemetry.Topology.Nodes[0].Metrics["inProgressTransfers"] != 1 {
 		t.Fatal("live transfer results differ from headless results")
 	}
-	s.lb.ClearConnectionTable()
-	after := s.transferResults()
+	s.ClearConnections()
+	after := presentation.TransferResults(s)
 	if after.Failed != 2 || after.InProgress != 0 || after.Succeeded != 1 || summary.Failed != 1 ||
-		summary.Failures[model.TransferInterrupted] != 1 {
+		summary.Failures[contract.TransferInterrupted] != 1 {
 		t.Fatal("cleanup discarded terminal outcomes or mutated an earlier result")
 	}
 }
@@ -93,16 +97,18 @@ func TestTransferResultsRetainUnroutedFailures(t *testing.T) {
 	input.Resources.Backends = nil
 	input.Execution.Duration = 21 * time.Second
 	input.Execution.Speed = 0
-	s := runCatalogScenario(t, input)
-	summary := s.transferResults()
+	s := runTransferWorld(t, input)
+	summary := presentation.TransferResults(s)
 	if summary.Started != 1 || summary.Failed != 1 || summary.InProgress != 0 || summary.Succeeded != 0 {
 		t.Fatalf("unrouted attempts = %+v", summary)
 	}
-	if summary.Failures[model.TransferReadTimeout] != 1 || summary.SynRetransmissions == 0 ||
+	if summary.Failures[contract.TransferReadTimeout] != 1 || summary.SynRetransmissions == 0 ||
 		summary.DataRetransmissions != 0 || summary.Handshake.Samples != 0 || summary.Completion.Samples != 0 {
 		t.Fatalf("unrouted timeout and retry accounting = %+v", summary)
 	}
-	if !s.clients[0].Client.IsClosed() || s.lb.GetClient(s.clients[0].Client.Key()) != nil {
+	routes := 0
+	s.VisitRoutes(func(simulation.RouteObservation) { routes++ })
+	if payloadClients(s)[0].Active || routes != 0 {
 		t.Fatal("the failed client did not leave the live routing table")
 	}
 }
@@ -118,8 +124,8 @@ func TestTransferCompletionAtHorizon(t *testing.T) {
 			input.Execution.Duration = end
 			input.Execution.SnapshotInterval = time.Nanosecond
 			input.Execution.Speed = 0
-			s := runCatalogScenario(t, input)
-			summary := s.transferResults()
+			s := runTransferWorld(t, input)
+			summary := presentation.TransferResults(s)
 			if end == 5*time.Nanosecond {
 				if summary.Succeeded != 0 || summary.InProgress != 1 || summary.Payload.Samples != 0 {
 					t.Fatalf("before final handshake arrival = %+v", summary)
@@ -131,7 +137,7 @@ func TestTransferCompletionAtHorizon(t *testing.T) {
 				summary.Completion.Samples != 1 || summary.Completion.MeanSeconds != end.Seconds() {
 				t.Fatalf("completion at the inclusive horizon = %+v", summary)
 			}
-			if s.clients[0].Client.IsClosed() {
+			if !payloadClients(s)[0].Active {
 				t.Fatal("fixture should succeed before the FIN exchange can finish")
 			}
 		})
@@ -140,11 +146,15 @@ func TestTransferCompletionAtHorizon(t *testing.T) {
 
 // TestTransferBackendRemovalRecordsExistingInterruption annotates removal without waiting for a new timer.
 func TestTransferBackendRemovalRecordsExistingInterruption(t *testing.T) {
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, payloadScenario()))
+	s := simulation.New(normalizedRuntimeScenario(t, payloadScenario()))
 	runIngressUntil(t, s, 17*time.Millisecond)
-	s.lb.RemoveServer(s.lb.GetServers()[0])
-	summary := s.transferResults()
-	if summary.Failed != 1 || summary.Failures[model.TransferBackendRemoved] != 1 ||
+	var backendID string
+	s.VisitBackends(func(backend simulation.BackendObservation) { backendID = backend.State.ID })
+	if err := s.RemoveBackend(backendID); err != nil {
+		t.Fatal(err)
+	}
+	summary := presentation.TransferResults(s)
+	if summary.Failed != 1 || summary.Failures[contract.TransferBackendRemoved] != 1 ||
 		summary.Handshake.Samples != 1 || summary.Payload.Samples != 0 {
 		t.Fatalf("removed backend's transfer = %+v", summary)
 	}
@@ -154,7 +164,7 @@ func TestTransferBackendRemovalRecordsExistingInterruption(t *testing.T) {
 // TestTransferSnapshotLifecycle checks success, endpoint failure, future arrivals and reset over WS.
 func TestTransferSnapshotLifecycle(t *testing.T) {
 	h := newScenarioHarness(t)
-	idle := readScenarioSnapshot(t, h.socket, func(snapshot simulationSnapshot) bool {
+	idle := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.Status == "idle"
 	})
 	if idle.Simulation.Transfers != nil {
@@ -164,7 +174,7 @@ func TestTransferSnapshotLifecycle(t *testing.T) {
 	input := payloadScenario()
 	input.Execution.Speed = 0
 	receipt := startTelemetryScenario(t, h, input)
-	finished := readScenarioSnapshot(t, h.socket, func(snapshot simulationSnapshot) bool {
+	finished := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
 	})
 	first := finished.Simulation.Transfers
@@ -180,16 +190,28 @@ func TestTransferSnapshotLifecycle(t *testing.T) {
 		ID: "future", Count: 1, StartAt: 22 * time.Second,
 	})
 	receipt = startTelemetryScenario(t, h, input)
-	failed := readScenarioSnapshot(t, h.socket, func(snapshot simulationSnapshot) bool {
+	failed := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
 	})
 	second := failed.Simulation.Transfers
 	if second == nil || second.Failed != 1 || second.Succeeded != 0 || second.NotStarted != 1 ||
-		second.Failures[model.TransferReadTimeout] != 1 || second.SynRetransmissions == 0 {
+		second.Failures[contract.TransferReadTimeout] != 1 || second.SynRetransmissions == 0 {
 		t.Fatalf("failed transfer WS result = %+v", second)
 	}
 	if first.Succeeded != 1 || first.Failed != 0 || len(first.Failures) != 0 {
 		t.Fatal("the next run changed an earlier snapshot")
 	}
 	stopTelemetryScenario(t, h)
+}
+
+func runTransferWorld(t *testing.T, input scenario.Scenario) *simulation.World {
+	t.Helper()
+	world := simulation.New(normalizedRuntimeScenario(t, input))
+	if err := runWorld(context.Background(), world, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if world.Now() != input.Execution.Duration {
+		t.Fatal("transfer run did not reach its virtual horizon")
+	}
+	return world
 }

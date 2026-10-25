@@ -1,11 +1,58 @@
 package httpserver
 
 import (
+	"bytes"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"load-balancer/internal/contract"
 )
+
+// Publication detaches both the owner's document and each reader's byte slice.
+// An encoding failure must leave the last complete revision available.
+func TestPublicationDetachedDocumentAndFailedReplacement(t *testing.T) {
+	var publication Publication
+	if publication.CurrentTopology() != nil {
+		t.Fatal("a new publication must have no topology")
+	}
+	document := &contract.TopologyDocument{
+		RunID:    "run-3",
+		Revision: "9007199254740993",
+		Nodes:    []contract.TopologyNodeDefinition{},
+		Links:    []contract.TopologyLinkDefinition{},
+		Servers:  []contract.ServerDefinition{},
+	}
+	if err := publication.PublishTopology(document); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte(`{"runId":"run-3","revision":"9007199254740993","nodes":[],"links":[],"servers":[]}`)
+	document.Revision = "changed"
+	read := publication.CurrentTopology()
+	if !bytes.Equal(read, want) {
+		t.Fatalf("published topology = %s, want %s", read, want)
+	}
+	read[0] = '!'
+	if !bytes.Equal(publication.CurrentTopology(), want) {
+		t.Fatal("a reader changed the stored document")
+	}
+	invalidValue := math.NaN()
+	document.Nodes = []contract.TopologyNodeDefinition{{
+		Metrics: []contract.TopologyMetricDefinition{{Key: "invalid", Value: &invalidValue}},
+	}}
+	if err := publication.PublishTopology(document); err == nil {
+		t.Fatal("a nonfinite topology metric must fail encoding")
+	}
+	if !bytes.Equal(publication.CurrentTopology(), want) {
+		t.Fatal("failed encoding replaced the previous complete revision")
+	}
+	publication.ClearTopology()
+	if publication.CurrentTopology() != nil {
+		t.Fatal("clear must remove the topology")
+	}
+}
 
 type topologyServiceStub struct {
 	scenarioServiceStub

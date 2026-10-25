@@ -1,10 +1,19 @@
-package main
+package simulation
 
-import (
-	"time"
+import "time"
 
-	"load-balancer/model"
-)
+// PayloadProgress counts unique payload bytes independently of connection state.
+type PayloadProgress struct {
+	ReceivedBytes     uint64
+	AcknowledgedBytes uint64
+}
+
+// TrafficRate is a measurement over one completed virtual-time window.
+type TrafficRate struct {
+	TransmitBytesPerSecond float64
+	ReceiveBytesPerSecond  float64
+	SampleWindow           time.Duration
+}
 
 // trafficCounters keeps cumulative wire bytes, independent of snapshot delivery.
 type trafficCounters struct {
@@ -18,7 +27,7 @@ type trafficSampler struct {
 	initialized bool
 	at          time.Duration
 	counters    map[string]trafficCounters
-	rates       map[string]model.TopologyTraffic
+	rates       map[string]TrafficRate
 }
 
 // sample closes one shared interval for all nodes, including newly created clients.
@@ -34,17 +43,17 @@ func (sampler *trafficSampler) sample(at time.Duration, counters map[string]traf
 	}
 
 	seconds := (at - sampler.at).Seconds()
-	rates := make(map[string]model.TopologyTraffic, len(counters))
+	rates := make(map[string]TrafficRate, len(counters))
 	for id, current := range counters {
 		previous := sampler.counters[id]
 		// A counter reset has no valid delta; do not display a fabricated rate.
 		if current.transmitted < previous.transmitted || current.received < previous.received {
 			continue
 		}
-		rates[id] = model.TopologyTraffic{
+		rates[id] = TrafficRate{
 			TransmitBytesPerSecond: float64(current.transmitted-previous.transmitted) / seconds,
 			ReceiveBytesPerSecond:  float64(current.received-previous.received) / seconds,
-			SampleWindowSeconds:    seconds,
+			SampleWindow:           at - sampler.at,
 		}
 	}
 	sampler.at = at
@@ -52,33 +61,30 @@ func (sampler *trafficSampler) sample(at time.Duration, counters map[string]traf
 	sampler.rates = rates
 }
 
-// sampleTraffic runs after the whole virtual-time boundary has been processed.
+// SampleTraffic runs after the whole virtual-time boundary has been processed.
 // Incoming access hops stop before LB reception, so RX comes from shared ingress.
-func (s *simulation) sampleTraffic() {
-	counters := map[string]trafficCounters{loadBalancerNodeID: {}}
+func (s *World) SampleTraffic() {
+	counters := map[string]trafficCounters{LoadBalancerNodeID: {}}
 	for _, link := range s.links {
 		stats := link.Stats()
 		source := counters[link.Source]
 		source.transmitted += stats.TransmittedBytes
 		counters[link.Source] = source
 
-		if link.Target != loadBalancerNodeID {
+		if link.Target != LoadBalancerNodeID {
 			target := counters[link.Target]
 			target.received += stats.DeliveredBytes
 			counters[link.Target] = target
 		}
 	}
-	balancer := counters[loadBalancerNodeID]
+	balancer := counters[LoadBalancerNodeID]
 	balancer.received = s.ingress.Stats().DeliveredBytes
-	counters[loadBalancerNodeID] = balancer
+	counters[LoadBalancerNodeID] = balancer
 	s.traffic.sample(s.engine.Now(), counters)
 }
 
-// nodeTraffic returns a detached copy; no measurement exists before positive time passes.
-func (s *simulation) nodeTraffic(id string) *model.TopologyTraffic {
+// NodeTraffic returns the last completed sampling window as a detached value.
+func (s *World) NodeTraffic(id string) (TrafficRate, bool) {
 	rate, known := s.traffic.rates[id]
-	if !known {
-		return nil
-	}
-	return &rate
+	return rate, known
 }

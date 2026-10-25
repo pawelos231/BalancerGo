@@ -5,6 +5,27 @@ This repository contains both parts of the project:
 - `simulator/` - Go backend, including `main.go`, `go.mod`, and all Go packages.
 - `visualizer/` - React, TypeScript, and Vite frontend.
 
+## Code organization
+
+The simulator keeps one owner for the world and reads it synchronously before
+publishing detached data. Packages under `simulator/` divide the work as follows:
+
+| Location | Responsibility |
+| --- | --- |
+| `engine/` | Ordered events, virtual time, cancellation and execution limits. |
+| `network/`, `client/`, `server/`, `balancer/`, `algorithms/` | Links and queues, transport endpoints, forwarding, backend selection and local measurements. |
+| `model/` | Native shared packet, connection and measurement types. |
+| `scenario/` | Scenario documents, exact integer encoding, validation and normalization. |
+| `internal/simulation/` | World construction, client arrivals, wiring, RNG, typed operations and virtual-time sampling. |
+| `internal/presentation/` | Snapshot and CLI report projection, metric descriptions, display units and transfer aggregates. |
+| `internal/contract/` | The existing HTTP, WebSocket and CLI data types and commands. |
+| Application files in `simulator/` | Start/Stop, admission, run lifecycle, command handling, pacing and wall-time measurement. |
+| `http/` | HTTP and WebSocket routing, encoding and delivery of prepared data. |
+
+`internal/contract` describes the current frontend and CLI interfaces. The shared
+control-plane contract and adapters for other balancer implementations remain
+future work.
+
 ## Run with Docker Compose
 
 Install Docker Desktop with Linux containers and start it. From the repository

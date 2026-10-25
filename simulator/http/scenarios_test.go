@@ -13,13 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"load-balancer/internal/contract"
 	"load-balancer/scenario"
 )
 
 // scenarioServiceStub records admission without creating a simulation model.
 type scenarioServiceStub struct {
 	definition    scenario.Scenario
-	record        *RunRecord
+	record        *contract.RunRecord
 	startError    error
 	startCalls    int
 	defaultsCalls int
@@ -38,15 +39,15 @@ func (service *scenarioServiceStub) StartScenario(
 	ctx context.Context,
 	input scenario.Scenario,
 	resolved scenario.Normalized,
-) (RunReceipt, error) {
+) (contract.RunReceipt, error) {
 	service.startCalls++
 	service.startContext = ctx
 	service.input = input
 	service.resolved = resolved
-	return RunReceipt{RunID: "run-17"}, service.startError
+	return contract.RunReceipt{RunID: "run-17"}, service.startError
 }
 
-func (service *scenarioServiceStub) CurrentRun() *RunRecord {
+func (service *scenarioServiceStub) CurrentRun() *contract.RunRecord {
 	service.currentCalls++
 	return service.record
 }
@@ -101,7 +102,7 @@ func encodedHTTPScenario(t *testing.T, definition scenario.Scenario) []byte {
 
 // scenarioHTTPHandler mounts the API on the same private mux used in production.
 func scenarioHTTPHandler(service ScenarioService) http.Handler {
-	hub := NewHub(func(Envelope) error { return nil })
+	hub := NewHub(func(contract.Envelope) error { return nil })
 	return NewServer(hub, "", service).Handler
 }
 
@@ -140,14 +141,14 @@ func TestScenarioValidatePreservesExactDocument(t *testing.T) {
 	}
 
 	var result struct {
-		Scenario json.RawMessage `json:"scenario"`
-		Summary  scenarioSummary `json:"summary"`
-		Resolved json.RawMessage `json:"resolved"`
+		Scenario json.RawMessage          `json:"scenario"`
+		Summary  contract.ScenarioSummary `json:"summary"`
+		Resolved json.RawMessage          `json:"resolved"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	wantSummary := scenarioSummary{
+	wantSummary := contract.ScenarioSummary{
 		TotalClients:     5,
 		BackendCount:     2,
 		ClientGroupCount: 2,
@@ -226,7 +227,7 @@ func TestScenarioStartPassesValidatedSettings(t *testing.T) {
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("start status = %d: %s", response.Code, response.Body.String())
 	}
-	var receipt RunReceipt
+	var receipt contract.RunReceipt
 	if err := json.Unmarshal(response.Body.Bytes(), &receipt); err != nil {
 		t.Fatal(err)
 	}
@@ -452,9 +453,9 @@ func TestScenarioReadRoutesReturnExactDocuments(t *testing.T) {
 
 	// Lifecycle states retain the exact accepted request after completion or failure.
 	for _, status := range []string{"accepted", "running", "finished", "failed"} {
-		service.record = &RunRecord{RunID: "run-17", Status: status, Scenario: document}
+		service.record = &contract.RunRecord{RunID: "run-17", Status: status, Scenario: document}
 		response := requestScenarioAPI(handler, http.MethodGet, "/api/simulations/current", "", nil)
-		var result RunRecord
+		var result contract.RunRecord
 		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 			t.Fatal(err)
 		}
@@ -476,7 +477,7 @@ func TestScenarioReadFailuresReturnCompleteJSON(t *testing.T) {
 	definition.Execution.Speed = math.NaN()
 	service := &scenarioServiceStub{
 		definition: definition,
-		record: &RunRecord{
+		record: &contract.RunRecord{
 			RunID:    "run-17",
 			Status:   "finished",
 			Scenario: json.RawMessage("{"),
@@ -521,7 +522,7 @@ func TestScenarioMethodsAndCORS(t *testing.T) {
 	}
 
 	// Existing callers retain their WebSocket/health server without the new service.
-	legacy := NewServer(NewHub(func(Envelope) error { return nil }), "").Handler
+	legacy := NewServer(NewHub(func(contract.Envelope) error { return nil }), "").Handler
 	health := requestScenarioAPI(legacy, http.MethodGet, "/healthz", "", nil)
 	missing := requestScenarioAPI(legacy, http.MethodGet, "/api/scenarios/defaults", "", nil)
 	if health.Code != http.StatusNoContent || missing.Code != http.StatusNotFound {

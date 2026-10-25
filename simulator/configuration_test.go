@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"load-balancer/internal/contract"
 	"math"
 	"os"
 	"strings"
@@ -57,7 +58,7 @@ func TestConfigurationKeepsForwardingAndLinkBandwidthIndependent(t *testing.T) {
 	if requested.ForwardingBitsPerSecond != cfg.forwardingBitsPerSecond {
 		t.Fatal("public forwarding budget changed")
 	}
-	restored, err := requested.configuration(legacyTestConfiguration())
+	restored, err := configurationFromPublic(requested, legacyTestConfiguration())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func TestConfigurationOmittedForwardingBudgetUsesDefaults(t *testing.T) {
 	if err := json.Unmarshal([]byte(input), &requested); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := requested.configuration(defaults)
+	runtime, err := configurationFromPublic(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func TestConfigurationForwardingOverrideKeepsLinkDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime, err := requested.configuration(defaults)
+	runtime, err := configurationFromPublic(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func TestConfigurationRejectsNonpositiveForwardingBudget(t *testing.T) {
 			if err := json.Unmarshal([]byte(test.input), &requested); err != nil {
 				t.Fatal(err)
 			}
-			_, err := requested.configuration(defaults)
+			_, err := configurationFromPublic(requested, defaults)
 			if err == nil || !strings.Contains(err.Error(), "forwardingBitsPerSecond") {
 				t.Fatalf("expected forwarding budget validation error, got %v", err)
 			}
@@ -158,7 +159,7 @@ func TestConfigurationKeepsRawStreamDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime, err := requested.configuration(defaults)
+	runtime, err := configurationFromPublic(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +172,7 @@ func TestConfigurationKeepsRawStreamDefaults(t *testing.T) {
 
 	requested.Bytes = 17
 	requested.Packets = 8
-	runtime, err = requested.configuration(defaults)
+	runtime, err = configurationFromPublic(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +223,7 @@ func TestConfigurationAcceptsExplicitZeros(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime, err := requested.configuration(defaults)
+	runtime, err := configurationFromPublic(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,11 +335,11 @@ func TestConfigurationIngressRoundTrip(t *testing.T) {
 			t.Fatalf("public configuration omitted JSON field %q", field)
 		}
 	}
-	var restored simulationConfig
+	var restored contract.SimulationConfig
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := restored.configuration(legacyTestConfiguration())
+	runtime, err := configurationFromPublic(restored, legacyTestConfiguration())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,7 +369,7 @@ func TestConfigurationOmittedIngressFieldsKeepDefaults(t *testing.T) {
 	if err := json.Unmarshal([]byte(input), &requested); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := requested.configuration(defaults)
+	runtime, err := configurationFromPublic(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +388,7 @@ func TestConfigurationOmittedIngressFieldsKeepDefaults(t *testing.T) {
 	if err := json.Unmarshal([]byte(input), &requested); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = requested.configuration(defaults)
+	runtime, err = configurationFromPublic(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +423,7 @@ func TestConfigurationRejectsInvalidIngress(t *testing.T) {
 			if err := json.Unmarshal([]byte(test.input), &requested); err != nil {
 				t.Fatal(err)
 			}
-			_, err := requested.configuration(defaults)
+			_, err := configurationFromPublic(requested, defaults)
 			path := "resources.loadBalancer.ingress." + test.field
 			if err == nil || !strings.Contains(err.Error(), path) {
 				t.Fatalf("expected validation error for %s, got %v", path, err)
@@ -439,7 +440,7 @@ func TestConfigurationIngressTimeChecksBeforeConversion(t *testing.T) {
 		defaults := legacyTestConfiguration()
 		requested := defaults.publicConfig()
 		requested.IngressPacketTravelTimeMs = value
-		_, err := requested.configuration(defaults)
+		_, err := configurationFromPublic(requested, defaults)
 		if err == nil || !strings.Contains(err.Error(), "ingressPacketTravelTimeMs") {
 			t.Errorf("unsafe ingress duration %v accepted or misidentified: %v", value, err)
 		}

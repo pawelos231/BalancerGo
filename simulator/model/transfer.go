@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 // TransferStatus describes delivery of a client's payload, independently of
 // whether its TCP connection has finished closing.
 type TransferStatus string
@@ -28,12 +30,12 @@ const (
 // TransferState is a detached measurement of one attempt in virtual time.
 // Handshake duration requires HandshakeCompleted; payload duration requires success.
 type TransferState struct {
-	Status                   TransferStatus        `json:"status"`
-	FailureReason            TransferFailureReason `json:"failureReason,omitempty"`
-	ElapsedSeconds           float64               `json:"elapsedSeconds"`
-	HandshakeCompleted       bool                  `json:"handshakeCompleted"`
-	HandshakeDurationSeconds float64               `json:"handshakeDurationSeconds"`
-	PayloadDurationSeconds   float64               `json:"payloadDurationSeconds"`
-	SynRetransmissions       uint64                `json:"synRetransmissions"`
-	DataRetransmissions      uint64                `json:"dataRetransmissions"`
+	Status              TransferStatus
+	FailureReason       TransferFailureReason
+	Elapsed             time.Duration
+	HandshakeCompleted  bool
+	HandshakeDuration   time.Duration
+	PayloadDuration     time.Duration
+	SynRetransmissions  uint64
+	DataRetransmissions uint64
 }

@@ -11,7 +11,6 @@ import (
 	"load-balancer/model"
 	"load-balancer/server"
 	"math/rand"
-	"reflect"
 	"time"
 )
 
@@ -362,21 +361,20 @@ func (lb *LoadBalancer) scheduleHealthCheck(srv *server.Server, check *healthChe
 	})
 }
 
-// Tick creates detached DTOs. I/O can retain them without reading live models.
-func (lb *LoadBalancer) Tick() model.LoadBalancerState {
-	states := make([]model.ServerStateWithClients, 0, len(lb.servers))
+// VisitBackends reads detached values in backend registration order.
+func (lb *LoadBalancer) VisitBackends(visit func(model.ServerState)) {
 	for _, srv := range lb.servers {
-		clients := make([]model.ClientState, 0, len(lb.connTable[srv]))
+		visit(srv.GetState())
+	}
+}
+
+// VisitRoutes preserves backend order and each backend's connection order.
+func (lb *LoadBalancer) VisitRoutes(visit func(string, model.ClientKey)) {
+	for _, srv := range lb.servers {
 		for _, cl := range lb.connTable[srv] {
-			clients = append(clients, cl.GetState())
+			visit(srv.ID, cl.Key())
 		}
-		states = append(states, model.ServerStateWithClients{Server: srv.GetState(), Clients: clients})
 	}
-	name := reflect.TypeOf(lb.algo)
-	if name.Kind() == reflect.Pointer {
-		name = name.Elem()
-	}
-	return model.LoadBalancerState{Mode: lb.Mode, Algorithm: name.Name(), Servers: states}
 }
 
 func (lb *LoadBalancer) Shutdown() {

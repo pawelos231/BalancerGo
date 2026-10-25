@@ -11,5 +11,5 @@ type ServerState struct {
 	LatencyP95Milli        uint32
 	NumberOfHandledPackets uint32
 	ReceivedPayloadBytes   uint64
-	CpuUsage               float32
+	CpuUsage               uint32 // Packets received in the last statistics window.
 }

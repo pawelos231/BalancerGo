@@ -1,4 +1,4 @@
-package main
+package simulation
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 
 // TestScenarioFilesRoundTrip checks the shipped files without running their full workloads.
 func TestScenarioFilesRoundTrip(t *testing.T) {
-	paths, err := filepath.Glob(filepath.Join("..", "examples", "scenarios", "*.json"))
+	paths, err := filepath.Glob(filepath.Join("..", "..", "..", "examples", "scenarios", "*.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestScenarioSmokeSampleKeepsOverrides(t *testing.T) {
 
 // TestScenarioLimitsDocument checks the complete stress document without constructing its endpoints.
 func TestScenarioLimitsDocument(t *testing.T) {
-	path := filepath.Join("..", "examples", "scenarios", "simulator-limits.json")
+	path := filepath.Join("..", "..", "..", "examples", "scenarios", "simulator-limits.json")
 	document, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -189,17 +189,17 @@ func scenarioFileRoundTrip(t *testing.T, input scenario.Scenario) scenario.Scena
 }
 
 // runScenarioFile excludes wall time while retaining all virtual counters and endpoint state.
-func runScenarioFile(t *testing.T, input scenario.Scenario) simulationResult {
+func runScenarioFile(t *testing.T, input scenario.Scenario) worldReadings {
 	t.Helper()
 	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := newScenarioSimulation(resolved)
-	if err := s.run(context.Background(), nil); err != nil {
+	s := New(resolved)
+	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	result := s.result(0)
+	result := readWorld(s)
 	if s.engine.Now() != input.Execution.Duration {
 		t.Fatal("the bounded run did not reach its virtual horizon")
 	}
