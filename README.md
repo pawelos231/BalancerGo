@@ -212,16 +212,20 @@ Invoke-RestMethod "$base/api/simulations" -Method Post -ContentType 'application
 Invoke-RestMethod "$base/api/simulations/current"
 ```
 
-The frontend **Scenario library** has 18 presets across links, queues, loss,
-workloads, routing, edge cases and performance. Search or filter the catalog;
+The frontend **Scenario library** has 26 presets across links, queues, loss,
+workloads, routing, edge cases, performance and reference experiments. Search or filter the catalog;
 six cards appear per page. Choose a preset and click **Validate and load preset**
 to load it into the form, then use the single **Start simulation** button.
 The catalog lives in `visualizer/src/scenarios/presets.ts`, with factories split
 into `scenarios/presets/`. The original four topology experiments inherit backend
-defaults; the twelve additional scenarios use an explicit repeatable baseline.
+defaults; the other network and reference scenarios use an explicit repeatable baseline.
 Ordinary experiments use 180 virtual seconds, speed 1 and 1 GiB per client,
 except deliberately short or empty streams. The active run's exact configuration
 can be expanded below the catalog.
+The [reference matrix](examples/scenarios/REFERENCE_EXPERIMENTS.md) contains eight
+60-second cases with two backends: backend 2 varies between 4/40 ms base travel
+RTT and a 1 Gbit/s/64 kbit/s return link, with 16 KiB/1 MiB per client.
+Backend 1 stays fixed; all other settings are shared across the matrix.
 Editing ordinary fields changes only their part of the scenario. Link settings
 edit network defaults; endpoint profiles and directional overrides remain intact.
 With multiple groups, changing the total client count redistributes it
@@ -279,8 +283,8 @@ streams and explicit overrides returned by validation. The resolved preview is
 read-only and is not the import format. Correct invalid form values before
 validation or export. The active run's original document remains separate.
 
-Nineteen ready documents, their units and expected settings are described in
-[examples/scenarios/README.md](examples/scenarios/README.md). Eighteen mirror the UI
+Twenty-seven ready documents, their units and expected settings are described in
+[examples/scenarios/README.md](examples/scenarios/README.md). Twenty-six mirror the UI
 preset catalog; `advanced-overrides.json` demonstrates directional and individual
 client settings. Nanosecond fields store exact virtual time, bandwidth is in
 decimal bit/s, queue capacities count waiting packets and `bytes: -1` uses

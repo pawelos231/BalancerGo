@@ -3,6 +3,7 @@ import { linkPresets } from './presets/links.ts';
 import { lossPresets } from './presets/loss.ts';
 import { performancePresets } from './presets/performance.ts';
 import { queuePresets } from './presets/queues.ts';
+import { referencePresets } from './presets/reference.ts';
 import { routingPresets } from './presets/routing.ts';
 import { workloadPresets } from './presets/workload.ts';
 
@@ -18,4 +19,5 @@ export const scenarioPresets = [
   ...queuePresets,
   ...workloadPresets,
   ...routingPresets,
+  ...referencePresets,
 ] as const;

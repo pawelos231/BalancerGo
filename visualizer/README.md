@@ -39,14 +39,20 @@ its draft. Static hosting must serve `index.html` for `/topology`; the container
 JSON numbers or exact decimal strings; keep strings unchanged when sending or
 displaying the scenario. Nanosecond fields retain their explicit units.
 
-`presets.ts` exposes 18 scenarios across links, queues, loss, workloads, routing,
-edge cases and performance. Search by title/description or filter by category;
+`presets.ts` exposes 26 scenarios across links, queues, loss, workloads, routing,
+edge cases, performance and reference experiments. Search by title/description or filter by category;
 the library shows six cards per page. Choosing or filtering never starts a run.
-The original four topology presets still inherit backend defaults. The twelve
-additional factories in `scenarios/presets/` use a fixed baseline so CLI overrides
+The original four topology presets still inherit backend defaults. The other
+network and reference factories in `scenarios/presets/` use a fixed baseline so CLI overrides
 do not silently change the experiment being tested. Ordinary experiments run
 for 180 virtual seconds at speed 1, with 1 GiB per client unless their workload
 deliberately includes short or empty streams.
+
+**Reference experiments** contains eight 60-second cases crossing backend 2's
+4/40 ms base travel RTT, 1 Gbit/s/64 kbit/s return link and 16 KiB/1 MiB payload
+per client. Backend 1 and the remaining settings stay fixed. See the
+[reference guide](../examples/scenarios/REFERENCE_EXPERIMENTS.md) for the matrix
+and the distinction between base travel RTT and measured RTT.
 
 The additions cover asymmetric client links, mixed latency, a slow backend ACK
 return, lossy access, one blackholed backend link, tiny or absent ingress queues,
@@ -116,7 +122,7 @@ validation: inherited link settings and streams for backends, groups and explici
 client overrides. It is read-only and is not an import format. The active run's
 original scenario remains a separate document.
 
-See [example scenarios](../examples/scenarios/README.md) for all 18 catalog
+See [example scenarios](../examples/scenarios/README.md) for all 26 catalog
 experiments and a smaller directional/client-override example. JSON duration
 fields use exact virtual nanoseconds, bandwidth uses decimal bit/s and capacities
 count waiting packets. Keep large integer decimal strings intact. The same file,

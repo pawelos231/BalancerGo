@@ -9,6 +9,7 @@ export const presetCategories = [
   { id: 'routing', label: 'Routing' },
   { id: 'edge-cases', label: 'Edge cases' },
   { id: 'performance', label: 'Simulator performance' },
+  { id: 'reference', label: 'Reference experiments' },
 ] as const;
 
 export type ScenarioPresetCategory = typeof presetCategories[number]['id'];

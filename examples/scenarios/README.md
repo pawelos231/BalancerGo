@@ -1,7 +1,7 @@
 # Scenario files
 
 These UTF-8 JSON files are native version-1 scenarios accepted by the backend.
-Eighteen match the UI preset factories; one extra file demonstrates nested
+Twenty-six match the UI preset factories; one extra file demonstrates nested
 overrides. The library supports search, category filters and six cards per page.
 Ordinary presets use seed 1, a 50-million-event limit, 100 ms snapshots,
 1 ms endpoint travel time, 1024 waiting slots and zero random loss unless their
@@ -29,6 +29,14 @@ overrides or changes to Go defaults do not alter it.
 | [no-backends.json](no-backends.json) | 8 / 0 | Connection attempts with no destination backend; retries and cleanup. |
 | [idle-network.json](idle-network.json) | 0 / 2 | Infrastructure without client traffic; scheduled maintenance events still execute. |
 | [advanced-overrides.json](advanced-overrides.json) | 4 / 2 | Profile, directional settings and one explicit client override. |
+| [Reference matrix](REFERENCE_EXPERIMENTS.md) | 16 / 2 | Eight cases crossing backend 2's travel RTT, return-link bandwidth and stream size. |
+
+The **Reference experiments** category adds a fixed 2 x 2 x 2 matrix: backend 2
+has a 4 or 40 ms base travel RTT and a 1 Gbit/s or 64 kbit/s return link;
+every client sends 16 KiB or 1 MiB. Backend 1 stays at 4 ms and 1 Gbit/s.
+All eight cases run for 60 virtual seconds with the same seed and round robin.
+See [the reference guide](REFERENCE_EXPERIMENTS.md) for the files, fixed settings,
+RTT calculation and current measurement limits.
 
 Ordinary catalog presets run for 180 virtual seconds at speed 1 with 1 GiB per
 client, except deliberate short/empty stream overrides. They may finish with
@@ -47,8 +55,8 @@ large telemetry frames and rendering are part of this scale experiment. The
 existing 100 half-open slots per backend remain in effect: not all scheduled
 clients must establish a connection before the horizon.
 
-The original four topology presets inherit fetched backend defaults; the twelve
-new factories use an explicit baseline so unrelated CLI overrides do not change
+The original four topology presets inherit fetched backend defaults; the other
+network and reference factories use an explicit baseline so unrelated CLI overrides do not change
 the property under test. The files above are concrete snapshots of those factories
 using ordinary Go defaults. Search and category changes preserve the selected
 candidate and the current form; only successful validation loads another preset.

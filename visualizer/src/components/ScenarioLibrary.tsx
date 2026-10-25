@@ -88,7 +88,7 @@ function ScenarioLibrary({
       <CardContent>
         <Stack spacing={2}>
           <Typography variant="body2" color="text.secondary">
-            Explore links, queues, loss, workloads, routing and edge cases, or run the
+            Explore links, queues, loss, workloads, routing, reference experiments and edge cases, or run the
             unpaced simulator throughput benchmark.
             Review its settings in the form before starting. Choosing a preset does not
             change the form or start a run.
