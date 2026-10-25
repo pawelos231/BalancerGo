@@ -145,8 +145,8 @@ parent directory must already exist.
 
 Scenario settings come entirely from the document. Combining `-scenario` with
 flags such as `-seed`, `-duration`, `-clients` or `-speed` is an error, including
-when their values equal the defaults. Only process flags `-scenario`, `-output`,
-`-headless` and `-trace` may be combined. `-headless` is optional in this mode,
+when their values equal the defaults. For a single run, process flags `-scenario`,
+`-output`, `-headless` and `-trace` may be combined. `-headless` is optional,
 and `-output` requires `-scenario`. The older `-headless -clients ...` command
 continues to print its original result format.
 
@@ -179,6 +179,51 @@ without building frontend snapshots. As in the original headless mode,
 `result.WallTime` measures execution after world construction and before report
 assembly/encoding. It excludes loading, validation and world setup; it is not
 the same measurement boundary as the interactive UI run.
+
+### Run a series with different seeds
+
+From `simulator/`, provide the scenario, an ordered seed list and a new directory:
+
+```powershell
+$scenario = '../examples/scenarios/reference-near-fast-ack-short.json'
+go run . -scenario $scenario -seeds '1,2,3' -output-dir runs-001
+```
+
+Each seed starts a fresh world and produces its own `run-0001.json`,
+`run-0002.json`, and so on. Runs execute sequentially without pacing. The input
+file is loaded once and stays unchanged. Each report uses the single-run format
+above; its scenario and checksum include the seed actually used for that run.
+
+Seeds are comma-separated, signed base-10 `int64` values. Surrounding whitespace
+is allowed. Order and duplicates are preserved; for example,
+`-seeds '-7,9007199254740993,-7'` deliberately repeats the first seed. Ranges
+and an automatic repeat count are not supported. `-seeds` and `-output-dir`
+must be supplied together with `-scenario`. Series cannot use `-output` or
+`-trace`. The output directory must be new, with an existing parent directory.
+Invalid options, seeds or input are rejected before creating it.
+
+The runner updates `index.json` as it progresses and prints the final index as
+one JSON document to stdout. The index contains:
+
+- `version`, overall `status`, and an optional `error`;
+- `manifest`, identifying the original base scenario and executable;
+- ordered `runs`, each with an `id`, exact decimal-string `seed`, and `status`;
+- a relative `report` path only after that run's report was saved successfully,
+  plus its `error` when applicable.
+
+Run statuses are `notStarted`, `running`, `finished`, `failed`, or `cancelled`.
+Execution failures such as event limits save partial reports and allow later
+seeds to run; the series then returns a nonzero exit code. Cancellation or an
+I/O failure stops the series, retains existing reports and progress, and leaves
+remaining runs as `notStarted`. The series does not yet calculate aggregate
+statistics or confidence intervals.
+
+Today, seeds mainly affect random packet loss and `Random` backend selection.
+With round-robin, zero loss and no other random operations, different seeds
+produce the same virtual results. Duplicate seeds check repeatability rather
+than supplying independent replications. `WallTime` can still vary between runs.
+
+### Simple CLI settings
 
 CLI flags provide the form defaults, and configure immediate headless runs.
 The browser sends its selected configuration when Start is clicked. Useful

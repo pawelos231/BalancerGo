@@ -151,3 +151,23 @@ type ExperimentBuild struct {
 	VCSRevision   string `json:"vcsRevision,omitempty"`
 	VCSModified   *bool  `json:"vcsModified,omitempty"`
 }
+
+// ExperimentSeriesReport indexes independent runs of one base scenario.
+// Manifest keeps the base input; each run report stores its actual seed.
+type ExperimentSeriesReport struct {
+	Version  int                   `json:"version"`
+	Status   string                `json:"status"`
+	Error    string                `json:"error,omitempty"`
+	Manifest ExperimentManifest    `json:"manifest"`
+	Runs     []ExperimentSeriesRun `json:"runs"`
+}
+
+// ExperimentSeriesRun records progress without retaining a simulation's state.
+// Seed is an exact decimal string; Report appears only after a successful save.
+type ExperimentSeriesRun struct {
+	ID     string `json:"id"`
+	Seed   string `json:"seed"`
+	Status string `json:"status"`
+	Report string `json:"report,omitempty"`
+	Error  string `json:"error,omitempty"`
+}

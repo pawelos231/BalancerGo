@@ -30,14 +30,17 @@ type configuration struct {
 	loss                    float64
 	ingress                 scenario.LinkConfig
 
-	speed        float64
-	seed         int64
-	algorithm    string
-	maxEvents    uint64
-	headless     bool
-	tracePath    string
-	scenarioPath string
-	outputPath   string
+	speed     float64
+	seed      int64
+	algorithm string
+	maxEvents uint64
+
+	headless        bool
+	tracePath       string
+	scenarioPath    string
+	outputPath      string
+	seeds           string
+	outputDirectory string
 }
 
 func readConfiguration() (configuration, error) {
@@ -118,6 +121,18 @@ func readConfiguration() (configuration, error) {
 		"",
 		"write the scenario run report to a new file instead of stdout",
 	)
+	flag.StringVar(
+		&c.seeds,
+		"seeds",
+		"",
+		"run a scenario series with comma-separated signed decimal seeds",
+	)
+	flag.StringVar(
+		&c.outputDirectory,
+		"output-dir",
+		"",
+		"write series reports and index.json in a new directory",
+	)
 	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
 		return c, err
 	}
@@ -141,18 +156,32 @@ func readConfiguration() (configuration, error) {
 // checkFileOptions checks explicit paths and keeps JSON as the source of settings.
 // An empty scenario argument must fail rather than start the interactive server.
 func (c configuration) checkFileOptions() error {
+	series := c.seeds != "" || c.outputDirectory != ""
 	var invalidOption error
 	flag.Visit(func(option *flag.Flag) {
 		if invalidOption != nil {
 			return
 		}
 		switch option.Name {
-		case "scenario", "output":
+		case "scenario", "output", "output-dir":
 			if option.Value.String() == "" {
-				invalidOption = fmt.Errorf("-%s requires a nonempty file path", option.Name)
+				invalidOption = fmt.Errorf("-%s requires a nonempty path", option.Name)
+			}
+			if series && option.Name == "output" {
+				invalidOption = errors.New("-output cannot be combined with -seeds or -output-dir")
 			}
 			return
-		case "headless", "trace":
+		case "seeds":
+			if option.Value.String() == "" {
+				invalidOption = errors.New("-seeds requires a nonempty seed list")
+			}
+			return
+		case "trace":
+			if series {
+				invalidOption = errors.New("-trace cannot be combined with -seeds or -output-dir")
+			}
+			return
+		case "headless":
 			return
 		}
 		if c.scenarioPath != "" {
@@ -161,6 +190,16 @@ func (c configuration) checkFileOptions() error {
 	})
 	if invalidOption != nil {
 		return invalidOption
+	}
+	if series {
+		if c.scenarioPath == "" {
+			return errors.New("-seeds and -output-dir require -scenario")
+		}
+		if c.seeds == "" || c.outputDirectory == "" {
+			return errors.New("-seeds and -output-dir must be provided together")
+		}
+		_, err := parseSeriesSeeds(c.seeds)
+		return err
 	}
 	if c.outputPath != "" && c.scenarioPath == "" {
 		return errors.New("-output requires -scenario")

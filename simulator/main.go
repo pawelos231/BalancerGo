@@ -37,6 +37,9 @@ func run() error {
 
 	// Full JSON scenarios use a standalone run and never start the HTTP service.
 	if defaults.scenarioPath != "" {
+		if defaults.seeds != "" {
+			return runScenarioSeries(ctx, defaults, os.Stdout)
+		}
 		return runScenarioFile(ctx, defaults, os.Stdout)
 	}
 

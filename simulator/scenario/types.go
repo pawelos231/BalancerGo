@@ -25,9 +25,12 @@ type Scenario struct {
 type ExecutionConfig struct {
 	Duration         time.Duration `json:"durationNanoseconds"`
 	SnapshotInterval time.Duration `json:"snapshotIntervalNanoseconds"`
-	Seed             int64         `json:"seed"`
-	Speed            float64       `json:"speed"`
-	MaxEvents        uint64        `json:"maxEvents"`
+
+	// Seed makes random routing and loss reproducible. Future models may use it
+	// for traffic generation, network/CPU timing, chaos and telemetry.
+	Seed      int64   `json:"seed"`
+	Speed     float64 `json:"speed"`
+	MaxEvents uint64  `json:"maxEvents"`
 }
 
 // NetworkConfig holds common link settings and reusable named profiles.

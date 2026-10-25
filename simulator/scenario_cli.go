@@ -26,6 +26,14 @@ const (
 	experimentModel         = "tcp-stop-and-wait-v1"
 )
 
+// loadedScenario keeps the importable input beside its checked runtime settings.
+// A series changes only the seed on value copies of these settings.
+type loadedScenario struct {
+	document   []byte
+	definition scenario.Scenario
+	resolved   scenario.Normalized
+}
+
 // runScenarioFile runs the same full document accepted by the frontend.
 // The report preserves its input; only the runtime copy disables pacing.
 func runScenarioFile(
@@ -33,11 +41,10 @@ func runScenarioFile(
 	options configuration,
 	stdout io.Writer,
 ) (resultErr error) {
-	document, resolved, err := loadScenarioFile(options.scenarioPath)
+	loaded, err := loadScenarioFile(options.scenarioPath)
 	if err != nil {
 		return err
 	}
-	resolved.Execution.Speed = 0
 
 	// Reserve a new output before running. Existing inputs and reports stay safe,
 	// even when another path names the same file through a link.
@@ -72,6 +79,29 @@ func runScenarioFile(
 	}
 
 	started = true
+	report, runErr := executeScenario(
+		ctx,
+		loaded.document,
+		loaded.resolved,
+		options.tracePath != "",
+	)
+
+	// Runtime failures still produce a partial report, then a nonzero exit status.
+	if err := writeCLIJSON(output, report); err != nil {
+		return errors.Join(runErr, fmt.Errorf("write report: %w", err))
+	}
+	return runErr
+}
+
+// executeScenario creates a fresh world for one unpaced experiment.
+// Execution errors stay separate from file errors so a series can continue.
+func executeScenario(
+	ctx context.Context,
+	document []byte,
+	resolved scenario.Normalized,
+	traced bool,
+) (contract.ExperimentReport, error) {
+	resolved.Execution.Speed = 0
 	world := simulation.New(resolved)
 
 	// Match the existing headless clock: setup and report encoding are outside it.
@@ -80,53 +110,58 @@ func runScenarioFile(
 	elapsed := time.Since(wallStart)
 
 	report := contract.ExperimentReport{
-		Version: experimentReportVersion,
-		Status:  "finished",
-		Manifest: experimentManifest(
-			document,
-			options.tracePath != "",
-		),
-		Result: presentation.BuildResult(world, elapsed),
+		Version:  experimentReportVersion,
+		Status:   "finished",
+		Manifest: experimentManifest(document, traced),
+		Result:   presentation.BuildResult(world, elapsed),
 	}
 	if runErr != nil {
 		report.Status = "failed"
 		report.Error = runErr.Error()
-		cancelled := errors.Is(runErr, context.Canceled) ||
-			errors.Is(runErr, context.DeadlineExceeded)
-		if cancelled {
+		if isCancellation(runErr) {
 			report.Status = "cancelled"
 		}
 	}
 
-	// Runtime failures still produce a partial report, then a nonzero exit status.
-	encoder := json.NewEncoder(output)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(report); err != nil {
-		return errors.Join(runErr, fmt.Errorf("write report: %w", err))
-	}
-	return runErr
+	return report, runErr
 }
 
 // loadScenarioFile shares strict decoding, validation and exact integer encoding
 // with HTTP. The stored document can be imported again without losing profiles.
-func loadScenarioFile(path string) ([]byte, scenario.Normalized, error) {
+func loadScenarioFile(path string) (loadedScenario, error) {
 	input, err := os.ReadFile(path)
 	if err != nil {
-		return nil, scenario.Normalized{}, fmt.Errorf("read scenario: %w", err)
+		return loadedScenario{}, fmt.Errorf("read scenario: %w", err)
 	}
 	definition, err := scenario.DecodeDocument(input)
 	if err != nil {
-		return nil, scenario.Normalized{}, fmt.Errorf("decode scenario: %w", err)
+		return loadedScenario{}, fmt.Errorf("decode scenario: %w", err)
 	}
 	resolved, err := scenario.Normalize(definition)
 	if err != nil {
-		return nil, scenario.Normalized{}, fmt.Errorf("validate scenario: %w", err)
+		return loadedScenario{}, fmt.Errorf("validate scenario: %w", err)
 	}
 	document, err := scenario.EncodeDocument(definition)
 	if err != nil {
-		return nil, scenario.Normalized{}, fmt.Errorf("encode scenario: %w", err)
+		return loadedScenario{}, fmt.Errorf("encode scenario: %w", err)
 	}
-	return document, resolved, nil
+	return loadedScenario{
+		document:   document,
+		definition: definition,
+		resolved:   resolved,
+	}, nil
+}
+
+// writeCLIJSON keeps single-run reports and series indexes in the same format.
+func writeCLIJSON(output io.Writer, document any) error {
+	encoder := json.NewEncoder(output)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(document)
+}
+
+// isCancellation distinguishes a request to stop from a model failure.
+func isCancellation(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // startScenarioTrace refuses existing files just like report output does.
