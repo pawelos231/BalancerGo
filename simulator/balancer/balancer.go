@@ -174,6 +174,7 @@ func (lb *LoadBalancer) Route(cl *client.Client) (*server.Server, error) {
 			eligible = append(eligible, srv)
 		}
 	}
+
 	srv, err := lb.algo.Pick(eligible)
 	if err != nil {
 		return nil, err
@@ -181,6 +182,7 @@ func (lb *LoadBalancer) Route(cl *client.Client) (*server.Server, error) {
 	if srv == nil {
 		return nil, errors.New("balancer: no available backend")
 	}
+
 	lb.connTable[srv] = append(lb.connTable[srv], cl)
 	lb.byKey[cl.Key()] = srv
 	return srv, nil
