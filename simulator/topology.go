@@ -23,6 +23,7 @@ func backendNodeID(resourceID string) string {
 func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 	forwarding := s.egress.Stats()
 	ingress := s.ingress.Stats()
+	transfers := s.transferResults()
 	routedConnections := 0
 	for _, backend := range state.Servers {
 		routedConnections += len(backend.Clients)
@@ -147,6 +148,42 @@ func (s *simulation) topology(state model.LoadBalancerState) model.Topology {
 					Label: "Payload confirmed to clients by ACK",
 					Value: float64(s.payload.AcknowledgedBytes),
 					Unit:  "bytes",
+				},
+				{
+					Key:   "successfulTransfers",
+					Label: "Successful transfers",
+					Value: float64(transfers.Succeeded),
+					Unit:  "transfers",
+				},
+				{
+					Key:   "failedTransfers",
+					Label: "Failed transfers",
+					Value: float64(transfers.Failed),
+					Unit:  "transfers",
+				},
+				{
+					Key:   "inProgressTransfers",
+					Label: "Transfers still in progress",
+					Value: float64(transfers.InProgress),
+					Unit:  "transfers",
+				},
+				{
+					Key:   "notStartedTransfers",
+					Label: "Scheduled clients not yet started",
+					Value: float64(transfers.NotStarted),
+					Unit:  "clients",
+				},
+				{
+					Key:   "synRetransmissions",
+					Label: "Cumulative SYN retransmissions",
+					Value: float64(transfers.SynRetransmissions),
+					Unit:  "packets",
+				},
+				{
+					Key:   "dataRetransmissions",
+					Label: "Cumulative data retransmissions",
+					Value: float64(transfers.DataRetransmissions),
+					Unit:  "packets",
 				},
 			},
 		},
@@ -335,6 +372,18 @@ func clientTopologyNode(runtime runtimeClient) model.TopologyNode {
 				Label: "Current segment retries",
 				Value: float64(state.RetryData),
 				Unit:  "retries",
+			},
+			{
+				Key:   "synRetransmissions",
+				Label: "Cumulative SYN retransmissions",
+				Value: float64(state.Transfer.SynRetransmissions),
+				Unit:  "packets",
+			},
+			{
+				Key:   "dataRetransmissions",
+				Label: "Cumulative data retransmissions",
+				Value: float64(state.Transfer.DataRetransmissions),
+				Unit:  "packets",
 			},
 		},
 	}

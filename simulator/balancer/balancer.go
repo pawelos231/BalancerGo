@@ -210,7 +210,7 @@ func (lb *LoadBalancer) forgetClient(key model.ClientKey) {
 
 func (lb *LoadBalancer) RemoveServer(srv *server.Server) {
 	for _, cl := range append([]*client.Client(nil), lb.connTable[srv]...) {
-		cl.Shutdown()
+		cl.ShutdownWithReason(model.TransferBackendRemoved)
 	}
 	if check := lb.health[srv]; check != nil {
 		lb.engine.Cancel(check.tick)
@@ -328,7 +328,7 @@ func (lb *LoadBalancer) scheduleCleanup() {
 				timeout = HalfOpenTimeout
 			}
 			if lb.engine.Now()-lb.lastActivity[key] >= timeout {
-				cl.Shutdown()
+				cl.ShutdownWithReason(model.TransferBalancerTimeout)
 			} else {
 				remaining = append(remaining, cl)
 			}

@@ -1,4 +1,4 @@
-import type { ClientKey, SimulationMetadata } from '../types';
+import type { ClientKey, ClientTransfer, SimulationMetadata } from '../types';
 import type {
   TopologyLinkConfig,
   TopologyLinkStats,
@@ -81,6 +81,7 @@ export interface ServerTelemetry {
     retrySyn: number;
     retryData: number;
     acknowledgedPayloadBytes?: number;
+    transfer?: ClientTransfer;
   }[];
 }
 

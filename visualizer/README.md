@@ -41,6 +41,15 @@ transfers. The counters exclude headers and retransmissions and survive closed
 connections until reset. Backend cards show received payload; topology details
 show per-backend receipts, per-client confirmations and aggregate totals.
 
+**Transfer results** separates succeeded, failed and in-progress attempts from
+future arrivals not yet started. Success is defined at the final payload ACK,
+independently of later connection closure. The panel shows failure reasons and
+cumulative SYN/data retransmissions, plus virtual duration sample counts and
+mean/min/max values. Payload/completion summaries include successes only;
+handshake summaries include every completed handshake. Zero samples means
+unavailable, while a measured zero duration is valid. Tooltips define each phase.
+Reaching the horizon preserves in-progress attempts; Stop clears the run's results.
+
 `src/scenarios/types.ts` mirrors the backend document. Integer values may be safe
 JSON numbers or exact decimal strings; keep strings unchanged when sending or
 displaying the scenario. Nanosecond fields retain their explicit units.

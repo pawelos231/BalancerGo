@@ -5,4 +5,5 @@ type ClientState struct {
 	RetrySyn                 uint8
 	RetryData                uint8
 	AcknowledgedPayloadBytes uint64
+	Transfer                 TransferState
 }

@@ -92,6 +92,9 @@ payload accepted by backends; `AcknowledgedPayloadBytes` counts payload confirme
 to clients by ACK. Both include unfinished transfers and retain historical work
 after connections close. Headers, control packets and repeated data are excluded.
 `CompletedPayloadBytes` still counts only fully completed streams.
+`Transfers` separates succeeded, failed and still-active attempts from scheduled
+clients not yet created. It includes failure reasons, cumulative SYN/data retry
+counts and virtual duration summaries with sample count, mean, minimum and maximum.
 `VirtualTime` describes the model;
 `WallTime` describes the cost of running it. Clients still active at the end time
 remain in the final state; reaching that time does not imply successful completion.
@@ -521,6 +524,31 @@ or lost can leave the confirmed total behind the received total. Backend cards
 show their received payload; the topology inspector exposes backend receipts,
 client confirmations and run totals on the LB. These are payload totals rather
 than wire-byte rates, and survive connection cleanup until Stop/reset.
+
+The adjacent **Transfer results** panel reports attempts independently of the
+connection lifecycle. A transfer succeeds when all its payload is ACK-confirmed;
+a later FIN timeout does not undo that result. Existing abort paths record a
+failure reason without changing the simulated protocol. At the time horizon,
+unfinished created transfers remain **In progress**; reserved future clients are
+**Not started**. The counts satisfy `started = succeeded + failed + inProgress`.
+The legacy headless `IncompleteStreams` includes both failed and active attempts.
+
+All transfer durations use virtual seconds. **Handshake** runs from the connection
+request (the initial SYN is scheduled at the same timestamp) to the first accepted
+SYN-ACK and includes SYN retries. **Payload** runs from the first original data
+send to the final payload ACK: it excludes the initial sender pause, but includes
+later pauses and retries. **Completion** runs from the connection request to that
+final ACK. Empty streams succeed after handshake with zero payload duration.
+Payload/completion statistics contain successes only; handshake statistics include
+all completed handshakes, even if the transfer later fails. A sample count of zero
+means unavailable; a measured zero is valid. These mean/min/max statistics do not
+replace the backend's existing SYN-to-FIN p95 connection-lifetime proxy.
+
+Live snapshots expose this summary as `simulation.transfers`; routed clients also
+carry their own `transfer` measurements. Historical clients remain in the run
+summary after leaving the routing table. Retry totals never reset when an ACK
+resets the current per-segment retry counter. Stop discards the whole run rather
+than turning discarded work into failures.
 
 The runner samples after all events at a boundary have completed, including a
 short final interval. Reading topology or dropping WS frames changes no measurement.

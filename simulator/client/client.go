@@ -30,6 +30,7 @@ type Client struct {
 	gap             time.Duration
 
 	acknowledgedPayloadBytes uint64
+	transfer                 transferMetrics
 
 	synSendEvent engine.EventID
 	synTimer     engine.EventID
@@ -53,7 +54,11 @@ func NewClient(e *engine.Engine, srcIP string, srcPort uint16, dstIP string, dst
 	if proto != model.TCP {
 		panic("client: only the simplified TCP model is implemented")
 	}
-	return &Client{engine: e, key: GenerateClientKey(srcIP, srcPort, dstIP, dstPort, proto)}
+	return &Client{
+		engine:   e,
+		key:      GenerateClientKey(srcIP, srcPort, dstIP, dstPort, proto),
+		transfer: transferMetrics{status: model.TransferInProgress},
+	}
 }
 
 func (c *Client) SetSender(sender func(model.Packet)) {
@@ -81,6 +86,7 @@ func (c *Client) EstablishConnection() {
 		return
 	}
 	c.handshakeStarted = true
+	c.transfer.startedAt = c.engine.Now()
 	c.armReadTimer()
 	c.synSendEvent = c.engine.ScheduleAfter(0, func() {
 		c.synSendEvent = 0
@@ -102,10 +108,11 @@ func (c *Client) retransmitSyn() {
 		return
 	}
 	if c.retrySyn >= model.MAX_RETRANSMISIONS {
-		c.Shutdown()
+		c.ShutdownWithReason(model.TransferSynRetryLimit)
 		return
 	}
 	c.retrySyn++
+	c.transfer.synRetransmissions++
 	c.sendSyn()
 }
 
@@ -142,6 +149,7 @@ func (c *Client) queueSegment() {
 		payloadBytes := min(c.remainingBytes, model.SEGMENT_SIZE)
 		// Data also acknowledges the handshake if its final standalone ACK was lost.
 		c.lastSent = GeneratePacket(c.key, model.FlagPSH|model.FlagACK, payloadBytes, c.segmentIndex)
+		c.recordPayloadStart()
 		c.waitingForAck = true
 		c.retryData = 0
 		c.armDataTimer()
@@ -160,10 +168,11 @@ func (c *Client) retransmitData() {
 		return
 	}
 	if c.retryData >= model.MAX_RETRANSMISIONS {
-		c.Shutdown()
+		c.ShutdownWithReason(model.TransferDataRetryLimit)
 		return
 	}
 	c.retryData++
+	c.transfer.dataRetransmissions++
 	c.armDataTimer()
 	c.emit(c.lastSent)
 }
@@ -175,7 +184,7 @@ func (c *Client) HandlePacket(pkt model.Packet) {
 	c.armReadTimer()
 	// A FIN|ACK must close the client rather than acknowledge another segment.
 	if pkt.Flag&model.FlagFIN != 0 {
-		c.Shutdown()
+		c.ShutdownWithReason(model.TransferRemoteClosed)
 		return
 	}
 	if c.closing {
@@ -187,6 +196,9 @@ func (c *Client) HandlePacket(pkt model.Packet) {
 		}
 		c.cancelEvent(&c.synTimer)
 		c.retrySyn = 0
+		if !c.handshakeCompleted {
+			c.transfer.handshakeDuration = c.engine.Now() - c.transfer.startedAt
+		}
 		c.handshakeCompleted = true
 		c.emit(GeneratePacket(c.key, model.FlagACK, 0, 1))
 		c.queueSegment()
@@ -211,6 +223,7 @@ func (c *Client) finishStream() {
 		return
 	}
 	c.streamCompleted = true
+	c.recordTransferSuccess()
 	if c.OnStreamComplete != nil {
 		c.OnStreamComplete()
 	}
@@ -246,7 +259,7 @@ func (c *Client) armReadTimer() {
 	c.readTimer = c.engine.ScheduleAfter(model.READ_DEADLINE, func() {
 		c.readTimer = 0
 		if !c.closed {
-			c.Shutdown()
+			c.ShutdownWithReason(model.TransferReadTimeout)
 		}
 	})
 }
@@ -256,9 +269,10 @@ func (c *Client) Close() {
 		return
 	}
 	if !c.handshakeCompleted {
-		c.Shutdown()
+		c.ShutdownWithReason(model.TransferClosedEarly)
 		return
 	}
+	c.recordTransferFailure(model.TransferClosedEarly)
 	c.closing = true
 	c.cancelEvent(&c.synSendEvent)
 	c.cancelEvent(&c.synTimer)
@@ -276,9 +290,15 @@ func (c *Client) Close() {
 }
 
 func (c *Client) Shutdown() {
+	c.ShutdownWithReason(model.TransferInterrupted)
+}
+
+// ShutdownWithReason annotates the existing shutdown without changing its timers or cleanup.
+func (c *Client) ShutdownWithReason(reason model.TransferFailureReason) {
 	if c.closed {
 		return
 	}
+	c.recordTransferFailure(reason)
 	c.closed = true
 	c.cancelEvent(&c.synSendEvent)
 	c.cancelEvent(&c.synTimer)
@@ -310,5 +330,6 @@ func (c *Client) GetState() model.ClientState {
 		RetrySyn:                 c.retrySyn,
 		RetryData:                c.retryData,
 		AcknowledgedPayloadBytes: c.acknowledgedPayloadBytes,
+		Transfer:                 c.GetTransferState(),
 	}
 }

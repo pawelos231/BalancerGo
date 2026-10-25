@@ -132,6 +132,10 @@ func TestPayloadProgressAfterLostACK(t *testing.T) {
 	if s.completedPayloadBytes != 2050 {
 		t.Fatal("the retry prevented completion or inflated the completed payload")
 	}
+	transfers := s.transferResults()
+	if transfers.Succeeded != 1 || transfers.DataRetransmissions != 1 || transfers.SynRetransmissions != 0 {
+		t.Fatalf("completed retry history was lost or double counted: %+v", transfers)
+	}
 	client := s.clients[0]
 	uplink := scenarioRuntimeLink(t, s, client.ID, loadBalancerNodeID).Stats()
 	wantWireBytes := uint64(2050 + 1024 + 7*40)

@@ -11,6 +11,7 @@ import {
 import BackendCard from '../components/BackendCard';
 import HelpTooltip from '../components/HelpTooltip';
 import PayloadProgress from '../components/PayloadProgress';
+import TransferResults from '../components/TransferResults';
 import type { LoadBalancerState } from '../types';
 
 interface SimulationPageProps {
@@ -30,7 +31,16 @@ function SimulationPage({ data }: SimulationPageProps) {
 
   return (
     <Stack spacing={3} sx={{ mt: 3 }}>
-      {data.simulation.status !== 'idle' && <PayloadProgress payload={data.simulation.payload} />}
+      {data.simulation.status !== 'idle' && (
+        <Grid container spacing={3}>
+          <Grid size={{ xs: 12, lg: 4 }}>
+            <PayloadProgress payload={data.simulation.payload} />
+          </Grid>
+          <Grid size={{ xs: 12, lg: 8 }}>
+            <TransferResults transfers={data.simulation.transfers} />
+          </Grid>
+        </Grid>
+      )}
 
       <Card variant="outlined">
         <CardHeader

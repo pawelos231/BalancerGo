@@ -10,9 +10,10 @@ import (
 
 // telemetrySample separates reusable definitions from one full set of live values.
 type telemetrySample struct {
-	Topology model.TelemetryTopology
-	Servers  []model.TelemetryServer
-	Document *model.TopologyDocument
+	Topology  model.TelemetryTopology
+	Servers   []model.TelemetryServer
+	Document  *model.TopologyDocument
+	Transfers transferSummary
 }
 
 // telemetryPublisher belongs to the simulation owner and caches one run's definitions.
@@ -45,10 +46,12 @@ func (publisher *telemetryPublisher) sample(s *simulation, state model.LoadBalan
 	if err != nil {
 		return telemetrySample{}, err
 	}
+	transfers := s.transferResults()
 	return telemetrySample{
-		Topology: publisher.topologyValues(s, state),
-		Servers:  servers,
-		Document: changed,
+		Topology:  publisher.topologyValues(s, state, transfers),
+		Servers:   servers,
+		Document:  changed,
+		Transfers: transfers,
 	}, nil
 }
 
@@ -184,7 +187,11 @@ func staticTelemetryMetric(kind, key string) bool {
 }
 
 // topologyValues sends IDs and live values while reusing the cached definition order.
-func (publisher *telemetryPublisher) topologyValues(s *simulation, state model.LoadBalancerState) model.TelemetryTopology {
+func (publisher *telemetryPublisher) topologyValues(
+	s *simulation,
+	state model.LoadBalancerState,
+	transfers transferSummary,
+) model.TelemetryTopology {
 	forwarding := s.egress.Stats()
 	ingress := s.ingress.Stats()
 	routed := 0
@@ -220,6 +227,12 @@ func (publisher *telemetryPublisher) topologyValues(s *simulation, state model.L
 			"completedStreams":              float64(s.completedStreams),
 			"receivedPayloadBytes":          float64(s.payload.ReceivedBytes),
 			"acknowledgedPayloadBytes":      float64(s.payload.AcknowledgedBytes),
+			"successfulTransfers":           float64(transfers.Succeeded),
+			"failedTransfers":               float64(transfers.Failed),
+			"inProgressTransfers":           float64(transfers.InProgress),
+			"notStartedTransfers":           float64(transfers.NotStarted),
+			"synRetransmissions":            float64(transfers.SynRetransmissions),
+			"dataRetransmissions":           float64(transfers.DataRetransmissions),
 		},
 		Traffic: s.nodeTraffic(loadBalancerNodeID),
 	})
@@ -255,6 +268,8 @@ func (publisher *telemetryPublisher) topologyValues(s *simulation, state model.L
 				"synRetries":               float64(clientState.RetrySyn),
 				"dataRetries":              float64(clientState.RetryData),
 				"acknowledgedPayloadBytes": float64(clientState.AcknowledgedPayloadBytes),
+				"synRetransmissions":       float64(clientState.Transfer.SynRetransmissions),
+				"dataRetransmissions":      float64(clientState.Transfer.DataRetransmissions),
 			},
 			Traffic: s.nodeTraffic(runtime.ID),
 		})
@@ -283,6 +298,7 @@ func (publisher *telemetryPublisher) serverValues(state model.LoadBalancerState)
 			clients = append(clients, model.TelemetryClient{
 				ID: id, RetrySyn: client.RetrySyn, RetryData: client.RetryData,
 				AcknowledgedPayloadBytes: client.AcknowledgedPayloadBytes,
+				Transfer:                 client.Transfer,
 			})
 		}
 		servers = append(servers, model.TelemetryServer{

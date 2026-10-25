@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { SimulationTransferResults } from '../src/types.ts';
 import { hydrateSnapshot, idleSnapshot } from '../src/telemetry/hydrate.ts';
 import { parseSnapshot } from '../src/telemetry/parse.ts';
 import { groupTopology } from '../src/topology/grouping.ts';
 import { telemetryFrame, topologyDefinition, idleFrame } from './telemetryFixture.ts';
+
+function transferResults(): SimulationTransferResults {
+  return {
+    started: 3, notStarted: 2, succeeded: 1, failed: 1, inProgress: 1,
+    failures: { dataRetryLimit: 1 }, synRetransmissions: 4, dataRetransmissions: 7,
+    handshake: { samples: 3, meanSeconds: 0.02, minSeconds: 0.01, maxSeconds: 0.03 },
+    payload: { samples: 1, meanSeconds: 0, minSeconds: 0, maxSeconds: 0 },
+    completion: { samples: 1, meanSeconds: 0.03, minSeconds: 0.03, maxSeconds: 0.03 },
+  };
+}
 
 test('hydration reuses settings, resolves routed keys and preserves measured traffic', () => {
   const definition = topologyDefinition();
@@ -117,4 +128,70 @@ test('omitted payload measurements stay unknown while an explicit zero stays kno
   assert.deepEqual(zero.simulation.payload, { receivedBytes: 0, acknowledgedBytes: 0 });
   assert.equal(zero.servers[0].server.ReceivedPayloadBytes, 0);
   assert.equal(zero.servers[0].clients[0].AcknowledgedPayloadBytes, 0);
+});
+
+test('transfer hydration preserves duration samples, failure reasons and cumulative retries', () => {
+  const frame = telemetryFrame();
+  const definition = topologyDefinition();
+  frame.simulation.transfers = transferResults();
+  frame.servers[0].clients[0].transfer = {
+    status: 'failed', failureReason: 'dataRetryLimit', elapsedSeconds: 4,
+    handshakeCompleted: true, handshakeDurationSeconds: 0.02, payloadDurationSeconds: 0,
+    synRetransmissions: 2, dataRetransmissions: 5,
+  };
+  definition.nodes[0].metrics.push({ key: 'failedTransfers', label: 'Failed transfers' });
+  definition.nodes[2].metrics.push({ key: 'dataRetransmissions', label: 'Data retransmissions' });
+  frame.topology.nodes[0].metrics.failedTransfers = 1;
+  frame.topology.nodes[2].metrics.dataRetransmissions = 5;
+
+  const view = hydrateSnapshot(parseSnapshot(frame), definition);
+  assert.deepEqual(view.simulation.transfers, frame.simulation.transfers);
+  assert.deepEqual(view.servers[0].clients[0].Transfer, frame.servers[0].clients[0].transfer);
+  assert.deepEqual(view.simulation.transfers?.payload, {
+    samples: 1, meanSeconds: 0, minSeconds: 0, maxSeconds: 0,
+  });
+  assert.equal(view.topology!.nodes[0].metrics.find((metric) => metric.key === 'failedTransfers')?.value, 1);
+  assert.equal(view.topology!.nodes[2].metrics.find((metric) => metric.key === 'dataRetransmissions')?.value, 5);
+});
+
+test('omitted transfer measurements stay unknown and fresh zero samples replace previous results', () => {
+  const frame = telemetryFrame();
+  const definition = topologyDefinition();
+  const legacy = hydrateSnapshot(frame, definition);
+  assert.equal(legacy.simulation.transfers, undefined);
+  assert.equal(legacy.servers[0].clients[0].Transfer, undefined);
+
+  frame.simulation.transfers = transferResults();
+  const previous = hydrateSnapshot(frame, definition);
+  const next = telemetryFrame();
+  next.simulation.transfers = {
+    started: 0, notStarted: 5, succeeded: 0, failed: 0, inProgress: 0,
+    failures: {}, synRetransmissions: 0, dataRetransmissions: 0,
+    handshake: { samples: 0, meanSeconds: 0, minSeconds: 0, maxSeconds: 0 },
+    payload: { samples: 0, meanSeconds: 0, minSeconds: 0, maxSeconds: 0 },
+    completion: { samples: 0, meanSeconds: 0, minSeconds: 0, maxSeconds: 0 },
+  };
+  const zero = hydrateSnapshot(next, definition);
+  assert.equal(previous.simulation.transfers?.succeeded, 1);
+  assert.deepEqual(zero.simulation.transfers, next.simulation.transfers);
+  assert.equal(zero.simulation.transfers?.handshake.samples, 0);
+
+  const omitted = hydrateSnapshot(telemetryFrame(), definition);
+  assert.equal(omitted.simulation.transfers, undefined);
+  assert.equal(omitted.servers[0].clients[0].Transfer, undefined);
+});
+
+test('transfer totals survive connection removal and terminal snapshots, then clear on reset', () => {
+  for (const status of ['running', 'finished', 'failed'] as const) {
+    const frame = telemetryFrame();
+    frame.simulation.status = status;
+    frame.simulation.transfers = transferResults();
+    frame.servers[0].clients = [];
+    const view = hydrateSnapshot(frame, topologyDefinition());
+    assert.deepEqual(view.simulation.transfers, transferResults());
+    assert.deepEqual(view.servers[0].clients, []);
+  }
+  const reset = idleSnapshot(idleFrame());
+  assert.equal(reset.simulation.transfers, undefined);
+  assert.deepEqual(reset.servers, []);
 });

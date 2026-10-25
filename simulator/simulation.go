@@ -254,6 +254,7 @@ type simulationResult struct {
 	CompletedPayloadBytes    uint64
 	ReceivedPayloadBytes     uint64
 	AcknowledgedPayloadBytes uint64
+	Transfers                transferSummary
 
 	EventsExecuted uint64
 	PendingEvents  int
@@ -287,6 +288,7 @@ func (s *simulation) result(elapsed time.Duration) simulationResult {
 		CompletedPayloadBytes:    s.completedPayloadBytes,
 		ReceivedPayloadBytes:     s.payload.ReceivedBytes,
 		AcknowledgedPayloadBytes: s.payload.AcknowledgedBytes,
+		Transfers:                s.transferResults(),
 
 		EventsExecuted: s.engine.EventsExecuted(),
 		PendingEvents:  s.engine.Pending(),

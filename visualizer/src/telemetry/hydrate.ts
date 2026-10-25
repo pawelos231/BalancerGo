@@ -84,6 +84,7 @@ export function hydrateSnapshot(
         RetrySyn: client.retrySyn,
         RetryData: client.retryData,
         AcknowledgedPayloadBytes: client.acknowledgedPayloadBytes,
+        Transfer: client.transfer,
       })),
     };
   });

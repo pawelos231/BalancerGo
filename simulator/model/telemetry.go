@@ -114,8 +114,9 @@ type TelemetryServer struct {
 
 // TelemetryClient refers to the full client key in its node definition.
 type TelemetryClient struct {
-	ID                       string `json:"id"`
-	RetrySyn                 uint8  `json:"retrySyn"`
-	RetryData                uint8  `json:"retryData"`
-	AcknowledgedPayloadBytes uint64 `json:"acknowledgedPayloadBytes"`
+	ID                       string        `json:"id"`
+	RetrySyn                 uint8         `json:"retrySyn"`
+	RetryData                uint8         `json:"retryData"`
+	AcknowledgedPayloadBytes uint64        `json:"acknowledgedPayloadBytes"`
+	Transfer                 TransferState `json:"transfer"`
 }

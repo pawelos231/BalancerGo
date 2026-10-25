@@ -14,7 +14,7 @@ function PayloadProgress({ payload }: PayloadProgressProps) {
   ];
 
   return (
-    <Card variant="outlined">
+    <Card variant="outlined" sx={{ height: '100%' }}>
       <CardHeader
         title="Payload progress"
         action={(

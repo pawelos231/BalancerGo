@@ -20,6 +20,7 @@ type simulationMetadata struct {
 	Error              string                 `json:"error,omitempty"`
 	Performance        *simulationPerformance `json:"performance,omitempty"`
 	Payload            *payloadProgress       `json:"payload,omitempty"`
+	Transfers          *transferSummary       `json:"transfers,omitempty"`
 }
 
 type simulationSnapshot struct {
@@ -58,6 +59,7 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 		servers := []model.TelemetryServer{}
 		var performance *simulationPerformance
 		var payload *payloadProgress
+		var transfers *transferSummary
 		if current != nil {
 			// Copy totals so a published snapshot keeps its values as the run advances.
 			progress := current.payload
@@ -80,6 +82,7 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 				}
 			}
 			topology, servers = sample.Topology, sample.Servers
+			transfers = &sample.Transfers
 			wallTime := elapsed
 			if status == "running" {
 				wallTime = time.Since(started)
@@ -106,6 +109,7 @@ func runInteractive(ctx context.Context, defaults configuration, hub *httpserver
 				Error:              lastError,
 				Performance:        performance,
 				Payload:            payload,
+				Transfers:          transfers,
 			},
 			Topology: topology,
 		})

@@ -72,5 +72,9 @@ response time. **Payload progress** reports unique bytes received by backends an
 confirmed to clients by ACK, including unfinished transfers. The corresponding
 headless fields are `ReceivedPayloadBytes` and `AcknowledgedPayloadBytes`.
 `CompletedPayloadBytes` still excludes unfinished streams; link counters include
-headers, ACKs and retransmissions. These are reference inputs for the present
-model, not calibrated predictions of Linux or IPVS performance.
+headers, ACKs and retransmissions. **Transfer results** separates successful,
+failed and still-active attempts, future arrivals, failure reasons and cumulative
+SYN/data retries. Its payload/completion durations include successes only; always
+read them alongside failures and unfinished counts. A completed handshake remains
+a timing sample even if its transfer later fails. These are reference inputs for
+the present model, not calibrated predictions of Linux or IPVS performance.

@@ -14,6 +14,28 @@ export interface ClientState {
   RetrySyn: number;
   RetryData: number;
   AcknowledgedPayloadBytes?: number;
+  Transfer?: ClientTransfer;
+}
+
+export type TransferFailureReason =
+  | 'synRetryLimit'
+  | 'dataRetryLimit'
+  | 'readTimeout'
+  | 'remoteClosed'
+  | 'closedEarly'
+  | 'interrupted'
+  | 'balancerTimeout'
+  | 'backendRemoved';
+
+export interface ClientTransfer {
+  status: 'inProgress' | 'succeeded' | 'failed';
+  failureReason?: TransferFailureReason;
+  elapsedSeconds: number;
+  handshakeCompleted: boolean;
+  handshakeDurationSeconds: number;
+  payloadDurationSeconds: number;
+  synRetransmissions: number;
+  dataRetransmissions: number;
 }
 
 export interface ServerState {
@@ -91,6 +113,29 @@ export interface SimulationMetadata {
   error?: string;
   performance?: SimulationPerformanceMetrics;
   payload?: SimulationPayloadProgress;
+  transfers?: SimulationTransferResults;
+}
+
+// Zero samples means unavailable; measured zero durations remain valid samples.
+export interface DurationSummary {
+  samples: number;
+  meanSeconds: number;
+  minSeconds: number;
+  maxSeconds: number;
+}
+
+export interface SimulationTransferResults {
+  started: number;
+  notStarted: number;
+  succeeded: number;
+  failed: number;
+  inProgress: number;
+  failures: Partial<Record<TransferFailureReason, number>>;
+  synRetransmissions: number;
+  dataRetransmissions: number;
+  handshake: DurationSummary;
+  payload: DurationSummary;
+  completion: DurationSummary;
 }
 
 export interface SimulationPayloadProgress {
