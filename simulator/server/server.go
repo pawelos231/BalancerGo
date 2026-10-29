@@ -1,19 +1,22 @@
 package server
 
 import (
-	"load-balancer/engine"
-	"load-balancer/model"
 	"math"
 	"sort"
 	"time"
+
+	"load-balancer/engine"
+	"load-balancer/model"
 )
 
 const statisticsInterval = 100 * time.Millisecond
 
 type connection struct {
-	startedAt   time.Duration
-	established bool
-	nextSegment uint32
+	startedAt       time.Duration
+	established     bool
+	peerInitialSeq  uint64
+	nextExpectedSeq uint64
+	sendNextSeq     uint64
 }
 
 // Server retains the simplified SYN/ACK, PSH/ACK and FIN/ACK exchanges. The
@@ -64,7 +67,13 @@ type Server struct {
 	latencyPosition      int
 }
 
-func NewServer(e *engine.Engine, id, name, address string, port uint16, distance, weight int16, maxHalfOpen uint32) *Server {
+func NewServer(
+	e *engine.Engine,
+	id, name, address string,
+	port uint16,
+	distance, weight int16,
+	maxHalfOpen uint32,
+) *Server {
 	if e == nil {
 		panic("server: nil engine")
 	}
@@ -190,64 +199,122 @@ func (s *Server) HandlePacket(pkt model.Packet) {
 		return
 	}
 	s.NumberOfHandledPackets++
+	sequenceEnd, valid := pkt.SequenceEnd()
+	invalidControls := pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagFIN != 0
+	if !valid || invalidControls || pkt.Flag&model.FlagRST != 0 {
+		return
+	}
 	conn, known := s.connections[pkt.Key]
 
-	if pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0 {
-		if !known {
-			if !s.CanAcceptNewConnection() || (s.MaxHalfOpen > 0 && s.HalfOpenConnections >= s.MaxHalfOpen) {
-				return
-			}
-			conn = &connection{startedAt: s.engine.Now()}
-			s.connections[pkt.Key] = conn
-			s.HalfOpenConnections++
-			s.LastUpdated = s.engine.Now()
-		}
-		// Repeated SYNs reuse the existing reservation and its original time.
-		s.emit(model.Packet{Key: pkt.Key, Flag: model.FlagSYN | model.FlagACK, PlaceInStream: pkt.PlaceInStream + 1})
+	if pkt.Flag&model.FlagSYN != 0 {
+		s.handleSYN(pkt, conn, sequenceEnd)
 		return
 	}
 
-	// FIN|ACK must not be mistaken for a second handshake completion.
+	// The backend sends no payload in this profile, so ACK must cover its SYN.
+	if !known || pkt.Flag&model.FlagACK == 0 || pkt.Ack != conn.sendNextSeq {
+		return
+	}
 	if pkt.Flag&model.FlagFIN != 0 {
-		if known {
-			if conn.established {
-				s.recordConnectionLatency(s.engine.Now() - conn.startedAt)
-			}
-			s.ForgetConnection(pkt.Key)
-		}
-		s.emit(model.Packet{Key: pkt.Key, Flag: model.FlagFIN | model.FlagACK, PlaceInStream: pkt.PlaceInStream + 1})
+		s.handleFIN(pkt, conn, sequenceEnd)
 		return
 	}
-	if !known {
-		return
-	}
-	if !conn.established && pkt.Flag&model.FlagACK != 0 {
-		if s.MaxConnections > 0 && s.ActiveConnections >= s.MaxConnections {
-			s.ForgetConnection(pkt.Key)
+
+	// A first data packet can finish the handshake if the standalone ACK was lost.
+	if !conn.established {
+		if pkt.Seq != conn.nextExpectedSeq || !s.establishConnection(pkt.Key, conn) {
 			return
 		}
-		conn.established = true
-		if s.HalfOpenConnections > 0 {
-			s.HalfOpenConnections--
+	}
+	if pkt.Size == 0 {
+		return // Pure ACK consumes no sequence space and needs no reply.
+	}
+
+	// Out-of-order buffering and partial-overlap handling belong to the next stage.
+	futureData := pkt.Seq > conn.nextExpectedSeq
+	partialOverlap := pkt.Seq < conn.nextExpectedSeq && sequenceEnd > conn.nextExpectedSeq
+	if futureData || partialOverlap {
+		return
+	}
+	if pkt.Seq == conn.nextExpectedSeq {
+		conn.nextExpectedSeq = sequenceEnd
+		s.receivedPayloadBytes += uint64(pkt.Size)
+		if s.OnPayloadReceived != nil {
+			s.OnPayloadReceived(pkt.Size)
 		}
-		s.ActiveConnections++
+	}
+
+	// Repeated complete ranges get the current ACK without counting bytes again.
+	s.emit(model.Packet{
+		Key:  pkt.Key,
+		Flag: model.FlagACK,
+		Seq:  conn.sendNextSeq,
+		Ack:  conn.nextExpectedSeq,
+	})
+}
+
+// handleSYN reserves one flow and repeats the same SYN-ACK for retransmissions.
+func (s *Server) handleSYN(pkt model.Packet, conn *connection, sequenceEnd uint64) {
+	if pkt.Size != 0 || pkt.Flag&model.FlagACK != 0 {
+		return
+	}
+	if conn == nil {
+		halfOpenFull := s.MaxHalfOpen > 0 && s.HalfOpenConnections >= s.MaxHalfOpen
+		if !s.CanAcceptNewConnection() || halfOpenFull {
+			return
+		}
+		conn = &connection{
+			startedAt:       s.engine.Now(),
+			peerInitialSeq:  pkt.Seq,
+			nextExpectedSeq: sequenceEnd,
+			sendNextSeq:     1, // Fixed backend ISN zero; SYN occupies one position.
+		}
+		s.connections[pkt.Key] = conn
+		s.HalfOpenConnections++
 		s.LastUpdated = s.engine.Now()
 	}
-	if conn.established && pkt.Flag&model.FlagPSH != 0 {
-		if pkt.PlaceInStream > conn.nextSegment {
-			return
-		}
-		if pkt.PlaceInStream == conn.nextSegment {
-			conn.nextSegment++
-			s.receivedPayloadBytes += uint64(pkt.Size)
-			if s.OnPayloadReceived != nil {
-				s.OnPayloadReceived(pkt.Size)
-			}
-		}
-		// Payload is not executed by an application model in this stage. An ACK
-		// carries zero payload bytes, and duplicate segments are acknowledged.
-		s.emit(model.Packet{Key: pkt.Key, Flag: model.FlagACK, PlaceInStream: conn.nextSegment})
+	if pkt.Seq != conn.peerInitialSeq {
+		return // Another SYN cannot reset an existing flow's byte positions.
 	}
+	s.emit(model.Packet{
+		Key:  pkt.Key,
+		Flag: model.FlagSYN | model.FlagACK,
+		Seq:  0,
+		Ack:  conn.peerInitialSeq + 1,
+	})
+}
+
+// establishConnection moves one reservation from half-open to active once.
+func (s *Server) establishConnection(key model.ClientKey, conn *connection) bool {
+	if s.MaxConnections > 0 && s.ActiveConnections >= s.MaxConnections {
+		s.ForgetConnection(key)
+		return false
+	}
+	conn.established = true
+	if s.HalfOpenConnections > 0 {
+		s.HalfOpenConnections--
+	}
+	s.ActiveConnections++
+	s.LastUpdated = s.engine.Now()
+	return true
+}
+
+// handleFIN preserves immediate cleanup while validating the closing byte position.
+// Full closing states and FIN retransmission remain a later transport stage.
+func (s *Server) handleFIN(pkt model.Packet, conn *connection, sequenceEnd uint64) {
+	if pkt.Size != 0 || pkt.Seq != conn.nextExpectedSeq {
+		return
+	}
+	if conn.established {
+		s.recordConnectionLatency(s.engine.Now() - conn.startedAt)
+	}
+	s.ForgetConnection(pkt.Key)
+	s.emit(model.Packet{
+		Key:  pkt.Key,
+		Flag: model.FlagFIN | model.FlagACK,
+		Seq:  conn.sendNextSeq,
+		Ack:  sequenceEnd,
+	})
 }
 
 // ForgetConnection is also used by LB timeout/closure cleanup. Repeated calls

@@ -245,7 +245,7 @@ func TestCatalogMixedStreams(t *testing.T) {
 		if cl.GroupID == "short-streams" && cl.Index < len(wantShortBytes) && bytes != wantShortBytes[cl.Index] {
 			t.Fatalf("short client %d received %d payload bytes", cl.Index, bytes)
 		}
-		if !cl.Client.StreamCompleted() || !cl.Client.IsClosed() {
+		if !cl.Client.StreamCompleted() || !cl.Client.IsTerminated() {
 			t.Fatalf("bounded mixed stream %s did not complete and close", cl.ID)
 		}
 		expectedPayload += uint64(bytes)

@@ -19,9 +19,11 @@ logs/
 # Local architecture plan
 /ARCHITECTURE_PLAN.md
 /plan/ARCHITECTURE_PLAN.md
+question.md
 
 # Local backup of the former frontend repository
 /.repo-backups/
+
 
 # Editor directories and files
 .vscode/*

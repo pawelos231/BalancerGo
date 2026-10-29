@@ -35,8 +35,10 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ack := func(index uint32) {
-		c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagACK, PlaceInStream: index})
+	ack := func(nextByte uint64) {
+		c.HandlePacket(model.Packet{
+			Key: c.Key(), Flag: model.FlagACK, Seq: 1, Ack: nextByte,
+		})
 	}
 	dataPackets := func() []model.Packet {
 		var data []model.Packet
@@ -55,7 +57,7 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 	runUntil(0)
 	ack(1)
 	assertTotal(0)
-	c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagSYN | model.FlagACK, PlaceInStream: 1})
+	c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagSYN | model.FlagACK, Ack: 1})
 	runUntil(time.Millisecond)
 	data := dataPackets()
 	if len(data) != 1 || data[0].Size != model.SEGMENT_SIZE {
@@ -68,26 +70,26 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 	ack(2)
 	otherFlow := c.Key()
 	otherFlow.SrcPort++
-	c.HandlePacket(model.Packet{Key: otherFlow, Flag: model.FlagACK, PlaceInStream: 1})
+	c.HandlePacket(model.Packet{Key: otherFlow, Flag: model.FlagACK, Seq: 1, Ack: 1025})
 	runUntil(time.Millisecond + model.SEGMENT_TIMEOUT)
 	data = dataPackets()
 	if len(data) != 2 || data[0] != data[1] {
 		t.Fatalf("expected retransmission of the outstanding segment, got %+v", data)
 	}
 	assertTotal(0)
-	ack(1)
+	ack(1025)
 	assertTotal(model.SEGMENT_SIZE)
 	if c.StreamCompleted() {
 		t.Fatal("stream completed after only its first segment was acknowledged")
 	}
-	ack(1)
+	ack(1025)
 	assertTotal(model.SEGMENT_SIZE)
 
 	runUntil(e.Now() + time.Millisecond)
-	ack(1)
-	ack(3)
+	ack(1025)
+	ack(1 + streamBytes)
 	assertTotal(model.SEGMENT_SIZE)
-	ack(2)
+	ack(2049)
 	assertTotal(2 * model.SEGMENT_SIZE)
 	if c.StreamCompleted() {
 		t.Fatal("stream completed before its partial final segment was acknowledged")
@@ -98,11 +100,11 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 	if len(data) != 4 || data[3].Size != finalBytes {
 		t.Fatalf("expected a %d-byte final segment, got %+v", finalBytes, data)
 	}
-	ack(2)
+	ack(2049)
 	assertTotal(2 * model.SEGMENT_SIZE)
-	ack(3)
+	ack(1 + streamBytes)
 	assertTotal(streamBytes)
-	ack(3)
+	ack(1 + streamBytes)
 	if !c.StreamCompleted() || totalAtCompletion != streamBytes {
 		t.Fatalf("completion saw %d acknowledged bytes; completed = %v", totalAtCompletion, c.StreamCompleted())
 	}
@@ -114,7 +116,9 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 	}
 
 	runUntil(e.Now())
-	c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagFIN | model.FlagACK, PlaceInStream: 4})
+	c.HandlePacket(model.Packet{
+		Key: c.Key(), Flag: model.FlagFIN | model.FlagACK, Seq: 1, Ack: 2 + streamBytes,
+	})
 	c.Shutdown()
 	assertTotal(streamBytes)
 	fresh := client.NewClient(e, "10.0.0.1", 1000, "10.0.0.2", 80, model.TCP)
@@ -140,11 +144,14 @@ func TestAcknowledgedPayloadRetainsPartialTransferAfterClose(t *testing.T) {
 			})
 			c.SendCompleteStream(model.SEGMENT_SIZE+23, 0)
 			c.EstablishConnection()
-			c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagSYN | model.FlagACK, PlaceInStream: 1})
 			if err := e.RunUntil(0); err != nil {
 				t.Fatal(err)
 			}
-			c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagACK, PlaceInStream: 1})
+			c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagSYN | model.FlagACK, Ack: 1})
+			if err := e.RunUntil(0); err != nil {
+				t.Fatal(err)
+			}
+			c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagACK, Seq: 1, Ack: 1025})
 			if err := e.RunUntil(0); err != nil {
 				t.Fatal(err)
 			}
@@ -152,17 +159,19 @@ func TestAcknowledgedPayloadRetainsPartialTransferAfterClose(t *testing.T) {
 				t.Fatalf("expected unacknowledged final data, got %+v", data)
 			}
 			if finAck {
-				// Its index matches a data ACK, but FIN must not confirm the data.
-				c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagFIN | model.FlagACK, PlaceInStream: 2})
+				// It acknowledges the outstanding range, but FIN still closes the transfer.
+				c.HandlePacket(model.Packet{
+					Key: c.Key(), Flag: model.FlagFIN | model.FlagACK, Seq: 1, Ack: 1048,
+				})
 			} else {
 				c.Shutdown()
 			}
-			c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagACK, PlaceInStream: 2})
+			c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagACK, Seq: 1, Ack: 1048})
 			if got := c.GetState().AcknowledgedPayloadBytes; got != model.SEGMENT_SIZE {
 				t.Fatalf("closed partial transfer acknowledged payload = %d, want %d", got, model.SEGMENT_SIZE)
 			}
-			if !c.IsClosed() || c.StreamCompleted() {
-				t.Fatalf("closed = %v, completed = %v", c.IsClosed(), c.StreamCompleted())
+			if !c.IsTerminated() || c.StreamCompleted() {
+				t.Fatalf("terminated = %v, completed = %v", c.IsTerminated(), c.StreamCompleted())
 			}
 		})
 	}

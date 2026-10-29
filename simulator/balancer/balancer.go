@@ -68,7 +68,7 @@ func NewLoadBalancer(e *engine.Engine, mode model.LBMode, algo algorithms.Algori
 }
 
 func (lb *LoadBalancer) AddClient(cl *client.Client, send Sender) error {
-	if lb.closed || cl == nil || cl.IsClosed() || send == nil {
+	if lb.closed || cl == nil || cl.IsTerminated() || send == nil {
 		return errors.New("balancer: cannot add client")
 	}
 	key := cl.Key()
@@ -92,7 +92,7 @@ func (lb *LoadBalancer) AddClient(cl *client.Client, send Sender) error {
 
 // The instance check prevents old deliveries from reaching a replacement client.
 func (lb *LoadBalancer) HasClient(cl *client.Client) bool {
-	return !lb.closed && cl != nil && lb.clients[cl.Key()] == cl && !cl.IsClosed()
+	return !lb.closed && cl != nil && lb.clients[cl.Key()] == cl && !cl.IsTerminated()
 }
 
 func (lb *LoadBalancer) GetClient(key model.ClientKey) *client.Client { return lb.clients[key] }

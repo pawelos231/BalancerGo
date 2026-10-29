@@ -287,21 +287,33 @@ func TestConfigurationPreservesLegacyIntegerLimits(t *testing.T) {
 	}
 }
 
-func TestConfigurationKeepsSimplifiedTransportLimits(t *testing.T) {
+func TestConfigurationKeepsLogicalTransportLimits(t *testing.T) {
 	if math.MaxInt < math.MaxInt64 {
 		t.Skip("large stream boundary requires a 64-bit int")
 	}
 	cfg := legacyTestConfiguration()
-	maxSegmentCount := uint64(math.MaxUint32)
-	firstInvalidBytes := int(maxSegmentCount * uint64(model.SEGMENT_SIZE))
-	cfg.streamBytes = firstInvalidBytes - 1
+
+	// Validate large byte positions without constructing clients or payloads.
+	for _, bytes := range []uint64{
+		uint64(math.MaxUint32) + 1,
+		uint64(math.MaxUint32)*uint64(model.SEGMENT_SIZE) + 1,
+	} {
+		cfg.streamBytes = int(bytes)
+		if _, err := cfg.normalized(); err != nil {
+			t.Fatalf("logical transport rejected %d bytes: %v", bytes, err)
+		}
+	}
+
+	// Native integer arithmetic still bounds accepted stream sizes.
+	cfg.streamBytes = math.MaxInt - 40
 	if _, err := cfg.normalized(); err != nil {
 		t.Fatal(err)
 	}
-	cfg.streamBytes++
+	cfg.streamBytes = math.MaxInt - 39
 	if _, err := cfg.normalized(); err == nil {
-		t.Fatal("segment counter overflow accepted")
+		t.Fatal("stream beyond native byte range accepted")
 	}
+
 	cfg.streamBytes = 17
 	cfg.packets = -1
 	if _, err := cfg.normalized(); err == nil {

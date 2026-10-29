@@ -87,7 +87,7 @@ func (s *World) VisitClients(visit func(ClientObservation)) {
 	for _, runtime := range s.clients {
 		visit(ClientObservation{
 			ID: runtime.ID, GroupID: runtime.GroupID, Index: runtime.Index, Config: runtime.Config,
-			State: runtime.Client.GetState(), Active: !runtime.Client.IsClosed(),
+			State: runtime.Client.GetState(), Active: !runtime.Client.IsTerminated(),
 			Completed: runtime.Client.StreamCompleted(),
 		})
 	}

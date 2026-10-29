@@ -2,7 +2,13 @@ package client
 
 import "load-balancer/model"
 
-func GenerateClientKey(srcIP string, srcPort uint16, dstIP string, dstPort uint16, protocol model.Protocol) model.ClientKey {
+func GenerateClientKey(
+	srcIP string,
+	srcPort uint16,
+	dstIP string,
+	dstPort uint16,
+	protocol model.Protocol,
+) model.ClientKey {
 	return model.ClientKey{
 		SrcIP:    srcIP,
 		SrcPort:  srcPort,
@@ -12,11 +18,17 @@ func GenerateClientKey(srcIP string, srcPort uint16, dstIP string, dstPort uint1
 	}
 }
 
-func GeneratePacket(key model.ClientKey, flag model.Flag, size int, placeInStream uint32) model.Packet {
+func GeneratePacket(
+	key model.ClientKey,
+	flag model.Flag,
+	size int,
+	seq, ack uint64,
+) model.Packet {
 	return model.Packet{
-		Key:           key,
-		Flag:          flag,
-		Size:          size,
-		PlaceInStream: placeInStream,
+		Key:  key,
+		Flag: flag,
+		Size: size,
+		Seq:  seq,
+		Ack:  ack,
 	}
 }

@@ -1,3 +1,14 @@
+pytanie naukowe: minimalny koszt obliczeniowy potrzebny do wiarygodnego badania algorytmów load balancingu
+
+Jaki jest minimalny poziom szczegółowości symulacji sieci, który pozwala wiarygodnie oceniać i porównywać algorytmy load balancingu?
+Punkt odniesienia: ns-3 z dokładnym TCP, kolejkami, przepustowością i opóźnieniami.
+
+Twój symulator: stopniowo usuwasz lub upraszczasz mechanizmy — TCP congestion control, jitter, retransmisje, kolejki, model serwera itd.
+
+Porównanie: sprawdzasz, kiedy wyniki zaczynają znacząco odbiegać od ns-3.
+
+Optymalizacja: identyfikujesz najtańszy obliczeniowo model, który zachowuje wiarygodność.
+
 # Intelligent load balancer
 
 This repository contains both parts of the project:
@@ -10,17 +21,17 @@ This repository contains both parts of the project:
 The simulator keeps one owner for the world and reads it synchronously before
 publishing detached data. Packages under `simulator/` divide the work as follows:
 
-| Location | Responsibility |
-| --- | --- |
-| `engine/` | Ordered events, virtual time, cancellation and execution limits. |
-| `network/`, `client/`, `server/`, `balancer/`, `algorithms/` | Links and queues, transport endpoints, forwarding, backend selection and local measurements. |
-| `model/` | Native shared packet, connection and measurement types. |
-| `scenario/` | Scenario documents, exact integer encoding, validation and normalization. |
-| `internal/simulation/` | World construction, client arrivals, wiring, RNG, typed operations and virtual-time sampling. |
-| `internal/presentation/` | Snapshot and CLI report projection, metric descriptions, display units and transfer aggregates. |
-| `internal/contract/` | The existing HTTP, WebSocket and CLI data types and commands. |
-| Application files in `simulator/` | Start/Stop, admission, run lifecycle, command handling, pacing and wall-time measurement. |
-| `http/` | HTTP and WebSocket routing, encoding and delivery of prepared data. |
+| Location                                                     | Responsibility                                                                                  |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `engine/`                                                    | Ordered events, virtual time, cancellation and execution limits.                                |
+| `network/`, `client/`, `server/`, `balancer/`, `algorithms/` | Links and queues, transport endpoints, forwarding, backend selection and local measurements.    |
+| `model/`                                                     | Native shared packet, connection and measurement types.                                         |
+| `scenario/`                                                  | Scenario documents, exact integer encoding, validation and normalization.                       |
+| `internal/simulation/`                                       | World construction, client arrivals, wiring, RNG, typed operations and virtual-time sampling.   |
+| `internal/presentation/`                                     | Snapshot and CLI report projection, metric descriptions, display units and transfer aggregates. |
+| `internal/contract/`                                         | The existing HTTP, WebSocket and CLI data types and commands.                                   |
+| Application files in `simulator/`                            | Start/Stop, admission, run lifecycle, command handling, pacing and wall-time measurement.       |
+| `http/`                                                      | HTTP and WebSocket routing, encoding and delivery of prepared data.                             |
 
 `internal/contract` describes the current frontend and CLI interfaces. The shared
 control-plane contract and adapters for other balancer implementations remain
@@ -152,20 +163,20 @@ continues to print its original result format.
 
 The version-1 report groups the result with information needed to repeat it:
 
-| Field | Meaning |
-| --- | --- |
-| `version` | Report schema version, currently `1`. |
-| `status` | Runner outcome: `finished`, `failed` or `cancelled`. |
-| `error` | Error message for a failed or cancelled run, when present. |
-| `manifest` | Model, input, effective execution settings and build metadata. |
-| `result` | The existing CLI result, including transfer outcomes and counters. |
+| Field      | Meaning                                                            |
+| ---------- | ------------------------------------------------------------------ |
+| `version`  | Report schema version, currently `1`.                              |
+| `status`   | Runner outcome: `finished`, `failed` or `cancelled`.               |
+| `error`    | Error message for a failed or cancelled run, when present.         |
+| `manifest` | Model, input, effective execution settings and build metadata.     |
+| `result`   | The existing CLI result, including transfer outcomes and counters. |
 
 `manifest.scenario` retains the canonical input document, including its original
 requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-stop-and-wait-v1` profile. Build metadata records the Go/module versions,
+`tcp-byte-stop-and-wait-v1` profile. Build metadata records the Go/module versions,
 OS and architecture; VCS revision and modification status appear when available.
 
 Invalid input or configuration returns a nonzero exit code without a report.
@@ -229,21 +240,21 @@ CLI flags provide the form defaults, and configure immediate headless runs.
 The browser sends its selected configuration when Start is clicked. Useful
 parameters (see `go run . -help` for all options):
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `-clients`, `-servers`, `-packets` | `200`, `10`, `10000` | Initial clients, backend count (at most 10000) and full segments per stream. |
-| `-bytes` | `-1` | Override stream payload size, including a partial final segment; `-1` uses `packets * 1024`. |
-| `-duration`, `-seed` | `2m`, `1` | Virtual end time (inclusive) and experiment seed. |
-| `-client-gap`, `-packet-gap` | `0s`, `0s` | Virtual inter-arrival interval and sender pause before each data segment. |
-| `-bandwidth`, `-packet-travel-time` | `1000000000`, `1ms` | Bits/s and virtual travel time per access link or outgoing LB link. |
-| `-lb-bandwidth` | `1000000000` | One shared forwarding budget in bits/s for all LB outputs, toward both clients and backends. |
-| `-lb-ingress-bandwidth` | `1000000000` | Bitrate of the shared physical link delivering client and backend traffic into the LB. |
-| `-lb-ingress-packet-travel-time` | `0s` | Additional virtual travel time after transmission on the shared input link. |
-| `-lb-ingress-queue`, `-lb-ingress-loss` | `1024`, `0` | Waiting slots in each input FIFO (clients and backends), and the shared receiver's loss probability. |
-| `-link-queue`, `-loss` | `1024`, `0` | Waiting slots and independent loss on each access or outgoing LB link. |
-| `-algorithm` | `roundRobin` | `roundRobin` or seeded `random`. |
-| `-snapshot-interval`, `-speed` | `100ms`, `1` | Virtual snapshot interval and virtual seconds per real second; speed `0` is unpaced. |
-| `-max-events` | `50000000` | Execution limit, including equal-time events, to stop runaway scenarios. |
+| Option                                  | Default              | Meaning                                                                                              |
+| --------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------- |
+| `-clients`, `-servers`, `-packets`      | `200`, `10`, `10000` | Initial clients, backend count (at most 10000) and full segments per stream.                         |
+| `-bytes`                                | `-1`                 | Override stream payload size, including a partial final segment; `-1` uses `packets * 1024`.         |
+| `-duration`, `-seed`                    | `2m`, `1`            | Virtual end time (inclusive) and experiment seed.                                                    |
+| `-client-gap`, `-packet-gap`            | `0s`, `0s`           | Virtual inter-arrival interval and sender pause before each data segment.                            |
+| `-bandwidth`, `-packet-travel-time`     | `1000000000`, `1ms`  | Bits/s and virtual travel time per access link or outgoing LB link.                                  |
+| `-lb-bandwidth`                         | `1000000000`         | One shared forwarding budget in bits/s for all LB outputs, toward both clients and backends.         |
+| `-lb-ingress-bandwidth`                 | `1000000000`         | Bitrate of the shared physical link delivering client and backend traffic into the LB.               |
+| `-lb-ingress-packet-travel-time`        | `0s`                 | Additional virtual travel time after transmission on the shared input link.                          |
+| `-lb-ingress-queue`, `-lb-ingress-loss` | `1024`, `0`          | Waiting slots in each input FIFO (clients and backends), and the shared receiver's loss probability. |
+| `-link-queue`, `-loss`                  | `1024`, `0`          | Waiting slots and independent loss on each access or outgoing LB link.                               |
+| `-algorithm`                            | `roundRobin`         | `roundRobin` or seeded `random`.                                                                     |
+| `-snapshot-interval`, `-speed`          | `100ms`, `1`         | Virtual snapshot interval and virtual seconds per real second; speed `0` is unpaced.                 |
+| `-max-events`                           | `50000000`           | Execution limit, including equal-time events, to stop runaway scenarios.                             |
 
 For example, to prefill a shorter experiment in the frontend (then click Start):
 
@@ -264,12 +275,12 @@ published port.
 
 `simulator/scenario/` defines version 1 of the scenario configuration:
 
-| Part | Contents |
-| --- | --- |
+| Part        | Contents                                                           |
+| ----------- | ------------------------------------------------------------------ |
 | `execution` | Virtual duration, snapshot interval, seed, pacing and event limit. |
-| `network` | Link defaults and named profiles. |
-| `resources` | Load balancer settings and individually configured backends. |
-| `workload` | Stream defaults, compact client groups and individual overrides. |
+| `network`   | Link defaults and named profiles.                                  |
+| `resources` | Load balancer settings and individually configured backends.       |
+| `workload`  | Stream defaults, compact client groups and individual overrides.   |
 
 `scenario.Normalize` resolves profiles and overrides into independent values,
 validates identifiers and settings, and resolves stream sizes. Patch fields use
@@ -313,13 +324,13 @@ All routes use the same `scenario.Normalize` rules, including profiles and
 directional overrides. POST requests require `Content-Type: application/json`
 and one complete scenario object, with a maximum body of 2 MiB.
 
-| Method | Route | Result |
-| --- | --- | --- |
-| GET | `/api/scenarios/defaults` | Initial scenario derived from the Go/CLI settings. |
-| POST | `/api/scenarios/validate` | Canonical scenario, counts and resolved effective configuration; no model is created. |
-| POST | `/api/simulations` | `202` with `runId` and `status: "accepted"`. |
-| GET | `/api/simulations/current` | Run ID, lifecycle status and exact initial scenario; `404` when none exists. |
-| GET | `/api/simulations/current/topology` | Latest graph definition with `runId` and `revision`; `404` before publication or after Stop. |
+| Method | Route                               | Result                                                                                       |
+| ------ | ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| GET    | `/api/scenarios/defaults`           | Initial scenario derived from the Go/CLI settings.                                           |
+| POST   | `/api/scenarios/validate`           | Canonical scenario, counts and resolved effective configuration; no model is created.        |
+| POST   | `/api/simulations`                  | `202` with `runId` and `status: "accepted"`.                                                 |
+| GET    | `/api/simulations/current`          | Run ID, lifecycle status and exact initial scenario; `404` when none exists.                 |
+| GET    | `/api/simulations/current/topology` | Latest graph definition with `runId` and `revision`; `404` before publication or after Stop. |
 
 The HTTP and WS paths share one start reservation. A concurrent Start returns
 `409`; malformed documents return `400`, invalid settings `422`, oversized bodies
@@ -485,10 +496,10 @@ measurement excludes framing and compression and does not measure simulation spe
 - `client/`, `server/` and `balancer/` use short packet handlers and scheduled
   callbacks. Connections coexist as state objects. There is no waiting goroutine
   or channel per client, connection or backend.
-- `simulator/simulation.go` builds the normalized runtime, publishes snapshots
-  after virtual steps and applies UI commands as events at their boundaries.
-  `simulation_clients.go` creates clients lazily from compact groups;
-  `simulation_network.go` connects each endpoint's own directed links.
+- `internal/simulation/world.go` builds the normalized runtime and connects
+  endpoints. `internal/simulation/clients.go` creates clients lazily from
+  compact groups. The application `runner.go` advances virtual steps and applies
+  runtime commands at their boundaries; `internal/presentation` builds snapshots.
   Client access links and backend return links reach their respective input
   FIFOs, followed by one shared physical input link into the LB.
   Link IDs and random sources follow resource identities instead of creation
@@ -573,17 +584,31 @@ step boundaries and logged with their virtual timestamp. After a run, these
 controls are disabled until another Start. Invalid requests are reported in the
 UI; starting an already running experiment is rejected.
 
-Command names are defined once in `simulator/http/commands.go` as `CommandType`
+Command names are defined once in `simulator/internal/contract/commands.go` as `CommandType`
 constants. After adding or renaming an action, run `go generate ./http` from
 `simulator/` to update the frontend enum in `visualizer/src/commands.ts`.
 The generated file is committed, so frontend and Docker builds need no generator.
 
-This migration preserves a **simplified TCP-like stop-and-wait model**. Packet
-indices are segment counters, not TCP byte sequence numbers. SYN retries and
-data retries use virtual timers; server SYN-ACK retries, FIN retries, a complete
-TCP state machine, windows, congestion control and UDP are deferred. The old
-same-flow SYN generator is retained as a limited model, not a validated SYN flood.
-Backend application workers and service queues are also deferred.
+The current **byte-based stop-and-wait model** uses separate `Seq` and `Ack`
+positions instead of segment indices. `Size` remains the payload length, and
+`WireSize()` still adds 40 modeled IPv4/TCP header bytes. Data advances sequence
+positions by its length; SYN and FIN each consume one position, while pure ACK
+consumes none. The two directions keep separate sequence state.
+
+The `tcp-byte-stop-and-wait-v1` profile uses logical `uint64` byte positions and
+fixed initial sequence numbers of zero. It does not model the 32-bit sequence
+number wraparound of real TCP. Large streams are checked against native integer
+limits rather than the former 32-bit segment-counter limit. Payload remains
+metadata; no buffer is allocated for every byte in a stream.
+
+Only one data segment may await acknowledgment. Retransmission repeats its
+original byte range, and duplicate data/ACKs do not add payload twice. A segment
+is released only after its full range is acknowledged; receive buffering,
+advertised windows and a general partial-ACK send queue remain future work.
+SYN and data retries still use fixed virtual timers. Server SYN-ACK timers,
+FIN retries, a complete TCP state machine, congestion control and UDP are deferred.
+The same-flow SYN generator remains a limited model, not a validated SYN flood.
+The L4 model has no application workers or business-operation queues.
 
 Snapshots include lifecycle status, selected configuration and virtual time in
 `simulation`, alongside the balancer and server state. The `topology` graph
@@ -612,10 +637,10 @@ starting Vite to override the browser WebSocket URL.
 
 ## Simulation and topology pages
 
-| Page | Path | Purpose |
-| --- | --- | --- |
-| Simulation | `/` | Configure, start or stop an experiment and monitor backend state. |
-| Topology | `/topology` | Explore the current graph and inspect nodes and directed links. |
+| Page       | Path        | Purpose                                                           |
+| ---------- | ----------- | ----------------------------------------------------------------- |
+| Simulation | `/`         | Configure, start or stop an experiment and monitor backend state. |
+| Topology   | `/topology` | Explore the current graph and inspect nodes and directed links.   |
 
 Both pages share the WebSocket connection and current experiment in `App`.
 Switching pages preserves the configuration draft and keeps the run advancing.

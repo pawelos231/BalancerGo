@@ -23,7 +23,7 @@ import (
 
 const (
 	experimentReportVersion = 1
-	experimentModel         = "tcp-stop-and-wait-v1"
+	experimentModel         = "tcp-byte-stop-and-wait-v1"
 )
 
 // loadedScenario keeps the importable input beside its checked runtime settings.

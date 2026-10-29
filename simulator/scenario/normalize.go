@@ -320,11 +320,9 @@ func normalizeStream(config StreamConfig, path string) (StreamConfig, error) {
 		config.Bytes = config.Packets * model.SEGMENT_SIZE
 	}
 
-	segmentCount := uint64(config.Bytes / model.SEGMENT_SIZE)
-	segmentLimitExceeded := segmentCount >= math.MaxUint32
-	byteLimitExceeded := config.Bytes > math.MaxInt-40
-
-	if segmentLimitExceeded || byteLimitExceeded {
+	// Logical uint64 byte positions no longer inherit the old segment counter cap.
+	// Keep payload arithmetic within int, including the modeled 40-byte headers.
+	if config.Bytes > math.MaxInt-40 {
 		return StreamConfig{}, fmt.Errorf(
 			"%s.bytes: stream exceeds the simplified transport's range",
 			path,

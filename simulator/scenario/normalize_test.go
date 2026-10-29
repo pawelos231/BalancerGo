@@ -409,15 +409,8 @@ func TestZeroAndLargeNativeValuesRemainValid(t *testing.T) {
 func TestSimplifiedTransportByteBoundary(t *testing.T) {
 	input := exampleScenario()
 
-	// Use the stricter of the segment counter and native byte limits.
-	maximum := uint64(math.MaxUint32)*uint64(model.SEGMENT_SIZE) - 1
-	nativeByteLimit := uint64(math.MaxInt - 40)
-
-	if nativeByteLimit < maximum {
-		maximum = nativeByteLimit
-	}
-
-	input.Workload.Defaults.Bytes = int(maximum)
+	// uint64 sequence positions cover the native stream-size range.
+	input.Workload.Defaults.Bytes = math.MaxInt - 40
 	if _, err := Normalize(input); err != nil {
 		t.Fatalf("last supported stream byte rejected: %v", err)
 	}
@@ -434,6 +427,25 @@ func TestSimplifiedTransportByteBoundary(t *testing.T) {
 
 	if _, err := Normalize(input); err == nil {
 		t.Fatal("packet count multiplication overflow accepted")
+	}
+}
+
+func TestLogicalBytePositionsAcceptLargeStreams(t *testing.T) {
+	if math.MaxInt < math.MaxInt64 {
+		t.Skip("large stream cases require a 64-bit int")
+	}
+
+	// Normalize settings only: no clients or payload buffers are allocated.
+	byteCounts := []uint64{
+		uint64(math.MaxUint32) + 1,
+		uint64(math.MaxUint32)*uint64(model.SEGMENT_SIZE) + 1,
+	}
+	for _, bytes := range byteCounts {
+		input := exampleScenario()
+		input.Workload.Defaults.Bytes = int(bytes)
+		if _, err := Normalize(input); err != nil {
+			t.Fatalf("logical byte positions rejected %d bytes: %v", bytes, err)
+		}
 	}
 }
 

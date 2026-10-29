@@ -32,9 +32,15 @@ func (h *transferHarness) runUntil(until time.Duration) {
 	}
 }
 
-func (h *transferHarness) receive(flag model.Flag, index uint32) {
+func (h *transferHarness) receive(flag model.Flag, nextByte uint64) {
 	h.t.Helper()
-	h.client.HandlePacket(model.Packet{Key: h.client.Key(), Flag: flag, PlaceInStream: index})
+	peerSequence := uint64(1)
+	if flag&model.FlagSYN != 0 {
+		peerSequence = 0
+	}
+	h.client.HandlePacket(model.Packet{
+		Key: h.client.Key(), Flag: flag, Seq: peerSequence, Ack: nextByte,
+	})
 }
 
 func (h *transferHarness) transfer() model.TransferState {
@@ -68,8 +74,9 @@ func TestTransferTimingUsesHandshakeAndPayloadMilestones(t *testing.T) {
 	h.runUntil(2 * time.Second)
 	h.client.SendCompleteStream(model.SEGMENT_SIZE+7, 1500*time.Millisecond)
 	h.client.EstablishConnection()
-	if state := h.transfer(); state.Status != model.TransferInProgress || state.HandshakeCompleted || state.Elapsed != 0 {
-		t.Fatalf("newly requested transfer = %+v", state)
+	initial := h.transfer()
+	if initial.Status != model.TransferInProgress || initial.HandshakeCompleted || initial.Elapsed != 0 {
+		t.Fatalf("newly requested transfer = %+v", initial)
 	}
 
 	h.runUntil(3250 * time.Millisecond)
@@ -93,10 +100,10 @@ func TestTransferTimingUsesHandshakeAndPayloadMilestones(t *testing.T) {
 	}
 	assertTransferDuration(t, "elapsed after initial gap", h.transfer().Elapsed, 2750*time.Millisecond)
 	h.runUntil(5 * time.Second)
-	h.receive(model.FlagACK, 1)
+	h.receive(model.FlagACK, 1025)
 	h.runUntil(6500 * time.Millisecond)
 	h.runUntil(6750 * time.Millisecond)
-	h.receive(model.FlagACK, 2)
+	h.receive(model.FlagACK, 1032)
 
 	state = h.transfer()
 	if state.Status != model.TransferSucceeded || state.FailureReason != "" || !h.client.StreamCompleted() {
@@ -125,7 +132,7 @@ func TestTransferAllowsZeroDurationSuccess(t *testing.T) {
 			h.receive(model.FlagSYN|model.FlagACK, 1)
 			h.runUntil(0)
 			if size > 0 {
-				h.receive(model.FlagACK, 1)
+				h.receive(model.FlagACK, 2)
 			}
 			state := h.transfer()
 			if state.Status != model.TransferSucceeded || !state.HandshakeCompleted || state.Elapsed != 0 ||
@@ -158,8 +165,8 @@ func TestTransferRetriesAccumulateAcrossAcknowledgments(t *testing.T) {
 	if got := h.client.GetState().RetryData; got != 2 {
 		t.Fatalf("current segment retries = %d, want 2", got)
 	}
-	h.receive(model.FlagACK, 1)
-	h.receive(model.FlagACK, 1)
+	h.receive(model.FlagACK, 1025)
+	h.receive(model.FlagACK, 1025)
 	if state := h.transfer(); state.DataRetransmissions != 2 || h.client.GetState().RetryData != 0 {
 		t.Fatalf("retries after first ACK = %+v, current = %d", state, h.client.GetState().RetryData)
 	}
@@ -167,9 +174,10 @@ func TestTransferRetriesAccumulateAcrossAcknowledgments(t *testing.T) {
 	if state := h.transfer(); state.DataRetransmissions != 3 || h.client.GetState().RetryData != 1 {
 		t.Fatalf("second segment retries = %+v, current = %d", state, h.client.GetState().RetryData)
 	}
-	h.receive(model.FlagACK, 2)
+	h.receive(model.FlagACK, 1032)
 	state := h.transfer()
-	if state.Status != model.TransferSucceeded || state.SynRetransmissions != 1 || state.DataRetransmissions != 3 ||
+	if state.Status != model.TransferSucceeded || state.SynRetransmissions != 1 ||
+		state.DataRetransmissions != 3 ||
 		h.client.GetState().RetrySyn != 0 || h.client.GetState().RetryData != 0 {
 		t.Fatalf("retries after completion = %+v, client = %+v", state, h.client.GetState())
 	}
@@ -197,7 +205,9 @@ func TestTransferFailuresRetainPartialProgress(t *testing.T) {
 			h.client.ShutdownWithReason(model.TransferBackendRemoved)
 		}},
 		{"manual close", model.TransferClosedEarly, func(h *transferHarness) { h.client.Close() }},
-		{"remote FIN", model.TransferRemoteClosed, func(h *transferHarness) { h.receive(model.FlagFIN|model.FlagACK, 2) }},
+		{"remote FIN", model.TransferRemoteClosed, func(h *transferHarness) {
+			h.receive(model.FlagFIN|model.FlagACK, 2049)
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -208,11 +218,12 @@ func TestTransferFailuresRetainPartialProgress(t *testing.T) {
 			h.runUntil(2250 * time.Millisecond)
 			h.receive(model.FlagSYN|model.FlagACK, 1)
 			h.runUntil(3250 * time.Millisecond)
-			h.receive(model.FlagACK, 1)
+			h.receive(model.FlagACK, 1025)
 			h.runUntil(3500 * time.Millisecond)
 			test.close(h)
 			state := h.transfer()
-			if state.Status != model.TransferFailed || state.FailureReason != test.reason || !state.HandshakeCompleted ||
+			if state.Status != model.TransferFailed || state.FailureReason != test.reason ||
+				!state.HandshakeCompleted ||
 				state.DataRetransmissions != 1 || state.PayloadDuration != 0 {
 				t.Fatalf("failed partial transfer = %+v", state)
 			}
@@ -222,7 +233,7 @@ func TestTransferFailuresRetainPartialProgress(t *testing.T) {
 				t.Fatalf("partial acknowledged payload = %d, want %d", got, model.SEGMENT_SIZE)
 			}
 			if test.reason == model.TransferClosedEarly {
-				if h.client.IsClosed() {
+				if h.client.IsTerminated() {
 					t.Fatal("manual Close skipped the existing FIN exchange")
 				}
 				h.runUntil(h.engine.Now())
@@ -232,7 +243,7 @@ func TestTransferFailuresRetainPartialProgress(t *testing.T) {
 			}
 			h.runUntil(30 * time.Second)
 			h.client.ShutdownWithReason(model.TransferInterrupted)
-			h.receive(model.FlagACK, 2)
+			h.receive(model.FlagACK, 2049)
 			if got := h.transfer(); got != state {
 				t.Fatalf("terminal failure changed: before %+v, after %+v", state, got)
 			}
@@ -250,8 +261,9 @@ func TestTransferManualCloseBeforeHandshake(t *testing.T) {
 	h.runUntil(1250 * time.Millisecond)
 	h.client.Close()
 	state := h.transfer()
-	if !h.client.IsClosed() || state.Status != model.TransferFailed || state.FailureReason != model.TransferClosedEarly || state.HandshakeCompleted {
-		t.Fatalf("close during handshake = %+v, closed = %v", state, h.client.IsClosed())
+	if !h.client.IsTerminated() || state.Status != model.TransferFailed ||
+		state.FailureReason != model.TransferClosedEarly || state.HandshakeCompleted {
+		t.Fatalf("close during handshake = %+v, terminated = %v", state, h.client.IsTerminated())
 	}
 	assertTransferDuration(t, "elapsed before early close", state.Elapsed, 250*time.Millisecond)
 	h.runUntil(30 * time.Second)
@@ -267,21 +279,21 @@ func TestTransferSuccessSurvivesFINTimeout(t *testing.T) {
 	h.runUntil(100 * time.Millisecond)
 	h.receive(model.FlagSYN|model.FlagACK, 1)
 	h.runUntil(250 * time.Millisecond)
-	h.receive(model.FlagACK, 1)
+	h.receive(model.FlagACK, 2)
 	state := h.transfer()
-	if state.Status != model.TransferSucceeded || h.client.IsClosed() {
-		t.Fatalf("payload completion = %+v, closed = %v", state, h.client.IsClosed())
+	if state.Status != model.TransferSucceeded || h.client.IsTerminated() {
+		t.Fatalf("payload completion = %+v, terminated = %v", state, h.client.IsTerminated())
 	}
 	h.runUntil(h.engine.Now())
 	if h.count(model.FlagFIN) != 1 {
 		t.Fatalf("completion sent %d FINs, want 1", h.count(model.FlagFIN))
 	}
 	h.runUntil(250*time.Millisecond + model.READ_DEADLINE)
-	if !h.client.IsClosed() {
+	if !h.client.IsTerminated() {
 		t.Fatal("FIN read timeout did not close client")
 	}
 	h.client.ShutdownWithReason(model.TransferBackendRemoved)
-	h.receive(model.FlagFIN|model.FlagACK, 1)
+	h.receive(model.FlagFIN|model.FlagACK, 3)
 	if got := h.transfer(); got != state {
 		t.Fatalf("FIN timeout changed successful transfer: before %+v, after %+v", state, got)
 	}
@@ -304,9 +316,10 @@ func TestTransferReadTimeout(t *testing.T) {
 			}
 			h.runUntil(model.READ_DEADLINE)
 			state := h.transfer()
-			if !h.client.IsClosed() || state.Status != model.TransferFailed || state.FailureReason != model.TransferReadTimeout ||
+			if !h.client.IsTerminated() || state.Status != model.TransferFailed ||
+				state.FailureReason != model.TransferReadTimeout ||
 				state.HandshakeCompleted != handshake || state.PayloadDuration != 0 {
-				t.Fatalf("read timeout = %+v, closed = %v", state, h.client.IsClosed())
+				t.Fatalf("read timeout = %+v, terminated = %v", state, h.client.IsTerminated())
 			}
 			assertTransferDuration(t, "read timeout elapsed", state.Elapsed, model.READ_DEADLINE)
 			if handshake {
@@ -356,8 +369,8 @@ func TestTransferRetryLimits(t *testing.T) {
 				}
 			}
 			state := h.transfer()
-			if !h.client.IsClosed() || state.Status != model.TransferFailed || state.FailureReason != reason {
-				t.Fatalf("retry exhaustion = %+v, closed = %v", state, h.client.IsClosed())
+			if !h.client.IsTerminated() || state.Status != model.TransferFailed || state.FailureReason != reason {
+				t.Fatalf("retry exhaustion = %+v, terminated = %v", state, h.client.IsTerminated())
 			}
 			assertTransferDuration(t, "retry limit elapsed", state.Elapsed, (model.MAX_RETRANSMISIONS+1)*timeout)
 			if got := h.count(flag); got != model.MAX_RETRANSMISIONS+1 {
