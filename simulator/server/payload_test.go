@@ -57,18 +57,10 @@ func TestReceivedPayloadCountsUniqueSegmentsAcrossFlows(t *testing.T) {
 	data(flowA, 1, model.SEGMENT_SIZE)
 	assertTotal(model.SEGMENT_SIZE)
 	data(flowA, 1, model.SEGMENT_SIZE)
-	data(flowA, 1, 2*model.SEGMENT_SIZE)
 	assertTotal(model.SEGMENT_SIZE)
 	if got := replies[len(replies)-1]; got.Flag != model.FlagACK || got.Seq != 1 || got.Ack != 1025 {
 		t.Fatalf("duplicate data was not acknowledged at the existing position: %+v", got)
 	}
-	repliesBeforeFutureData := len(replies)
-	data(flowA, 2049, 99)
-	assertTotal(model.SEGMENT_SIZE)
-	if len(replies) != repliesBeforeFutureData {
-		t.Fatal("future data unexpectedly received an ACK")
-	}
-
 	// Each flow starts after its SYN and contributes only new payload bytes.
 	data(flowB, 1, 13)
 	assertTotal(model.SEGMENT_SIZE + 13)

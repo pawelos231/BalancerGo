@@ -2,12 +2,18 @@ package main
 
 import (
 	"fmt"
+	"load-balancer/model"
 	"load-balancer/scenario"
 )
 
 // scenarioDefinition maps CLI and browser settings to the scenario model.
 // Shared ingress, endpoint links and forwarding keep their independent settings.
 func (c configuration) scenarioDefinition() scenario.Scenario {
+	receiveBufferBytes := c.receiveBufferBytes
+	if receiveBufferBytes == 0 {
+		receiveBufferBytes = model.DefaultReceiveBufferBytes
+	}
+
 	backends := make([]scenario.BackendConfig, c.servers)
 	for i := range backends {
 		backends[i] = scenario.BackendConfig{
@@ -20,6 +26,9 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 
 	return scenario.Scenario{
 		Version: scenario.Version,
+		TCP: scenario.TCPConfig{
+			ReceiveBufferBytes: &receiveBufferBytes,
+		},
 		Execution: scenario.ExecutionConfig{
 			Duration:         c.duration,
 			SnapshotInterval: c.snapshotInterval,

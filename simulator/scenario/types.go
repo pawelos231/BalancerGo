@@ -15,9 +15,16 @@ const (
 type Scenario struct {
 	Version   int             `json:"version"`
 	Execution ExecutionConfig `json:"execution"`
+	TCP       TCPConfig       `json:"tcp"`
 	Network   NetworkConfig   `json:"network"`
 	Resources ResourcesConfig `json:"resources"`
 	Workload  WorkloadConfig  `json:"workload"`
+}
+
+// TCPConfig sets the receive-buffer capacity of each TCP connection.
+// An omitted capacity uses the default; zero is not an unlimited buffer.
+type TCPConfig struct {
+	ReceiveBufferBytes *int `json:"receiveBufferBytes,omitempty"`
 }
 
 // ExecutionConfig controls virtual run length, pacing, sampling and randomness.

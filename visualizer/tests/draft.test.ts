@@ -35,6 +35,7 @@ test('form projection retains exact native integers and nanosecond precision', (
   assert.equal(fields.seed, '-9007199254740993');
   assert.equal(fields.maxEvents, '18446744073709551615');
   assert.equal(fields.bytes, '-1');
+  assert.equal(fields.receiveBufferBytes, '65535');
   assert.equal(fields.clients, '0');
   assert.equal(fields.servers, '0');
   assert.equal(fields.clientGapMs, '0');
@@ -46,6 +47,22 @@ test('form projection retains exact native integers and nanosecond precision', (
   assert.equal(mixedFields.clientGapMs, '');
   mixed.workload.clientGroups[0].clientGapNanoseconds = '9007199254740993';
   assert.equal(scenarioFormValues(mixed).clientGapMs, '9007199254.740993');
+});
+
+test('receive-buffer edits preserve the scenario and older documents inherit the default', () => {
+  const original = mixedScenario();
+  assert.equal(original.tcp, undefined);
+  const before = structuredClone(original);
+
+  const updated = applyScenarioField(original, 'receiveBufferBytes', '64');
+  assert.deepEqual(updated.tcp, { receiveBufferBytes: 64 });
+  assert.equal(scenarioFormValues(updated).receiveBufferBytes, '64');
+  assert.deepEqual(updated.network, original.network);
+  assert.deepEqual(updated.workload, original.workload);
+  assert.deepEqual(original, before);
+
+  const restored = JSON.parse(JSON.stringify(updated));
+  assert.equal(scenarioFormValues(restored).receiveBufferBytes, '64');
 });
 
 test('presets populate the same form while one manual edit keeps their native structure', () => {
@@ -294,6 +311,7 @@ test('backend resizing preserves configured prefixes and avoids resource and end
 
 test('field validation rejects overflow, subnanosecond values and malformed integers', () => {
   const valid: [ScenarioField, string][] = [
+    ['receiveBufferBytes', '1'], ['receiveBufferBytes', '65535'],
     ['clients', '16777215'], ['servers', '10000'], ['bytes', '-1'], ['packets', '0'],
     ['seed', '-9223372036854775808'], ['seed', '9223372036854775807'],
     ['maxEvents', '18446744073709551615'], ['bandwidthBitsPerSecond', '9223372036854775807'],
@@ -307,6 +325,8 @@ test('field validation rejects overflow, subnanosecond values and malformed inte
   }
 
   const invalid: [ScenarioField, string][] = [
+    ['receiveBufferBytes', '0'], ['receiveBufferBytes', '-1'],
+    ['receiveBufferBytes', '65536'], ['receiveBufferBytes', '1.5'],
     ['clients', '16777216'], ['servers', '10001'], ['bytes', '-2'], ['packets', '-1'],
     ['seed', '-9223372036854775809'], ['seed', '9223372036854775808'],
     ['maxEvents', '18446744073709551616'], ['maxEvents', '0'],

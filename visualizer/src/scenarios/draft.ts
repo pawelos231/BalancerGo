@@ -20,6 +20,7 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   maxEvents: ['execution', 'maxEvents'],
   packets: ['workload', 'defaults', 'packets'],
   bytes: ['workload', 'defaults', 'bytes'],
+  receiveBufferBytes: ['tcp', 'receiveBufferBytes'],
   packetGapMs: ['workload', 'defaults', 'packetGapNanoseconds'],
   bandwidthBitsPerSecond: ['network', 'defaults', 'bandwidthBitsPerSecond'],
   packetTravelTimeMs: ['network', 'defaults', 'packetTravelTimeNanoseconds'],
@@ -45,6 +46,7 @@ const floatFields = new Set<ScenarioField>(['speed', 'loss', 'ingressLoss']);
 const positiveFields = new Set<ScenarioField>([
   'snapshotIntervalMs', 'maxEvents', 'bandwidthBitsPerSecond',
   'forwardingBitsPerSecond', 'ingressBandwidthBitsPerSecond',
+  'receiveBufferBytes',
 ]);
 
 // Reject already-rounded numbers before converting native document integers.
@@ -116,6 +118,7 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   if (field === 'clients') maximum = 16_777_215n;
   if (field === 'servers') maximum = 10_000n;
   if (field === 'maxEvents') maximum = maxUint64;
+  if (field === 'receiveBufferBytes') maximum = 65535n;
   if (value < minimum || value > maximum) {
     const unit = decimals === undefined ? '' : ' nanoseconds';
     return `Value must be between ${minimum} and ${maximum}${unit}.`;
@@ -127,6 +130,13 @@ export function scenarioFormValues(scenario: Scenario): ScenarioDraft {
   const values = {} as ScenarioDraft;
   for (const [name, path] of Object.entries(fieldPaths)) {
     const field = name as DirectField;
+
+    // Older imported scenarios inherit the transport default until it is edited.
+    if (field === 'receiveBufferBytes') {
+      values[field] = String(scenario.tcp?.receiveBufferBytes ?? 65535);
+      continue;
+    }
+
     const value = path.reduce<unknown>((parent, key) => Reflect.get(parent as object, key), scenario);
     const decimals = timeDecimals[field];
     values[field] = decimals === undefined
@@ -155,6 +165,7 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     const value = documentInteger(duration(raw, 6));
     for (const group of updated.workload.clientGroups) group.clientGapNanoseconds = value;
   } else {
+    if (field === 'receiveBufferBytes') updated.tcp ??= {};
     const path = fieldPaths[field];
     let target: object = updated;
     for (const key of path.slice(0, -1)) target = Reflect.get(target, key) as object;

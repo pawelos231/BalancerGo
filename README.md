@@ -176,7 +176,9 @@ requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-byte-stop-and-wait-v1` profile. Build metadata records the Go/module versions,
+`tcp-receive-window-stop-and-wait-v1` profile. `result.TCP.ReceiveBufferBytes`
+records the effective receive-buffer limit, including an omitted input's default.
+Build metadata records the Go/module versions,
 OS and architecture; VCS revision and modification status appear when available.
 
 Invalid input or configuration returns a nonzero exit code without a report.
@@ -595,16 +597,32 @@ positions instead of segment indices. `Size` remains the payload length, and
 positions by its length; SYN and FIN each consume one position, while pure ACK
 consumes none. The two directions keep separate sequence state.
 
-The `tcp-byte-stop-and-wait-v1` profile uses logical `uint64` byte positions and
+The `tcp-receive-window-stop-and-wait-v1` profile uses logical `uint64` byte positions and
 fixed initial sequence numbers of zero. It does not model the 32-bit sequence
 number wraparound of real TCP. Large streams are checked against native integer
 limits rather than the former 32-bit segment-counter limit. Payload remains
 metadata; no buffer is allocated for every byte in a stream.
 
-Only one data segment may await acknowledgment. Retransmission repeats its
-original byte range, and duplicate data/ACKs do not add payload twice. A segment
-is released only after its full range is acknowledged; receive buffering,
-advertised windows and a general partial-ACK send queue remain future work.
+Each connection has a bounded receive buffer that stores merged byte ranges,
+not payload bytes. Data arriving beyond a gap is retained inside the receive
+window. ACK identifies the next missing byte and can jump across buffered ranges
+when a gap is filled. Duplicate and overlapping data count only newly received
+bytes; those bytes may be counted before they are cumulatively acknowledged.
+
+Set `tcp.receiveBufferBytes` in a scenario, use the **TCP receive buffer per
+connection** form field, or pass `-tcp-receive-buffer` with the legacy CLI.
+The default is 65535 bytes, and supported capacities are 1..65535 without window
+scaling. An omitted scenario setting inherits the default; explicit zero is
+invalid. Received contiguous bytes are consumed immediately, so the advertised
+sequence window normally remains equal to the capacity. Out-of-order occupancy
+is tracked separately and does not shrink an already advertised right edge.
+
+Only one data segment may await acknowledgment. Its size fits the receiver's
+advertised window as well as the 1024-byte segment limit. Partial ACKs count only
+newly confirmed bytes, and retransmission retains only the unconfirmed suffix.
+Full acknowledgment releases the next segment. A zero window pauses new data;
+a current window update resumes sending. Stalled receivers and zero-window
+persist probes remain outside this immediate-consumption profile.
 SYN and data retries still use fixed virtual timers. Server SYN-ACK timers,
 FIN retries, a complete TCP state machine, congestion control and UDP are deferred.
 The same-flow SYN generator remains a limited model, not a validated SYN flood.

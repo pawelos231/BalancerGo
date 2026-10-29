@@ -37,7 +37,11 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 	}
 	ack := func(nextByte uint64) {
 		c.HandlePacket(model.Packet{
-			Key: c.Key(), Flag: model.FlagACK, Seq: 1, Ack: nextByte,
+			Key:                c.Key(),
+			Flag:               model.FlagACK,
+			Seq:                1,
+			Ack:                nextByte,
+			ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
 		})
 	}
 	dataPackets := func() []model.Packet {
@@ -57,7 +61,12 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 	runUntil(0)
 	ack(1)
 	assertTotal(0)
-	c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagSYN | model.FlagACK, Ack: 1})
+	c.HandlePacket(model.Packet{
+		Key:                c.Key(),
+		Flag:               model.FlagSYN | model.FlagACK,
+		Ack:                1,
+		ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+	})
 	runUntil(time.Millisecond)
 	data := dataPackets()
 	if len(data) != 1 || data[0].Size != model.SEGMENT_SIZE {
@@ -67,10 +76,16 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 
 	// Sending and retransmitting the first segment do not confirm delivery.
 	ack(0)
-	ack(2)
+	ack(1026)
 	otherFlow := c.Key()
 	otherFlow.SrcPort++
-	c.HandlePacket(model.Packet{Key: otherFlow, Flag: model.FlagACK, Seq: 1, Ack: 1025})
+	c.HandlePacket(model.Packet{
+		Key:                otherFlow,
+		Flag:               model.FlagACK,
+		Seq:                1,
+		Ack:                1025,
+		ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+	})
 	runUntil(time.Millisecond + model.SEGMENT_TIMEOUT)
 	data = dataPackets()
 	if len(data) != 2 || data[0] != data[1] {
@@ -117,7 +132,11 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 
 	runUntil(e.Now())
 	c.HandlePacket(model.Packet{
-		Key: c.Key(), Flag: model.FlagFIN | model.FlagACK, Seq: 1, Ack: 2 + streamBytes,
+		Key:                c.Key(),
+		Flag:               model.FlagFIN | model.FlagACK,
+		Seq:                1,
+		Ack:                2 + streamBytes,
+		ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
 	})
 	c.Shutdown()
 	assertTotal(streamBytes)
@@ -147,11 +166,22 @@ func TestAcknowledgedPayloadRetainsPartialTransferAfterClose(t *testing.T) {
 			if err := e.RunUntil(0); err != nil {
 				t.Fatal(err)
 			}
-			c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagSYN | model.FlagACK, Ack: 1})
+			c.HandlePacket(model.Packet{
+				Key:                c.Key(),
+				Flag:               model.FlagSYN | model.FlagACK,
+				Ack:                1,
+				ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+			})
 			if err := e.RunUntil(0); err != nil {
 				t.Fatal(err)
 			}
-			c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagACK, Seq: 1, Ack: 1025})
+			c.HandlePacket(model.Packet{
+				Key:                c.Key(),
+				Flag:               model.FlagACK,
+				Seq:                1,
+				Ack:                1025,
+				ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+			})
 			if err := e.RunUntil(0); err != nil {
 				t.Fatal(err)
 			}
@@ -161,12 +191,22 @@ func TestAcknowledgedPayloadRetainsPartialTransferAfterClose(t *testing.T) {
 			if finAck {
 				// It acknowledges the outstanding range, but FIN still closes the transfer.
 				c.HandlePacket(model.Packet{
-					Key: c.Key(), Flag: model.FlagFIN | model.FlagACK, Seq: 1, Ack: 1048,
+					Key:                c.Key(),
+					Flag:               model.FlagFIN | model.FlagACK,
+					Seq:                1,
+					Ack:                1048,
+					ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
 				})
 			} else {
 				c.Shutdown()
 			}
-			c.HandlePacket(model.Packet{Key: c.Key(), Flag: model.FlagACK, Seq: 1, Ack: 1048})
+			c.HandlePacket(model.Packet{
+				Key:                c.Key(),
+				Flag:               model.FlagACK,
+				Seq:                1,
+				Ack:                1048,
+				ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+			})
 			if got := c.GetState().AcknowledgedPayloadBytes; got != model.SEGMENT_SIZE {
 				t.Fatalf("closed partial transfer acknowledged payload = %d, want %d", got, model.SEGMENT_SIZE)
 			}

@@ -41,12 +41,13 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
   },
   packets: {
     name: 'packets',
-    label: 'Default segments per client',
+    label: 'Default payload units per client (1,024 B)',
     integer: true,
     min: 0,
     hint: 'Used when default payload bytes per client = -1.',
     help:
-      'Number of 1,024-byte payload segments per client when payload bytes per client is -1. ' +
+      'Sets total payload to this count multiplied by 1,024 bytes when payload bytes per client is -1. ' +
+      'Actual segments can be smaller when the receive window is below 1,024 bytes. ' +
       'Explicit stream overrides on groups and clients stay unchanged. ' +
       'A client sends one segment at a time and waits for its acknowledgement before sending the next.',
   },
@@ -60,6 +61,18 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
       'Set -1 to use the segment count multiplied by 1,024 payload bytes per client. ' +
       'Any nonnegative value overrides that count with an exact payload size; 0 sends no data. ' +
       'The final segment can be shorter than 1,024 bytes. Group and client overrides stay unchanged.',
+  },
+  receiveBufferBytes: {
+    name: 'receiveBufferBytes',
+    label: 'TCP receive buffer per connection (bytes)',
+    integer: true,
+    min: 1,
+    max: 65535,
+    help:
+      'Maximum byte range a TCP receiver accepts ahead of its next missing byte. ' +
+      'Out-of-order data waits in this connection\'s buffer until the gap is filled. ' +
+      'Data received in order is consumed immediately. ' +
+      'The advertised window limits segment size; this is separate from link queues and bandwidth.',
   },
   durationSeconds: {
     name: 'durationSeconds',
@@ -263,8 +276,8 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
   {
     id: 'tcp-traffic',
     title: 'TCP traffic',
-    description: 'Set client arrivals, total payload and pauses between data segments.',
-    fields: ['clients', 'clientGapMs', 'packets', 'bytes', 'packetGapMs'],
+    description: 'Set client arrivals, payload, receive buffering and pauses between segments.',
+    fields: ['clients', 'clientGapMs', 'packets', 'bytes', 'packetGapMs', 'receiveBufferBytes'],
     defaultExpanded: true,
   },
   {

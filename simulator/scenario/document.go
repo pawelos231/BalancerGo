@@ -34,7 +34,7 @@ func EncodeNormalizedDocument(input Normalized) ([]byte, error) {
 }
 
 // DecodeDocument reads one strict scenario document without normalizing it.
-// Missing fields keep zero values; null is allowed only for optional patch pointers.
+// Missing fields keep zero values; null is allowed only for optional pointer fields.
 func DecodeDocument(data []byte) (Scenario, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()

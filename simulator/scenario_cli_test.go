@@ -49,6 +49,9 @@ func TestScenarioCLI(t *testing.T) {
 		if first.Result.Seed != input.Execution.Seed {
 			t.Fatalf("seed = %d, want %d", first.Result.Seed, input.Execution.Seed)
 		}
+		if first.Result.TCP.ReceiveBufferBytes != 65535 {
+			t.Fatalf("default receive buffer missing from report: %+v", first.Result.TCP)
+		}
 		assertScenarioCLILinks(t, first.Result)
 
 		// Model results repeat; only measured execution time may differ.
@@ -56,6 +59,23 @@ func TestScenarioCLI(t *testing.T) {
 		second.Result.WallTime = ""
 		if !reflect.DeepEqual(first.Result, second.Result) {
 			t.Fatal("identical scenario and seed produced different model results")
+		}
+	})
+
+	t.Run("small receive buffer survives the scenario and report", func(t *testing.T) {
+		input := scenarioCLIDefinition()
+		capacity := 64
+		input.TCP.ReceiveBufferBytes = &capacity
+		path := writeScenarioCLIInput(t, input)
+
+		output := executeScenarioCLI(t, executable, "-scenario", path)
+		report := decodeScenarioCLIReport(t, output, "finished")
+		assertScenarioCLIManifest(t, report.Manifest, input, false)
+		if report.Result.TCP.ReceiveBufferBytes != capacity || report.Result.CompletedStreams != 3 {
+			t.Fatalf("receive buffer was not applied to the run: %+v", report.Result)
+		}
+		if report.Result.ReceivedPayloadBytes != 4131 || report.Result.AcknowledgedPayloadBytes != 4131 {
+			t.Fatalf("small receive buffer changed payload totals: %+v", report.Result)
 		}
 	})
 
@@ -421,7 +441,7 @@ func assertScenarioCLIManifest(
 	if err := json.Unmarshal(encoded, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Model != "tcp-byte-stop-and-wait-v1" {
+	if manifest.Model != "tcp-receive-window-stop-and-wait-v1" {
 		t.Fatalf("model profile = %q", manifest.Model)
 	}
 	if !manifest.Execution.Headless || manifest.Execution.Speed != 0 ||

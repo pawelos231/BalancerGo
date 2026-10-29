@@ -30,6 +30,12 @@ type Client struct {
 	nextReceiveSeq   uint64
 	peerInitialSeq   uint64
 
+	// New data must stay below the byte position advertised by the backend.
+	peerWindowEnd uint64
+
+	// Advertised on our packets; this profile receives no backend payload.
+	receiveWindowBytes uint16
+
 	streamRequested                bool
 	streamCompleted                bool
 	remainingPayloadBytesToConfirm int
@@ -68,10 +74,23 @@ func NewClient(
 		panic("client: only the simplified TCP model is implemented")
 	}
 	return &Client{
-		engine:   e,
-		key:      GenerateClientKey(srcIP, srcPort, dstIP, dstPort, proto),
-		transfer: transferMetrics{status: model.TransferInProgress},
+		engine:             e,
+		key:                GenerateClientKey(srcIP, srcPort, dstIP, dstPort, proto),
+		receiveWindowBytes: model.DefaultReceiveBufferBytes,
+		transfer:           transferMetrics{status: model.TransferInProgress},
 	}
+}
+
+// SetReceiveBufferBytes sets the window advertised when this connection starts.
+func (c *Client) SetReceiveBufferBytes(capacity int) {
+	if capacity < 1 || capacity > model.DefaultReceiveBufferBytes {
+		panic("client: receive buffer must be in 1..65535 bytes")
+	}
+	if c.handshakeStarted || c.terminated {
+		panic("client: receive buffer must be set before the connection starts")
+	}
+
+	c.receiveWindowBytes = uint16(capacity)
 }
 
 func (c *Client) SetSender(sender func(model.Packet)) {
@@ -129,171 +148,6 @@ func (c *Client) retransmitSyn() {
 	c.retrySyn++
 	c.transfer.synRetransmissions++
 	c.sendSyn()
-}
-
-// SendCompleteStream may be called before EstablishConnection. A client owns
-// one finite stream; data starts only after the handshake has completed.
-func (c *Client) SendCompleteStream(dataSize int, gap time.Duration) {
-	if dataSize < 0 || gap < 0 {
-		panic("client: stream size and gap must be nonnegative")
-	}
-	if c.terminated || c.closing || c.streamRequested {
-		return
-	}
-	c.streamRequested = true
-	c.remainingPayloadBytesToConfirm = dataSize
-	c.gap = gap
-	if c.handshakeCompleted {
-		c.queueSegment()
-	}
-}
-
-func (c *Client) queueSegment() {
-	canSend := c.handshakeCompleted && c.streamRequested
-	busy := c.waitingForAck || c.sendEvent != 0
-	if c.terminated || c.closing || !canSend || busy {
-		return
-	}
-	if c.remainingPayloadBytesToConfirm == 0 {
-		c.finishStream()
-		return
-	}
-	c.sendEvent = c.engine.ScheduleAfter(c.gap, func() {
-		c.sendEvent = 0
-		if c.terminated || c.closing {
-			return
-		}
-		payloadBytes := min(c.remainingPayloadBytesToConfirm, model.SEGMENT_SIZE)
-		// Data also acknowledges the handshake if its final standalone ACK was lost.
-		c.lastSent = GeneratePacket(
-			c.key,
-			model.FlagPSH|model.FlagACK,
-			payloadBytes,
-			c.nextSendSeq,
-			c.nextReceiveSeq,
-		)
-		c.nextSendSeq += uint64(payloadBytes)
-		c.recordPayloadStart()
-		c.waitingForAck = true
-		c.currentSegmentRetransmissions = 0
-		c.armDataTimer()
-		c.emit(c.lastSent)
-	})
-}
-
-func (c *Client) armDataTimer() {
-	c.cancelEvent(&c.dataTimer)
-	c.dataTimer = c.engine.ScheduleAfter(model.SEGMENT_TIMEOUT, c.retransmitData)
-}
-
-func (c *Client) retransmitData() {
-	c.dataTimer = 0
-	if c.terminated || c.closing || !c.waitingForAck {
-		return
-	}
-	if c.currentSegmentRetransmissions >= model.MAX_RETRANSMISIONS {
-		c.ShutdownWithReason(model.TransferDataRetryLimit)
-		return
-	}
-	c.currentSegmentRetransmissions++
-	c.transfer.dataRetransmissions++
-	c.armDataTimer()
-	c.emit(c.lastSent)
-}
-
-func (c *Client) HandlePacket(pkt model.Packet) {
-	if c.terminated || pkt.Key != c.key {
-		return
-	}
-	c.armReadTimer()
-	end, valid := pkt.SequenceEnd()
-	if !valid || pkt.Flag&model.FlagRST != 0 {
-		return
-	}
-	if pkt.Flag&model.FlagSYN != 0 {
-		if !c.closing {
-			c.handleSynAck(pkt, end)
-		}
-		return
-	}
-	if !c.handshakeCompleted {
-		return
-	}
-	// FIN|ACK closes the peer side; its ACK must not count as a data ACK.
-	if pkt.Flag&model.FlagFIN != 0 {
-		c.handleFin(pkt, end)
-		return
-	}
-	if !c.closing {
-		c.handleDataAck(pkt)
-	}
-}
-
-// handleSynAck confirms our SYN and remembers the peer's independent sequence.
-// A repeated SYN-ACK only repeats our ACK; it cannot reset a live data stream.
-func (c *Client) handleSynAck(pkt model.Packet, end uint64) {
-	expectedFlags := model.FlagSYN | model.FlagACK
-	if !c.handshakeStarted || pkt.Flag != expectedFlags || pkt.Size != 0 || pkt.Ack != 1 {
-		return
-	}
-	if c.handshakeCompleted {
-		if pkt.Seq != c.peerInitialSeq {
-			return
-		}
-	} else {
-		c.cancelEvent(&c.synTimer)
-		c.retrySyn = 0
-		c.transfer.handshakeDuration = c.engine.Now() - c.transfer.startedAt
-		c.peerInitialSeq = pkt.Seq
-		c.nextReceiveSeq = end
-		c.oldestUnackedSeq = pkt.Ack
-		c.handshakeCompleted = true
-	}
-	c.emit(GeneratePacket(c.key, model.FlagACK, 0, c.nextSendSeq, c.nextReceiveSeq))
-	c.queueSegment()
-}
-
-// handleDataAck advances only when the one pending payload range is fully ACKed.
-// Stale, partial or future ACKs cannot complete it or count bytes twice.
-func (c *Client) handleDataAck(pkt model.Packet) {
-	if !c.waitingForAck || pkt.Flag&model.FlagACK == 0 || pkt.Size != 0 {
-		return
-	}
-	validPeerPosition := pkt.Seq == c.nextReceiveSeq
-	wholeRangeAcknowledged := pkt.Ack == c.nextSendSeq && pkt.Ack > c.oldestUnackedSeq
-	if !validPeerPosition || !wholeRangeAcknowledged {
-		return
-	}
-	c.cancelEvent(&c.dataTimer)
-	c.waitingForAck = false
-	c.currentSegmentRetransmissions = 0
-	c.oldestUnackedSeq = pkt.Ack
-	c.remainingPayloadBytesToConfirm -= c.lastSent.Size
-	c.acknowledgedPayloadBytes += uint64(c.lastSent.Size)
-
-	if c.OnPayloadAcknowledged != nil {
-		c.OnPayloadAcknowledged(c.lastSent.Size)
-	}
-	c.queueSegment()
-}
-
-// handleFin validates byte positions while retaining the existing simple close.
-// Full closing states and FIN retransmission remain a later step.
-func (c *Client) handleFin(pkt model.Packet, end uint64) {
-	if pkt.Size != 0 || pkt.Seq != c.nextReceiveSeq {
-		return
-	}
-	if c.closing {
-		if pkt.Flag&model.FlagACK == 0 || pkt.Ack != c.nextSendSeq {
-			return
-		}
-	} else if pkt.Flag&model.FlagACK != 0 {
-		if pkt.Ack < c.oldestUnackedSeq || pkt.Ack > c.nextSendSeq {
-			return
-		}
-	}
-	c.nextReceiveSeq = end
-	c.ShutdownWithReason(model.TransferRemoteClosed)
 }
 
 func (c *Client) finishStream() {
@@ -399,6 +253,7 @@ func (c *Client) ShutdownWithReason(reason model.TransferFailureReason) {
 
 func (c *Client) emit(pkt model.Packet) {
 	if !c.terminated && c.sender != nil {
+		pkt.ReceiveWindowBytes = c.receiveWindowBytes
 		c.sender(pkt)
 	}
 }

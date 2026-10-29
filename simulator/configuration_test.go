@@ -67,6 +67,47 @@ func TestConfigurationKeepsForwardingAndLinkBandwidthIndependent(t *testing.T) {
 	}
 }
 
+func TestConfigurationTCPReceiveBufferRoundTrip(t *testing.T) {
+	defaults := legacyTestConfiguration()
+	requested := defaults.publicConfig()
+	if requested.ReceiveBufferBytes != model.DefaultReceiveBufferBytes {
+		t.Fatal("legacy defaults omitted the TCP receive-buffer capacity")
+	}
+
+	requested.ReceiveBufferBytes = 64
+	runtime, err := configurationFromPublic(requested, defaults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := runtime.scenarioDefinition()
+	if definition.TCP.ReceiveBufferBytes == nil || *definition.TCP.ReceiveBufferBytes != 64 {
+		t.Fatal("the form overlay lost the TCP receive-buffer capacity")
+	}
+
+	for _, invalid := range []int{0, -1, 65536} {
+		requested.ReceiveBufferBytes = invalid
+		if _, err := configurationFromPublic(requested, defaults); err == nil {
+			t.Fatalf("invalid receive buffer %d was accepted", invalid)
+		}
+	}
+}
+
+func TestTCPReceiveBufferCLIFlag(t *testing.T) {
+	cfg, err := readTestConfiguration(t, "-tcp-receive-buffer", "64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.receiveBufferBytes != 64 {
+		t.Fatal("the CLI ignored the receive-buffer setting")
+	}
+
+	for _, value := range []string{"0", "-1", "65536"} {
+		if _, err := readTestConfiguration(t, "-tcp-receive-buffer", value); err == nil {
+			t.Fatalf("invalid receive buffer %s was accepted", value)
+		}
+	}
+}
+
 func TestConfigurationOmittedForwardingBudgetUsesDefaults(t *testing.T) {
 	defaults := legacyTestConfiguration()
 	defaults.forwardingBitsPerSecond = 600_000_000

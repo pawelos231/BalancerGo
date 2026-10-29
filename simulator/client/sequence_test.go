@@ -22,7 +22,8 @@ func TestTCPByteSequencesAndStopWait(t *testing.T) {
 			}
 
 			h.client.HandlePacket(model.Packet{
-				Key: h.client.Key(), Flag: model.FlagSYN | model.FlagACK,
+				ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+				Key:                h.client.Key(), Flag: model.FlagSYN | model.FlagACK,
 				Seq: peerInitial, Ack: 1,
 			})
 			if got := h.sent[1]; got.Flag != model.FlagACK || got.Seq != 1 ||
@@ -51,7 +52,8 @@ func TestTCPByteSequencesAndStopWait(t *testing.T) {
 					t.Fatalf("data segment %d = %+v", index, packet)
 				}
 				h.client.HandlePacket(model.Packet{
-					Key: h.client.Key(), Flag: model.FlagACK,
+					ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+					Key:                h.client.Key(), Flag: model.FlagACK,
 					Seq: peerInitial + 1, Ack: expected.ack,
 				})
 				h.runUntil(h.engine.Now())
@@ -64,7 +66,8 @@ func TestTCPByteSequencesAndStopWait(t *testing.T) {
 				t.Fatalf("closing FIN = %+v", fin)
 			}
 			h.client.HandlePacket(model.Packet{
-				Key: h.client.Key(), Flag: model.FlagFIN | model.FlagACK,
+				ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+				Key:                h.client.Key(), Flag: model.FlagFIN | model.FlagACK,
 				Seq: peerInitial + 1, Ack: 2052,
 			})
 			if !h.client.IsTerminated() || !h.client.StreamCompleted() ||
@@ -93,6 +96,7 @@ func TestTCPRejectsInvalidHandshakeNumbers(t *testing.T) {
 			h.runUntil(0)
 			packet := test.packet
 			packet.Key = h.client.Key()
+			packet.ReceiveWindowBytes = model.DefaultReceiveBufferBytes
 			h.client.HandlePacket(packet)
 			if h.client.IsHandshakeCompleted() || h.client.IsTerminated() || len(h.sent) != 1 {
 				t.Fatalf("invalid handshake changed client: state=%+v, sent=%+v", h.client.GetState(), h.sent)
@@ -103,7 +107,8 @@ func TestTCPRejectsInvalidHandshakeNumbers(t *testing.T) {
 	t.Run("unsolicited SYN ACK", func(t *testing.T) {
 		h := newTransferHarness(t)
 		h.client.HandlePacket(model.Packet{
-			Key: h.client.Key(), Flag: model.FlagSYN | model.FlagACK, Ack: 1,
+			ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+			Key:                h.client.Key(), Flag: model.FlagSYN | model.FlagACK, Ack: 1,
 		})
 		if h.client.IsHandshakeCompleted() || len(h.sent) != 0 {
 			t.Fatal("an unsolicited SYN ACK established a connection")
@@ -144,11 +149,10 @@ func TestTCPDataAcknowledgmentsMatchOutstandingByteRange(t *testing.T) {
 	h.runUntil(0)
 	original := sentClientData(h.sent)[0]
 
-	// None of these packets confirms the complete outstanding range [1, 18).
+	// Duplicate or invalid ACKs cannot confirm any bytes of [1, 18).
 	invalid := []model.Packet{
 		{Flag: model.FlagACK, Seq: 1, Ack: 0},
 		{Flag: model.FlagACK, Seq: 1, Ack: 1},
-		{Flag: model.FlagACK, Seq: 1, Ack: 2},
 		{Flag: model.FlagACK, Seq: 1, Ack: 19},
 		{Flag: model.FlagACK, Seq: 2, Ack: 18},
 		{Seq: 1, Ack: 18},
@@ -156,6 +160,7 @@ func TestTCPDataAcknowledgmentsMatchOutstandingByteRange(t *testing.T) {
 	}
 	for _, packet := range invalid {
 		packet.Key = h.client.Key()
+		packet.ReceiveWindowBytes = model.DefaultReceiveBufferBytes
 		h.client.HandlePacket(packet)
 		if h.client.StreamCompleted() || h.client.GetState().AcknowledgedPayloadBytes != 0 {
 			t.Fatalf("invalid ACK confirmed payload: %+v", packet)
@@ -197,7 +202,8 @@ func TestTCPDuplicateHandshakeDoesNotResetOutstandingData(t *testing.T) {
 	// A changed peer sequence cannot rewrite an established receive position.
 	before := len(h.sent)
 	h.client.HandlePacket(model.Packet{
-		Key: h.client.Key(), Flag: model.FlagSYN | model.FlagACK, Seq: 99, Ack: 1,
+		ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+		Key:                h.client.Key(), Flag: model.FlagSYN | model.FlagACK, Seq: 99, Ack: 1,
 	})
 	if len(h.sent) != before {
 		t.Fatal("a different peer SYN sequence was accepted after establishment")
@@ -226,6 +232,7 @@ func TestTCPEmptyTransferUsesSYNAndFINSequencePositions(t *testing.T) {
 		{Flag: model.FlagFIN | model.FlagACK, Seq: 2, Ack: 2},
 	} {
 		packet.Key = h.client.Key()
+		packet.ReceiveWindowBytes = model.DefaultReceiveBufferBytes
 		h.client.HandlePacket(packet)
 		if h.client.IsTerminated() {
 			t.Fatalf("invalid FIN ACK closed the connection: %+v", packet)

@@ -24,6 +24,7 @@ type Info struct {
 	SnapshotInterval      time.Duration
 	Speed                 float64
 	Seed                  int64
+	ReceiveBufferBytes    int
 	EventsExecuted        uint64
 	PendingEvents         int
 	ScheduledClients      int
@@ -74,7 +75,8 @@ func (s *World) Info() Info {
 		Now: s.engine.Now(), EndTime: s.engine.EndTime(),
 		SnapshotInterval: s.scenario.Execution.SnapshotInterval,
 		Speed:            s.scenario.Execution.Speed, Seed: s.scenario.Execution.Seed,
-		EventsExecuted: s.engine.EventsExecuted(), PendingEvents: s.engine.Pending(),
+		ReceiveBufferBytes: s.scenario.TCP.ReceiveBufferBytes,
+		EventsExecuted:     s.engine.EventsExecuted(), PendingEvents: s.engine.Pending(),
 		ScheduledClients: s.scheduledClients, CreatedClients: s.createdClients,
 		CompletedStreams: s.completedStreams, ClosedClients: s.closedClients,
 		CompletedPayloadBytes: s.completedPayloadBytes, Payload: s.payload,

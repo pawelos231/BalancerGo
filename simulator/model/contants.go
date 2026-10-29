@@ -2,6 +2,9 @@ package model
 
 import "time"
 
+// DefaultReceiveBufferBytes fits the TCP window field without window scaling.
+const DefaultReceiveBufferBytes = 65535
+
 const (
 	SYN_TIMEOUT        = 1000 * time.Millisecond // max wait for SYN-ACK
 	SEGMENT_TIMEOUT    = 1000 * time.Millisecond // max wait for DATA-ACK

@@ -199,6 +199,7 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 		1,   // Initial weight.
 		100, // Half-open connection limit.
 	)
+	srv.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
 	endpointID := BackendNodeID(config.ID)
 	// Keep received bytes after this backend's connections close or it is removed.
 	srv.OnPayloadReceived = func(bytes int) {

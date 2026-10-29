@@ -11,16 +11,8 @@ import (
 
 const statisticsInterval = 100 * time.Millisecond
 
-type connection struct {
-	startedAt       time.Duration
-	established     bool
-	peerInitialSeq  uint64
-	nextExpectedSeq uint64
-	sendNextSeq     uint64
-}
-
-// Server retains the simplified SYN/ACK, PSH/ACK and FIN/ACK exchanges. The
-// connection map only makes their accounting idempotent; it is not a TCP FSM.
+// Server receives TCP byte ranges and replies with cumulative ACKs and a window.
+// Closing still uses the simplified FIN exchange rather than a full TCP FSM.
 // All access belongs to the engine's single execution thread.
 type Server struct {
 	ID              string
@@ -55,6 +47,7 @@ type Server struct {
 	OnPayloadReceived func(int)
 
 	receivedPayloadBytes uint64
+	receiveBufferBytes   uint16
 	engine               *engine.Engine
 	sender               func(model.Packet)
 	connections          map[model.ClientKey]*connection
@@ -84,11 +77,24 @@ func NewServer(
 		Tags: []string{}, Metadata: make(map[string]string),
 		DrainTimeout: 120 * time.Second, LastUpdated: e.Now(),
 		engine: e, connections: make(map[model.ClientKey]*connection),
-		probeEvents: make(map[engine.EventID]struct{}),
+		probeEvents:        make(map[engine.EventID]struct{}),
+		receiveBufferBytes: model.DefaultReceiveBufferBytes,
 	}
 }
 
 func (s *Server) SetSender(sender func(model.Packet)) { s.sender = sender }
+
+// SetReceiveBufferBytes sets each connection's capacity before any packet arrives.
+func (s *Server) SetReceiveBufferBytes(capacity int) {
+	if capacity < 1 || capacity > math.MaxUint16 {
+		panic("server: receive buffer capacity must be in 1..65535")
+	}
+	if s.NumberOfHandledPackets != 0 || len(s.connections) != 0 {
+		panic("server: receive buffer capacity must be set before traffic")
+	}
+
+	s.receiveBufferBytes = uint16(capacity)
+}
 
 // Start schedules the old periodic packet-count proxy, once per server.
 func (s *Server) Start() {
@@ -192,147 +198,6 @@ func (s *Server) HandleProbe(onReply func()) {
 	if event != 0 {
 		s.probeEvents[event] = struct{}{}
 	}
-}
-
-func (s *Server) HandlePacket(pkt model.Packet) {
-	if s.Killed || !s.Active || pkt.Key.Protocol != model.TCP {
-		return
-	}
-	s.NumberOfHandledPackets++
-	sequenceEnd, valid := pkt.SequenceEnd()
-	invalidControls := pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagFIN != 0
-	if !valid || invalidControls || pkt.Flag&model.FlagRST != 0 {
-		return
-	}
-	conn, known := s.connections[pkt.Key]
-
-	if pkt.Flag&model.FlagSYN != 0 {
-		s.handleSYN(pkt, conn, sequenceEnd)
-		return
-	}
-
-	// The backend sends no payload in this profile, so ACK must cover its SYN.
-	if !known || pkt.Flag&model.FlagACK == 0 || pkt.Ack != conn.sendNextSeq {
-		return
-	}
-	if pkt.Flag&model.FlagFIN != 0 {
-		s.handleFIN(pkt, conn, sequenceEnd)
-		return
-	}
-
-	// A first data packet can finish the handshake if the standalone ACK was lost.
-	if !conn.established {
-		if pkt.Seq != conn.nextExpectedSeq || !s.establishConnection(pkt.Key, conn) {
-			return
-		}
-	}
-	if pkt.Size == 0 {
-		return // Pure ACK consumes no sequence space and needs no reply.
-	}
-
-	// Out-of-order buffering and partial-overlap handling belong to the next stage.
-	futureData := pkt.Seq > conn.nextExpectedSeq
-	partialOverlap := pkt.Seq < conn.nextExpectedSeq && sequenceEnd > conn.nextExpectedSeq
-	if futureData || partialOverlap {
-		return
-	}
-	if pkt.Seq == conn.nextExpectedSeq {
-		conn.nextExpectedSeq = sequenceEnd
-		s.receivedPayloadBytes += uint64(pkt.Size)
-		if s.OnPayloadReceived != nil {
-			s.OnPayloadReceived(pkt.Size)
-		}
-	}
-
-	// Repeated complete ranges get the current ACK without counting bytes again.
-	s.emit(model.Packet{
-		Key:  pkt.Key,
-		Flag: model.FlagACK,
-		Seq:  conn.sendNextSeq,
-		Ack:  conn.nextExpectedSeq,
-	})
-}
-
-// handleSYN reserves one flow and repeats the same SYN-ACK for retransmissions.
-func (s *Server) handleSYN(pkt model.Packet, conn *connection, sequenceEnd uint64) {
-	if pkt.Size != 0 || pkt.Flag&model.FlagACK != 0 {
-		return
-	}
-	if conn == nil {
-		halfOpenFull := s.MaxHalfOpen > 0 && s.HalfOpenConnections >= s.MaxHalfOpen
-		if !s.CanAcceptNewConnection() || halfOpenFull {
-			return
-		}
-		conn = &connection{
-			startedAt:       s.engine.Now(),
-			peerInitialSeq:  pkt.Seq,
-			nextExpectedSeq: sequenceEnd,
-			sendNextSeq:     1, // Fixed backend ISN zero; SYN occupies one position.
-		}
-		s.connections[pkt.Key] = conn
-		s.HalfOpenConnections++
-		s.LastUpdated = s.engine.Now()
-	}
-	if pkt.Seq != conn.peerInitialSeq {
-		return // Another SYN cannot reset an existing flow's byte positions.
-	}
-	s.emit(model.Packet{
-		Key:  pkt.Key,
-		Flag: model.FlagSYN | model.FlagACK,
-		Seq:  0,
-		Ack:  conn.peerInitialSeq + 1,
-	})
-}
-
-// establishConnection moves one reservation from half-open to active once.
-func (s *Server) establishConnection(key model.ClientKey, conn *connection) bool {
-	if s.MaxConnections > 0 && s.ActiveConnections >= s.MaxConnections {
-		s.ForgetConnection(key)
-		return false
-	}
-	conn.established = true
-	if s.HalfOpenConnections > 0 {
-		s.HalfOpenConnections--
-	}
-	s.ActiveConnections++
-	s.LastUpdated = s.engine.Now()
-	return true
-}
-
-// handleFIN preserves immediate cleanup while validating the closing byte position.
-// Full closing states and FIN retransmission remain a later transport stage.
-func (s *Server) handleFIN(pkt model.Packet, conn *connection, sequenceEnd uint64) {
-	if pkt.Size != 0 || pkt.Seq != conn.nextExpectedSeq {
-		return
-	}
-	if conn.established {
-		s.recordConnectionLatency(s.engine.Now() - conn.startedAt)
-	}
-	s.ForgetConnection(pkt.Key)
-	s.emit(model.Packet{
-		Key:  pkt.Key,
-		Flag: model.FlagFIN | model.FlagACK,
-		Seq:  conn.sendNextSeq,
-		Ack:  sequenceEnd,
-	})
-}
-
-// ForgetConnection is also used by LB timeout/closure cleanup. Repeated calls
-// are harmless and never decrement counters belonging to another connection.
-func (s *Server) ForgetConnection(key model.ClientKey) {
-	conn, ok := s.connections[key]
-	if !ok {
-		return
-	}
-	delete(s.connections, key)
-	if conn.established {
-		if s.ActiveConnections > 0 {
-			s.ActiveConnections--
-		}
-	} else if s.HalfOpenConnections > 0 {
-		s.HalfOpenConnections--
-	}
-	s.LastUpdated = s.engine.Now()
 }
 
 func (s *Server) emit(pkt model.Packet) {

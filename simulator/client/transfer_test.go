@@ -33,13 +33,21 @@ func (h *transferHarness) runUntil(until time.Duration) {
 }
 
 func (h *transferHarness) receive(flag model.Flag, nextByte uint64) {
+	h.receiveWindow(flag, nextByte, model.DefaultReceiveBufferBytes)
+}
+
+func (h *transferHarness) receiveWindow(flag model.Flag, nextByte uint64, windowBytes uint16) {
 	h.t.Helper()
 	peerSequence := uint64(1)
 	if flag&model.FlagSYN != 0 {
 		peerSequence = 0
 	}
 	h.client.HandlePacket(model.Packet{
-		Key: h.client.Key(), Flag: flag, Seq: peerSequence, Ack: nextByte,
+		Key:                h.client.Key(),
+		Flag:               flag,
+		Seq:                peerSequence,
+		Ack:                nextByte,
+		ReceiveWindowBytes: windowBytes,
 	})
 }
 

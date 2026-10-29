@@ -123,6 +123,7 @@ func (s *World) startClient(
 		80,
 		model.TCP,
 	)
+	cl.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
 
 	toInput := s.addLink(
 		"link/"+config.ID+"/to-lb",

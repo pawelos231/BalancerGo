@@ -46,6 +46,9 @@ export interface Scenario {
     speed: number;
     maxEvents: ExactInteger;
   };
+  tcp?: {
+    receiveBufferBytes?: ExactInteger;
+  };
   network: {
     defaults: ScenarioLinkConfig;
     profiles?: { id: string; config: ScenarioLinkPatch }[];
@@ -88,6 +91,9 @@ export interface ValidatedScenario {
 export interface ResolvedScenario {
   version: ExactInteger;
   execution: Scenario['execution'];
+  tcp: {
+    receiveBufferBytes: number;
+  };
   networkDefaults: ScenarioLinkConfig;
   loadBalancer: Scenario['resources']['loadBalancer'];
   totalClients: ExactInteger;

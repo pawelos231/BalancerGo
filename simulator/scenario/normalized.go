@@ -7,12 +7,19 @@ import "time"
 type Normalized struct {
 	Version         int                     `json:"version"`
 	Execution       ExecutionConfig         `json:"execution"`
+	TCP             NormalizedTCPConfig     `json:"tcp"`
 	NetworkDefaults LinkConfig              `json:"networkDefaults"`
 	LoadBalancer    LoadBalancerConfig      `json:"loadBalancer"`
 	Backends        []NormalizedBackend     `json:"backends"`
 	DefaultStream   StreamConfig            `json:"defaultStream"`
 	ClientGroups    []NormalizedClientGroup `json:"clientGroups"`
 	TotalClients    int                     `json:"totalClients"`
+}
+
+// NormalizedTCPConfig holds the effective transport settings after validation.
+// Every connection receives this capacity without allocating the payload upfront.
+type NormalizedTCPConfig struct {
+	ReceiveBufferBytes int `json:"receiveBufferBytes"`
 }
 
 // DirectionalLinks holds the final settings for an endpoint's two link directions.

@@ -179,9 +179,12 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 	info := world.Info()
 	ingress := world.Ingress()
 	result := contract.SimulationResult{
-		VirtualTime:              info.Now.String(),
-		WallTime:                 elapsed.String(),
-		Seed:                     info.Seed,
+		VirtualTime: info.Now.String(),
+		WallTime:    elapsed.String(),
+		Seed:        info.Seed,
+		TCP: contract.TCPConfig{
+			ReceiveBufferBytes: info.ReceiveBufferBytes,
+		},
 		ScheduledClients:         info.ScheduledClients,
 		CreatedClients:           info.CreatedClients,
 		CompletedStreams:         info.CompletedStreams,

@@ -107,6 +107,7 @@ func scenarioSummary(resolved scenario.Normalized) contract.SimulationConfig {
 		Servers:                       len(resolved.Backends),
 		Packets:                       stream.Packets,
 		Bytes:                         stream.Bytes,
+		ReceiveBufferBytes:            resolved.TCP.ReceiveBufferBytes,
 		DurationSeconds:               execution.Duration.Seconds(),
 		SnapshotIntervalMs:            float64(execution.SnapshotInterval) / float64(time.Millisecond),
 		PacketGapMs:                   float64(stream.PacketGap) / float64(time.Millisecond),

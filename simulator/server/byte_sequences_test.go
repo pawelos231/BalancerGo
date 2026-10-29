@@ -47,12 +47,19 @@ func (h *byteServerHarness) receive(flag model.Flag, seq, ack uint64, size int) 
 }
 
 func (h *byteServerHarness) assertReply(flag model.Flag, seq, ack uint64) {
+	h.assertReplyWindow(flag, seq, ack, model.DefaultReceiveBufferBytes)
+}
+
+func (h *byteServerHarness) assertReplyWindow(flag model.Flag, seq, ack uint64, window uint16) {
 	h.t.Helper()
 	if len(h.replies) == 0 {
 		h.t.Fatal("server sent no reply")
 	}
 	got := h.replies[len(h.replies)-1]
-	want := model.Packet{Key: h.flow, Flag: flag, Seq: seq, Ack: ack}
+	want := model.Packet{
+		Key: h.flow, Flag: flag, Seq: seq, Ack: ack,
+		ReceiveWindowBytes: window,
+	}
 	if got != want {
 		h.t.Fatalf("last reply = %+v, want %+v", got, want)
 	}
@@ -153,15 +160,13 @@ func TestServerRejectsInvalidByteRangesAndACKs(t *testing.T) {
 	h.assertReply(model.FlagACK, 1, 18)
 	before := len(h.replies)
 
-	// This stage has no receiver reassembly buffer or reset state machine.
+	// Invalid controls and byte ranges cannot change payload or connection state.
 	invalid := []struct {
 		flag model.Flag
 		seq  uint64
 		ack  uint64
 		size int
 	}{
-		{flag: model.FlagACK, seq: 19, ack: 1, size: 7},
-		{flag: model.FlagACK, seq: 10, ack: 1, size: 17},
 		{flag: model.FlagACK, seq: 18, ack: 0, size: 7},
 		{flag: model.FlagACK, seq: 18, ack: 2, size: 7},
 		{flag: model.FlagACK, seq: 18, ack: 1, size: -1},

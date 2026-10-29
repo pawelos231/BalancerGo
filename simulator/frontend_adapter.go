@@ -11,6 +11,7 @@ import (
 	httpserver "load-balancer/http"
 	"load-balancer/internal/contract"
 	"load-balancer/internal/simulation"
+	"load-balancer/model"
 )
 
 // submitFrontendCommand translates a wire action without decoding its runtime
@@ -88,11 +89,17 @@ func admissionError(err error) error {
 
 // publicConfig converts CLI defaults into the existing frontend settings.
 func (c configuration) publicConfig() contract.SimulationConfig {
+	receiveBufferBytes := c.receiveBufferBytes
+	if receiveBufferBytes == 0 {
+		receiveBufferBytes = model.DefaultReceiveBufferBytes
+	}
+
 	return contract.SimulationConfig{
 		Clients:                 c.clients,
 		Servers:                 c.servers,
 		Packets:                 c.packets,
 		Bytes:                   c.streamBytes,
+		ReceiveBufferBytes:      receiveBufferBytes,
 		DurationSeconds:         float64(c.duration) / float64(time.Second),
 		ClientGapMs:             float64(c.clientGap) / float64(time.Millisecond),
 		PacketGapMs:             float64(c.packetGap) / float64(time.Millisecond),
@@ -118,8 +125,13 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 // configurationFromPublic overlays experiment fields while retaining process
 // options. Callers can decode omitted JSON fields into base.publicConfig().
 func configurationFromPublic(c contract.SimulationConfig, base configuration) (configuration, error) {
+	if c.ReceiveBufferBytes < 1 || c.ReceiveBufferBytes > math.MaxUint16 {
+		return configuration{}, errors.New("receiveBufferBytes must be in 1..65535")
+	}
+
 	base.clients, base.servers = c.Clients, c.Servers
 	base.packets, base.streamBytes = c.Packets, c.Bytes
+	base.receiveBufferBytes = c.ReceiveBufferBytes
 	base.bandwidth, base.queue = c.BandwidthBitsPerSecond, c.LinkQueue
 	base.forwardingBitsPerSecond = c.ForwardingBitsPerSecond
 	base.loss, base.seed = c.Loss, c.Seed

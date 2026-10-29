@@ -45,6 +45,7 @@ type SimulationConfig struct {
 	Servers                 int     `json:"servers"`
 	Packets                 int     `json:"packets"`
 	Bytes                   int     `json:"bytes"`
+	ReceiveBufferBytes      int     `json:"receiveBufferBytes"`
 	DurationSeconds         float64 `json:"durationSeconds"`
 	ClientGapMs             float64 `json:"clientGapMs"`
 	PacketGapMs             float64 `json:"packetGapMs"`

@@ -9,14 +9,16 @@ import (
 	"time"
 
 	"load-balancer/engine"
+	"load-balancer/model"
 	"load-balancer/scenario"
 )
 
 type configuration struct {
-	clients     int
-	servers     int
-	packets     int
-	streamBytes int
+	clients            int
+	servers            int
+	packets            int
+	streamBytes        int
+	receiveBufferBytes int
 
 	clientGap        time.Duration
 	packetGap        time.Duration
@@ -48,8 +50,14 @@ func readConfiguration() (configuration, error) {
 	ingressDefaults := scenario.DefaultIngressConfig()
 	flag.IntVar(&c.clients, "clients", 200, "number of simulated clients")
 	flag.IntVar(&c.servers, "servers", 10, "number of backend servers (zero simulates no backends)")
-	flag.IntVar(&c.packets, "packets", 10000, "full payload segments per client")
+	flag.IntVar(&c.packets, "packets", 10000, "1024-byte payload units per client when -bytes is -1")
 	flag.IntVar(&c.streamBytes, "bytes", -1, "payload bytes per client; -1 uses packets * segment size")
+	flag.IntVar(
+		&c.receiveBufferBytes,
+		"tcp-receive-buffer",
+		model.DefaultReceiveBufferBytes,
+		"TCP receive-buffer capacity per connection in bytes (1..65535)",
+	)
 	flag.DurationVar(&c.clientGap, "client-gap", 0, "virtual interval between new clients")
 	flag.DurationVar(&c.packetGap, "packet-gap", 0, "virtual sender pause before each data segment")
 	flag.DurationVar(&c.duration, "duration", 2*time.Minute, "virtual experiment end time (inclusive)")
@@ -147,6 +155,9 @@ func readConfiguration() (configuration, error) {
 		c.headless = true
 		return c, nil
 	}
+	if c.receiveBufferBytes == 0 {
+		return c, errors.New("tcp.receiveBufferBytes: must be in 1..65535")
+	}
 	// Keep the raw -1 byte sentinel for frontend defaults. Normalization must
 	// happen after the user has had a chance to change the packet count.
 	_, err := c.normalized()
@@ -228,5 +239,6 @@ func (c configuration) normalized() (configuration, error) {
 		return c, err
 	}
 	c.streamBytes = resolved.DefaultStream.Bytes
+	c.receiveBufferBytes = resolved.TCP.ReceiveBufferBytes
 	return c, nil
 }

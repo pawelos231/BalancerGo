@@ -86,6 +86,7 @@ export interface SimulationConfig {
   servers: number;
   packets: number;
   bytes: number;
+  receiveBufferBytes: number;
   durationSeconds: number;
   clientGapMs: number;
   packetGapMs: number;

@@ -88,12 +88,18 @@ type ClientState struct {
 	Transfer                 TransferState
 }
 
+// TCPConfig records the effective transport settings, including input defaults.
+type TCPConfig struct {
+	ReceiveBufferBytes int
+}
+
 // SimulationResult preserves the legacy headless report, including PascalCase
 // fields outside its preexisting nested HTTP summaries and balancer state.
 type SimulationResult struct {
 	VirtualTime string
 	WallTime    string
 	Seed        int64
+	TCP         TCPConfig
 
 	ScheduledClients         int
 	CreatedClients           int
