@@ -7,7 +7,7 @@ import (
 	"load-balancer/model"
 )
 
-// Client sends one segment at a time using logical byte SEQ/ACK positions.
+// Client sends data inside the backend's advertised window and tracks pending ACKs.
 // All calls and callbacks belong to the virtual-time engine's owner.
 type Client struct {
 	key    model.ClientKey
@@ -19,11 +19,12 @@ type Client struct {
 	handshakeStarted   bool
 	handshakeCompleted bool
 	retrySyn           uint8
-	lastSent           model.Packet
-	waitingForAck      bool
 
-	// Counts retransmissions of the current segment and resets after its ACK.
-	currentSegmentRetransmissions uint8
+	// Sent segments remain here until their bytes are cumulatively acknowledged.
+	pendingSegments sendBuffer
+
+	// Counts retries of the oldest pending fragment, resetting on ACK progress.
+	oldestSegmentRetransmissions uint8
 
 	nextSendSeq      uint64
 	oldestUnackedSeq uint64
@@ -38,8 +39,13 @@ type Client struct {
 
 	streamRequested                bool
 	streamCompleted                bool
+	unsentPayloadBytes             int
 	remainingPayloadBytesToConfirm int
 	gap                            time.Duration
+
+	// ACK arrival can free window space, but it must not restart the sender pause.
+	nextNewSegmentAt        time.Duration
+	nextNewSegmentWithinRun bool
 
 	acknowledgedPayloadBytes uint64
 	transfer                 transferMetrics
@@ -211,7 +217,8 @@ func (c *Client) Close() {
 	c.cancelEvent(&c.dataTimer)
 	c.cancelEvent(&c.sendEvent)
 	c.cancelEvent(&c.floodEvent)
-	c.waitingForAck = false
+	c.pendingSegments.reset()
+	c.oldestSegmentRetransmissions = 0
 	c.armReadTimer()
 	c.sendEvent = c.engine.ScheduleAfter(0, func() {
 		c.sendEvent = 0
@@ -246,6 +253,8 @@ func (c *Client) ShutdownWithReason(reason model.TransferFailureReason) {
 	c.cancelEvent(&c.readTimer)
 	c.cancelEvent(&c.sendEvent)
 	c.cancelEvent(&c.floodEvent)
+	c.pendingSegments.reset()
+	c.oldestSegmentRetransmissions = 0
 	if c.OnClose != nil {
 		c.OnClose()
 	}
@@ -269,7 +278,7 @@ func (c *Client) GetState() model.ClientState {
 	return model.ClientState{
 		Key:                      c.key,
 		RetrySyn:                 c.retrySyn,
-		RetryData:                c.currentSegmentRetransmissions,
+		RetryData:                c.oldestSegmentRetransmissions,
 		AcknowledgedPayloadBytes: c.acknowledgedPayloadBytes,
 		Transfer:                 c.GetTransferState(),
 	}

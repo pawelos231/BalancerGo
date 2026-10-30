@@ -8,8 +8,8 @@ import (
 	"load-balancer/model"
 )
 
-// Byte positions must advance by payload length while stop-and-wait stays intact.
-func TestTCPByteSequencesAndStopWait(t *testing.T) {
+// A 2050-byte stream uses ranges [1,1025), [1025,2049), [2049,2051) before ACK.
+func TestTCPByteSequencesAcrossSlidingWindow(t *testing.T) {
 	for _, peerInitial := range []uint64{5000, 1<<32 + 5000} {
 		t.Run(sequenceCaseName(peerInitial), func(t *testing.T) {
 			h := newTransferHarness(t)
@@ -35,29 +35,44 @@ func TestTCPByteSequencesAndStopWait(t *testing.T) {
 			segments := []struct {
 				sequence uint64
 				size     int
-				ack      uint64
 			}{
-				{sequence: 1, size: 1024, ack: 1025},
-				{sequence: 1025, size: 1024, ack: 2049},
-				{sequence: 2049, size: 2, ack: 2051},
+				{sequence: 1, size: 1024},
+				{sequence: 1025, size: 1024},
+				{sequence: 2049, size: 2},
 			}
+			data := sentClientData(h.sent)
+			if len(data) != len(segments) {
+				t.Fatalf("data count before any ACK = %d, want %d", len(data), len(segments))
+			}
+
+			// Both directions keep their own byte positions, even beyond 32 bits.
 			for index, expected := range segments {
-				data := sentClientData(h.sent)
-				if len(data) != index+1 {
-					t.Fatalf("data count before ACK %d = %d, want %d", index, len(data), index+1)
-				}
 				packet := data[index]
 				if packet.Seq != expected.sequence || packet.Ack != peerInitial+1 ||
 					packet.Size != expected.size || packet.WireSize() != expected.size+40 {
 					t.Fatalf("data segment %d = %+v", index, packet)
 				}
-				h.client.HandlePacket(model.Packet{
-					ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
-					Key:                h.client.Key(), Flag: model.FlagACK,
-					Seq: peerInitial + 1, Ack: expected.ack,
-				})
-				h.runUntil(h.engine.Now())
 			}
+
+			// One ACK confirms both full segments; the short final range still waits.
+			h.client.HandlePacket(model.Packet{
+				Key:                h.client.Key(),
+				Flag:               model.FlagACK,
+				Seq:                peerInitial + 1,
+				Ack:                2049,
+				ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+			})
+			if h.client.StreamCompleted() || h.client.GetState().AcknowledgedPayloadBytes != 2048 {
+				t.Fatalf("cumulative ACK did not leave the final two bytes: %+v", h.client.GetState())
+			}
+			h.client.HandlePacket(model.Packet{
+				Key:                h.client.Key(),
+				Flag:               model.FlagACK,
+				Seq:                peerInitial + 1,
+				Ack:                2051,
+				ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+			})
+			h.runUntil(h.engine.Now())
 
 			// FIN consumes one position, but contributes no payload bytes.
 			fin := h.sent[len(h.sent)-1]
@@ -78,6 +93,7 @@ func TestTCPByteSequencesAndStopWait(t *testing.T) {
 	}
 }
 
+// SYN-ACK must confirm exactly our SYN; malformed positions cannot open a stream.
 func TestTCPRejectsInvalidHandshakeNumbers(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -116,6 +132,7 @@ func TestTCPRejectsInvalidHandshakeNumbers(t *testing.T) {
 	})
 }
 
+// SYN retries reuse Seq=0, so the first payload must still begin at Seq=1.
 func TestTCPSYNRetryKeepsItsOriginalSequence(t *testing.T) {
 	h := newTransferHarness(t)
 	h.client.SendCompleteStream(1, 0)
@@ -140,6 +157,7 @@ func TestTCPSYNRetryKeepsItsOriginalSequence(t *testing.T) {
 	}
 }
 
+// ACK=18 confirms [1,18); stale, impossible and wrong-peer ACKs confirm nothing.
 func TestTCPDataAcknowledgmentsMatchOutstandingByteRange(t *testing.T) {
 	h := newTransferHarness(t)
 	h.client.SendCompleteStream(17, 0)
@@ -180,6 +198,7 @@ func TestTCPDataAcknowledgmentsMatchOutstandingByteRange(t *testing.T) {
 	}
 }
 
+// Repeating SYN-ACK cannot reset either of two pending segments or its timer.
 func TestTCPDuplicateHandshakeDoesNotResetOutstandingData(t *testing.T) {
 	h := newTransferHarness(t)
 	h.client.SendCompleteStream(2048, 0)
@@ -190,12 +209,12 @@ func TestTCPDuplicateHandshakeDoesNotResetOutstandingData(t *testing.T) {
 	original := sentClientData(h.sent)[0]
 	h.runUntil(300 * time.Millisecond)
 	h.receive(model.FlagSYN|model.FlagACK, 1)
-	if len(sentClientData(h.sent)) != 1 {
+	if len(sentClientData(h.sent)) != 2 {
 		t.Fatal("duplicate SYN ACK released another data segment")
 	}
 	h.runUntil(model.SEGMENT_TIMEOUT)
 	data := sentClientData(h.sent)
-	if len(data) != 2 || data[1] != original {
+	if len(data) != 3 || data[2] != original {
 		t.Fatalf("duplicate handshake changed the outstanding range or timer: %+v", data)
 	}
 
@@ -211,11 +230,16 @@ func TestTCPDuplicateHandshakeDoesNotResetOutstandingData(t *testing.T) {
 	h.receive(model.FlagACK, 1025)
 	h.runUntil(h.engine.Now())
 	data = sentClientData(h.sent)
-	if len(data) != 3 || data[2].Seq != 1025 || data[2].Ack != 1 {
-		t.Fatalf("next data range after duplicate handshake = %+v", data)
+	if len(data) != 3 || data[1].Seq != 1025 || data[1].Ack != 1 {
+		t.Fatalf("the already sent second range changed after the handshake retry: %+v", data)
 	}
+	if h.client.StreamCompleted() {
+		t.Fatal("confirming the first segment discarded the second pending segment")
+	}
+	h.receive(model.FlagACK, 2049)
 }
 
+// An empty stream consumes only SYN/FIN positions and never reports payload.
 func TestTCPEmptyTransferUsesSYNAndFINSequencePositions(t *testing.T) {
 	h := newTransferHarness(t)
 	h.client.SendCompleteStream(0, 0)

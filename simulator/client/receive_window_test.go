@@ -8,6 +8,7 @@ import (
 	"load-balancer/model"
 )
 
+// A three-byte receiver window accepts only 3 + 3 + 2 bytes as ACKs release credit.
 func TestTCPFitsSegmentsInsideAdvertisedWindow(t *testing.T) {
 	h := newTransferHarness(t)
 	h.client.SetReceiveBufferBytes(13)
@@ -38,6 +39,7 @@ func TestTCPFitsSegmentsInsideAdvertisedWindow(t *testing.T) {
 	}
 }
 
+// Confirming five of twenty bytes leaves only [6,21) eligible for retransmission.
 func TestTCPPartialACKRetransmitsOnlyUnconfirmedSuffix(t *testing.T) {
 	h := newTransferHarness(t)
 	var increments []int
@@ -76,6 +78,7 @@ func TestTCPPartialACKRetransmitsOnlyUnconfirmedSuffix(t *testing.T) {
 	}
 }
 
+// Window zero pauses data; a current ACK reopens it, while old ACKs cannot.
 func TestTCPZeroWindowWaitsForCurrentWindowUpdate(t *testing.T) {
 	h := newTransferHarness(t)
 	h.client.SendCompleteStream(8, 0)
@@ -118,6 +121,7 @@ func TestTCPZeroWindowWaitsForCurrentWindowUpdate(t *testing.T) {
 	}
 }
 
+// Closing the window during a scheduled gap prevents the packet from leaving.
 func TestTCPRechecksWindowAfterSegmentGap(t *testing.T) {
 	h := newTransferHarness(t)
 	h.client.SendCompleteStream(4, 100*time.Millisecond)
@@ -131,9 +135,9 @@ func TestTCPRechecksWindowAfterSegmentGap(t *testing.T) {
 	}
 
 	h.receiveWindow(model.FlagACK, 1, 4)
-	h.runUntil(300 * time.Millisecond)
+	h.runUntil(200 * time.Millisecond)
 	data := sentClientData(h.sent)
 	if len(data) != 1 || data[0].Size != 4 {
-		t.Fatalf("reopened window did not resume the delayed segment: %+v", data)
+		t.Fatalf("reopened window did not resume the already due segment: %+v", data)
 	}
 }

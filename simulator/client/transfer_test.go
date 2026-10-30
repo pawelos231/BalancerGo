@@ -77,6 +77,7 @@ func assertTransferDuration(t *testing.T, name string, got time.Duration, want t
 	}
 }
 
+// Handshake and payload clocks keep separate milestones, including the initial send gap.
 func TestTransferTimingUsesHandshakeAndPayloadMilestones(t *testing.T) {
 	h := newTransferHarness(t)
 	h.runUntil(2 * time.Second)
@@ -126,6 +127,7 @@ func TestTransferTimingUsesHandshakeAndPayloadMilestones(t *testing.T) {
 	}
 }
 
+// An empty stream or a one-byte immediate ACK may complete at the same virtual time.
 func TestTransferAllowsZeroDurationSuccess(t *testing.T) {
 	for _, size := range []int{0, 1} {
 		name := "empty stream"
@@ -160,6 +162,7 @@ func TestTransferAllowsZeroDurationSuccess(t *testing.T) {
 	}
 }
 
+// Two retries of the first range and one of the second remain three total retries.
 func TestTransferRetriesAccumulateAcrossAcknowledgments(t *testing.T) {
 	h := newTransferHarness(t)
 	h.client.SendCompleteStream(model.SEGMENT_SIZE+7, 100*time.Millisecond)
@@ -199,6 +202,7 @@ func TestTransferRetriesAccumulateAcrossAcknowledgments(t *testing.T) {
 	}
 }
 
+// Closing a partially confirmed stream preserves its 1024 confirmed bytes and failure reason.
 func TestTransferFailuresRetainPartialProgress(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -262,6 +266,7 @@ func TestTransferFailuresRetainPartialProgress(t *testing.T) {
 	}
 }
 
+// Manual Close during the handshake fails once and never starts a FIN exchange.
 func TestTransferManualCloseBeforeHandshake(t *testing.T) {
 	h := newTransferHarness(t)
 	h.runUntil(time.Second)
@@ -280,6 +285,7 @@ func TestTransferManualCloseBeforeHandshake(t *testing.T) {
 	}
 }
 
+// Once the payload succeeds, losing the closing FIN reply cannot undo that success.
 func TestTransferSuccessSurvivesFINTimeout(t *testing.T) {
 	h := newTransferHarness(t)
 	h.client.SendCompleteStream(1, 0)
@@ -307,6 +313,7 @@ func TestTransferSuccessSurvivesFINTimeout(t *testing.T) {
 	}
 }
 
+// A silent peer eventually ends either handshake or payload with the same read deadline.
 func TestTransferReadTimeout(t *testing.T) {
 	for _, handshake := range []bool{false, true} {
 		name := "handshake"
@@ -345,6 +352,7 @@ func TestTransferReadTimeout(t *testing.T) {
 	}
 }
 
+// Repeated silence exhausts the configured SYN or data retry budget exactly once.
 func TestTransferRetryLimits(t *testing.T) {
 	for _, payload := range []bool{false, true} {
 		name := "SYN"

@@ -10,142 +10,100 @@ import (
 	"load-balancer/model"
 )
 
+// Three segments are sent before ACK; one cumulative ACK confirms the first two.
 func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
-	e := engine.New(30 * time.Second)
-	c := client.NewClient(e, "10.0.0.1", 1000, "10.0.0.2", 80, model.TCP)
-	var sent []model.Packet
-	c.SetSender(func(pkt model.Packet) { sent = append(sent, pkt) })
+	h := newTransferHarness(t)
 	var increments []int
 	var observedTotals []uint64
-	c.OnPayloadAcknowledged = func(bytes int) {
+	h.client.OnPayloadAcknowledged = func(bytes int) {
 		increments = append(increments, bytes)
-		observedTotals = append(observedTotals, c.GetState().AcknowledgedPayloadBytes)
+		observedTotals = append(observedTotals, h.client.GetState().AcknowledgedPayloadBytes)
 	}
 	var totalAtCompletion uint64
-	c.OnStreamComplete = func() { totalAtCompletion = c.GetState().AcknowledgedPayloadBytes }
+	h.client.OnStreamComplete = func() {
+		totalAtCompletion = h.client.GetState().AcknowledgedPayloadBytes
+	}
+
 	assertTotal := func(want uint64) {
 		t.Helper()
-		if got := c.GetState().AcknowledgedPayloadBytes; got != want {
+		if got := h.client.GetState().AcknowledgedPayloadBytes; got != want {
 			t.Fatalf("acknowledged payload = %d, want %d", got, want)
 		}
-	}
-	runUntil := func(until time.Duration) {
-		t.Helper()
-		if err := e.RunUntil(until); err != nil {
-			t.Fatal(err)
-		}
-	}
-	ack := func(nextByte uint64) {
-		c.HandlePacket(model.Packet{
-			Key:                c.Key(),
-			Flag:               model.FlagACK,
-			Seq:                1,
-			Ack:                nextByte,
-			ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
-		})
-	}
-	dataPackets := func() []model.Packet {
-		var data []model.Packet
-		for _, pkt := range sent {
-			if pkt.Flag&model.FlagPSH != 0 {
-				data = append(data, pkt)
-			}
-		}
-		return data
 	}
 
 	const finalBytes = 37
 	const streamBytes = 2*model.SEGMENT_SIZE + finalBytes
-	c.SendCompleteStream(streamBytes, time.Millisecond)
-	c.EstablishConnection()
-	runUntil(0)
-	ack(1)
+	h.client.SendCompleteStream(streamBytes, time.Millisecond)
+	h.client.EstablishConnection()
+	h.runUntil(0)
+	h.receive(model.FlagACK, 1)
 	assertTotal(0)
-	c.HandlePacket(model.Packet{
-		Key:                c.Key(),
-		Flag:               model.FlagSYN | model.FlagACK,
-		Ack:                1,
-		ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
-	})
-	runUntil(time.Millisecond)
-	data := dataPackets()
-	if len(data) != 1 || data[0].Size != model.SEGMENT_SIZE {
-		t.Fatalf("first data transmission = %+v", data)
+
+	// With enough window credit, 1024 + 1024 + 37 bytes leave before any data ACK.
+	h.receive(model.FlagSYN|model.FlagACK, 1)
+	h.runUntil(3 * time.Millisecond)
+	data := sentClientData(h.sent)
+	if len(data) != 3 || data[0].Size != 1024 || data[1].Size != 1024 || data[2].Size != finalBytes {
+		t.Fatalf("initial payload transmissions = %+v", data)
 	}
 	assertTotal(0)
 
-	// Sending and retransmitting the first segment do not confirm delivery.
-	ack(0)
-	ack(1026)
-	otherFlow := c.Key()
+	// ACK beyond the entire sent stream, old ACK and another flow confirm nothing.
+	h.receive(model.FlagACK, 0)
+	h.receive(model.FlagACK, streamBytes+2)
+	otherFlow := h.client.Key()
 	otherFlow.SrcPort++
-	c.HandlePacket(model.Packet{
+	h.client.HandlePacket(model.Packet{
 		Key:                otherFlow,
 		Flag:               model.FlagACK,
 		Seq:                1,
 		Ack:                1025,
 		ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
 	})
-	runUntil(time.Millisecond + model.SEGMENT_TIMEOUT)
-	data = dataPackets()
-	if len(data) != 2 || data[0] != data[1] {
-		t.Fatalf("expected retransmission of the outstanding segment, got %+v", data)
+
+	// Only the oldest range is retried; merely sending it still confirms no bytes.
+	h.runUntil(time.Millisecond + model.SEGMENT_TIMEOUT)
+	data = sentClientData(h.sent)
+	if len(data) != 4 || data[3] != data[0] {
+		t.Fatalf("expected retransmission of the oldest segment, got %+v", data)
 	}
 	assertTotal(0)
-	ack(1025)
-	assertTotal(model.SEGMENT_SIZE)
-	if c.StreamCompleted() {
-		t.Fatal("stream completed after only its first segment was acknowledged")
-	}
-	ack(1025)
-	assertTotal(model.SEGMENT_SIZE)
 
-	runUntil(e.Now() + time.Millisecond)
-	ack(1025)
-	ack(1 + streamBytes)
-	assertTotal(model.SEGMENT_SIZE)
-	ack(2049)
+	// ACK=2049 confirms both full segments in one callback; repeats add nothing.
+	h.receive(model.FlagACK, 2049)
+	h.receive(model.FlagACK, 2049)
+	h.receive(model.FlagACK, 1025)
 	assertTotal(2 * model.SEGMENT_SIZE)
-	if c.StreamCompleted() {
+	if h.client.StreamCompleted() {
 		t.Fatal("stream completed before its partial final segment was acknowledged")
 	}
 
-	runUntil(e.Now() + time.Millisecond)
-	data = dataPackets()
-	if len(data) != 4 || data[3].Size != finalBytes {
-		t.Fatalf("expected a %d-byte final segment, got %+v", finalBytes, data)
-	}
-	ack(2049)
-	assertTotal(2 * model.SEGMENT_SIZE)
-	ack(1 + streamBytes)
+	h.receive(model.FlagACK, 1+streamBytes)
 	assertTotal(streamBytes)
-	ack(1 + streamBytes)
-	if !c.StreamCompleted() || totalAtCompletion != streamBytes {
-		t.Fatalf("completion saw %d acknowledged bytes; completed = %v", totalAtCompletion, c.StreamCompleted())
+	h.receive(model.FlagACK, 1+streamBytes)
+	if !h.client.StreamCompleted() || totalAtCompletion != streamBytes {
+		t.Fatalf("completion saw %d acknowledged bytes; completed = %v",
+			totalAtCompletion, h.client.StreamCompleted())
 	}
-	if !slices.Equal(increments, []int{model.SEGMENT_SIZE, model.SEGMENT_SIZE, finalBytes}) {
+	if !slices.Equal(increments, []int{2 * model.SEGMENT_SIZE, finalBytes}) {
 		t.Fatalf("payload callbacks = %v", increments)
 	}
-	if !slices.Equal(observedTotals, []uint64{model.SEGMENT_SIZE, 2 * model.SEGMENT_SIZE, streamBytes}) {
+	if !slices.Equal(observedTotals, []uint64{2 * model.SEGMENT_SIZE, streamBytes}) {
 		t.Fatalf("payload totals visible in callbacks = %v", observedTotals)
 	}
 
-	runUntil(e.Now())
-	c.HandlePacket(model.Packet{
-		Key:                c.Key(),
-		Flag:               model.FlagFIN | model.FlagACK,
-		Seq:                1,
-		Ack:                2 + streamBytes,
-		ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
-	})
-	c.Shutdown()
+	// FIN and later shutdown cannot change already confirmed payload.
+	h.runUntil(h.engine.Now())
+	h.receive(model.FlagFIN|model.FlagACK, 2+streamBytes)
+	h.client.Shutdown()
 	assertTotal(streamBytes)
-	fresh := client.NewClient(e, "10.0.0.1", 1000, "10.0.0.2", 80, model.TCP)
+	fresh := client.NewClient(h.engine, "10.0.0.1", 1000, "10.0.0.2", 80, model.TCP)
 	if got := fresh.GetState().AcknowledgedPayloadBytes; got != 0 {
 		t.Fatalf("fresh client acknowledged payload = %d, want 0", got)
 	}
 }
 
+// Receiving 1024 of 1047 bytes remains partial progress after closure or shutdown.
 func TestAcknowledgedPayloadRetainsPartialTransferAfterClose(t *testing.T) {
 	for _, finAck := range []bool{false, true} {
 		name := "shutdown"

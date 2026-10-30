@@ -50,12 +50,16 @@ func (c *Client) handleSynAck(pkt model.Packet, end uint64) {
 		c.oldestUnackedSeq = pkt.Ack
 		c.peerWindowEnd = receiveWindowEnd(pkt.Ack, pkt.ReceiveWindowBytes)
 		c.handshakeCompleted = true
+		if c.streamRequested {
+			c.updateNextSendTime()
+		}
 	}
 	c.emit(GeneratePacket(c.key, model.FlagACK, 0, c.nextSendSeq, c.nextReceiveSeq))
 	c.queueSegment()
 }
 
-// handleDataAck confirms only new bytes and retains the unacknowledged suffix.
+// handleDataAck releases every confirmed segment and counts new bytes once.
+// ACK=2049 can release both [1,1025) and [1025,2049) at the same time.
 func (c *Client) handleDataAck(pkt model.Packet) {
 	if pkt.Flag&model.FlagACK == 0 || pkt.Size != 0 {
 		return
@@ -74,7 +78,7 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 		c.queueSegment()
 		return
 	}
-	if !c.waitingForAck {
+	if !c.pendingSegments.hasPending() {
 		return
 	}
 
@@ -83,14 +87,10 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 	c.remainingPayloadBytesToConfirm -= acknowledgedBytes
 	c.acknowledgedPayloadBytes += uint64(acknowledgedBytes)
 
-	// Keep only the missing part, so a timeout never resends confirmed bytes.
-	c.lastSent.Seq = pkt.Ack
-	c.lastSent.Size -= acknowledgedBytes
-	c.currentSegmentRetransmissions = 0
+	c.pendingSegments.acknowledge(pkt.Ack)
+	c.oldestSegmentRetransmissions = 0
 	c.cancelEvent(&c.dataTimer)
-	if c.lastSent.Size == 0 {
-		c.waitingForAck = false
-	} else {
+	if c.pendingSegments.hasPending() {
 		c.armDataTimer()
 	}
 

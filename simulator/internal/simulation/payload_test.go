@@ -30,15 +30,15 @@ func assertNativePayloadProgress(t *testing.T, world *World, received, acknowled
 	}
 }
 
-// TestPayloadProgressAfterLostACK exercises a real data retransmission across modelled links.
-func TestPayloadProgressAfterLostACK(t *testing.T) {
+// Losing ACK=2051 leaves only the final two bytes unconfirmed until their retry.
+func TestPayloadProgressAfterLostFinalACK(t *testing.T) {
 	s := New(normalizedRuntimeScenario(t, payloadScenario()))
 	backend := s.lb.GetServers()[0]
 	returnLink := scenarioRuntimeLink(t, s, BackendNodeID(backend.ID), LoadBalancerNodeID)
 	discardedACK := false
 	backend.SetSender(func(packet model.Packet) {
-		// Discard just the first data ACK after its return-link transmission.
-		discard := packet.Flag == model.FlagACK && !discardedACK
+		// Earlier ACKs advance the stream; discard only the final cumulative ACK.
+		discard := packet.Flag == model.FlagACK && packet.Ack == 2051 && !discardedACK
 		if discard {
 			discardedACK = true
 		}
@@ -55,19 +55,15 @@ func TestPayloadProgressAfterLostACK(t *testing.T) {
 		})
 	})
 
-	runIngressUntil(t, s, time.Second)
-	assertNativePayloadProgress(t, s, 1024, 0)
+	// All 2050 bytes arrived, but only 2048 are confirmed before the timeout.
+	runIngressUntil(t, s, 500*time.Millisecond)
+	assertNativePayloadProgress(t, s, 2050, 2048)
 	if !discardedACK || s.completedStreams != 0 {
 		t.Fatal("the dropped ACK did not leave an unfinished transfer")
 	}
 
-	// The retry increases wire traffic while the received payload stays unchanged.
-	runIngressUntil(t, s, 1017*time.Millisecond)
-	assertNativePayloadProgress(t, s, 1024, 0)
-	if s.clients[0].Client.GetState().RetryData != 1 {
-		t.Fatal("the missing ACK did not trigger a data retransmission")
-	}
-	runIngressUntil(t, s, 1100*time.Millisecond)
+	// Retrying the two-byte suffix recovers its ACK without counting payload again.
+	runIngressUntil(t, s, 1200*time.Millisecond)
 	assertNativePayloadProgress(t, s, 2050, 2050)
 	if s.completedPayloadBytes != 2050 {
 		t.Fatal("the retry prevented completion or inflated the completed payload")
@@ -79,7 +75,7 @@ func TestPayloadProgressAfterLostACK(t *testing.T) {
 	}
 	client := s.clients[0]
 	uplink := scenarioRuntimeLink(t, s, client.ID, LoadBalancerNodeID).Stats()
-	wantWireBytes := uint64(2050 + 1024 + 7*40)
+	wantWireBytes := uint64(2050 + 2 + 7*40)
 	if uplink.DeliveredPackets != 7 || uplink.DeliveredBytes != wantWireBytes {
 		t.Fatalf("wire counters did not retain the repeated payload and headers: %+v", uplink)
 	}
@@ -135,5 +131,56 @@ func TestSmallReceiveWindowCompletesAfterLostACK(t *testing.T) {
 	const wireBytes = 2050 + 64 + packets*40
 	if uplink.DeliveredPackets != packets || uplink.DeliveredBytes != wireBytes {
 		t.Fatalf("unexpected small-window wire traffic: %+v", uplink)
+	}
+}
+
+// Later segments wait on the backend until one retransmission fills the first gap.
+func TestSlidingWindowRecoversMissingFirstSegment(t *testing.T) {
+	input := payloadScenario()
+	input.Workload.Defaults.Bytes = 3 * model.SEGMENT_SIZE
+	input.Workload.Defaults.PacketGap = 0
+	capacity := 4 * model.SEGMENT_SIZE
+	input.TCP.ReceiveBufferBytes = &capacity
+	world := New(normalizedRuntimeScenario(t, input))
+
+	// Create the client, then intercept its data while retaining both physical hops.
+	runIngressUntil(t, world, 0)
+	runtimeClient := world.clients[0]
+	client := runtimeClient.Client
+	accessLink := scenarioRuntimeLink(t, world, runtimeClient.ID, LoadBalancerNodeID)
+	droppedFirstSegment := false
+	client.SetSender(func(packet model.Packet) {
+		discard := packet.Size > 0 && packet.Seq == 1 && !droppedFirstSegment
+		if discard {
+			droppedFirstSegment = true
+		}
+
+		accessLink.Link.Transmit(packet.WireSize(), func() {
+			world.clientIngress.Transmit(packet.WireSize(), func() {
+				if !discard && world.lb.HasClient(client) {
+					world.lb.HandleClientPacket(packet)
+				}
+			})
+		})
+	})
+
+	// Segments two and three arrived, but ACK stays at 1 while the first is missing.
+	runIngressUntil(t, world, 100*time.Millisecond)
+	assertNativePayloadProgress(t, world, 2048, 0)
+	if !droppedFirstSegment || client.GetTransferState().DataRetransmissions != 0 {
+		t.Fatal("the missing first segment did not leave later data buffered")
+	}
+
+	// Retrying the first segment lets one cumulative ACK confirm all 3072 bytes.
+	runIngressUntil(t, world, 1200*time.Millisecond)
+	assertNativePayloadProgress(t, world, 3072, 3072)
+	transfer := client.GetTransferState()
+	if transfer.Status != model.TransferSucceeded || transfer.DataRetransmissions != 1 {
+		t.Fatalf("buffered tail was not recovered by one head retransmission: %+v", transfer)
+	}
+
+	uplink := scenarioRuntimeLink(t, world, runtimeClient.ID, LoadBalancerNodeID).Stats()
+	if uplink.DeliveredPackets != 7 {
+		t.Fatalf("expected three original data segments, one retry and three controls: %+v", uplink)
 	}
 }

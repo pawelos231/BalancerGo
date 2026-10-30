@@ -441,7 +441,7 @@ func assertScenarioCLIManifest(
 	if err := json.Unmarshal(encoded, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Model != "tcp-receive-window-stop-and-wait-v1" {
+	if manifest.Model != "tcp-sliding-window-v1" {
 		t.Fatalf("model profile = %q", manifest.Model)
 	}
 	if !manifest.Execution.Headless || manifest.Execution.Speed != 0 ||

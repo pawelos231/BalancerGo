@@ -156,8 +156,9 @@ function TopologyLimits({ topology }: TopologyLimitsProps) {
         stages, so their delivery totals count hop traversals. Waiting slots stay separate.
       </Typography>
       <Typography variant="caption" color="text.secondary">
-        Model: stop-and-wait transport with fixed retry timers. Congestion control and
-        kernel RX processing are not modeled; these queue drops do not predict real TCP behavior.
+        Model: sliding-window TCP limited by the receive window, with fixed retry timers.
+        Congestion control and kernel RX processing are not modeled; these queue drops
+        do not predict real TCP behavior.
       </Typography>
     </Stack>
   );

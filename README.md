@@ -176,7 +176,7 @@ requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-receive-window-stop-and-wait-v1` profile. `result.TCP.ReceiveBufferBytes`
+`tcp-sliding-window-v1` profile. `result.TCP.ReceiveBufferBytes`
 records the effective receive-buffer limit, including an omitted input's default.
 Build metadata records the Go/module versions,
 OS and architecture; VCS revision and modification status appear when available.
@@ -385,9 +385,11 @@ The **Simulator throughput** preset measures the simulator's real execution rate
 shared LB ingress and forwarding limits (decimal bytes per second; the JSON uses
 bits/s). Travel times, sender pauses and random loss are zero. It runs unpaced
 (`speed: 0`) for 5 virtual milliseconds, with 50-microsecond snapshots, 1 GiB of
-demand per client and a 50-million-event safety limit. Its 4096-slot queues avoid
-buffer pressure with this stop-and-wait workload. The time horizon ends the
-benchmark while streams still have data to send.
+demand per client and a 50-million-event safety limit. Its queues have 4096 slots;
+the current sliding-window workload can enqueue several segments per client
+before acknowledgements return. The time horizon ends the benchmark while
+streams still have data to send. Historical stop-and-wait measurements describe
+their recorded model version and are not directly comparable to this profile.
 
 **Absolute simulator limits** is pinned first in the catalog. It schedules
 50,000 clients and 100 backends with 10 TB/s client links, 100 TB/s backend links
@@ -440,8 +442,9 @@ decimal bit/s, queue capacities count waiting packets and `bytes: -1` uses
 For reproducible virtual results, retain the native file, seed, code revision
 and Go/model version, and replay runtime commands at the same virtual times.
 Wall time and simulator throughput depend on host load, pacing and snapshot work.
-The stop-and-wait model can remain ACK-limited even when configured client rates
-sum above an LB limit; their sum does not guarantee saturation. Queue/loss counters
+The sliding-window model can remain limited by the receive window, round-trip
+time or sender pauses even when configured client rates sum above an LB limit;
+their sum does not guarantee saturation. Queue/loss counters
 refer to separate physical hops, not unique application packets.
 
 ## Live telemetry
@@ -538,8 +541,8 @@ immediately; the existing transport reacts through its normal timers.
 
 For example, with access links at 10 Gbit/s and ingress at 1 Gbit/s, a sufficiently
 long actual input burst can overflow the client input FIFO. Configured access rates
-are maximum capacities, not guaranteed generation rates: clients still use
-stop-and-wait. With no congestion control or adaptive retransmission timers,
+are maximum capacities, not guaranteed generation rates: clients may send only
+within the advertised receive window. With no congestion control or adaptive retransmission timers,
 drop and retry results describe this simplified transport, not a validated TCP
 response to overload. LB packet handlers still have zero modeled CPU cost.
 
@@ -591,13 +594,13 @@ constants. After adding or renaming an action, run `go generate ./http` from
 `simulator/` to update the frontend enum in `visualizer/src/commands.ts`.
 The generated file is committed, so frontend and Docker builds need no generator.
 
-The current **byte-based stop-and-wait model** uses separate `Seq` and `Ack`
+The current **byte-based sliding-window model** uses separate `Seq` and `Ack`
 positions instead of segment indices. `Size` remains the payload length, and
 `WireSize()` still adds 40 modeled IPv4/TCP header bytes. Data advances sequence
 positions by its length; SYN and FIN each consume one position, while pure ACK
 consumes none. The two directions keep separate sequence state.
 
-The `tcp-receive-window-stop-and-wait-v1` profile uses logical `uint64` byte positions and
+The `tcp-sliding-window-v1` profile uses logical `uint64` byte positions and
 fixed initial sequence numbers of zero. It does not model the 32-bit sequence
 number wraparound of real TCP. Large streams are checked against native integer
 limits rather than the former 32-bit segment-counter limit. Payload remains
@@ -617,13 +620,37 @@ invalid. Received contiguous bytes are consumed immediately, so the advertised
 sequence window normally remains equal to the capacity. Out-of-order occupancy
 is tracked separately and does not shrink an already advertised right edge.
 
-Only one data segment may await acknowledgment. Its size fits the receiver's
-advertised window as well as the 1024-byte segment limit. Partial ACKs count only
-newly confirmed bytes, and retransmission retains only the unconfirmed suffix.
-Full acknowledgment releases the next segment. A zero window pauses new data;
-a current window update resumes sending. Stalled receivers and zero-window
-persist probes remain outside this immediate-consumption profile.
-SYN and data retries still use fixed virtual timers. Server SYN-ACK timers,
+Several data segments may await acknowledgment at once. An ordered queue retains
+their metadata until cumulative ACKs release them. One ACK can confirm several
+segments and part of the next; confirmed bytes count once and a partial head
+retains only its unconfirmed suffix. Unsent payload is tracked separately from
+all payload still awaiting confirmation, so filling the window cannot oversend
+the stream. Each new segment fits the remaining receive-window credit and the
+1024-byte segment limit. A zero window pauses new data; a current window update
+resumes sending. Stalled receivers and zero-window persist probes remain outside
+this immediate-consumption profile.
+
+In-flight payload means data sent but not yet cumulatively acknowledged from
+the client's perspective. It can still be travelling or already be buffered
+by the backend while an ACK is returning or was lost. The receive window is
+the only current limit on this outstanding payload; `cwnd` is not modeled yet.
+
+`packetGapNanoseconds` is the initial pause once both the connection and stream
+are ready, and the minimum interval between new data sends. An ACK does not
+restart that pause. After a
+window stall, an expired send deadline allows the next send immediately. Retries
+bypass this pause. Each new segment uses its own engine event, including when
+the gap is zero, so one connection does not generate its whole window in one
+callback.
+
+Data has one fixed virtual retransmission timer for the oldest pending fragment.
+Additional tail segments, repeated ACKs and window-only updates do not postpone
+it. New cumulative progress restarts it if data remains, and an empty queue
+cancels it. A timeout retries only the oldest pending fragment. Normal stream
+completion waits for all payload to be confirmed before initiating FIN; explicit
+`Close()` keeps its existing early-close semantics.
+SYN retries also use a fixed timer. Adaptive RTO, backoff, fast retransmit,
+server SYN-ACK timers,
 FIN retries, a complete TCP state machine, congestion control and UDP are deferred.
 The same-flow SYN generator remains a limited model, not a validated SYN flood.
 The L4 model has no application workers or business-operation queues.

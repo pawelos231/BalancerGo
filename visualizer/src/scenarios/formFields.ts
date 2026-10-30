@@ -49,7 +49,7 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
       'Sets total payload to this count multiplied by 1,024 bytes when payload bytes per client is -1. ' +
       'Actual segments can be smaller when the receive window is below 1,024 bytes. ' +
       'Explicit stream overrides on groups and clients stay unchanged. ' +
-      'A client sends one segment at a time and waits for its acknowledgement before sending the next.',
+      'A client can send several segments before acknowledgements return, within the advertised receive window.',
   },
   bytes: {
     name: 'bytes',
@@ -72,7 +72,9 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
       'Maximum byte range a TCP receiver accepts ahead of its next missing byte. ' +
       'Out-of-order data waits in this connection\'s buffer until the gap is filled. ' +
       'Data received in order is consumed immediately. ' +
-      'The advertised window limits segment size; this is separate from link queues and bandwidth.',
+      'The advertised window limits sent payload that has not yet been acknowledged. ' +
+      'That includes data already received while its acknowledgement is still returning. ' +
+      'This is separate from link queues and bandwidth.',
   },
   durationSeconds: {
     name: 'durationSeconds',
@@ -97,9 +99,9 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     label: 'Default pause between segments (virtual ms)',
     min: 0,
     help:
-      'Virtual pause before each new data segment: after the handshake for the first segment, ' +
-      'then after each acknowledgement. Since each client waits for an acknowledgement, ' +
-      'the actual interval between segments also includes the packet round trip. ' +
+      'Virtual pause before the first data segment after the handshake and between subsequent new segments. ' +
+      'Acknowledgements release window space without restarting this pause. ' +
+      'A full receive window can delay new data; retransmissions do not use this pause. ' +
       'Explicit group and client stream overrides stay unchanged.',
   },
   snapshotIntervalMs: {

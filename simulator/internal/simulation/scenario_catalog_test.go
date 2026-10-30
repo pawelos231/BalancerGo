@@ -235,7 +235,7 @@ func TestCatalogArrivalWaves(t *testing.T) {
 	}
 }
 
-// TestCatalogMixedStreams checks empty, full and partial segments against actual wire counters.
+// Empty, short and long streams must account for payload and actual packet headers.
 func TestCatalogMixedStreams(t *testing.T) {
 	s := runCatalogScenario(t, catalogScenario(t, "mixed-streams", 7*time.Second, 1<<20))
 	wantShortBytes := []int{0, 1, 1024, 1025}
@@ -249,13 +249,23 @@ func TestCatalogMixedStreams(t *testing.T) {
 			t.Fatalf("bounded mixed stream %s did not complete and close", cl.ID)
 		}
 		expectedPayload += uint64(bytes)
-		segments := (bytes + model.SEGMENT_SIZE - 1) / model.SEGMENT_SIZE
+		minimumSegments := (bytes + model.SEGMENT_SIZE - 1) / model.SEGMENT_SIZE
 		// Uplink includes SYN, standalone handshake ACK, data and FIN.
-		wantPackets := uint64(segments + 3)
-		wantBytes := uint64(bytes) + 40*wantPackets
+		minimumPackets := uint64(minimumSegments + 3)
 		stats := scenarioRuntimeLink(t, s, cl.ID, LoadBalancerNodeID).Stats()
-		if stats.DeliveredPackets != wantPackets || stats.DeliveredBytes != wantBytes {
-			t.Fatalf("client %s wire traffic = %+v, want %d packets / %d bytes", cl.ID, stats, wantPackets, wantBytes)
+
+		// A 65535-byte window can split a long stream before the next MSS boundary.
+		// Count headers from actual packets, while checking payload remains exact.
+		wantBytes := uint64(bytes) + 40*stats.DeliveredPackets
+		if stats.DeliveredPackets < minimumPackets || stats.DeliveredBytes != wantBytes {
+			t.Fatalf("client %s wire traffic = %+v, want at least %d packets / %d bytes",
+				cl.ID, stats, minimumPackets, wantBytes)
+		}
+		if bytes <= model.DefaultReceiveBufferBytes && stats.DeliveredPackets != minimumPackets {
+			t.Fatalf("short stream %s unexpectedly split within its receive window: %+v", cl.ID, stats)
+		}
+		if transfer := cl.Client.GetTransferState(); transfer.DataRetransmissions != 0 {
+			t.Fatalf("clean mixed-stream traffic unexpectedly retransmitted data: %+v", transfer)
 		}
 	}
 	if s.completedStreams != 16 || s.completedPayloadBytes != expectedPayload {

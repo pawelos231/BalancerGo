@@ -23,7 +23,7 @@ import (
 
 const (
 	experimentReportVersion = 1
-	experimentModel         = "tcp-receive-window-stop-and-wait-v1"
+	experimentModel         = "tcp-sliding-window-v1"
 )
 
 // loadedScenario keeps the importable input beside its checked runtime settings.

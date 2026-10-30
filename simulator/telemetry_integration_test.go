@@ -187,6 +187,8 @@ func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 	input.Execution.Speed = 1
 	input.Execution.SnapshotInterval = 20 * time.Millisecond
 	input.Workload.Defaults.Bytes = 1 << 30
+	// Keep transfers active without exhausting the event budget before the 500 ms arrival.
+	input.Workload.Defaults.PacketGap = 5 * time.Millisecond
 	input.Workload.ClientGroups = []scenario.ClientGroup{
 		{ID: "initial", Count: 1},
 		{ID: "later", Count: 1, StartAt: 500 * time.Millisecond},

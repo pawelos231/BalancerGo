@@ -16,29 +16,36 @@ func (c *Client) SendCompleteStream(dataSize int, gap time.Duration) {
 		return
 	}
 	c.streamRequested = true
+	c.unsentPayloadBytes = dataSize
 	c.remainingPayloadBytesToConfirm = dataSize
 	c.gap = gap
 	if c.handshakeCompleted {
+		c.updateNextSendTime()
 		c.queueSegment()
 	}
 }
 
+// queueSegment schedules one new segment, then lets the engine run other events.
+// A 4096-byte window can release four 1024-byte segments without waiting for ACKs.
 func (c *Client) queueSegment() {
 	canSend := c.handshakeCompleted && c.streamRequested
-	busy := c.waitingForAck || c.sendEvent != 0
-	if c.terminated || c.closing || !canSend || busy {
+	if c.terminated || c.closing || !canSend || c.sendEvent != 0 {
 		return
 	}
 	if c.remainingPayloadBytesToConfirm == 0 {
 		c.finishStream()
 		return
 	}
+	if !c.nextNewSegmentWithinRun {
+		return
+	}
 	if c.nextPayloadSize() == 0 {
-		// A closed window pauses new data. This profile has no persist probes yet.
+		// All bytes have been sent, or the window has no room for another segment.
 		return
 	}
 
-	c.sendEvent = c.engine.ScheduleAfter(c.gap, func() {
+	nextSendAt := max(c.engine.Now(), c.nextNewSegmentAt)
+	c.sendEvent = c.engine.ScheduleAt(nextSendAt, func() {
 		c.sendEvent = 0
 		if c.terminated || c.closing {
 			return
@@ -51,7 +58,7 @@ func (c *Client) queueSegment() {
 		}
 
 		// Data also acknowledges the handshake if its final standalone ACK was lost.
-		c.lastSent = GeneratePacket(
+		packet := GeneratePacket(
 			c.key,
 			model.FlagPSH|model.FlagACK,
 			payloadBytes,
@@ -59,41 +66,63 @@ func (c *Client) queueSegment() {
 			c.nextReceiveSeq,
 		)
 		c.nextSendSeq += uint64(payloadBytes)
+		c.unsentPayloadBytes -= payloadBytes
+		c.pendingSegments.append(packet)
 		c.recordPayloadStart()
-		c.waitingForAck = true
-		c.currentSegmentRetransmissions = 0
-		c.armDataTimer()
-		c.emit(c.lastSent)
+		c.updateNextSendTime()
+		if c.dataTimer == 0 {
+			c.armDataTimer()
+		}
+
+		// All sender state is ready before a synchronous reply can arrive.
+		c.emit(packet)
+		c.queueSegment()
 	})
 }
 
+// updateNextSendTime starts the pause from readiness or an actual new send.
+// With a 10 ms gap, a send at 30 ms makes the next one eligible at 40 ms.
+func (c *Client) updateNextSendTime() {
+	remainingTime := c.engine.EndTime() - c.engine.Now()
+	// Check whether the gap leaves time to start sending within this run.
+	// example: gap = 10ms, remainingTime (of simulation) 5ms, then we cant send it, beacuse it would be out of the scope of this simulation
+	c.nextNewSegmentWithinRun = c.gap <= remainingTime
+	if c.nextNewSegmentWithinRun {
+		c.nextNewSegmentAt = c.engine.Now() + c.gap
+	}
+}
+
 // nextPayloadSize fits the next segment inside the backend's advertised window.
+// Already-sent bytes are excluded by nextSendSeq and must not be subtracted twice.
 func (c *Client) nextPayloadSize() int {
 	if c.peerWindowEnd <= c.nextSendSeq {
 		return 0
 	}
 
 	availableBytes := c.peerWindowEnd - c.nextSendSeq
-	payloadLimit := min(c.remainingPayloadBytesToConfirm, model.SEGMENT_SIZE)
+	payloadLimit := min(c.unsentPayloadBytes, model.SEGMENT_SIZE)
 	return int(min(uint64(payloadLimit), availableBytes))
 }
 
+// armDataTimer restarts the fixed timeout for the oldest unconfirmed fragment.
 func (c *Client) armDataTimer() {
 	c.cancelEvent(&c.dataTimer)
 	c.dataTimer = c.engine.ScheduleAfter(model.SEGMENT_TIMEOUT, c.retransmitData)
 }
 
+// retransmitData retries only the oldest fragment; later segments stay queued.
+// If [1,1025) is missing while the backend has later data, retry that gap first.
 func (c *Client) retransmitData() {
 	c.dataTimer = 0
-	if c.terminated || c.closing || !c.waitingForAck {
+	if c.terminated || c.closing || !c.pendingSegments.hasPending() {
 		return
 	}
-	if c.currentSegmentRetransmissions >= model.MAX_RETRANSMISIONS {
+	if c.oldestSegmentRetransmissions >= model.MAX_RETRANSMISIONS {
 		c.ShutdownWithReason(model.TransferDataRetryLimit)
 		return
 	}
-	c.currentSegmentRetransmissions++
+	c.oldestSegmentRetransmissions++
 	c.transfer.dataRetransmissions++
 	c.armDataTimer()
-	c.emit(c.lastSent)
+	c.emit(c.pendingSegments.oldest())
 }
