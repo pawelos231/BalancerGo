@@ -88,18 +88,56 @@ type ClientState struct {
 	Transfer                 TransferState
 }
 
+// RTOState reports a connection's measurements and its current retry delay.
+// Samples=0 distinguishes an unmeasured RTT from a measured zero-second RTT.
+type RTOState struct {
+	LatestRTTSeconds    float64
+	SmoothedRTTSeconds  float64
+	RTTVariationSeconds float64
+	BaseRTOSeconds      float64
+	CurrentRTOSeconds   float64
+	Samples             uint64
+}
+
+// ClientTiming retains estimates after a client leaves the LB's connection table.
+// ClientID is the stable scenario ID, such as "client/fast/0".
+type ClientTiming struct {
+	ClientID string
+	RTO      RTOState
+}
+
+// RTOConfig records the effective timer policy, including resolved defaults.
+type RTOConfig struct {
+	Mode                  string
+	ExponentialBackoff    bool
+	InitialTimeoutSeconds float64
+	MinimumTimeoutSeconds float64
+	MaximumTimeoutSeconds float64
+}
+
 // TCPConfig records the effective transport settings, including input defaults.
 type TCPConfig struct {
-	ReceiveBufferBytes int
+	ReceiveBufferBytes       int
+	RTO                      RTOConfig
+	ClientIdleTimeoutSeconds float64
+}
+
+// LBIdleTimeoutConfig records when the balancer forgets inactive connections.
+// A zero timeout disables cleanup for that connection state.
+type LBIdleTimeoutConfig struct {
+	HalfOpenIdleTimeoutSeconds    float64
+	EstablishedIdleTimeoutSeconds float64
 }
 
 // SimulationResult preserves the legacy headless report, including PascalCase
 // fields outside its preexisting nested HTTP summaries and balancer state.
 type SimulationResult struct {
-	VirtualTime string
-	WallTime    string
-	Seed        int64
-	TCP         TCPConfig
+	VirtualTime    string
+	WallTime       string
+	Seed           int64
+	TCP            TCPConfig
+	LBIdleTimeouts LBIdleTimeoutConfig
+	ClientTimings  []ClientTiming
 
 	ScheduledClients         int
 	CreatedClients           int

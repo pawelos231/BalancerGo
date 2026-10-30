@@ -21,10 +21,22 @@ type Scenario struct {
 	Workload  WorkloadConfig  `json:"workload"`
 }
 
-// TCPConfig sets the receive-buffer capacity of each TCP connection.
-// An omitted capacity uses the default; zero is not an unlimited buffer.
+// TCPConfig separates transport timers and receive buffering from network links.
+// Omitted settings inherit defaults; a zero idle timeout disables idle cleanup.
 type TCPConfig struct {
-	ReceiveBufferBytes *int `json:"receiveBufferBytes,omitempty"`
+	ReceiveBufferBytes *int           `json:"receiveBufferBytes,omitempty"`
+	RTO                RTOConfig      `json:"rto"`
+	ClientIdleTimeout  *time.Duration `json:"clientIdleTimeoutNanoseconds,omitempty"`
+}
+
+// RTOConfig controls how long the sender waits before retrying a missing ACK.
+// Pointers preserve omitted defaults and an explicitly disabled backoff.
+type RTOConfig struct {
+	Mode               *string        `json:"mode,omitempty"`
+	ExponentialBackoff *bool          `json:"exponentialBackoff,omitempty"`
+	InitialTimeout     *time.Duration `json:"initialTimeoutNanoseconds,omitempty"`
+	MinimumTimeout     *time.Duration `json:"minimumTimeoutNanoseconds,omitempty"`
+	MaximumTimeout     *time.Duration `json:"maximumTimeoutNanoseconds,omitempty"`
 }
 
 // ExecutionConfig controls virtual run length, pacing, sampling and randomness.
@@ -90,10 +102,12 @@ type ResourcesConfig struct {
 // LoadBalancerConfig separates the shared input from backend selection and forwarding.
 // Ingress.QueueCapacity sizes each input queue; outputs use endpoint settings.
 type LoadBalancerConfig struct {
-	ID                      string     `json:"id"`
-	Algorithm               string     `json:"algorithm"`
-	Ingress                 LinkConfig `json:"ingress"`
-	ForwardingBitsPerSecond int64      `json:"forwardingBitsPerSecond"`
+	ID                      string         `json:"id"`
+	Algorithm               string         `json:"algorithm"`
+	Ingress                 LinkConfig     `json:"ingress"`
+	ForwardingBitsPerSecond int64          `json:"forwardingBitsPerSecond"`
+	HalfOpenIdleTimeout     *time.Duration `json:"halfOpenIdleTimeoutNanoseconds,omitempty"`
+	EstablishedIdleTimeout  *time.Duration `json:"establishedIdleTimeoutNanoseconds,omitempty"`
 }
 
 // BackendConfig identifies one server and its network settings.

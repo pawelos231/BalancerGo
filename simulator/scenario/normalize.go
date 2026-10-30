@@ -42,7 +42,8 @@ func Normalize(input Scenario) (Normalized, error) {
 		return Normalized{}, err
 	}
 
-	if err := validateLoadBalancer(input.Resources.LoadBalancer); err != nil {
+	loadBalancer, err := normalizeLoadBalancer(input.Resources.LoadBalancer)
+	if err != nil {
 		return Normalized{}, err
 	}
 
@@ -61,7 +62,7 @@ func Normalize(input Scenario) (Normalized, error) {
 		Execution:       input.Execution,
 		TCP:             tcp,
 		NetworkDefaults: input.Network.Defaults,
-		LoadBalancer:    input.Resources.LoadBalancer,
+		LoadBalancer:    loadBalancer,
 		Backends:        make([]NormalizedBackend, 0, backendCount),
 		DefaultStream:   defaultStream,
 		ClientGroups:    make([]NormalizedClientGroup, 0, groupCount),
@@ -137,20 +138,6 @@ func Normalize(input Scenario) (Normalized, error) {
 	}
 
 	return result, nil
-}
-
-// normalizeTCP resolves an omitted capacity and rejects unsupported window sizes.
-func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
-	capacity := model.DefaultReceiveBufferBytes
-	if config.ReceiveBufferBytes != nil {
-		capacity = *config.ReceiveBufferBytes
-	}
-
-	if capacity < 1 || capacity > math.MaxUint16 {
-		return NormalizedTCPConfig{}, fmt.Errorf("tcp.receiveBufferBytes: must be in 1..65535")
-	}
-
-	return NormalizedTCPConfig{ReceiveBufferBytes: capacity}, nil
 }
 
 // validateExecution checks run limits, snapshot timing and real-time pacing.

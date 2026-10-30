@@ -108,6 +108,89 @@ func TestTCPReceiveBufferCLIFlag(t *testing.T) {
 	}
 }
 
+func TestConfigurationTCPTimerRoundTrip(t *testing.T) {
+	defaults := legacyTestConfiguration()
+	requested := defaults.publicConfig()
+	if requested.RTOMode != "adaptive" || !requested.RTOBackoff ||
+		requested.RTOInitialMs != 1000 || requested.RTOMinimumMs != 200 ||
+		requested.RTOMaximumMs != 60000 {
+		t.Fatalf("legacy defaults lost their TCP timer policy: %+v", requested)
+	}
+
+	// Change timers without changing link limits, and keep false/zero explicit.
+	requested.RTOMode = "fixed"
+	requested.Bytes = 4096
+	requested.RTOBackoff = false
+	requested.RTOInitialMs = 200
+	requested.RTOMinimumMs = 100
+	requested.RTOMaximumMs = 2000
+	requested.ClientIdleTimeoutMs = 0
+	requested.LBHalfOpenIdleTimeoutMs = 0
+	requested.LBEstablishedIdleTimeoutMs = 40000
+
+	runtime, err := configurationFromPublic(requested, defaults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored := runtime.publicConfig(); restored != requested {
+		t.Fatalf("timer form round trip changed settings:\n got %+v\nwant %+v", restored, requested)
+	}
+	resolved, err := scenario.Normalize(runtime.scenarioDefinition())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.TCP.RTO.Mode != "fixed" || resolved.TCP.RTO.ExponentialBackoff ||
+		resolved.TCP.RTO.InitialTimeout != 200*time.Millisecond ||
+		resolved.TCP.ClientIdleTimeout != 0 || resolved.LoadBalancer.HalfOpenIdleTimeout != 0 ||
+		resolved.LoadBalancer.EstablishedIdleTimeout != 40*time.Second {
+		t.Fatal("the scenario lost explicit timer settings")
+	}
+	if summary := scenarioSummary(resolved); summary.RTOInitialMs != requested.RTOInitialMs ||
+		summary.RTOBackoff != requested.RTOBackoff || summary.ClientIdleTimeoutMs != 0 {
+		t.Fatal("scenario summary lost the timer policy")
+	}
+}
+
+func TestTCPTimerCLIFlags(t *testing.T) {
+	// Retry delay and all three cleanup limits remain independently configurable.
+	cfg, err := readTestConfiguration(t,
+		"-tcp-rto-mode", "fixed",
+		"-tcp-rto-backoff=false",
+		"-tcp-rto-initial", "200ms",
+		"-tcp-rto-minimum", "100ms",
+		"-tcp-rto-maximum", "2s",
+		"-tcp-idle-timeout", "0",
+		"-lb-half-open-idle-timeout", "0",
+		"-lb-established-idle-timeout", "40s",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rto := cfg.effectiveRTOConfig()
+	clientIdle, halfOpenIdle, establishedIdle := cfg.effectiveIdleTimeouts()
+	if rto.Mode != model.RTOFixed || rto.ExponentialBackoff ||
+		rto.InitialTimeout != 200*time.Millisecond || rto.MinimumTimeout != 100*time.Millisecond ||
+		rto.MaximumTimeout != 2*time.Second || clientIdle != 0 || halfOpenIdle != 0 ||
+		establishedIdle != 40*time.Second {
+		t.Fatal("the CLI ignored independent timer settings")
+	}
+
+	invalid := [][]string{
+		{"-tcp-rto-mode", ""},
+		{"-tcp-rto-initial", "0"},
+		{"-tcp-rto-minimum", "2s"},
+		{"-tcp-rto-maximum", "500ms"},
+		{"-tcp-idle-timeout", "-1s"},
+		{"-lb-half-open-idle-timeout", "-1s"},
+		{"-lb-established-idle-timeout", "-1s"},
+	}
+	for _, arguments := range invalid {
+		if _, err := readTestConfiguration(t, arguments...); err == nil {
+			t.Fatalf("invalid timer flags accepted: %v", arguments)
+		}
+	}
+}
+
 func TestConfigurationOmittedForwardingBudgetUsesDefaults(t *testing.T) {
 	defaults := legacyTestConfiguration()
 	defaults.forwardingBitsPerSecond = 600_000_000

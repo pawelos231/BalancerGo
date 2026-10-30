@@ -65,6 +65,84 @@ test('receive-buffer edits preserve the scenario and older documents inherit the
   assert.equal(scenarioFormValues(restored).receiveBufferBytes, '64');
 });
 
+test('older scenarios display timer defaults without adding settings to the document', () => {
+  const scenario = mixedScenario();
+  const before = structuredClone(scenario);
+
+  // Displaying inherited defaults does not turn them into explicit overrides.
+  const fields = scenarioFormValues(scenario);
+  assert.equal(fields.rtoMode, 'adaptive');
+  assert.equal(fields.rtoBackoff, 'true');
+  assert.equal(fields.rtoInitialMs, '1000');
+  assert.equal(fields.rtoMinimumMs, '200');
+  assert.equal(fields.rtoMaximumMs, '60000');
+  assert.equal(fields.clientIdleTimeoutMs, '20000');
+  assert.equal(fields.lbHalfOpenIdleTimeoutMs, '5000');
+  assert.equal(fields.lbEstablishedIdleTimeoutMs, '50000');
+  assert.deepEqual(scenario, before);
+});
+
+test('timer edits preserve explicit false, disabled idle cleanup and unrelated topology', () => {
+  const original = mixedScenario();
+  const before = structuredClone(original);
+
+  // Fixed retry timing and backoff are separate choices; zero disables only idle cleanup.
+  let edited = applyScenarioField(original, 'rtoMode', 'fixed');
+  edited = applyScenarioField(edited, 'rtoBackoff', 'false');
+  edited = applyScenarioField(edited, 'rtoMinimumMs', '100');
+  edited = applyScenarioField(edited, 'rtoInitialMs', '200.000001');
+  edited = applyScenarioField(edited, 'rtoMaximumMs', '2000');
+  edited = applyScenarioField(edited, 'clientIdleTimeoutMs', '0');
+  edited = applyScenarioField(edited, 'lbHalfOpenIdleTimeoutMs', '0');
+  edited = applyScenarioField(edited, 'lbEstablishedIdleTimeoutMs', '40000');
+
+  assert.deepEqual(edited.tcp, {
+    rto: {
+      mode: 'fixed',
+      exponentialBackoff: false,
+      minimumTimeoutNanoseconds: 100_000_000,
+      initialTimeoutNanoseconds: 200_000_001,
+      maximumTimeoutNanoseconds: 2_000_000_000,
+    },
+    clientIdleTimeoutNanoseconds: 0,
+  });
+  assert.deepEqual(edited.network, original.network);
+  assert.deepEqual(edited.workload, original.workload);
+  assert.deepEqual(edited.resources.backends, original.resources.backends);
+  assert.equal(edited.resources.loadBalancer.halfOpenIdleTimeoutNanoseconds, 0);
+  assert.equal(edited.resources.loadBalancer.establishedIdleTimeoutNanoseconds, 40_000_000_000);
+  assert.deepEqual(original, before);
+
+  // Import/export keeps exact nanoseconds as well as the disabled settings.
+  const restored = JSON.parse(JSON.stringify(edited));
+  const fields = scenarioFormValues(restored);
+  assert.equal(fields.rtoBackoff, 'false');
+  assert.equal(fields.rtoInitialMs, '200.000001');
+  assert.equal(fields.clientIdleTimeoutMs, '0');
+  assert.equal(fields.lbHalfOpenIdleTimeoutMs, '0');
+});
+
+test('timer fields reject invalid modes, nonpositive RTO and negative idle delays', () => {
+  const invalid: [ScenarioField, string][] = [
+    ['rtoMode', 'fast'], ['rtoMode', ''], ['rtoBackoff', '0'],
+    ['rtoInitialMs', '0'], ['rtoMinimumMs', '-1'], ['rtoMaximumMs', '0'],
+    ['rtoInitialMs', '0.0000001'], ['clientIdleTimeoutMs', '-1'],
+    ['lbHalfOpenIdleTimeoutMs', '-1'], ['lbEstablishedIdleTimeoutMs', 'Infinity'],
+  ];
+  for (const [name, raw] of invalid) {
+    assert.ok(validateScenarioField(name, raw), `${name}=${raw} must fail`);
+  }
+
+  const valid: [ScenarioField, string][] = [
+    ['rtoMode', 'adaptive'], ['rtoMode', 'fixed'], ['rtoBackoff', 'false'],
+    ['rtoInitialMs', '0.000001'], ['clientIdleTimeoutMs', '0'],
+    ['lbHalfOpenIdleTimeoutMs', '0'], ['lbEstablishedIdleTimeoutMs', '0'],
+  ];
+  for (const [name, raw] of valid) {
+    assert.equal(validateScenarioField(name, raw), undefined, `${name}=${raw} must pass`);
+  }
+});
+
 test('presets populate the same form while one manual edit keeps their native structure', () => {
   const defaults = scenarioFixture();
   const originalIds = new Set([

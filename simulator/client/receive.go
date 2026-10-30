@@ -43,6 +43,10 @@ func (c *Client) handleSynAck(pkt model.Packet, end uint64) {
 		}
 	} else {
 		c.cancelEvent(&c.synTimer)
+		c.observeRTTACK(pkt.Ack)
+		if c.retrySyn > 0 {
+			c.rto.afterSYNRetry()
+		}
 		c.retrySyn = 0
 		c.transfer.handshakeDuration = c.engine.Now() - c.transfer.startedAt
 		c.peerInitialSeq = pkt.Seq
@@ -83,6 +87,7 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 	}
 
 	acknowledgedBytes := int(pkt.Ack - c.oldestUnackedSeq)
+	c.observeRTTACK(pkt.Ack)
 	c.oldestUnackedSeq = pkt.Ack
 	c.remainingPayloadBytesToConfirm -= acknowledgedBytes
 	c.acknowledgedPayloadBytes += uint64(acknowledgedBytes)

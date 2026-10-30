@@ -56,14 +56,14 @@ func TestPayloadProgressAfterLostFinalACK(t *testing.T) {
 	})
 
 	// All 2050 bytes arrived, but only 2048 are confirmed before the timeout.
-	runIngressUntil(t, s, 500*time.Millisecond)
+	runIngressUntil(t, s, 100*time.Millisecond)
 	assertNativePayloadProgress(t, s, 2050, 2048)
 	if !discardedACK || s.completedStreams != 0 {
 		t.Fatal("the dropped ACK did not leave an unfinished transfer")
 	}
 
 	// Retrying the two-byte suffix recovers its ACK without counting payload again.
-	runIngressUntil(t, s, 1200*time.Millisecond)
+	runIngressUntil(t, s, 500*time.Millisecond)
 	assertNativePayloadProgress(t, s, 2050, 2050)
 	if s.completedPayloadBytes != 2050 {
 		t.Fatal("the retry prevented completion or inflated the completed payload")

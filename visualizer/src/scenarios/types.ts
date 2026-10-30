@@ -10,6 +10,15 @@ export interface ScenarioLinkConfig {
 
 export type ScenarioLinkPatch = Partial<ScenarioLinkConfig>;
 
+// RTT-based estimation and timeout backoff can be enabled independently.
+export interface ScenarioRTOConfig {
+  mode: 'fixed' | 'adaptive';
+  exponentialBackoff: boolean;
+  initialTimeoutNanoseconds: ExactInteger;
+  minimumTimeoutNanoseconds: ExactInteger;
+  maximumTimeoutNanoseconds: ExactInteger;
+}
+
 export interface ScenarioEndpointNetwork {
   profile?: string;
   toLoadBalancer: ScenarioLinkPatch;
@@ -48,6 +57,8 @@ export interface Scenario {
   };
   tcp?: {
     receiveBufferBytes?: ExactInteger;
+    rto?: Partial<ScenarioRTOConfig>;
+    clientIdleTimeoutNanoseconds?: ExactInteger;
   };
   network: {
     defaults: ScenarioLinkConfig;
@@ -59,6 +70,8 @@ export interface Scenario {
       algorithm: string;
       ingress: ScenarioLinkConfig;
       forwardingBitsPerSecond: ExactInteger;
+      halfOpenIdleTimeoutNanoseconds?: ExactInteger;
+      establishedIdleTimeoutNanoseconds?: ExactInteger;
     };
     backends: {
       id: string;
@@ -93,6 +106,8 @@ export interface ResolvedScenario {
   execution: Scenario['execution'];
   tcp: {
     receiveBufferBytes: number;
+    rto: ScenarioRTOConfig;
+    clientIdleTimeoutNanoseconds: ExactInteger;
   };
   networkDefaults: ScenarioLinkConfig;
   loadBalancer: Scenario['resources']['loadBalancer'];

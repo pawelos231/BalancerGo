@@ -16,12 +16,25 @@ type transferHarness struct {
 	sent   []model.Packet
 }
 
+// Existing transport tests keep fixed 1 s timers while adaptive timing is tested separately.
 func newTransferHarness(t *testing.T) *transferHarness {
 	t.Helper()
-	e := engine.New(time.Minute)
+	h := newAdaptiveTransferHarness(t)
+	config := model.DefaultRTOConfig()
+	config.Mode = model.RTOFixed
+	config.ExponentialBackoff = false
+	h.client.SetRTOConfig(config)
+	return h
+}
+
+// Keep the constructor's adaptive defaults, including its first 1 s timeout.
+func newAdaptiveTransferHarness(t *testing.T) *transferHarness {
+	t.Helper()
+	e := engine.New(3 * time.Minute)
 	c := client.NewClient(e, "10.0.0.1", 1000, "10.0.0.2", 80, model.TCP)
 	h := &transferHarness{t: t, engine: e, client: c}
 	c.SetSender(func(pkt model.Packet) { h.sent = append(h.sent, pkt) })
+	t.Cleanup(c.Shutdown)
 	return h
 }
 

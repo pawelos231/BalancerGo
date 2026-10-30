@@ -70,6 +70,7 @@ func (c *Client) queueSegment() {
 		c.pendingSegments.append(packet)
 		c.recordPayloadStart()
 		c.updateNextSendTime()
+		c.startRTTProbe(packet)
 		if c.dataTimer == 0 {
 			c.armDataTimer()
 		}
@@ -102,27 +103,4 @@ func (c *Client) nextPayloadSize() int {
 	availableBytes := c.peerWindowEnd - c.nextSendSeq
 	payloadLimit := min(c.unsentPayloadBytes, model.SEGMENT_SIZE)
 	return int(min(uint64(payloadLimit), availableBytes))
-}
-
-// armDataTimer restarts the fixed timeout for the oldest unconfirmed fragment.
-func (c *Client) armDataTimer() {
-	c.cancelEvent(&c.dataTimer)
-	c.dataTimer = c.engine.ScheduleAfter(model.SEGMENT_TIMEOUT, c.retransmitData)
-}
-
-// retransmitData retries only the oldest fragment; later segments stay queued.
-// If [1,1025) is missing while the backend has later data, retry that gap first.
-func (c *Client) retransmitData() {
-	c.dataTimer = 0
-	if c.terminated || c.closing || !c.pendingSegments.hasPending() {
-		return
-	}
-	if c.oldestSegmentRetransmissions >= model.MAX_RETRANSMISIONS {
-		c.ShutdownWithReason(model.TransferDataRetryLimit)
-		return
-	}
-	c.oldestSegmentRetransmissions++
-	c.transfer.dataRetransmissions++
-	c.armDataTimer()
-	c.emit(c.pendingSegments.oldest())
 }

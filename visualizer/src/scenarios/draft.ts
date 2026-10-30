@@ -21,6 +21,14 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   packets: ['workload', 'defaults', 'packets'],
   bytes: ['workload', 'defaults', 'bytes'],
   receiveBufferBytes: ['tcp', 'receiveBufferBytes'],
+  rtoMode: ['tcp', 'rto', 'mode'],
+  rtoBackoff: ['tcp', 'rto', 'exponentialBackoff'],
+  rtoInitialMs: ['tcp', 'rto', 'initialTimeoutNanoseconds'],
+  rtoMinimumMs: ['tcp', 'rto', 'minimumTimeoutNanoseconds'],
+  rtoMaximumMs: ['tcp', 'rto', 'maximumTimeoutNanoseconds'],
+  clientIdleTimeoutMs: ['tcp', 'clientIdleTimeoutNanoseconds'],
+  lbHalfOpenIdleTimeoutMs: ['resources', 'loadBalancer', 'halfOpenIdleTimeoutNanoseconds'],
+  lbEstablishedIdleTimeoutMs: ['resources', 'loadBalancer', 'establishedIdleTimeoutNanoseconds'],
   packetGapMs: ['workload', 'defaults', 'packetGapNanoseconds'],
   bandwidthBitsPerSecond: ['network', 'defaults', 'bandwidthBitsPerSecond'],
   packetTravelTimeMs: ['network', 'defaults', 'packetTravelTimeNanoseconds'],
@@ -40,6 +48,12 @@ const timeDecimals: Partial<Record<ScenarioField, number>> = {
   snapshotIntervalMs: 6,
   packetTravelTimeMs: 6,
   ingressPacketTravelTimeMs: 6,
+  rtoInitialMs: 6,
+  rtoMinimumMs: 6,
+  rtoMaximumMs: 6,
+  clientIdleTimeoutMs: 6,
+  lbHalfOpenIdleTimeoutMs: 6,
+  lbEstablishedIdleTimeoutMs: 6,
 };
 
 const floatFields = new Set<ScenarioField>(['speed', 'loss', 'ingressLoss']);
@@ -47,7 +61,21 @@ const positiveFields = new Set<ScenarioField>([
   'snapshotIntervalMs', 'maxEvents', 'bandwidthBitsPerSecond',
   'forwardingBitsPerSecond', 'ingressBandwidthBitsPerSecond',
   'receiveBufferBytes',
+  'rtoInitialMs', 'rtoMinimumMs', 'rtoMaximumMs',
 ]);
+
+// Older documents keep their original shape while the form shows effective defaults.
+const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>> = {
+  receiveBufferBytes: 65535,
+  rtoMode: 'adaptive',
+  rtoBackoff: true,
+  rtoInitialMs: 1_000_000_000,
+  rtoMinimumMs: 200_000_000,
+  rtoMaximumMs: 60_000_000_000,
+  clientIdleTimeoutMs: 20_000_000_000,
+  lbHalfOpenIdleTimeoutMs: 5_000_000_000,
+  lbEstablishedIdleTimeoutMs: 50_000_000_000,
+};
 
 // Reject already-rounded numbers before converting native document integers.
 function integer(value: ExactInteger): bigint {
@@ -86,6 +114,12 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   const text = raw.trim();
   if (field === 'algorithm') {
     return text === 'roundRobin' || text === 'random' ? undefined : 'Choose a supported algorithm.';
+  }
+  if (field === 'rtoMode') {
+    return text === 'fixed' || text === 'adaptive' ? undefined : 'Choose fixed or adaptive timing.';
+  }
+  if (field === 'rtoBackoff') {
+    return text === 'true' || text === 'false' ? undefined : 'Choose whether timeout backoff is enabled.';
   }
   if (floatFields.has(field)) {
     const value = Number(text);
@@ -131,13 +165,10 @@ export function scenarioFormValues(scenario: Scenario): ScenarioDraft {
   for (const [name, path] of Object.entries(fieldPaths)) {
     const field = name as DirectField;
 
-    // Older imported scenarios inherit the transport default until it is edited.
-    if (field === 'receiveBufferBytes') {
-      values[field] = String(scenario.tcp?.receiveBufferBytes ?? 65535);
-      continue;
-    }
-
-    const value = path.reduce<unknown>((parent, key) => Reflect.get(parent as object, key), scenario);
+    const requested = path.reduce<unknown>((parent, key) => {
+      return parent == null ? undefined : Reflect.get(parent as object, key);
+    }, scenario);
+    const value = requested ?? optionalDefaults[field];
     const decimals = timeDecimals[field];
     values[field] = decimals === undefined
       ? String(value)
@@ -165,12 +196,16 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     const value = documentInteger(duration(raw, 6));
     for (const group of updated.workload.clientGroups) group.clientGapNanoseconds = value;
   } else {
-    if (field === 'receiveBufferBytes') updated.tcp ??= {};
     const path = fieldPaths[field];
     let target: object = updated;
-    for (const key of path.slice(0, -1)) target = Reflect.get(target, key) as object;
-    let value: ExactInteger;
-    if (field === 'algorithm') value = raw.trim();
+    // Create only the edited optional path, leaving unrelated defaults omitted.
+    for (const key of path.slice(0, -1)) {
+      if (Reflect.get(target, key) == null) Reflect.set(target, key, {});
+      target = Reflect.get(target, key) as object;
+    }
+    let value: ExactInteger | boolean;
+    if (field === 'algorithm' || field === 'rtoMode') value = raw.trim();
+    else if (field === 'rtoBackoff') value = raw.trim() === 'true';
     else if (floatFields.has(field)) value = Number(raw);
     else {
       const decimals = timeDecimals[field];

@@ -176,8 +176,12 @@ requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-sliding-window-v1` profile. `result.TCP.ReceiveBufferBytes`
+`tcp-adaptive-rto-v1` profile. `result.TCP.ReceiveBufferBytes`
 records the effective receive-buffer limit, including an omitted input's default.
+`result.TCP.RTO` and `result.LBIdleTimeouts` record the effective timer policy.
+`result.ClientTimings` retains each created client's latest RTT estimates and RTO,
+including completed or removed clients. Duration fields ending in `Seconds` use
+virtual seconds; `Samples: 0` means no unambiguous RTT sample is available.
 Build metadata records the Go/module versions,
 OS and architecture; VCS revision and modification status appear when available.
 
@@ -542,7 +546,7 @@ immediately; the existing transport reacts through its normal timers.
 For example, with access links at 10 Gbit/s and ingress at 1 Gbit/s, a sufficiently
 long actual input burst can overflow the client input FIFO. Configured access rates
 are maximum capacities, not guaranteed generation rates: clients may send only
-within the advertised receive window. With no congestion control or adaptive retransmission timers,
+within the advertised receive window. With no congestion control,
 drop and retry results describe this simplified transport, not a validated TCP
 response to overload. LB packet handlers still have zero modeled CPU cost.
 
@@ -600,7 +604,7 @@ positions instead of segment indices. `Size` remains the payload length, and
 positions by its length; SYN and FIN each consume one position, while pure ACK
 consumes none. The two directions keep separate sequence state.
 
-The `tcp-sliding-window-v1` profile uses logical `uint64` byte positions and
+The `tcp-adaptive-rto-v1` profile uses logical `uint64` byte positions and
 fixed initial sequence numbers of zero. It does not model the 32-bit sequence
 number wraparound of real TCP. Large streams are checked against native integer
 limits rather than the former 32-bit segment-counter limit. Payload remains
@@ -643,15 +647,52 @@ bypass this pause. Each new segment uses its own engine event, including when
 the gap is zero, so one connection does not generate its whole window in one
 callback.
 
-Data has one fixed virtual retransmission timer for the oldest pending fragment.
+Data has one virtual retransmission timer for the oldest pending fragment.
 Additional tail segments, repeated ACKs and window-only updates do not postpone
 it. New cumulative progress restarts it if data remains, and an empty queue
 cancels it. A timeout retries only the oldest pending fragment. Normal stream
 completion waits for all payload to be confirmed before initiating FIN; explicit
 `Close()` keeps its existing early-close semantics.
-SYN retries also use a fixed timer. Adaptive RTO, backoff, fast retransmit,
-server SYN-ACK timers,
-FIN retries, a complete TCP state machine, congestion control and UDP are deferred.
+
+The default adaptive RTO starts at 1 s and stays within 200 ms..60 s. One safe RTT
+probe measures virtual time from handover to the client's sender until an ACK
+confirms its full range, including local queueing. The first sample sets
+`SRTT=RTT` and `RTTVAR=RTT/2`; later samples use weights 1/8 and 1/4 respectively.
+RTO is `SRTT + max(1 ns, 4*RTTVAR)`, clamped to the configured limits.
+After measurements, the default minimum is 200 ms, including on a fast LAN.
+This is an experimental lower bound; RFC 6298 recommends a 1 s minimum.
+
+Karn's rule excludes ambiguous samples after a retry. The model conservatively
+skips every ACK through the recovery boundary, including a cumulative ACK that
+also confirms untouched later data. Only a new original send after recovery
+can start another probe. Each timeout doubles the effective RTO up to its maximum.
+ACK progress alone keeps that backoff; a fresh safe RTT sample recalculates RTO
+and removes it. A clean SYN/SYN-ACK can supply the first sample. If SYN was
+retried, adaptive data starts with at least 3 s, capped by the configured maximum.
+These rules follow the selected [RFC 6298](https://www.rfc-editor.org/rfc/rfc6298.html)
+profile; fixed mode deliberately retains its configured base instead.
+
+The **TCP timers** form section configures `tcp.rto.mode` (`adaptive` or `fixed`),
+`exponentialBackoff`, and `initialTimeoutNanoseconds`, `minimumTimeoutNanoseconds`,
+`maximumTimeoutNanoseconds`. Limits must be positive and ordered
+`minimum <= initial <= maximum`. Mode and backoff are independent: fixed mode
+with backoff disabled reproduces the earlier constant-timeout policy while
+still collecting safe RTT measurements. Legacy CLI equivalents are
+`-tcp-rto-mode`, `-tcp-rto-backoff`, `-tcp-rto-initial`, `-tcp-rto-minimum`
+and `-tcp-rto-maximum`.
+
+Idle cleanup is a separate policy: `tcp.clientIdleTimeoutNanoseconds` defaults
+to 20 s; `resources.loadBalancer.halfOpenIdleTimeoutNanoseconds` and
+`establishedIdleTimeoutNanoseconds` default to 5 s and 50 s. Explicit zero
+disables that limit, while omission preserves its default. CLI flags are
+`-tcp-idle-timeout`, `-lb-half-open-idle-timeout`, and
+`-lb-established-idle-timeout`. LB cleanup checks every 5 virtual seconds,
+so expiry occurs at the next cleanup check. To observe long backoff, lengthen
+or disable competing idle limits; otherwise they may close the connection first.
+Keep these policies equal when comparing timer modes.
+
+Fast retransmit, server SYN-ACK timers, FIN retries, a complete TCP state machine,
+congestion control and UDP are deferred.
 The same-flow SYN generator remains a limited model, not a validated SYN flood.
 The L4 model has no application workers or business-operation queues.
 

@@ -46,6 +46,18 @@ func clientState(state model.ClientState) contract.ClientState {
 	}
 }
 
+// rtoState makes time units explicit at the report boundary.
+func rtoState(state model.RTOState) contract.RTOState {
+	return contract.RTOState{
+		LatestRTTSeconds:    state.LatestRTT.Seconds(),
+		SmoothedRTTSeconds:  state.SmoothedRTT.Seconds(),
+		RTTVariationSeconds: state.RTTVariation.Seconds(),
+		BaseRTOSeconds:      state.BaseRTO.Seconds(),
+		CurrentRTOSeconds:   state.CurrentRTO.Seconds(),
+		Samples:             state.Samples,
+	}
+}
+
 func serverState(state model.ServerState) contract.ServerState {
 	return contract.ServerState{
 		ID:                     state.ID,
@@ -184,7 +196,20 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 		Seed:        info.Seed,
 		TCP: contract.TCPConfig{
 			ReceiveBufferBytes: info.ReceiveBufferBytes,
+			RTO: contract.RTOConfig{
+				Mode:                  string(info.RTO.Mode),
+				ExponentialBackoff:    info.RTO.ExponentialBackoff,
+				InitialTimeoutSeconds: info.RTO.InitialTimeout.Seconds(),
+				MinimumTimeoutSeconds: info.RTO.MinimumTimeout.Seconds(),
+				MaximumTimeoutSeconds: info.RTO.MaximumTimeout.Seconds(),
+			},
+			ClientIdleTimeoutSeconds: info.ClientIdleTimeout.Seconds(),
 		},
+		LBIdleTimeouts: contract.LBIdleTimeoutConfig{
+			HalfOpenIdleTimeoutSeconds:    info.LBHalfOpenIdleTimeout.Seconds(),
+			EstablishedIdleTimeoutSeconds: info.LBEstablishedIdleTimeout.Seconds(),
+		},
+		ClientTimings:            make([]contract.ClientTiming, 0, info.CreatedClients),
 		ScheduledClients:         info.ScheduledClients,
 		CreatedClients:           info.CreatedClients,
 		CompletedStreams:         info.CompletedStreams,
@@ -240,6 +265,12 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 	})
 	world.VisitClients(func(client simulation.ClientObservation) {
 		addTransfer(&result.Transfers, client.State.Transfer)
+
+		// Retain completed and unrouted clients as well as current LB routes.
+		result.ClientTimings = append(result.ClientTimings, contract.ClientTiming{
+			ClientID: client.ID,
+			RTO:      rtoState(client.State.RTO),
+		})
 		if slot, routed := slots[client.State.Key]; routed {
 			result.State.Servers[slot.server].Clients[slot.client] = clientState(client.State)
 		}

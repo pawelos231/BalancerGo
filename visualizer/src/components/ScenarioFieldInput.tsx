@@ -1,5 +1,7 @@
 import {
+  Checkbox,
   FormControl,
+  FormControlLabel,
   FormHelperText,
   InputAdornment,
   InputLabel,
@@ -8,7 +10,12 @@ import {
   TextField,
 } from '@mui/material';
 import type { ScenarioField } from '../scenarios/draft';
-import { algorithmHelp, scenarioNumericFields } from '../scenarios/formFields';
+import {
+  algorithmHelp,
+  rtoBackoffHelp,
+  rtoModeHelp,
+  scenarioNumericFields,
+} from '../scenarios/formFields';
 import HelpTooltip from './HelpTooltip';
 
 interface ScenarioFieldInputProps {
@@ -31,28 +38,58 @@ function ScenarioFieldInput({
   onFocus,
   onBlur,
 }: ScenarioFieldInputProps) {
-  if (name === 'algorithm') {
+  if (name === 'rtoBackoff') {
+    return (
+      <FormControl disabled={disabled} error={Boolean(error)}>
+        <FormControlLabel
+          label="Exponential timeout backoff"
+          control={(
+            <Checkbox
+              checked={value === 'true'}
+              onChange={(event) => onChange(name, String(event.target.checked))}
+              onFocus={() => onFocus(name)}
+              onBlur={() => onBlur(name)}
+            />
+          )}
+        />
+        <FormHelperText>
+          {error ?? rtoBackoffHelp}
+        </FormHelperText>
+      </FormControl>
+    );
+  }
+
+  if (name === 'algorithm' || name === 'rtoMode') {
+    const isAlgorithm = name === 'algorithm';
+    const label = isAlgorithm ? 'Initial algorithm' : 'Retransmission timing';
+    const labelID = `start-${name}-label`;
+    const help = isAlgorithm ? algorithmHelp : rtoModeHelp;
+    const options = isAlgorithm
+      ? [{ value: 'roundRobin', label: 'Round Robin' }, { value: 'random', label: 'Random' }]
+      : [{ value: 'adaptive', label: 'Adaptive RTT' }, { value: 'fixed', label: 'Fixed timeout' }];
+
     return (
       <FormControl fullWidth size="small" disabled={disabled} error={Boolean(error)}>
-        <InputLabel id="start-alg-label">Initial algorithm</InputLabel>
+        <InputLabel id={labelID}>{label}</InputLabel>
 
         <Select
-          labelId="start-alg-label"
-          label="Initial algorithm"
+          labelId={labelID}
+          label={label}
           value={value}
           onChange={(event) => onChange(name, event.target.value)}
           onFocus={() => onFocus(name)}
           onBlur={() => onBlur(name)}
           endAdornment={(
             <InputAdornment position="end" sx={{ mr: 3 }}>
-              <HelpTooltip label="Initial algorithm">
-                {algorithmHelp}
+              <HelpTooltip label={label}>
+                {help}
               </HelpTooltip>
             </InputAdornment>
           )}
         >
-          <MenuItem value="roundRobin">Round Robin</MenuItem>
-          <MenuItem value="random">Random</MenuItem>
+          {options.map((option) => (
+            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+          ))}
         </Select>
 
         {error && <FormHelperText>{error}</FormHelperText>}

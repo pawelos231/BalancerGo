@@ -1,6 +1,6 @@
 import type { ScenarioField } from './draft';
 
-export type NumericScenarioField = Exclude<ScenarioField, 'algorithm'>;
+export type NumericScenarioField = Exclude<ScenarioField, 'algorithm' | 'rtoMode' | 'rtoBackoff'>;
 
 // Inputs keep their existing draft paths; these definitions only organize the form.
 export interface NumericFieldDefinition {
@@ -75,6 +75,68 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
       'The advertised window limits sent payload that has not yet been acknowledged. ' +
       'That includes data already received while its acknowledgement is still returning. ' +
       'This is separate from link queues and bandwidth.',
+  },
+  rtoInitialMs: {
+    name: 'rtoInitialMs',
+    label: 'Initial retransmission timeout (virtual ms)',
+    min: 0,
+    exclusiveMin: true,
+    help:
+      'How long the sender initially waits for an acknowledgement before retransmitting. ' +
+      'Adaptive mode updates the base delay from safe RTT samples; fixed mode keeps its base unchanged. ' +
+      'Must be between the minimum and maximum timeout.',
+  },
+  rtoMinimumMs: {
+    name: 'rtoMinimumMs',
+    label: 'Minimum retransmission timeout (virtual ms)',
+    min: 0,
+    exclusiveMin: true,
+    help:
+      'Lower bound for the retransmission timer. The default is 200 ms. ' +
+      'A smaller experimental value can retry too early when packets or ACKs are still travelling. ' +
+      'Must not exceed the initial timeout.',
+  },
+  rtoMaximumMs: {
+    name: 'rtoMaximumMs',
+    label: 'Maximum retransmission timeout (virtual ms)',
+    min: 0,
+    exclusiveMin: true,
+    help:
+      'Upper bound for estimated and backed-off retransmission delays. ' +
+      'For example, repeated timeouts stop doubling when this limit is reached. ' +
+      'Must not be below the initial timeout.',
+  },
+  clientIdleTimeoutMs: {
+    name: 'clientIdleTimeoutMs',
+    label: 'Client idle timeout (virtual ms)',
+    min: 0,
+    hint: '0 disables idle cleanup.',
+    help:
+      'Closes a simulated client when no matching incoming packet arrives within this time. ' +
+      'This is a separate cleanup policy: it can end the connection before a long retransmission timer expires. ' +
+      'Set 0 to study retransmissions without this idle limit.',
+  },
+  lbHalfOpenIdleTimeoutMs: {
+    name: 'lbHalfOpenIdleTimeoutMs',
+    label: 'LB half-open idle timeout (virtual ms)',
+    min: 0,
+    hint: '0 disables idle cleanup.',
+    help:
+      'How long the LB retains an inactive connection whose handshake has not finished. ' +
+      'This cleanup timer is independent of the TCP sender\'s retransmission timeout. ' +
+      'Cleanup checks run every 5 virtual seconds. ' +
+      'Set 0 to disable this idle cleanup.',
+  },
+  lbEstablishedIdleTimeoutMs: {
+    name: 'lbEstablishedIdleTimeoutMs',
+    label: 'LB established idle timeout (virtual ms)',
+    min: 0,
+    hint: '0 disables idle cleanup.',
+    help:
+      'How long the LB retains an established connection without traffic. ' +
+      'A short value can remove the connection while a sender is waiting to retry. ' +
+      'Cleanup checks run every 5 virtual seconds. ' +
+      'Set 0 to disable this idle cleanup.',
   },
   durationSeconds: {
     name: 'durationSeconds',
@@ -258,6 +320,15 @@ export const algorithmHelp =
   'Round Robin rotates through eligible backends; Random chooses using the seeded random generator. ' +
   'Changing the policy during a run affects new connections while existing ones keep their backend.';
 
+export const rtoModeHelp =
+  'Adaptive timing estimates RTT and its variation from acknowledgements. ' +
+  'Fixed timing always starts from the configured initial timeout. ' +
+  'Exponential backoff can be enabled or disabled independently in either mode.';
+
+export const rtoBackoffHelp =
+  'After a timeout, double the retry delay up to the maximum: for example, 1 s, 2 s, 4 s. ' +
+  'Disable this to compare runs without timeout backoff. This does not enable congestion control.';
+
 // Sections group existing settings without changing the native scenario document.
 export interface ScenarioFieldSection {
   id: string;
@@ -283,6 +354,16 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
     defaultExpanded: true,
   },
   {
+    id: 'tcp-timers',
+    title: 'TCP retransmission and idle timers',
+    description: 'Choose RTT-based timing, retry backoff and independent client idle cleanup.',
+    fields: [
+      'rtoMode', 'rtoBackoff', 'rtoInitialMs', 'rtoMinimumMs', 'rtoMaximumMs',
+      'clientIdleTimeoutMs',
+    ],
+    defaultExpanded: false,
+  },
+  {
     id: 'load-balancer',
     title: 'Load balancer and backends',
     description: 'Choose backend resources, routing and the shared LB input and output limits.',
@@ -294,6 +375,8 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
       'ingressPacketTravelTimeMs',
       'ingressQueueCapacity',
       'ingressLoss',
+      'lbHalfOpenIdleTimeoutMs',
+      'lbEstablishedIdleTimeoutMs',
     ],
     defaultExpanded: false,
   },

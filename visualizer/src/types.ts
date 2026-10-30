@@ -87,6 +87,14 @@ export interface SimulationConfig {
   packets: number;
   bytes: number;
   receiveBufferBytes: number;
+  rtoMode: 'fixed' | 'adaptive';
+  rtoBackoff: boolean;
+  rtoInitialMs: number;
+  rtoMinimumMs: number;
+  rtoMaximumMs: number;
+  clientIdleTimeoutMs: number;
+  lbHalfOpenIdleTimeoutMs: number;
+  lbEstablishedIdleTimeoutMs: number;
   durationSeconds: number;
   clientGapMs: number;
   packetGapMs: number;

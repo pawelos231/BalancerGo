@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	HalfOpenTimeout    = 5 * time.Second
-	EstablishedTimeout = 50 * time.Second
+	HalfOpenTimeout    = model.DefaultLBHalfOpenIdleTimeout
+	EstablishedTimeout = model.DefaultLBEstablishedIdleTimeout
 	CleanupInterval    = 5 * time.Second
 	healthInterval     = time.Second
 )
@@ -47,6 +47,9 @@ type LoadBalancer struct {
 	chaos           model.ChaosConfig
 	cleanup         engine.EventID
 	closed          bool
+
+	halfOpenIdleTimeout    time.Duration
+	establishedIdleTimeout time.Duration
 }
 
 func NewLoadBalancer(e *engine.Engine, mode model.LBMode, algo algorithms.Algorithm, refreshInterval time.Duration, rng *rand.Rand) *LoadBalancer {
@@ -55,16 +58,31 @@ func NewLoadBalancer(e *engine.Engine, mode model.LBMode, algo algorithms.Algori
 	}
 	lb := &LoadBalancer{
 		engine: e, Mode: mode, algo: algo, RefreshInterval: refreshInterval, rng: rng,
-		clients:      make(map[model.ClientKey]*client.Client),
-		connTable:    make(map[*server.Server][]*client.Client),
-		byKey:        make(map[model.ClientKey]*server.Server),
-		lastActivity: make(map[model.ClientKey]time.Duration),
-		clientTx:     make(map[model.ClientKey]Sender),
-		toServer:     make(map[*server.Server]Sender),
-		health:       make(map[*server.Server]*healthCheck),
+		clients:                make(map[model.ClientKey]*client.Client),
+		connTable:              make(map[*server.Server][]*client.Client),
+		byKey:                  make(map[model.ClientKey]*server.Server),
+		lastActivity:           make(map[model.ClientKey]time.Duration),
+		clientTx:               make(map[model.ClientKey]Sender),
+		toServer:               make(map[*server.Server]Sender),
+		health:                 make(map[*server.Server]*healthCheck),
+		halfOpenIdleTimeout:    HalfOpenTimeout,
+		establishedIdleTimeout: EstablishedTimeout,
 	}
 	lb.scheduleCleanup()
 	return lb
+}
+
+// SetIdleTimeouts sets separate cleanup limits before any clients arrive.
+// Zero disables that limit, so long retransmission waits can be studied alone.
+func (lb *LoadBalancer) SetIdleTimeouts(halfOpen, established time.Duration) {
+	if halfOpen < 0 || established < 0 {
+		panic("balancer: idle timeouts must be nonnegative")
+	}
+	if len(lb.clients) != 0 {
+		panic("balancer: idle timeouts must be configured before adding clients")
+	}
+	lb.halfOpenIdleTimeout = halfOpen
+	lb.establishedIdleTimeout = established
 }
 
 func (lb *LoadBalancer) AddClient(cl *client.Client, send Sender) error {
@@ -322,11 +340,11 @@ func (lb *LoadBalancer) scheduleCleanup() {
 			if lb.clients[key] != cl {
 				continue
 			}
-			timeout := EstablishedTimeout
+			timeout := lb.establishedIdleTimeout
 			if !cl.IsHandshakeCompleted() {
-				timeout = HalfOpenTimeout
+				timeout = lb.halfOpenIdleTimeout
 			}
-			if lb.engine.Now()-lb.lastActivity[key] >= timeout {
+			if timeout > 0 && lb.engine.Now()-lb.lastActivity[key] >= timeout {
 				cl.ShutdownWithReason(model.TransferBalancerTimeout)
 			} else {
 				remaining = append(remaining, cl)

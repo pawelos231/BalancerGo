@@ -93,22 +93,32 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 	if receiveBufferBytes == 0 {
 		receiveBufferBytes = model.DefaultReceiveBufferBytes
 	}
+	rto := c.effectiveRTOConfig()
+	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
 
 	return contract.SimulationConfig{
-		Clients:                 c.clients,
-		Servers:                 c.servers,
-		Packets:                 c.packets,
-		Bytes:                   c.streamBytes,
-		ReceiveBufferBytes:      receiveBufferBytes,
-		DurationSeconds:         float64(c.duration) / float64(time.Second),
-		ClientGapMs:             float64(c.clientGap) / float64(time.Millisecond),
-		PacketGapMs:             float64(c.packetGap) / float64(time.Millisecond),
-		SnapshotIntervalMs:      float64(c.snapshotInterval) / float64(time.Millisecond),
-		BandwidthBitsPerSecond:  c.bandwidth,
-		ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
-		PacketTravelTimeMs:      float64(c.packetTravelTime) / float64(time.Millisecond),
-		LinkQueue:               c.queue,
-		Loss:                    c.loss,
+		Clients:                    c.clients,
+		Servers:                    c.servers,
+		Packets:                    c.packets,
+		Bytes:                      c.streamBytes,
+		ReceiveBufferBytes:         receiveBufferBytes,
+		RTOMode:                    string(rto.Mode),
+		RTOBackoff:                 rto.ExponentialBackoff,
+		RTOInitialMs:               float64(rto.InitialTimeout) / float64(time.Millisecond),
+		RTOMinimumMs:               float64(rto.MinimumTimeout) / float64(time.Millisecond),
+		RTOMaximumMs:               float64(rto.MaximumTimeout) / float64(time.Millisecond),
+		ClientIdleTimeoutMs:        float64(clientIdle) / float64(time.Millisecond),
+		LBHalfOpenIdleTimeoutMs:    float64(halfOpenIdle) / float64(time.Millisecond),
+		LBEstablishedIdleTimeoutMs: float64(establishedIdle) / float64(time.Millisecond),
+		DurationSeconds:            float64(c.duration) / float64(time.Second),
+		ClientGapMs:                float64(c.clientGap) / float64(time.Millisecond),
+		PacketGapMs:                float64(c.packetGap) / float64(time.Millisecond),
+		SnapshotIntervalMs:         float64(c.snapshotInterval) / float64(time.Millisecond),
+		BandwidthBitsPerSecond:     c.bandwidth,
+		ForwardingBitsPerSecond:    c.forwardingBitsPerSecond,
+		PacketTravelTimeMs:         float64(c.packetTravelTime) / float64(time.Millisecond),
+		LinkQueue:                  c.queue,
+		Loss:                       c.loss,
 
 		IngressBandwidthBitsPerSecond: c.ingress.BandwidthBitsPerSecond,
 		IngressPacketTravelTimeMs:     float64(c.ingress.PacketTravelTime) / float64(time.Millisecond),
@@ -128,6 +138,17 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 	if c.ReceiveBufferBytes < 1 || c.ReceiveBufferBytes > math.MaxUint16 {
 		return configuration{}, errors.New("receiveBufferBytes must be in 1..65535")
 	}
+	if c.RTOMode != string(model.RTOFixed) && c.RTOMode != string(model.RTOAdaptive) {
+		return configuration{}, errors.New("rtoMode must be fixed or adaptive")
+	}
+	base.rto.Mode = model.RTOMode(c.RTOMode)
+	base.rto.ExponentialBackoff = c.RTOBackoff
+
+	// Keep explicit zero idle limits; zero disables cleanup rather than using defaults.
+	var clientIdle, halfOpenIdle, establishedIdle time.Duration
+	base.clientIdleTimeout = &clientIdle
+	base.lbHalfOpenIdleTimeout = &halfOpenIdle
+	base.lbEstablishedIdleTimeout = &establishedIdle
 
 	base.clients, base.servers = c.Clients, c.Servers
 	base.packets, base.streamBytes = c.Packets, c.Bytes
@@ -150,6 +171,12 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 		{"packetGapMs", c.PacketGapMs, time.Millisecond, &base.packetGap},
 		{"snapshotIntervalMs", c.SnapshotIntervalMs, time.Millisecond, &base.snapshotInterval},
 		{"packetTravelTimeMs", c.PacketTravelTimeMs, time.Millisecond, &base.packetTravelTime},
+		{"rtoInitialMs", c.RTOInitialMs, time.Millisecond, &base.rto.InitialTimeout},
+		{"rtoMinimumMs", c.RTOMinimumMs, time.Millisecond, &base.rto.MinimumTimeout},
+		{"rtoMaximumMs", c.RTOMaximumMs, time.Millisecond, &base.rto.MaximumTimeout},
+		{"clientIdleTimeoutMs", c.ClientIdleTimeoutMs, time.Millisecond, &clientIdle},
+		{"lbHalfOpenIdleTimeoutMs", c.LBHalfOpenIdleTimeoutMs, time.Millisecond, &halfOpenIdle},
+		{"lbEstablishedIdleTimeoutMs", c.LBEstablishedIdleTimeoutMs, time.Millisecond, &establishedIdle},
 		{
 			name:  "ingressPacketTravelTimeMs",
 			value: c.IngressPacketTravelTimeMs,

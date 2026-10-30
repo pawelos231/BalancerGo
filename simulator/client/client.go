@@ -26,6 +26,10 @@ type Client struct {
 	// Counts retries of the oldest pending fragment, resetting on ACK progress.
 	oldestSegmentRetransmissions uint8
 
+	rto         rtoEstimator
+	rttProbe    roundTripProbe
+	idleTimeout time.Duration
+
 	nextSendSeq      uint64
 	oldestUnackedSeq uint64
 	nextReceiveSeq   uint64
@@ -83,6 +87,8 @@ func NewClient(
 		engine:             e,
 		key:                GenerateClientKey(srcIP, srcPort, dstIP, dstPort, proto),
 		receiveWindowBytes: model.DefaultReceiveBufferBytes,
+		rto:                newRTOEstimator(model.DefaultRTOConfig()),
+		idleTimeout:        model.READ_DEADLINE,
 		transfer:           transferMetrics{status: model.TransferInProgress},
 	}
 }
@@ -136,26 +142,6 @@ func (c *Client) EstablishConnection() {
 	})
 }
 
-func (c *Client) sendSyn() {
-	c.cancelEvent(&c.synTimer)
-	c.synTimer = c.engine.ScheduleAfter(model.SYN_TIMEOUT, c.retransmitSyn)
-	c.emit(GeneratePacket(c.key, model.FlagSYN, 0, 0, 0))
-}
-
-func (c *Client) retransmitSyn() {
-	c.synTimer = 0
-	if c.terminated || c.closing || c.handshakeCompleted {
-		return
-	}
-	if c.retrySyn >= model.MAX_RETRANSMISIONS {
-		c.ShutdownWithReason(model.TransferSynRetryLimit)
-		return
-	}
-	c.retrySyn++
-	c.transfer.synRetransmissions++
-	c.sendSyn()
-}
-
 func (c *Client) finishStream() {
 	if c.streamCompleted {
 		return
@@ -192,16 +178,6 @@ func (c *Client) FloodSyn(count int, gap time.Duration) {
 	c.floodEvent = c.engine.ScheduleAfter(0, func() { sendNext(0) })
 }
 
-func (c *Client) armReadTimer() {
-	c.cancelEvent(&c.readTimer)
-	c.readTimer = c.engine.ScheduleAfter(model.READ_DEADLINE, func() {
-		c.readTimer = 0
-		if !c.terminated {
-			c.ShutdownWithReason(model.TransferReadTimeout)
-		}
-	})
-}
-
 func (c *Client) Close() {
 	if c.terminated || c.closing {
 		return
@@ -219,6 +195,7 @@ func (c *Client) Close() {
 	c.cancelEvent(&c.floodEvent)
 	c.pendingSegments.reset()
 	c.oldestSegmentRetransmissions = 0
+	c.rttProbe = roundTripProbe{}
 	c.armReadTimer()
 	c.sendEvent = c.engine.ScheduleAfter(0, func() {
 		c.sendEvent = 0
@@ -255,6 +232,7 @@ func (c *Client) ShutdownWithReason(reason model.TransferFailureReason) {
 	c.cancelEvent(&c.floodEvent)
 	c.pendingSegments.reset()
 	c.oldestSegmentRetransmissions = 0
+	c.rttProbe = roundTripProbe{}
 	if c.OnClose != nil {
 		c.OnClose()
 	}
@@ -281,5 +259,6 @@ func (c *Client) GetState() model.ClientState {
 		RetryData:                c.oldestSegmentRetransmissions,
 		AcknowledgedPayloadBytes: c.acknowledgedPayloadBytes,
 		Transfer:                 c.GetTransferState(),
+		RTO:                      c.GetRTOState(),
 	}
 }

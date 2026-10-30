@@ -13,6 +13,9 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 	if receiveBufferBytes == 0 {
 		receiveBufferBytes = model.DefaultReceiveBufferBytes
 	}
+	rto := c.effectiveRTOConfig()
+	mode := string(rto.Mode)
+	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
 
 	backends := make([]scenario.BackendConfig, c.servers)
 	for i := range backends {
@@ -28,6 +31,14 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 		Version: scenario.Version,
 		TCP: scenario.TCPConfig{
 			ReceiveBufferBytes: &receiveBufferBytes,
+			RTO: scenario.RTOConfig{
+				Mode:               &mode,
+				ExponentialBackoff: &rto.ExponentialBackoff,
+				InitialTimeout:     &rto.InitialTimeout,
+				MinimumTimeout:     &rto.MinimumTimeout,
+				MaximumTimeout:     &rto.MaximumTimeout,
+			},
+			ClientIdleTimeout: &clientIdle,
 		},
 		Execution: scenario.ExecutionConfig{
 			Duration:         c.duration,
@@ -50,6 +61,8 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 				Algorithm:               c.algorithm,
 				Ingress:                 c.ingress,
 				ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
+				HalfOpenIdleTimeout:     &halfOpenIdle,
+				EstablishedIdleTimeout:  &establishedIdle,
 			},
 			Backends: backends,
 		},

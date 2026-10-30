@@ -6,4 +6,5 @@ type ClientState struct {
 	RetryData                uint8
 	AcknowledgedPayloadBytes uint64
 	Transfer                 TransferState
+	RTO                      RTOState
 }

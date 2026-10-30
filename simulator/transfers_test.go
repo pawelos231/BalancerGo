@@ -95,6 +95,8 @@ func TestTransferResultsPartitionAttempts(t *testing.T) {
 func TestTransferResultsRetainUnroutedFailures(t *testing.T) {
 	input := payloadScenario()
 	input.Resources.Backends = nil
+	// Isolate the client's 20 s read timeout from LB half-open cleanup.
+	input.Resources.LoadBalancer.HalfOpenIdleTimeout = scenarioRuntimeValue(time.Duration(0))
 	input.Execution.Duration = 21 * time.Second
 	input.Execution.Speed = 0
 	s := runTransferWorld(t, input)
@@ -185,6 +187,7 @@ func TestTransferSnapshotLifecycle(t *testing.T) {
 
 	// A normally finished run can contain a failed transfer and a future arrival.
 	input.Resources.Backends = nil
+	input.Resources.LoadBalancer.HalfOpenIdleTimeout = scenarioRuntimeValue(time.Duration(0))
 	input.Execution.Duration = 21 * time.Second
 	input.Workload.ClientGroups = append(input.Workload.ClientGroups, scenario.ClientGroup{
 		ID: "future", Count: 1, StartAt: 22 * time.Second,

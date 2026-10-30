@@ -125,6 +125,17 @@ func (s *World) startClient(
 	)
 	cl.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
 
+	// Each connection estimates its own RTT using the scenario's timer policy.
+	rto := s.scenario.TCP.RTO
+	cl.SetRTOConfig(model.RTOConfig{
+		Mode:               model.RTOMode(rto.Mode),
+		ExponentialBackoff: rto.ExponentialBackoff,
+		InitialTimeout:     rto.InitialTimeout,
+		MinimumTimeout:     rto.MinimumTimeout,
+		MaximumTimeout:     rto.MaximumTimeout,
+	})
+	cl.SetIdleTimeout(s.scenario.TCP.ClientIdleTimeout)
+
 	toInput := s.addLink(
 		"link/"+config.ID+"/to-lb",
 		config.ID,

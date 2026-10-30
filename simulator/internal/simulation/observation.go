@@ -16,24 +16,28 @@ func BackendNodeID(resourceID string) string { return "backend/" + resourceID }
 // Info contains scalar run configuration and measurements at the current time.
 // It owns no endpoint references, mutable collections or external representation.
 type Info struct {
-	LoadBalancerID        string
-	Algorithm             string
-	Mode                  model.LBMode
-	Now                   time.Duration
-	EndTime               time.Duration
-	SnapshotInterval      time.Duration
-	Speed                 float64
-	Seed                  int64
-	ReceiveBufferBytes    int
-	EventsExecuted        uint64
-	PendingEvents         int
-	ScheduledClients      int
-	CreatedClients        int
-	CompletedStreams      int
-	ClosedClients         int
-	CompletedPayloadBytes uint64
-	Payload               PayloadProgress
-	Forwarding            network.ForwardingStats
+	LoadBalancerID           string
+	Algorithm                string
+	Mode                     model.LBMode
+	Now                      time.Duration
+	EndTime                  time.Duration
+	SnapshotInterval         time.Duration
+	Speed                    float64
+	Seed                     int64
+	ReceiveBufferBytes       int
+	RTO                      model.RTOConfig
+	ClientIdleTimeout        time.Duration
+	LBHalfOpenIdleTimeout    time.Duration
+	LBEstablishedIdleTimeout time.Duration
+	EventsExecuted           uint64
+	PendingEvents            int
+	ScheduledClients         int
+	CreatedClients           int
+	CompletedStreams         int
+	ClosedClients            int
+	CompletedPayloadBytes    uint64
+	Payload                  PayloadProgress
+	Forwarding               network.ForwardingStats
 }
 
 type ClientObservation struct {
@@ -76,7 +80,17 @@ func (s *World) Info() Info {
 		SnapshotInterval: s.scenario.Execution.SnapshotInterval,
 		Speed:            s.scenario.Execution.Speed, Seed: s.scenario.Execution.Seed,
 		ReceiveBufferBytes: s.scenario.TCP.ReceiveBufferBytes,
-		EventsExecuted:     s.engine.EventsExecuted(), PendingEvents: s.engine.Pending(),
+		RTO: model.RTOConfig{
+			Mode:               model.RTOMode(s.scenario.TCP.RTO.Mode),
+			ExponentialBackoff: s.scenario.TCP.RTO.ExponentialBackoff,
+			InitialTimeout:     s.scenario.TCP.RTO.InitialTimeout,
+			MinimumTimeout:     s.scenario.TCP.RTO.MinimumTimeout,
+			MaximumTimeout:     s.scenario.TCP.RTO.MaximumTimeout,
+		},
+		ClientIdleTimeout:        s.scenario.TCP.ClientIdleTimeout,
+		LBHalfOpenIdleTimeout:    s.scenario.LoadBalancer.HalfOpenIdleTimeout,
+		LBEstablishedIdleTimeout: s.scenario.LoadBalancer.EstablishedIdleTimeout,
+		EventsExecuted:           s.engine.EventsExecuted(), PendingEvents: s.engine.Pending(),
 		ScheduledClients: s.scheduledClients, CreatedClients: s.createdClients,
 		CompletedStreams: s.completedStreams, ClosedClients: s.closedClients,
 		CompletedPayloadBytes: s.completedPayloadBytes, Payload: s.payload,

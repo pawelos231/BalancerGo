@@ -89,6 +89,10 @@ func New(resolved scenario.Normalized) *World {
 		execution.SnapshotInterval,
 		s.resourceRNG("balancer"),
 	)
+	s.lb.SetIdleTimeouts(
+		resolved.LoadBalancer.HalfOpenIdleTimeout,
+		resolved.LoadBalancer.EstablishedIdleTimeout,
+	)
 	s.egress = network.NewEgress(e, resolved.LoadBalancer.ForwardingBitsPerSecond)
 
 	// Two input queues share one physical receiver before LB processing.

@@ -5,21 +5,44 @@ import "time"
 // Normalized is the checked configuration with profiles and overrides resolved.
 // It keeps compact client groups instead of allocating all clients upfront.
 type Normalized struct {
-	Version         int                     `json:"version"`
-	Execution       ExecutionConfig         `json:"execution"`
-	TCP             NormalizedTCPConfig     `json:"tcp"`
-	NetworkDefaults LinkConfig              `json:"networkDefaults"`
-	LoadBalancer    LoadBalancerConfig      `json:"loadBalancer"`
-	Backends        []NormalizedBackend     `json:"backends"`
-	DefaultStream   StreamConfig            `json:"defaultStream"`
-	ClientGroups    []NormalizedClientGroup `json:"clientGroups"`
-	TotalClients    int                     `json:"totalClients"`
+	Version         int                          `json:"version"`
+	Execution       ExecutionConfig              `json:"execution"`
+	TCP             NormalizedTCPConfig          `json:"tcp"`
+	NetworkDefaults LinkConfig                   `json:"networkDefaults"`
+	LoadBalancer    NormalizedLoadBalancerConfig `json:"loadBalancer"`
+	Backends        []NormalizedBackend          `json:"backends"`
+	DefaultStream   StreamConfig                 `json:"defaultStream"`
+	ClientGroups    []NormalizedClientGroup      `json:"clientGroups"`
+	TotalClients    int                          `json:"totalClients"`
 }
 
 // NormalizedTCPConfig holds the effective transport settings after validation.
-// Every connection receives this capacity without allocating the payload upfront.
+// Optional input settings have already been replaced by concrete defaults.
 type NormalizedTCPConfig struct {
-	ReceiveBufferBytes int `json:"receiveBufferBytes"`
+	ReceiveBufferBytes int                 `json:"receiveBufferBytes"`
+	RTO                NormalizedRTOConfig `json:"rto"`
+	ClientIdleTimeout  time.Duration       `json:"clientIdleTimeoutNanoseconds"`
+}
+
+// NormalizedRTOConfig holds the checked timer policy used by each TCP sender.
+// For example, backoff can turn a 1-second retry delay into 2, then 4 seconds.
+type NormalizedRTOConfig struct {
+	Mode               string        `json:"mode"`
+	ExponentialBackoff bool          `json:"exponentialBackoff"`
+	InitialTimeout     time.Duration `json:"initialTimeoutNanoseconds"`
+	MinimumTimeout     time.Duration `json:"minimumTimeoutNanoseconds"`
+	MaximumTimeout     time.Duration `json:"maximumTimeoutNanoseconds"`
+}
+
+// NormalizedLoadBalancerConfig includes concrete idle limits for tracked connections.
+// Zero keeps the corresponding connection state until another close condition occurs.
+type NormalizedLoadBalancerConfig struct {
+	ID                      string        `json:"id"`
+	Algorithm               string        `json:"algorithm"`
+	Ingress                 LinkConfig    `json:"ingress"`
+	ForwardingBitsPerSecond int64         `json:"forwardingBitsPerSecond"`
+	HalfOpenIdleTimeout     time.Duration `json:"halfOpenIdleTimeoutNanoseconds"`
+	EstablishedIdleTimeout  time.Duration `json:"establishedIdleTimeoutNanoseconds"`
 }
 
 // DirectionalLinks holds the final settings for an endpoint's two link directions.

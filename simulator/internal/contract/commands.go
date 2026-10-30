@@ -41,20 +41,28 @@ type SpawnClientMsg struct {
 // SimulationConfig is the legacy frontend experiment form. Process options such
 // as tracing and headless mode are deliberately absent.
 type SimulationConfig struct {
-	Clients                 int     `json:"clients"`
-	Servers                 int     `json:"servers"`
-	Packets                 int     `json:"packets"`
-	Bytes                   int     `json:"bytes"`
-	ReceiveBufferBytes      int     `json:"receiveBufferBytes"`
-	DurationSeconds         float64 `json:"durationSeconds"`
-	ClientGapMs             float64 `json:"clientGapMs"`
-	PacketGapMs             float64 `json:"packetGapMs"`
-	SnapshotIntervalMs      float64 `json:"snapshotIntervalMs"`
-	BandwidthBitsPerSecond  int64   `json:"bandwidthBitsPerSecond"`
-	ForwardingBitsPerSecond int64   `json:"forwardingBitsPerSecond"`
-	PacketTravelTimeMs      float64 `json:"packetTravelTimeMs"`
-	LinkQueue               int     `json:"linkQueue"`
-	Loss                    float64 `json:"loss"`
+	Clients                    int     `json:"clients"`
+	Servers                    int     `json:"servers"`
+	Packets                    int     `json:"packets"`
+	Bytes                      int     `json:"bytes"`
+	ReceiveBufferBytes         int     `json:"receiveBufferBytes"`
+	RTOMode                    string  `json:"rtoMode"`
+	RTOBackoff                 bool    `json:"rtoBackoff"`
+	RTOInitialMs               float64 `json:"rtoInitialMs"`
+	RTOMinimumMs               float64 `json:"rtoMinimumMs"`
+	RTOMaximumMs               float64 `json:"rtoMaximumMs"`
+	ClientIdleTimeoutMs        float64 `json:"clientIdleTimeoutMs"`
+	LBHalfOpenIdleTimeoutMs    float64 `json:"lbHalfOpenIdleTimeoutMs"`
+	LBEstablishedIdleTimeoutMs float64 `json:"lbEstablishedIdleTimeoutMs"`
+	DurationSeconds            float64 `json:"durationSeconds"`
+	ClientGapMs                float64 `json:"clientGapMs"`
+	PacketGapMs                float64 `json:"packetGapMs"`
+	SnapshotIntervalMs         float64 `json:"snapshotIntervalMs"`
+	BandwidthBitsPerSecond     int64   `json:"bandwidthBitsPerSecond"`
+	ForwardingBitsPerSecond    int64   `json:"forwardingBitsPerSecond"`
+	PacketTravelTimeMs         float64 `json:"packetTravelTimeMs"`
+	LinkQueue                  int     `json:"linkQueue"`
+	Loss                       float64 `json:"loss"`
 
 	IngressBandwidthBitsPerSecond int64   `json:"ingressBandwidthBitsPerSecond"`
 	IngressPacketTravelTimeMs     float64 `json:"ingressPacketTravelTimeMs"`
