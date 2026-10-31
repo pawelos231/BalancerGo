@@ -69,16 +69,26 @@ func prepareStart(request startRequest, defaults configuration) (preparedStart, 
 	}
 
 	requested := defaults.publicConfig()
+	// Older payloads omit this flag. Keep omission distinct from an explicit true.
+	inputSettings := struct {
+		*contract.SimulationConfig
+		FastRetransmit *bool `json:"fastRetransmit"`
+	}{SimulationConfig: &requested}
 	decoder := json.NewDecoder(bytes.NewReader(request.legacy.Payload))
 	decoder.DisallowUnknownFields()
 	if bytes.Equal(bytes.TrimSpace(request.legacy.Payload), []byte("null")) {
 		return preparedStart{}, errors.New("configuration must be a JSON object")
 	}
-	if err := decoder.Decode(&requested); err != nil {
+	if err := decoder.Decode(&inputSettings); err != nil {
 		return preparedStart{}, err
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return preparedStart{}, errors.New("configuration must contain exactly one JSON object")
+	}
+	if inputSettings.FastRetransmit != nil {
+		requested.FastRetransmit = *inputSettings.FastRetransmit
+	} else if requested.CongestionControl == "none" {
+		requested.FastRetransmit = false
 	}
 
 	cfg, err := configurationFromPublic(requested, defaults)
@@ -109,6 +119,7 @@ func scenarioSummary(resolved scenario.Normalized) contract.SimulationConfig {
 		Bytes:                           stream.Bytes,
 		ReceiveBufferBytes:              resolved.TCP.ReceiveBufferBytes,
 		CongestionControl:               resolved.TCP.CongestionControl.Mode,
+		FastRetransmit:                  resolved.TCP.CongestionControl.FastRetransmit,
 		InitialCongestionWindowSegments: resolved.TCP.CongestionControl.InitialWindowSegments,
 		InitialSlowStartThresholdBytes:  resolved.TCP.CongestionControl.InitialSlowStartThresholdBytes,
 		RTOMode:                         string(resolved.TCP.RTO.Mode),

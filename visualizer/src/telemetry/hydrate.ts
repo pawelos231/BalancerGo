@@ -41,6 +41,7 @@ export function hydrateSnapshot(
       ...node,
       metrics: node.metrics.map((metric) => metricValue(metric, state.metrics)),
       active: state.active,
+      tcpPhase: state.tcpPhase,
       traffic: state.traffic,
     };
   });

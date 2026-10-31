@@ -87,6 +87,8 @@ func clientMetrics(client simulation.ClientObservation) []nodeMetric {
 		{"synRetransmissions", "Cumulative SYN retransmissions", "packets", float64(state.Transfer.SynRetransmissions), false},
 		{"dataRetransmissions", "Cumulative data retransmissions", "packets", float64(state.Transfer.DataRetransmissions), false},
 		{"bytesInFlight", "Payload awaiting cumulative ACK", "bytes", float64(state.Congestion.BytesInFlight), false},
+		{"duplicateACKs", "Current duplicate ACKs", "ACKs", float64(state.Congestion.DuplicateACKs), false},
+		{"fastRetransmissions", "Cumulative fast retransmissions", "packets", float64(state.Congestion.FastRetransmissions), false},
 	}
 	// Disabled congestion control has no cwnd; avoid displaying a false zero limit.
 	if state.Congestion.Mode == model.CongestionReno {
@@ -212,6 +214,7 @@ func BuildTopology(world *simulation.World) contract.Topology {
 			ID: definition.ID, Kind: definition.Kind, Label: definition.Label, ResourceID: definition.ResourceID,
 			GroupID: definition.GroupID, Description: definition.Description, Address: definition.Address,
 			Active: live.Active, Metrics: metrics, Traffic: live.Traffic,
+			TCPPhase: live.TCPPhase,
 		})
 	}
 	for index, definition := range document.Links {

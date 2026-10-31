@@ -22,6 +22,7 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   bytes: ['workload', 'defaults', 'bytes'],
   receiveBufferBytes: ['tcp', 'receiveBufferBytes'],
   congestionControl: ['tcp', 'congestionControl', 'mode'],
+  fastRetransmit: ['tcp', 'congestionControl', 'fastRetransmit'],
   initialCongestionWindowSegments: ['tcp', 'congestionControl', 'initialWindowSegments'],
   initialSlowStartThresholdBytes: ['tcp', 'congestionControl', 'initialSlowStartThresholdBytes'],
   rtoMode: ['tcp', 'rto', 'mode'],
@@ -131,6 +132,9 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   if (field === 'rtoBackoff') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether timeout backoff is enabled.';
   }
+  if (field === 'fastRetransmit') {
+    return text === 'true' || text === 'false' ? undefined : 'Choose whether fast retransmit is enabled.';
+  }
   if (floatFields.has(field)) {
     const value = Number(text);
     if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(text) || !Number.isFinite(value)) {
@@ -180,7 +184,10 @@ export function scenarioFormValues(scenario: Scenario): ScenarioDraft {
     const requested = path.reduce<unknown>((parent, key) => {
       return parent == null ? undefined : Reflect.get(parent as object, key);
     }, scenario);
-    const value = requested ?? optionalDefaults[field];
+    const inherited = field === 'fastRetransmit'
+      ? (scenario.tcp?.congestionControl?.mode ?? 'reno') === 'reno'
+      : optionalDefaults[field];
+    const value = requested ?? inherited;
     const decimals = timeDecimals[field];
     values[field] = decimals === undefined
       ? String(value)
@@ -198,6 +205,10 @@ export function scenarioFormValues(scenario: Scenario): ScenarioDraft {
 export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw: string): Scenario {
   const error = validateScenarioField(field, raw);
   if (error) throw new Error(error);
+  const mode = scenario.tcp?.congestionControl?.mode ?? 'reno';
+  if (field === 'fastRetransmit' && raw.trim() === 'true' && mode !== 'reno') {
+    throw new Error('Fast retransmit and recovery require Reno congestion control.');
+  }
   const updated = structuredClone(scenario);
   if (field === 'clients') {
     resizeClients(updated, Number(raw));
@@ -218,7 +229,7 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     let value: ExactInteger | boolean;
     if (field === 'algorithm' || field === 'rtoMode' || field === 'congestionControl') {
       value = raw.trim();
-    } else if (field === 'rtoBackoff') value = raw.trim() === 'true';
+    } else if (field === 'rtoBackoff' || field === 'fastRetransmit') value = raw.trim() === 'true';
     else if (floatFields.has(field)) value = Number(raw);
     else {
       const decimals = timeDecimals[field];
@@ -226,6 +237,11 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
       value = documentInteger(parsed);
     }
     Reflect.set(target, path[path.length - 1], value);
+
+    // Turning Reno off also disables its recovery policy, without changing links.
+    if (field === 'congestionControl' && value === 'none') {
+      Reflect.set(target, 'fastRetransmit', false);
+    }
   }
   return updated;
 }

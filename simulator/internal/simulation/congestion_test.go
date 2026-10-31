@@ -43,6 +43,9 @@ func TestWorldCongestionModeLimitsInitialBurst(t *testing.T) {
 	for _, mode := range []string{"reno", "none"} {
 		t.Run(mode, func(t *testing.T) {
 			definition := congestionScenario()
+			// This test isolates the initial window before timeout-only recovery.
+			fastRetransmit := false
+			definition.TCP.CongestionControl.FastRetransmit = &fastRetransmit
 			if mode == "none" {
 				definition.TCP.CongestionControl.Mode = &mode
 			}
@@ -82,6 +85,8 @@ func TestWorldCongestionModeLimitsInitialBurst(t *testing.T) {
 // A missing head leaves seven buffered tails; one RTO recovers all bytes without duplicates.
 func TestWorldRenoLossUpdatesStateBeforeRetryAndCompletes(t *testing.T) {
 	definition := congestionScenario()
+	fastRetransmit := false
+	definition.TCP.CongestionControl.FastRetransmit = &fastRetransmit
 	initialSegments := 8
 	definition.TCP.CongestionControl.InitialWindowSegments = &initialSegments
 	world := New(normalizedRuntimeScenario(t, definition))

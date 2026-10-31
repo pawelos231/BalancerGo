@@ -16,6 +16,7 @@ const MaxCongestionWindowBytes uint64 = 1<<63 - 1
 // Window size is configured in segments; the threshold counts payload bytes.
 type CongestionConfig struct {
 	Mode                           CongestionMode
+	FastRetransmit                 bool
 	InitialWindowSegments          int
 	InitialSlowStartThresholdBytes uint64
 }
@@ -25,6 +26,7 @@ type CongestionConfig struct {
 func DefaultCongestionConfig() CongestionConfig {
 	return CongestionConfig{
 		Mode:                           CongestionReno,
+		FastRetransmit:                 true,
 		InitialWindowSegments:          4,
 		InitialSlowStartThresholdBytes: DefaultReceiveBufferBytes,
 	}
@@ -37,5 +39,7 @@ type CongestionState struct {
 	CongestionWindowBytes   uint64
 	SlowStartThresholdBytes uint64
 	BytesInFlight           uint64
+	DuplicateACKs           uint64
+	FastRetransmissions     uint64
 	Phase                   string
 }

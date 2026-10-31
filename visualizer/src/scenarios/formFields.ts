@@ -2,7 +2,7 @@ import type { ScenarioField } from './draft';
 
 export type NumericScenarioField = Exclude<
   ScenarioField,
-  'algorithm' | 'rtoMode' | 'rtoBackoff' | 'congestionControl'
+  'algorithm' | 'rtoMode' | 'rtoBackoff' | 'congestionControl' | 'fastRetransmit'
 >;
 
 // Inputs keep their existing draft paths; these definitions only organize the form.
@@ -374,12 +374,22 @@ export const scenarioSelectFields = {
   congestionControl: {
     label: 'Congestion control',
     help:
-      'Basic Reno adds slow start, congestion avoidance and a window reduction after a timeout. ' +
-      'Fast retransmit and fast recovery are not included yet. ' +
+      'Reno adds slow start, congestion avoidance and recovery from packet loss. ' +
       'Mode none retains the receive-window-only baseline; retransmission timers still apply.',
     options: [
-      { value: 'reno', label: 'Reno (basic)' },
+      { value: 'reno', label: 'Reno' },
       { value: 'none', label: 'None (receive window only)' },
+    ],
+  },
+  fastRetransmit: {
+    label: 'Fast retransmit and recovery',
+    help:
+      'Three duplicate ACKs retry missing data before the timeout. ' +
+      'Reno keeps the transfer moving with a reduced window. ' +
+      'Requires Reno; disable this to compare with timeout-only recovery.',
+    options: [
+      { value: 'true', label: 'Enabled' },
+      { value: 'false', label: 'Disabled' },
     ],
   },
 };
@@ -412,7 +422,10 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
     id: 'tcp-congestion',
     title: 'TCP congestion control',
     description: 'Limit data in flight and adjust the sender window as acknowledgements and timeouts arrive.',
-    fields: ['congestionControl', 'initialCongestionWindowSegments', 'initialSlowStartThresholdBytes'],
+    fields: [
+      'congestionControl', 'fastRetransmit',
+      'initialCongestionWindowSegments', 'initialSlowStartThresholdBytes',
+    ],
     defaultExpanded: false,
   },
   {

@@ -152,7 +152,9 @@ function SimulationForm({
                             name={name}
                             value={values[name]}
                             error={errors[name]}
-                            disabled={fieldsDisabled}
+                            disabled={fieldsDisabled || (
+                              name === 'fastRetransmit' && values.congestionControl !== 'reno'
+                            )}
                             onChange={onChange}
                             onFocus={onFocus}
                             onBlur={onBlur}

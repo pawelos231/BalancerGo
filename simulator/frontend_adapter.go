@@ -104,6 +104,7 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		Bytes:                           c.streamBytes,
 		ReceiveBufferBytes:              receiveBufferBytes,
 		CongestionControl:               string(congestion.Mode),
+		FastRetransmit:                  congestion.FastRetransmit,
 		InitialCongestionWindowSegments: congestion.InitialWindowSegments,
 		InitialSlowStartThresholdBytes:  congestion.InitialSlowStartThresholdBytes,
 		RTOMode:                         string(rto.Mode),
@@ -151,6 +152,7 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 	}
 	base.congestion = model.CongestionConfig{
 		Mode:                           model.CongestionMode(c.CongestionControl),
+		FastRetransmit:                 c.FastRetransmit,
 		InitialWindowSegments:          c.InitialCongestionWindowSegments,
 		InitialSlowStartThresholdBytes: c.InitialSlowStartThresholdBytes,
 	}

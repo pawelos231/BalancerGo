@@ -34,6 +34,12 @@ func (c *configuration) registerTCPFlags() {
 		c.congestion.InitialWindowSegments,
 		"initial TCP congestion window in 1024-byte segments",
 	)
+	flag.BoolVar(
+		&c.congestion.FastRetransmit,
+		"tcp-fast-retransmit",
+		c.congestion.FastRetransmit,
+		"enable fast retransmit and Reno fast recovery after three duplicate ACKs",
+	)
 	flag.Uint64Var(
 		&c.congestion.InitialSlowStartThresholdBytes,
 		"tcp-slow-start-threshold",
@@ -94,6 +100,23 @@ func (c *configuration) registerTCPFlags() {
 		establishedIdle,
 		"LB established idle timeout; 0 disables cleanup",
 	)
+}
+
+// resolveCongestionFlagDefaults keeps -tcp-congestion-control none usable alone.
+// An explicit -tcp-fast-retransmit=true still fails validation with mode none.
+func (c *configuration) resolveCongestionFlagDefaults() {
+	if c.congestion.Mode != model.CongestionNone {
+		return
+	}
+	explicitFastRetransmit := false
+	flag.Visit(func(option *flag.Flag) {
+		if option.Name == "tcp-fast-retransmit" {
+			explicitFastRetransmit = true
+		}
+	})
+	if !explicitFastRetransmit {
+		c.congestion.FastRetransmit = false
+	}
 }
 
 // effectiveRTOConfig keeps older internal configurations on the shared TCP defaults.

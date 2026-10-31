@@ -47,6 +47,7 @@ type SimulationConfig struct {
 	Bytes                           int     `json:"bytes"`
 	ReceiveBufferBytes              int     `json:"receiveBufferBytes"`
 	CongestionControl               string  `json:"congestionControl"`
+	FastRetransmit                  bool    `json:"fastRetransmit"`
 	InitialCongestionWindowSegments int     `json:"initialCongestionWindowSegments"`
 	InitialSlowStartThresholdBytes  uint64  `json:"initialSlowStartThresholdBytes"`
 	RTOMode                         string  `json:"rtoMode"`

@@ -81,7 +81,7 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 			wantTCP: contract.TCPConfig{
 				ReceiveBufferBytes: 65535,
 				CongestionControl: contract.CongestionConfig{
-					Mode: "reno", InitialWindowSegments: 4, InitialSlowStartThresholdBytes: 65535,
+					Mode: "reno", FastRetransmit: true, InitialWindowSegments: 4, InitialSlowStartThresholdBytes: 65535,
 				},
 				RTO: contract.RTOConfig{
 					Mode:                  "adaptive",
@@ -115,7 +115,7 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 			wantTCP: contract.TCPConfig{
 				ReceiveBufferBytes: receiveBuffer,
 				CongestionControl: contract.CongestionConfig{
-					Mode: "reno", InitialWindowSegments: 4, InitialSlowStartThresholdBytes: 65535,
+					Mode: "reno", FastRetransmit: true, InitialWindowSegments: 4, InitialSlowStartThresholdBytes: 65535,
 				},
 				RTO: contract.RTOConfig{
 					Mode:                  "fixed",

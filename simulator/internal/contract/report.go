@@ -114,6 +114,8 @@ type CongestionState struct {
 	SlowStartThresholdBytes uint64
 	BytesInFlight           uint64
 	Phase                   string
+	DuplicateACKs           uint64 // Current run of duplicate ACKs; resets on progress or timeout.
+	FastRetransmissions     uint64 // Cumulative retries triggered before the retransmission timeout.
 }
 
 // ClientCongestion retains the last sender state after completion or cleanup.
@@ -125,6 +127,7 @@ type ClientCongestion struct {
 // CongestionConfig records the selected mode and configured startup settings.
 type CongestionConfig struct {
 	Mode                           string
+	FastRetransmit                 bool
 	InitialWindowSegments          int
 	InitialSlowStartThresholdBytes uint64
 }

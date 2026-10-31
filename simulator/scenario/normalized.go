@@ -29,6 +29,7 @@ type NormalizedTCPConfig struct {
 // For example, four 1,024-byte segments allow up to 4,096 bytes before ACKs return.
 type NormalizedCongestionConfig struct {
 	Mode                           string `json:"mode"`
+	FastRetransmit                 bool   `json:"fastRetransmit"`
 	InitialWindowSegments          int    `json:"initialWindowSegments"`
 	InitialSlowStartThresholdBytes uint64 `json:"initialSlowStartThresholdBytes"`
 }

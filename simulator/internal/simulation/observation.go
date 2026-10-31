@@ -83,6 +83,7 @@ func (s *World) Info() Info {
 		ReceiveBufferBytes: s.scenario.TCP.ReceiveBufferBytes,
 		CongestionControl: model.CongestionConfig{
 			Mode:                           model.CongestionMode(s.scenario.TCP.CongestionControl.Mode),
+			FastRetransmit:                 s.scenario.TCP.CongestionControl.FastRetransmit,
 			InitialWindowSegments:          s.scenario.TCP.CongestionControl.InitialWindowSegments,
 			InitialSlowStartThresholdBytes: s.scenario.TCP.CongestionControl.InitialSlowStartThresholdBytes,
 		},

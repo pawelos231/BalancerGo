@@ -24,6 +24,8 @@ type congestionControl struct {
 	// Partial ACKs can trim a retry, but its original end still identifies it.
 	// Zero means no pending segment has reduced the threshold through an RTO.
 	timedOutSegmentEnd uint64
+
+	recovery fastRecovery
 }
 
 // newCongestionControl starts at the configured window, before any data is sent.
@@ -33,7 +35,8 @@ func newCongestionControl(config model.CongestionConfig) congestionControl {
 		uint64(config.InitialWindowSegments) <= model.MaxCongestionWindowBytes/model.SEGMENT_SIZE
 	validThreshold := config.InitialSlowStartThresholdBytes >= 2*model.SEGMENT_SIZE &&
 		config.InitialSlowStartThresholdBytes <= model.MaxCongestionWindowBytes
-	if !validMode || !validInitialWindow || !validThreshold {
+	validRecovery := !config.FastRetransmit || config.Mode == model.CongestionReno
+	if !validMode || !validInitialWindow || !validThreshold || !validRecovery {
 		panic("client: invalid congestion configuration")
 	}
 
@@ -60,9 +63,11 @@ func (c *Client) SetCongestionConfig(config model.CongestionConfig) {
 func (c *Client) GetCongestionState() model.CongestionState {
 	control := &c.congestion
 	state := model.CongestionState{
-		Mode:          control.config.Mode,
-		BytesInFlight: c.bytesInFlight(),
-		Phase:         "disabled",
+		Mode:                control.config.Mode,
+		BytesInFlight:       c.bytesInFlight(),
+		DuplicateACKs:       control.recovery.duplicateACKs,
+		FastRetransmissions: control.recovery.fastRetransmissions,
+		Phase:               "disabled",
 	}
 	if control.config.Mode == model.CongestionNone {
 		return state
@@ -73,6 +78,9 @@ func (c *Client) GetCongestionState() model.CongestionState {
 	state.Phase = "congestionAvoidance"
 	if control.congestionWindowBytes < control.slowStartThresholdBytes {
 		state.Phase = "slowStart"
+	}
+	if control.recovery.active {
+		state.Phase = "fastRecovery"
 	}
 	return state
 }
@@ -106,6 +114,9 @@ func (control *congestionControl) acknowledge(newBytes, ack uint64) {
 	if control.timedOutSegmentEnd != 0 && ack >= control.timedOutSegmentEnd {
 		control.timedOutSegmentEnd = 0
 	}
+	if control.acknowledgeRecovery(ack) {
+		return
+	}
 	if control.config.Mode == model.CongestionNone {
 		return
 	}
@@ -129,10 +140,13 @@ func (control *congestionControl) acknowledge(newBytes, ack uint64) {
 
 // onDataTimeout halves flight once for this original segment, then restarts at one MSS.
 // Retrying [513,1025) after a partial ACK of [1,1025) must not halve the threshold again.
-func (control *congestionControl) onDataTimeout(packet model.Packet, flight uint64) {
+func (control *congestionControl) onDataTimeout(packet model.Packet, flight, nextSendSeq uint64) {
 	if control.config.Mode == model.CongestionNone {
 		return
 	}
+	control.stopFastRecovery()
+	// Old duplicate ACKs must not reinflate cwnd after this timeout drops it to one MSS.
+	control.recovery.untilSeq = nextSendSeq
 	if control.timedOutSegmentEnd == 0 {
 		control.slowStartThresholdBytes = max(flight/2, 2*model.SEGMENT_SIZE)
 		control.timedOutSegmentEnd = packet.Seq + uint64(packet.Size)

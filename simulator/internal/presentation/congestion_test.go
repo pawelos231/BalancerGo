@@ -48,10 +48,15 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 			}
 			sample := project(t, NewProjector("congestion"), world)
 			var clientMetrics map[string]float64
+			var phase string
 			for _, node := range sample.Topology.Nodes {
 				if node.ID == "client/clients/0" {
 					clientMetrics = node.Metrics
+					phase = node.TCPPhase
 				}
+			}
+			if phase != native.Phase {
+				t.Fatalf("projected TCP phase = %q, want %q", phase, native.Phase)
 			}
 			if clientMetrics["bytesInFlight"] != float64(native.BytesInFlight) {
 				t.Fatalf("projected flight = %v, native = %+v", clientMetrics, native)
@@ -72,10 +77,14 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 			result := BuildResult(world, 0)
 			wantConfig := contract.CongestionConfig{
 				Mode:                           test.mode,
+				FastRetransmit:                 test.mode == "reno",
 				InitialWindowSegments:          test.segments,
 				InitialSlowStartThresholdBytes: test.threshold,
 			}
 			info := world.Info().CongestionControl
+			if result.TCP.CongestionControl.FastRetransmit != info.FastRetransmit {
+				t.Fatal("the report changed the resolved fast-retransmit setting")
+			}
 			if result.TCP.CongestionControl != wantConfig || string(info.Mode) != test.mode ||
 				info.InitialWindowSegments != test.segments ||
 				info.InitialSlowStartThresholdBytes != test.threshold {
@@ -100,5 +109,36 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 				t.Fatal("completed Reno client's window disappeared")
 			}
 		})
+	}
+}
+
+// Recovery is displayed with its real counters, not inferred from the window size.
+// Three duplicate ACKs and two earlier fast retries must survive the DTO mapping.
+func TestFastRecoveryCountersAreProjectedWithoutLosingTheirMeaning(t *testing.T) {
+	native := model.CongestionState{
+		Mode:                    model.CongestionReno,
+		Phase:                   "fastRecovery",
+		CongestionWindowBytes:   7 * model.SEGMENT_SIZE,
+		SlowStartThresholdBytes: 4 * model.SEGMENT_SIZE,
+		BytesInFlight:           8 * model.SEGMENT_SIZE,
+		DuplicateACKs:           3,
+		FastRetransmissions:     2,
+	}
+	client := simulation.ClientObservation{
+		State: model.ClientState{Congestion: native},
+	}
+	metrics := metricValues(clientMetrics(client))
+	for key, want := range map[string]float64{
+		"duplicateACKs":       3,
+		"fastRetransmissions": 2,
+	} {
+		if value, present := metrics[key]; !present || value != want {
+			t.Fatalf("projected %s = %v, present = %v, want %v", key, value, present, want)
+		}
+	}
+
+	reported := congestionState(native)
+	if reported.Phase != native.Phase || reported.DuplicateACKs != 3 || reported.FastRetransmissions != 2 {
+		t.Fatalf("reported recovery state = %+v", reported)
 	}
 }

@@ -86,6 +86,17 @@ export function kindLabel(kind: string): string {
   return kindLabels[kind] ?? fallback;
 }
 
+// Transport phases stay readable in the inspector while retaining unknown future values.
+export function tcpPhaseLabel(phase: string): string {
+  const labels: Record<string, string> = {
+    slowStart: 'Slow start',
+    congestionAvoidance: 'Congestion avoidance',
+    fastRecovery: 'Fast recovery',
+    disabled: 'Disabled',
+  };
+  return labels[phase] ?? phase;
+}
+
 export function linkIsBusy(link: TopologyLink): boolean {
   const { transmitting, queuedPackets, travellingPackets } = link.stats;
 

@@ -88,6 +88,7 @@ func restoreTelemetryTopology(t *testing.T, document *contract.TopologyDocument,
 			Active:      node.Active,
 			Metrics:     metrics,
 			Traffic:     node.Traffic,
+			TCPPhase:    node.TCPPhase,
 		})
 	}
 	links := make(map[string]contract.TopologyLinkStats, len(live.Links))

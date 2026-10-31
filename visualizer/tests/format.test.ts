@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatBandwidth, formatBytesPerSecond } from '../src/topology/format.ts';
+import { formatBandwidth, formatBytesPerSecond, tcpPhaseLabel } from '../src/topology/format.ts';
 
 test('measured traffic uses SI byte rates rather than configured bitrates', () => {
   assert.equal(formatBytesPerSecond(0), '0 B/s');
@@ -16,4 +16,12 @@ test('missing or invalid measured rates stay unknown rather than becoming zero',
   for (const value of [undefined, NaN, Infinity, -1]) {
     assert.equal(formatBytesPerSecond(value), '—');
   }
+});
+
+test('TCP phase labels explain recovery without hiding future states', () => {
+  assert.equal(tcpPhaseLabel('slowStart'), 'Slow start');
+  assert.equal(tcpPhaseLabel('congestionAvoidance'), 'Congestion avoidance');
+  assert.equal(tcpPhaseLabel('fastRecovery'), 'Fast recovery');
+  assert.equal(tcpPhaseLabel('disabled'), 'Disabled');
+  assert.equal(tcpPhaseLabel('futurePhase'), 'futurePhase');
 });

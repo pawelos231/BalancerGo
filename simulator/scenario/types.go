@@ -34,6 +34,7 @@ type TCPConfig struct {
 // Omitted fields use defaults; mode none keeps only the receiver's window limit.
 type CongestionConfig struct {
 	Mode                           *string `json:"mode,omitempty"`
+	FastRetransmit                 *bool   `json:"fastRetransmit,omitempty"`
 	InitialWindowSegments          *int    `json:"initialWindowSegments,omitempty"`
 	InitialSlowStartThresholdBytes *uint64 `json:"initialSlowStartThresholdBytes,omitempty"`
 }

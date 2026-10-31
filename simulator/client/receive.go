@@ -53,6 +53,7 @@ func (c *Client) handleSynAck(pkt model.Packet, end uint64) {
 		c.nextReceiveSeq = end
 		c.oldestUnackedSeq = pkt.Ack
 		c.peerWindowEnd = receiveWindowEnd(pkt.Ack, pkt.ReceiveWindowBytes)
+		c.peerReceiveWindow = pkt.ReceiveWindowBytes
 		c.handshakeCompleted = true
 		if c.streamRequested {
 			c.updateNextSendTime()
@@ -77,8 +78,21 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 	}
 
 	// A repeated ACK can reopen a window without confirming additional bytes.
+	windowUnchanged := pkt.ReceiveWindowBytes == c.peerReceiveWindow
 	c.peerWindowEnd = receiveWindowEnd(pkt.Ack, pkt.ReceiveWindowBytes)
+	c.peerReceiveWindow = pkt.ReceiveWindowBytes
+	// ACK has not advanced: ACK=1 still asks for data starting at Seq=1.
 	if pkt.Ack == c.oldestUnackedSeq {
+		// Treat it as a duplicate only if rwnd is unchanged and data is still pending.
+		if windowUnchanged && c.pendingSegments.hasPending() {
+			pendingCount := len(c.pendingSegments.segments) - c.pendingSegments.firstPendingIndex
+
+			// The third qualifying duplicate ACK triggers a retry of the oldest segment.
+			if c.congestion.duplicateACK(c.bytesInFlight(), pendingCount, c.nextSendSeq) {
+				c.fastRetransmitOldest()
+			}
+		}
+		// A larger rwnd or recovery cwnd may now allow another new segment to be sent.
 		c.queueSegment()
 		return
 	}

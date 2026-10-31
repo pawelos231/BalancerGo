@@ -23,7 +23,7 @@ import (
 
 const (
 	experimentReportVersion = 1
-	experimentModel         = "tcp-reno-foundation-v1"
+	experimentModel         = "tcp-reno-fast-recovery-v1"
 )
 
 // loadedScenario keeps the importable input beside its checked runtime settings.

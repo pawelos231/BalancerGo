@@ -127,6 +127,7 @@ func (s *World) startClient(
 	congestion := s.scenario.TCP.CongestionControl
 	cl.SetCongestionConfig(model.CongestionConfig{
 		Mode:                           model.CongestionMode(congestion.Mode),
+		FastRetransmit:                 congestion.FastRetransmit,
 		InitialWindowSegments:          congestion.InitialWindowSegments,
 		InitialSlowStartThresholdBytes: congestion.InitialSlowStartThresholdBytes,
 	})

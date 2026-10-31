@@ -88,6 +88,7 @@ export interface SimulationConfig {
   bytes: number;
   receiveBufferBytes: number;
   congestionControl: 'none' | 'reno';
+  fastRetransmit: boolean;
   initialCongestionWindowSegments: number;
   initialSlowStartThresholdBytes: number;
   rtoMode: 'fixed' | 'adaptive';

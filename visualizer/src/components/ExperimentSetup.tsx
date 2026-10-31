@@ -226,7 +226,13 @@ function ExperimentSetup({
 
     if (!message) {
       try {
-        setNativeScenario(applyScenarioField(baseline, name, raw));
+        const updated = applyScenarioField(baseline, name, raw);
+        setNativeScenario(updated);
+        if (name === 'congestionControl') {
+          // The dependent recovery field follows a mode change immediately.
+          const fastRetransmit = scenarioFormValues(updated).fastRetransmit;
+          setValues((previous) => previous ? { ...previous, fastRetransmit } : previous);
+        }
       } catch (failure) {
         message = failure instanceof Error ? failure.message : 'Cannot apply this setting.';
       }
@@ -235,6 +241,7 @@ function ExperimentSetup({
     const nextErrors = { ...errorsRef.current };
     if (message) nextErrors[name] = message;
     else delete nextErrors[name];
+    if (!message && name === 'congestionControl') delete nextErrors.fastRetransmit;
     errorsRef.current = nextErrors;
     setFieldErrors(nextErrors);
   }

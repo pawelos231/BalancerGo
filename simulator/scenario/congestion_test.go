@@ -18,6 +18,7 @@ func TestCongestionDefaultsAndDocumentRoundTrip(t *testing.T) {
 	defaults := model.DefaultCongestionConfig()
 	congestion := resolved.TCP.CongestionControl
 	if congestion.Mode != string(defaults.Mode) ||
+		congestion.FastRetransmit != defaults.FastRetransmit ||
 		congestion.InitialWindowSegments != defaults.InitialWindowSegments ||
 		congestion.InitialSlowStartThresholdBytes != defaults.InitialSlowStartThresholdBytes {
 		t.Fatalf("unexpected congestion defaults: %+v", congestion)
@@ -51,6 +52,47 @@ func TestCongestionDefaultsAndDocumentRoundTrip(t *testing.T) {
 	if congestion.Mode != "none" || congestion.InitialWindowSegments != 2 ||
 		congestion.InitialSlowStartThresholdBytes != 9_007_199_254_740_993 {
 		t.Fatalf("congestion settings changed during import/export: %+v", congestion)
+	}
+}
+
+// Omitted recovery follows the mode; exporting an explicit false keeps it disabled.
+func TestFastRetransmitDefaultsAndDocumentRoundTrip(t *testing.T) {
+	input := exampleScenario()
+	resolved, err := Normalize(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.TCP.CongestionControl.FastRetransmit || input.TCP.CongestionControl.FastRetransmit != nil {
+		t.Fatal("Reno should inherit fast recovery without mutating the input")
+	}
+
+	input.TCP.CongestionControl.FastRetransmit = pointer(false)
+	document, err := EncodeDocument(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(document), `"fastRetransmit":false`) {
+		t.Fatal("export omitted the explicit false")
+	}
+	restored, err := DecodeDocument(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err = Normalize(restored)
+	if err != nil || resolved.TCP.CongestionControl.FastRetransmit {
+		t.Fatalf("disabled recovery changed after export/import: %+v, %v", resolved.TCP, err)
+	}
+
+	// The rwnd-only mode omits recovery by default and rejects an incompatible true.
+	input.TCP.CongestionControl = CongestionConfig{Mode: pointer("none")}
+	resolved, err = Normalize(input)
+	if err != nil || resolved.TCP.CongestionControl.FastRetransmit {
+		t.Fatalf("none should inherit disabled recovery: %+v, %v", resolved.TCP, err)
+	}
+	input.TCP.CongestionControl.FastRetransmit = pointer(true)
+	_, err = Normalize(input)
+	if err == nil || !strings.Contains(err.Error(), "tcp.congestionControl.fastRetransmit") {
+		t.Fatalf("expected a recovery dependency error, got %v", err)
 	}
 }
 

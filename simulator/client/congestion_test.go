@@ -40,6 +40,7 @@ func TestTCPRenoStartsWithFourSegments(t *testing.T) {
 	h.receiveWindow(model.FlagACK, 1, 5000)
 	h.runUntil(0)
 	wantInitial.BytesInFlight = 4096
+	wantInitial.DuplicateACKs = 1
 	if state := congestionState(t, h); state != wantInitial {
 		t.Fatalf("ACK without progress grew the window: %+v", state)
 	}
@@ -136,6 +137,7 @@ func TestTCPRenoSlowStartCountsNewBytesOnce(t *testing.T) {
 	h.receive(model.FlagACK, 2059)
 	h.receive(model.FlagACK, 2049)
 	h.receiveWindow(model.FlagACK, 2059, 60000)
+	want.DuplicateACKs = 1
 	if state := congestionState(t, h); state != want {
 		t.Fatalf("repeated progress changed the congestion state: %+v", state)
 	}

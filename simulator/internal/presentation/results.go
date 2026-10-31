@@ -66,6 +66,8 @@ func congestionState(state model.CongestionState) contract.CongestionState {
 		SlowStartThresholdBytes: state.SlowStartThresholdBytes,
 		BytesInFlight:           state.BytesInFlight,
 		Phase:                   state.Phase,
+		DuplicateACKs:           state.DuplicateACKs,
+		FastRetransmissions:     state.FastRetransmissions,
 	}
 }
 
@@ -209,6 +211,7 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 			ReceiveBufferBytes: info.ReceiveBufferBytes,
 			CongestionControl: contract.CongestionConfig{
 				Mode:                           string(info.CongestionControl.Mode),
+				FastRetransmit:                 info.CongestionControl.FastRetransmit,
 				InitialWindowSegments:          info.CongestionControl.InitialWindowSegments,
 				InitialSlowStartThresholdBytes: info.CongestionControl.InitialSlowStartThresholdBytes,
 			},

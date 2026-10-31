@@ -43,6 +43,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 			ClientIdleTimeout: &clientIdle,
 			CongestionControl: scenario.CongestionConfig{
 				Mode:                           &congestionMode,
+				FastRetransmit:                 &congestion.FastRetransmit,
 				InitialWindowSegments:          &congestion.InitialWindowSegments,
 				InitialSlowStartThresholdBytes: &congestion.InitialSlowStartThresholdBytes,
 			},

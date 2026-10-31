@@ -176,7 +176,7 @@ requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-reno-foundation-v1` profile. `result.TCP.ReceiveBufferBytes`
+`tcp-reno-fast-recovery-v1` profile. `result.TCP.ReceiveBufferBytes`
 records the effective receive-buffer limit, including an omitted input's default.
 `result.TCP.RTO` and `result.LBIdleTimeouts` record the effective timer policy.
 `result.ClientTimings` retains each created client's latest RTT estimates and RTO,
@@ -552,8 +552,8 @@ immediately; the existing transport reacts through its normal timers.
 For example, with access links at 10 Gbit/s and ingress at 1 Gbit/s, a sufficiently
 long actual input burst can overflow the client input FIFO. Configured access rates
 are maximum capacities, not guaranteed generation rates: clients may send only
-within the receive and congestion windows. Reno currently reacts to loss through
-RTO, with fast retransmit/recovery still deferred. Drop and retry results describe
+within the receive and congestion windows. Reno reacts through duplicate ACKs
+and fast recovery, with RTO as a fallback. Drop and retry results describe
 this simplified transport, not a validated TCP
 response to overload. LB packet handlers still have zero modeled CPU cost.
 
@@ -611,7 +611,7 @@ positions instead of segment indices. `Size` remains the payload length, and
 positions by its length; SYN and FIN each consume one position, while pure ACK
 consumes none. The two directions keep separate sequence state.
 
-The `tcp-reno-foundation-v1` profile uses logical `uint64` byte positions and
+The `tcp-reno-fast-recovery-v1` profile uses logical `uint64` byte positions and
 fixed initial sequence numbers of zero. It does not model the 32-bit sequence
 number wraparound of real TCP. Large streams are checked against native integer
 limits rather than the former 32-bit segment-counter limit. Payload remains
@@ -653,11 +653,16 @@ closing or terminated clients report zero pending payload after abandoning their
 The **TCP congestion control** form section configures `tcp.congestionControl`:
 
 - `mode`: `reno` by default, or `none` for the earlier rwnd-only baseline;
+- `fastRetransmit`: enabled by default for Reno; controls fast retransmit and
+  classic Reno fast recovery together. With `none`, it defaults to disabled;
 - `initialWindowSegments`: 4 by default, each with at most 1024 payload bytes;
 - `initialSlowStartThresholdBytes`: 65535 by default, with a minimum of 2048.
 
-Legacy CLI flags are `-tcp-congestion-control`, `-tcp-initial-window` and
-`-tcp-slow-start-threshold`. Omitted settings inherit these defaults. Larger
+Legacy CLI flags are `-tcp-congestion-control`, `-tcp-fast-retransmit`,
+`-tcp-initial-window` and `-tcp-slow-start-threshold`. Omitted settings inherit
+these defaults. `-tcp-fast-retransmit=false` keeps timeout-only recovery while
+retaining Reno's window rules. An explicit enabled flag requires Reno; selecting
+`none` alone disables it. Larger
 custom startup windows are experimental; four segments is the selected RFC 5681
 initial limit for this model's MSS. To reproduce older rwnd-only experiments,
 select `none` explicitly; existing JSON files now inherit Reno.
@@ -666,8 +671,8 @@ During slow start, each ACK confirming new data grows `cwnd` by
 `min(newly acknowledged bytes, MSS)`. At `cwnd >= ssthresh`, congestion avoidance
 counts newly confirmed bytes; confirming one window adds one MSS, at most once
 per ACK. A cumulative ACK is processed in one phase, so crossing the threshold
-cannot count that ACK again. Duplicate, stale and invalid ACKs do not grow the
-window. This is roughly exponential growth during slow start and linear growth
+cannot count that ACK again. Outside fast recovery, duplicate ACKs do not grow
+the window; stale and invalid ACKs are ignored. This is roughly exponential growth during slow start and linear growth
 during congestion avoidance when the sender fills its window.
 
 On the first data timeout for a segment, `ssthresh=max(FlightSize/2, 2*MSS)`;
@@ -681,11 +686,34 @@ reduces `cwnd` to `min(initialWindow, cwnd)` and clears accumulated avoidance cr
 The initial window here includes the one-MSS reduction after a SYN retry.
 This restart is independent of client/LB idle cleanup.
 
-These are the selected [RFC 5681, sections 3.1 and 4.1](https://www.rfc-editor.org/rfc/rfc5681.html)
-rules. The profile does not yet implement fast retransmit/recovery or full window
-validation for senders limited by workload pacing or `rwnd`. Client topology
-details expose bytes in flight and, in Reno mode, `cwnd` and `ssthresh`; disabled
-control omits those window limits rather than displaying a misleading zero.
+Fast retransmit counts valid ACKs repeating the oldest unconfirmed byte position,
+with no payload, SYN or FIN and an unchanged raw advertised window. A window
+update contributes no duplicate. The third qualifying duplicate immediately
+retries the oldest fragment, before RTO. That retry restarts the current RTO
+without doubling it; Karn's rule excludes ambiguous RTT samples.
+
+Reno fast recovery sets `ssthresh=max(FlightSize/2, 2*MSS)` and temporarily sets
+`cwnd=ssthresh+3*MSS`. Later duplicate ACKs can add one MSS each, capped using
+the number of originally outstanding segments. New data still respects `rwnd`
+and the configured send gap. The first ACK making progress, including a partial
+ACK, exits recovery with `cwnd=ssthresh`, without another growth on that ACK.
+A protected byte boundary prevents delayed duplicates from cutting the same
+flight repeatedly; RTO clears active recovery and restores timeout behavior.
+All retry state is prepared before a synchronous sender callback can reply.
+
+These are the selected [RFC 5681, sections 2, 3.1, 3.2 and 4.1](https://www.rfc-editor.org/rfc/rfc5681.html)
+rules. This is classic Reno: multiple gaps in one flight may still require RTO.
+Limited Transmit on the first two duplicates and NewReno partial-ACK recovery
+remain outside this profile, as does full window validation for senders limited
+by workload pacing or `rwnd`.
+
+Client topology details expose `cwnd`, `ssthresh`, current duplicate ACKs and
+cumulative fast retransmissions, plus a readable congestion phase including
+`fastRecovery`. CLI `ClientCongestion[].State` retains the same phase/counters
+after cleanup. `DuplicateACKs` is the current run since progress/RTO and is
+cleared on close; `FastRetransmissions` is cumulative. Fast retries are also
+included in total data retransmissions; the two counters must not be added.
+Disabled congestion control omits window limits rather than showing a false zero.
 
 `packetGapNanoseconds` is the initial pause once both the connection and stream
 are ready, and the minimum interval between new data sends. An ACK does not

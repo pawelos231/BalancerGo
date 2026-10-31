@@ -127,22 +127,45 @@ func (c *Client) armDataTimer() {
 // For an initial 1 s RTO, losses cause retransmissions at 1 s, 3 s and 7 s.
 func (c *Client) retransmitData() {
 	c.dataTimer = 0
-	if c.terminated || c.closing || !c.pendingSegments.hasPending() {
+	packet, retry := c.prepareDataRetry()
+	if !retry {
 		return
+	}
+	c.congestion.onDataTimeout(packet, c.bytesInFlight(), c.nextSendSeq)
+	c.rto.backOff()
+	c.armDataTimer()
+	c.emit(packet)
+}
+
+// fastRetransmitOldest repairs the same pending fragment before RTO expires.
+// Unlike a timeout, it restarts the existing RTO without backing it off.
+func (c *Client) fastRetransmitOldest() {
+	packet, retry := c.prepareDataRetry()
+	if !retry {
+		return
+	}
+	c.congestion.recovery.fastRetransmissions++
+	c.armDataTimer()
+	c.emit(packet)
+}
+
+// prepareDataRetry shares retry limits and accounting between both loss paths.
+// Capture the packet before emitting: a synchronous ACK can remove it immediately.
+func (c *Client) prepareDataRetry() (model.Packet, bool) {
+	if c.terminated || c.closing || !c.pendingSegments.hasPending() {
+		return model.Packet{}, false
 	}
 	if c.oldestSegmentRetransmissions >= model.MAX_RETRANSMISIONS {
 		c.ShutdownWithReason(model.TransferDataRetryLimit)
-		return
+		return model.Packet{}, false
 	}
 
+	packet := c.pendingSegments.oldest()
 	c.oldestSegmentRetransmissions++
 	c.transfer.dataRetransmissions++
-	c.congestion.onDataTimeout(c.pendingSegments.oldest(), c.bytesInFlight())
 	c.invalidateRTTProbe()
-	c.rto.backOff()
-	c.armDataTimer()
 	c.congestion.recordDataSent(c.engine.Now())
-	c.emit(c.pendingSegments.oldest())
+	return packet, true
 }
 
 // armReadTimer starts the separate inactivity limit from the current virtual time.

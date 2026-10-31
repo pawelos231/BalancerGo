@@ -58,7 +58,9 @@ function ScenarioFieldInput({
     );
   }
 
-  if (name === 'algorithm' || name === 'rtoMode' || name === 'congestionControl') {
+  const isSelectField = name === 'algorithm' || name === 'rtoMode'
+    || name === 'congestionControl' || name === 'fastRetransmit';
+  if (isSelectField) {
     const { label, help, options } = scenarioSelectFields[name];
     const labelID = `start-${name}-label`;
 

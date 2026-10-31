@@ -33,6 +33,7 @@ func newAdaptiveTransferHarness(t *testing.T) *transferHarness {
 	h := newRenoTransferHarness(t)
 	config := model.DefaultCongestionConfig()
 	config.Mode = model.CongestionNone
+	config.FastRetransmit = false
 	h.client.SetCongestionConfig(config)
 	return h
 }

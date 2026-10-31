@@ -40,6 +40,21 @@ test('one in-flight request coalesces frames and hydrates only the latest measur
   assert.equal(requests.length, 1);
 });
 
+test('the current TCP phase survives topology hydration', async () => {
+  const { receiver, requests } = receiverFixture();
+  const frame = telemetryFrame();
+  const client = frame.topology.nodes.find((node) => node.id === 'client-a');
+  assert.ok(client);
+  client.tcpPhase = 'fastRecovery';
+
+  // HTTP supplies stable identity; the live WebSocket frame supplies this phase.
+  receiver.receive(frame);
+  requests[0].resolve(topologyDefinition());
+  await settle();
+  const displayed = receiver.state.data?.topology?.nodes.find((node) => node.id === 'client-a');
+  assert.equal(displayed?.tcpPhase, 'fastRecovery');
+});
+
 test('a behind response keeps a matched view while one follow-up catches the newest revision', async () => {
   const { receiver, requests } = receiverFixture();
   receiver.receive(telemetryFrame('1', 'run-1', 1));

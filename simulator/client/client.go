@@ -39,6 +39,9 @@ type Client struct {
 	// New data must stay below the byte position advertised by the backend.
 	peerWindowEnd uint64
 
+	// Keep the raw window too: a window update is not evidence of missing data.
+	peerReceiveWindow uint16
+
 	// Advertised on our packets; this profile receives no backend payload.
 	receiveWindowBytes uint16
 
@@ -198,6 +201,7 @@ func (c *Client) Close() {
 	c.pendingSegments.reset()
 	c.oldestSegmentRetransmissions = 0
 	c.rttProbe = roundTripProbe{}
+	c.congestion.stopFastRecovery()
 	c.armReadTimer()
 	c.sendEvent = c.engine.ScheduleAfter(0, func() {
 		c.sendEvent = 0
@@ -235,6 +239,7 @@ func (c *Client) ShutdownWithReason(reason model.TransferFailureReason) {
 	c.pendingSegments.reset()
 	c.oldestSegmentRetransmissions = 0
 	c.rttProbe = roundTripProbe{}
+	c.congestion.stopFastRecovery()
 	if c.OnClose != nil {
 		c.OnClose()
 	}

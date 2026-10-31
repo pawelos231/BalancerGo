@@ -150,6 +150,7 @@ func readConfiguration() (configuration, error) {
 	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
 		return c, err
 	}
+	c.resolveCongestionFlagDefaults()
 	if flag.NArg() != 0 {
 		return c, fmt.Errorf("unexpected arguments: %v", flag.Args())
 	}

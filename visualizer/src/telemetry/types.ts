@@ -63,6 +63,7 @@ export interface TopologyDefinition {
 export interface NodeTelemetry {
   id: string;
   active?: boolean;
+  tcpPhase?: string;
   metrics: Record<string, number>;
   traffic?: TopologyTraffic;
 }

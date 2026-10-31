@@ -29,6 +29,17 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 		return NormalizedCongestionConfig{}, fmt.Errorf("tcp.congestionControl.mode: must be none or reno")
 	}
 
+	// Older Reno scenarios gain fast recovery; mode none keeps it disabled.
+	resolved.FastRetransmit = resolved.Mode == string(model.CongestionReno) && defaults.FastRetransmit
+	if config.FastRetransmit != nil {
+		resolved.FastRetransmit = *config.FastRetransmit
+	}
+	if resolved.FastRetransmit && resolved.Mode != string(model.CongestionReno) {
+		return NormalizedCongestionConfig{}, fmt.Errorf(
+			"tcp.congestionControl.fastRetransmit: requires Reno congestion control",
+		)
+	}
+
 	// Multiplying the segment count by 1,024 must still fit the sender's byte counters.
 	maximumSegments := math.MaxInt64 / model.SEGMENT_SIZE
 	if resolved.InitialWindowSegments < 1 || resolved.InitialWindowSegments > maximumSegments {

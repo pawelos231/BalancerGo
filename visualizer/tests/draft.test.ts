@@ -88,6 +88,7 @@ test('older scenarios display Reno defaults without changing the native document
 
   const fields = scenarioFormValues(scenario);
   assert.equal(fields.congestionControl, 'reno');
+  assert.equal(fields.fastRetransmit, 'true');
   assert.equal(fields.initialCongestionWindowSegments, '4');
   assert.equal(fields.initialSlowStartThresholdBytes, '65535');
   assert.deepEqual(scenario, before);
@@ -103,6 +104,7 @@ test('congestion edits retain mode none and large exact integers without flatten
 
   assert.deepEqual(edited.tcp?.congestionControl, {
     mode: 'none',
+    fastRetransmit: false,
     initialWindowSegments: 2,
     initialSlowStartThresholdBytes: '9007199254740993',
   });
@@ -117,6 +119,37 @@ test('congestion edits retain mode none and large exact integers without flatten
   assert.equal(fields.congestionControl, 'none');
   assert.equal(fields.initialCongestionWindowSegments, '2');
   assert.equal(fields.initialSlowStartThresholdBytes, '9007199254740993');
+});
+
+test('fast recovery follows Reno defaults and preserves an explicit disabled setting', () => {
+  const original = mixedScenario();
+  const before = structuredClone(original);
+
+  // An older document displays the enabled Reno policy without writing defaults.
+  assert.equal(scenarioFormValues(original).fastRetransmit, 'true');
+  assert.deepEqual(original, before);
+
+  const disabled = applyScenarioField(original, 'fastRetransmit', 'false');
+  const restored = JSON.parse(JSON.stringify(disabled));
+  assert.equal(restored.tcp.congestionControl.fastRetransmit, false);
+  assert.equal(scenarioFormValues(restored).fastRetransmit, 'false');
+
+  // Switching off Reno disables its dependent policy; turning Reno back on keeps false.
+  const none = applyScenarioField(original, 'congestionControl', 'none');
+  assert.equal(scenarioFormValues(none).fastRetransmit, 'false');
+  assert.throws(() => applyScenarioField(none, 'fastRetransmit', 'true'), /require Reno/);
+  const reno = applyScenarioField(none, 'congestionControl', 'reno');
+  assert.equal(scenarioFormValues(reno).fastRetransmit, 'false');
+  const enabled = applyScenarioField(reno, 'fastRetransmit', 'true');
+  assert.equal(enabled.tcp?.congestionControl?.fastRetransmit, true);
+  assert.deepEqual(enabled.network, original.network);
+  assert.deepEqual(original, before);
+
+  // Imported rwnd-only scenarios inherit false even when the field is absent.
+  const imported = structuredClone(original);
+  imported.tcp = { congestionControl: { mode: 'none' } };
+  assert.equal(scenarioFormValues(imported).fastRetransmit, 'false');
+  assert.ok(validateScenarioField('fastRetransmit', '1'));
 });
 
 test('congestion validation keeps segment multiplication and threshold byte counts in range', () => {

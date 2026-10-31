@@ -193,6 +193,7 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 		active := client.Active
 		topology.Nodes = append(topology.Nodes, contract.TelemetryNode{
 			ID: client.ID, Active: &active, Metrics: metricValues(metrics), Traffic: nodeTraffic(world, client.ID),
+			TCPPhase: state.Congestion.Phase,
 		})
 		if slot, routed := slots[state.Key]; routed {
 			servers[slot.server].Clients[slot.client] = contract.TelemetryClient{

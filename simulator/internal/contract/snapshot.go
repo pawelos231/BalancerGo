@@ -135,6 +135,7 @@ type TopologyNode struct {
 	Active      *bool            `json:"active,omitempty"`
 	Metrics     []TopologyMetric `json:"metrics"`
 	Traffic     *TopologyTraffic `json:"traffic,omitempty"`
+	TCPPhase    string           `json:"tcpPhase,omitempty"`
 }
 
 // TopologyTraffic measures wire bytes over the last completed virtual-time window.
@@ -259,10 +260,11 @@ type TelemetryTopology struct {
 
 // TelemetryNode contains changing values; metric labels and constants stay in HTTP.
 type TelemetryNode struct {
-	ID      string             `json:"id"`
-	Active  *bool              `json:"active,omitempty"`
-	Metrics map[string]float64 `json:"metrics"`
-	Traffic *TopologyTraffic   `json:"traffic,omitempty"`
+	ID       string             `json:"id"`
+	Active   *bool              `json:"active,omitempty"`
+	Metrics  map[string]float64 `json:"metrics"`
+	Traffic  *TopologyTraffic   `json:"traffic,omitempty"`
+	TCPPhase string             `json:"tcpPhase,omitempty"`
 }
 
 // TelemetryLink sends one physical path's counters under its stable ID.
