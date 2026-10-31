@@ -423,6 +423,9 @@ numerical ceiling, rather than providing literally unlimited bandwidth. Compare
 real-time performance with the same scenario, snapshot interval and machine load;
 virtual packet rates describe the model and are a separate measurement.
 
+Measured baselines, exact TCP detail and repeatable CLI/HTTP-WebSocket benchmark
+commands are recorded in [perf_results.md](perf_results.md).
+
 ## Scenario files and effective configuration
 
 The **Scenario files** panel imports and exports the editable native scenario.

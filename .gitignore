@@ -20,6 +20,8 @@ logs/
 /ARCHITECTURE_PLAN.md
 /plan/ARCHITECTURE_PLAN.md
 question.md
+perf_results.md
+/benchmarks
 
 # Local backup of the former frontend repository
 /.repo-backups/
