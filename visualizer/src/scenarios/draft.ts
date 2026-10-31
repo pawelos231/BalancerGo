@@ -21,6 +21,9 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   packets: ['workload', 'defaults', 'packets'],
   bytes: ['workload', 'defaults', 'bytes'],
   receiveBufferBytes: ['tcp', 'receiveBufferBytes'],
+  congestionControl: ['tcp', 'congestionControl', 'mode'],
+  initialCongestionWindowSegments: ['tcp', 'congestionControl', 'initialWindowSegments'],
+  initialSlowStartThresholdBytes: ['tcp', 'congestionControl', 'initialSlowStartThresholdBytes'],
   rtoMode: ['tcp', 'rto', 'mode'],
   rtoBackoff: ['tcp', 'rto', 'exponentialBackoff'],
   rtoInitialMs: ['tcp', 'rto', 'initialTimeoutNanoseconds'],
@@ -61,12 +64,16 @@ const positiveFields = new Set<ScenarioField>([
   'snapshotIntervalMs', 'maxEvents', 'bandwidthBitsPerSecond',
   'forwardingBitsPerSecond', 'ingressBandwidthBitsPerSecond',
   'receiveBufferBytes',
+  'initialCongestionWindowSegments',
   'rtoInitialMs', 'rtoMinimumMs', 'rtoMaximumMs',
 ]);
 
 // Older documents keep their original shape while the form shows effective defaults.
 const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>> = {
   receiveBufferBytes: 65535,
+  congestionControl: 'reno',
+  initialCongestionWindowSegments: 4,
+  initialSlowStartThresholdBytes: 65535,
   rtoMode: 'adaptive',
   rtoBackoff: true,
   rtoInitialMs: 1_000_000_000,
@@ -118,6 +125,9 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   if (field === 'rtoMode') {
     return text === 'fixed' || text === 'adaptive' ? undefined : 'Choose fixed or adaptive timing.';
   }
+  if (field === 'congestionControl') {
+    return text === 'none' || text === 'reno' ? undefined : 'Choose none or Reno congestion control.';
+  }
   if (field === 'rtoBackoff') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether timeout backoff is enabled.';
   }
@@ -153,6 +163,8 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   if (field === 'servers') maximum = 10_000n;
   if (field === 'maxEvents') maximum = maxUint64;
   if (field === 'receiveBufferBytes') maximum = 65535n;
+  if (field === 'initialCongestionWindowSegments') maximum = maxInt64 / 1024n;
+  if (field === 'initialSlowStartThresholdBytes') minimum = 2048n;
   if (value < minimum || value > maximum) {
     const unit = decimals === undefined ? '' : ' nanoseconds';
     return `Value must be between ${minimum} and ${maximum}${unit}.`;
@@ -204,8 +216,9 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
       target = Reflect.get(target, key) as object;
     }
     let value: ExactInteger | boolean;
-    if (field === 'algorithm' || field === 'rtoMode') value = raw.trim();
-    else if (field === 'rtoBackoff') value = raw.trim() === 'true';
+    if (field === 'algorithm' || field === 'rtoMode' || field === 'congestionControl') {
+      value = raw.trim();
+    } else if (field === 'rtoBackoff') value = raw.trim() === 'true';
     else if (floatFields.has(field)) value = Number(raw);
     else {
       const decimals = timeDecimals[field];

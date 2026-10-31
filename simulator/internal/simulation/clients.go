@@ -124,6 +124,12 @@ func (s *World) startClient(
 		model.TCP,
 	)
 	cl.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
+	congestion := s.scenario.TCP.CongestionControl
+	cl.SetCongestionConfig(model.CongestionConfig{
+		Mode:                           model.CongestionMode(congestion.Mode),
+		InitialWindowSegments:          congestion.InitialWindowSegments,
+		InitialSlowStartThresholdBytes: congestion.InitialSlowStartThresholdBytes,
+	})
 
 	// Each connection estimates its own RTT using the scenario's timer policy.
 	rto := s.scenario.TCP.RTO

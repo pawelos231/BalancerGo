@@ -10,6 +10,13 @@ export interface ScenarioLinkConfig {
 
 export type ScenarioLinkPatch = Partial<ScenarioLinkConfig>;
 
+// The initial window counts segments; the slow-start threshold counts payload bytes.
+export interface ScenarioCongestionConfig {
+  mode: 'none' | 'reno';
+  initialWindowSegments: ExactInteger;
+  initialSlowStartThresholdBytes: ExactInteger;
+}
+
 // RTT-based estimation and timeout backoff can be enabled independently.
 export interface ScenarioRTOConfig {
   mode: 'fixed' | 'adaptive';
@@ -57,6 +64,7 @@ export interface Scenario {
   };
   tcp?: {
     receiveBufferBytes?: ExactInteger;
+    congestionControl?: Partial<ScenarioCongestionConfig>;
     rto?: Partial<ScenarioRTOConfig>;
     clientIdleTimeoutNanoseconds?: ExactInteger;
   };
@@ -106,6 +114,7 @@ export interface ResolvedScenario {
   execution: Scenario['execution'];
   tcp: {
     receiveBufferBytes: number;
+    congestionControl: ScenarioCongestionConfig;
     rto: ScenarioRTOConfig;
     clientIdleTimeoutNanoseconds: ExactInteger;
   };

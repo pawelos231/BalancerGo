@@ -82,6 +82,67 @@ test('older scenarios display timer defaults without adding settings to the docu
   assert.deepEqual(scenario, before);
 });
 
+test('older scenarios display Reno defaults without changing the native document', () => {
+  const scenario = mixedScenario();
+  const before = structuredClone(scenario);
+
+  const fields = scenarioFormValues(scenario);
+  assert.equal(fields.congestionControl, 'reno');
+  assert.equal(fields.initialCongestionWindowSegments, '4');
+  assert.equal(fields.initialSlowStartThresholdBytes, '65535');
+  assert.deepEqual(scenario, before);
+});
+
+test('congestion edits retain mode none and large exact integers without flattening topology', () => {
+  const original = mixedScenario();
+  const before = structuredClone(original);
+
+  let edited = applyScenarioField(original, 'congestionControl', 'none');
+  edited = applyScenarioField(edited, 'initialCongestionWindowSegments', '2');
+  edited = applyScenarioField(edited, 'initialSlowStartThresholdBytes', '9007199254740993');
+
+  assert.deepEqual(edited.tcp?.congestionControl, {
+    mode: 'none',
+    initialWindowSegments: 2,
+    initialSlowStartThresholdBytes: '9007199254740993',
+  });
+  assert.deepEqual(edited.network, original.network);
+  assert.deepEqual(edited.workload, original.workload);
+  assert.deepEqual(edited.resources, original.resources);
+  assert.deepEqual(original, before);
+
+  // Import/export keeps a threshold one byte above JavaScript's exact integer limit.
+  const restored = JSON.parse(JSON.stringify(edited));
+  const fields = scenarioFormValues(restored);
+  assert.equal(fields.congestionControl, 'none');
+  assert.equal(fields.initialCongestionWindowSegments, '2');
+  assert.equal(fields.initialSlowStartThresholdBytes, '9007199254740993');
+});
+
+test('congestion validation keeps segment multiplication and threshold byte counts in range', () => {
+  const invalid: [ScenarioField, string][] = [
+    ['congestionControl', 'cubic'], ['congestionControl', ''],
+    ['initialCongestionWindowSegments', '0'], ['initialCongestionWindowSegments', '1.5'],
+    ['initialCongestionWindowSegments', '9007199254740992'],
+    ['initialSlowStartThresholdBytes', '0'], ['initialSlowStartThresholdBytes', '2047'],
+    ['initialSlowStartThresholdBytes', '9223372036854775808'],
+  ];
+  for (const [name, raw] of invalid) {
+    assert.ok(validateScenarioField(name, raw), `${name}=${raw} must fail`);
+  }
+
+  const valid: [ScenarioField, string][] = [
+    ['congestionControl', 'none'], ['congestionControl', 'reno'],
+    ['initialCongestionWindowSegments', '1'],
+    ['initialCongestionWindowSegments', '9007199254740991'],
+    ['initialSlowStartThresholdBytes', '2048'],
+    ['initialSlowStartThresholdBytes', '9223372036854775807'],
+  ];
+  for (const [name, raw] of valid) {
+    assert.equal(validateScenarioField(name, raw), undefined, `${name}=${raw} must pass`);
+  }
+});
+
 test('timer edits preserve explicit false, disabled idle cleanup and unrelated topology', () => {
   const original = mixedScenario();
   const before = structuredClone(original);

@@ -51,6 +51,8 @@ func (c *Client) queueSegment() {
 			return
 		}
 
+		c.congestion.restartAfterIdle(c.engine.Now(), c.rto.state.CurrentRTO)
+
 		// Recheck credit: an ACK may have changed the window during the gap.
 		payloadBytes := c.nextPayloadSize()
 		if payloadBytes == 0 {
@@ -74,6 +76,7 @@ func (c *Client) queueSegment() {
 		if c.dataTimer == 0 {
 			c.armDataTimer()
 		}
+		c.congestion.recordDataSent(c.engine.Now())
 
 		// All sender state is ready before a synchronous reply can arrive.
 		c.emit(packet)
@@ -93,7 +96,7 @@ func (c *Client) updateNextSendTime() {
 	}
 }
 
-// nextPayloadSize fits the next segment inside the backend's advertised window.
+// nextPayloadSize fits new data inside both receiver and congestion windows.
 // Already-sent bytes are excluded by nextSendSeq and must not be subtracted twice.
 func (c *Client) nextPayloadSize() int {
 	if c.peerWindowEnd <= c.nextSendSeq {
@@ -101,6 +104,7 @@ func (c *Client) nextPayloadSize() int {
 	}
 
 	availableBytes := c.peerWindowEnd - c.nextSendSeq
+	availableBytes = min(availableBytes, c.congestionCredit())
 	payloadLimit := min(c.unsentPayloadBytes, model.SEGMENT_SIZE)
 	return int(min(uint64(payloadLimit), availableBytes))
 }

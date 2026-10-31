@@ -19,9 +19,18 @@ type Normalized struct {
 // NormalizedTCPConfig holds the effective transport settings after validation.
 // Optional input settings have already been replaced by concrete defaults.
 type NormalizedTCPConfig struct {
-	ReceiveBufferBytes int                 `json:"receiveBufferBytes"`
-	RTO                NormalizedRTOConfig `json:"rto"`
-	ClientIdleTimeout  time.Duration       `json:"clientIdleTimeoutNanoseconds"`
+	ReceiveBufferBytes int                        `json:"receiveBufferBytes"`
+	RTO                NormalizedRTOConfig        `json:"rto"`
+	CongestionControl  NormalizedCongestionConfig `json:"congestionControl"`
+	ClientIdleTimeout  time.Duration              `json:"clientIdleTimeoutNanoseconds"`
+}
+
+// NormalizedCongestionConfig holds a checked starting window and growth policy.
+// For example, four 1,024-byte segments allow up to 4,096 bytes before ACKs return.
+type NormalizedCongestionConfig struct {
+	Mode                           string `json:"mode"`
+	InitialWindowSegments          int    `json:"initialWindowSegments"`
+	InitialSlowStartThresholdBytes uint64 `json:"initialSlowStartThresholdBytes"`
 }
 
 // NormalizedRTOConfig holds the checked timer policy used by each TCP sender.

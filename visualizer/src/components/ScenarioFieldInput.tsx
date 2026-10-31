@@ -11,10 +11,9 @@ import {
 } from '@mui/material';
 import type { ScenarioField } from '../scenarios/draft';
 import {
-  algorithmHelp,
   rtoBackoffHelp,
-  rtoModeHelp,
   scenarioNumericFields,
+  scenarioSelectFields,
 } from '../scenarios/formFields';
 import HelpTooltip from './HelpTooltip';
 
@@ -59,14 +58,9 @@ function ScenarioFieldInput({
     );
   }
 
-  if (name === 'algorithm' || name === 'rtoMode') {
-    const isAlgorithm = name === 'algorithm';
-    const label = isAlgorithm ? 'Initial algorithm' : 'Retransmission timing';
+  if (name === 'algorithm' || name === 'rtoMode' || name === 'congestionControl') {
+    const { label, help, options } = scenarioSelectFields[name];
     const labelID = `start-${name}-label`;
-    const help = isAlgorithm ? algorithmHelp : rtoModeHelp;
-    const options = isAlgorithm
-      ? [{ value: 'roundRobin', label: 'Round Robin' }, { value: 'random', label: 'Random' }]
-      : [{ value: 'adaptive', label: 'Adaptive RTT' }, { value: 'fixed', label: 'Fixed timeout' }];
 
     return (
       <FormControl fullWidth size="small" disabled={disabled} error={Boolean(error)}>

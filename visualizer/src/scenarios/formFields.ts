@@ -1,6 +1,9 @@
 import type { ScenarioField } from './draft';
 
-export type NumericScenarioField = Exclude<ScenarioField, 'algorithm' | 'rtoMode' | 'rtoBackoff'>;
+export type NumericScenarioField = Exclude<
+  ScenarioField,
+  'algorithm' | 'rtoMode' | 'rtoBackoff' | 'congestionControl'
+>;
 
 // Inputs keep their existing draft paths; these definitions only organize the form.
 export interface NumericFieldDefinition {
@@ -75,6 +78,27 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
       'The advertised window limits sent payload that has not yet been acknowledged. ' +
       'That includes data already received while its acknowledgement is still returning. ' +
       'This is separate from link queues and bandwidth.',
+  },
+  initialCongestionWindowSegments: {
+    name: 'initialCongestionWindowSegments',
+    label: 'Initial congestion window (segments)',
+    integer: true,
+    min: 1,
+    help:
+      'Initial limit on sent payload awaiting acknowledgements when Reno is enabled. ' +
+      'The default of four 1,024-byte segments allows 4,096 bytes in flight before ACKs return. ' +
+      'Values above four are experimental and exceed the selected RFC 5681 initial-window limit. ' +
+      'The receiver window can impose a smaller limit. Mode none ignores this setting.',
+  },
+  initialSlowStartThresholdBytes: {
+    name: 'initialSlowStartThresholdBytes',
+    label: 'Initial slow-start threshold (bytes)',
+    integer: true,
+    min: 2048,
+    help:
+      'Congestion-window size at which Reno switches from faster slow-start growth ' +
+      'to slower congestion avoidance. A retransmission timeout can lower this threshold. ' +
+      'Must be at least two 1,024-byte segments. Mode none ignores this setting.',
   },
   rtoInitialMs: {
     name: 'rtoInitialMs',
@@ -329,6 +353,37 @@ export const rtoBackoffHelp =
   'After a timeout, double the retry delay up to the maximum: for example, 1 s, 2 s, 4 s. ' +
   'Disable this to compare runs without timeout backoff. This does not enable congestion control.';
 
+// Select inputs share rendering while keeping each transport policy's explanation close by.
+export const scenarioSelectFields = {
+  algorithm: {
+    label: 'Initial algorithm',
+    help: algorithmHelp,
+    options: [
+      { value: 'roundRobin', label: 'Round Robin' },
+      { value: 'random', label: 'Random' },
+    ],
+  },
+  rtoMode: {
+    label: 'Retransmission timing',
+    help: rtoModeHelp,
+    options: [
+      { value: 'adaptive', label: 'Adaptive RTT' },
+      { value: 'fixed', label: 'Fixed timeout' },
+    ],
+  },
+  congestionControl: {
+    label: 'Congestion control',
+    help:
+      'Basic Reno adds slow start, congestion avoidance and a window reduction after a timeout. ' +
+      'Fast retransmit and fast recovery are not included yet. ' +
+      'Mode none retains the receive-window-only baseline; retransmission timers still apply.',
+    options: [
+      { value: 'reno', label: 'Reno (basic)' },
+      { value: 'none', label: 'None (receive window only)' },
+    ],
+  },
+};
+
 // Sections group existing settings without changing the native scenario document.
 export interface ScenarioFieldSection {
   id: string;
@@ -352,6 +407,13 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
     description: 'Set client arrivals, payload, receive buffering and pauses between segments.',
     fields: ['clients', 'clientGapMs', 'packets', 'bytes', 'packetGapMs', 'receiveBufferBytes'],
     defaultExpanded: true,
+  },
+  {
+    id: 'tcp-congestion',
+    title: 'TCP congestion control',
+    description: 'Limit data in flight and adjust the sender window as acknowledgements and timeouts arrive.',
+    fields: ['congestionControl', 'initialCongestionWindowSegments', 'initialSlowStartThresholdBytes'],
+    defaultExpanded: false,
   },
   {
     id: 'tcp-timers',

@@ -176,12 +176,15 @@ requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-adaptive-rto-v1` profile. `result.TCP.ReceiveBufferBytes`
+`tcp-reno-foundation-v1` profile. `result.TCP.ReceiveBufferBytes`
 records the effective receive-buffer limit, including an omitted input's default.
 `result.TCP.RTO` and `result.LBIdleTimeouts` record the effective timer policy.
 `result.ClientTimings` retains each created client's latest RTT estimates and RTO,
 including completed or removed clients. Duration fields ending in `Seconds` use
 virtual seconds; `Samples: 0` means no unambiguous RTT sample is available.
+`result.TCP.CongestionControl` records the effective sender policy, while
+`result.ClientCongestion` retains each created client's last window, threshold,
+phase and bytes in flight, including clients no longer present in the routing table.
 Build metadata records the Go/module versions,
 OS and architecture; VCS revision and modification status appear when available.
 
@@ -546,8 +549,9 @@ immediately; the existing transport reacts through its normal timers.
 For example, with access links at 10 Gbit/s and ingress at 1 Gbit/s, a sufficiently
 long actual input burst can overflow the client input FIFO. Configured access rates
 are maximum capacities, not guaranteed generation rates: clients may send only
-within the advertised receive window. With no congestion control,
-drop and retry results describe this simplified transport, not a validated TCP
+within the receive and congestion windows. Reno currently reacts to loss through
+RTO, with fast retransmit/recovery still deferred. Drop and retry results describe
+this simplified transport, not a validated TCP
 response to overload. LB packet handlers still have zero modeled CPU cost.
 
 The frontend has separate **LB ingress** settings for bandwidth, packet travel
@@ -604,7 +608,7 @@ positions instead of segment indices. `Size` remains the payload length, and
 positions by its length; SYN and FIN each consume one position, while pure ACK
 consumes none. The two directions keep separate sequence state.
 
-The `tcp-adaptive-rto-v1` profile uses logical `uint64` byte positions and
+The `tcp-reno-foundation-v1` profile uses logical `uint64` byte positions and
 fixed initial sequence numbers of zero. It does not model the 32-bit sequence
 number wraparound of real TCP. Large streams are checked against native integer
 limits rather than the former 32-bit segment-counter limit. Payload remains
@@ -636,8 +640,49 @@ this immediate-consumption profile.
 
 In-flight payload means data sent but not yet cumulatively acknowledged from
 the client's perspective. It can still be travelling or already be buffered
-by the backend while an ACK is returning or was lost. The receive window is
-the only current limit on this outstanding payload; `cwnd` is not modeled yet.
+by the backend while an ACK is returning or was lost. With the default Reno mode,
+new data must fit both the receiver's advertised window and the sender's `cwnd`.
+For example, `cwnd=4096 B` with `3072 B` still in flight permits another `1024 B`,
+provided the receiver also has enough window credit. Retrying already-sent bytes
+does not add another copy to this unique byte count. SYN/FIN positions are excluded;
+closing or terminated clients report zero pending payload after abandoning their queue.
+
+The **TCP congestion control** form section configures `tcp.congestionControl`:
+
+- `mode`: `reno` by default, or `none` for the earlier rwnd-only baseline;
+- `initialWindowSegments`: 4 by default, each with at most 1024 payload bytes;
+- `initialSlowStartThresholdBytes`: 65535 by default, with a minimum of 2048.
+
+Legacy CLI flags are `-tcp-congestion-control`, `-tcp-initial-window` and
+`-tcp-slow-start-threshold`. Omitted settings inherit these defaults. Larger
+custom startup windows are experimental; four segments is the selected RFC 5681
+initial limit for this model's MSS. To reproduce older rwnd-only experiments,
+select `none` explicitly; existing JSON files now inherit Reno.
+
+During slow start, each ACK confirming new data grows `cwnd` by
+`min(newly acknowledged bytes, MSS)`. At `cwnd >= ssthresh`, congestion avoidance
+counts newly confirmed bytes; confirming one window adds one MSS, at most once
+per ACK. A cumulative ACK is processed in one phase, so crossing the threshold
+cannot count that ACK again. Duplicate, stale and invalid ACKs do not grow the
+window. This is roughly exponential growth during slow start and linear growth
+during congestion avoidance when the sender fills its window.
+
+On the first data timeout for a segment, `ssthresh=max(FlightSize/2, 2*MSS)`;
+every data timeout sets `cwnd=MSS`. An original segment's retry marker survives
+partial ACKs, preventing repeated threshold reductions for the same trimmed suffix.
+Already-sent data remains in flight and can exceed the reduced window, blocking
+new data until enough is acknowledged. The oldest-fragment retry remains allowed.
+After a retried SYN, data starts with one MSS; a SYN-ACK itself never grows `cwnd`.
+Before sending after a data-send gap longer than the current RTO, the sender
+reduces `cwnd` to `min(initialWindow, cwnd)` and clears accumulated avoidance credit.
+The initial window here includes the one-MSS reduction after a SYN retry.
+This restart is independent of client/LB idle cleanup.
+
+These are the selected [RFC 5681, sections 3.1 and 4.1](https://www.rfc-editor.org/rfc/rfc5681.html)
+rules. The profile does not yet implement fast retransmit/recovery or full window
+validation for senders limited by workload pacing or `rwnd`. Client topology
+details expose bytes in flight and, in Reno mode, `cwnd` and `ssthresh`; disabled
+control omits those window limits rather than displaying a misleading zero.
 
 `packetGapNanoseconds` is the initial pause once both the connection and stream
 are ready, and the minimum interval between new data sends. An ACK does not
@@ -691,8 +736,8 @@ so expiry occurs at the next cleanup check. To observe long backoff, lengthen
 or disable competing idle limits; otherwise they may close the connection first.
 Keep these policies equal when comparing timer modes.
 
-Fast retransmit, server SYN-ACK timers, FIN retries, a complete TCP state machine,
-congestion control and UDP are deferred.
+Fast retransmit/recovery, server SYN-ACK timers, FIN retries, a complete TCP state
+machine, alternative congestion algorithms and UDP are deferred.
 The same-flow SYN generator remains a limited model, not a validated SYN flood.
 The L4 model has no application workers or business-operation queues.
 

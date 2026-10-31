@@ -77,7 +77,7 @@ func clientMetrics(client simulation.ClientObservation) []nodeMetric {
 		completed = 1
 	}
 	state := client.State
-	return []nodeMetric{
+	metrics := []nodeMetric{
 		{"payloadBytes", "Payload per stream", "bytes", float64(client.Config.Stream.Bytes), true},
 		{"acknowledgedPayloadBytes", "Payload confirmed by ACK", "bytes", float64(state.AcknowledgedPayloadBytes), false},
 		{"completedStreams", "Completed streams", "streams", completed, false},
@@ -86,7 +86,22 @@ func clientMetrics(client simulation.ClientObservation) []nodeMetric {
 		{"dataRetries", "Current segment retries", "retries", float64(state.RetryData), false},
 		{"synRetransmissions", "Cumulative SYN retransmissions", "packets", float64(state.Transfer.SynRetransmissions), false},
 		{"dataRetransmissions", "Cumulative data retransmissions", "packets", float64(state.Transfer.DataRetransmissions), false},
+		{"bytesInFlight", "Payload awaiting cumulative ACK", "bytes", float64(state.Congestion.BytesInFlight), false},
 	}
+	// Disabled congestion control has no cwnd; avoid displaying a false zero limit.
+	if state.Congestion.Mode == model.CongestionReno {
+		metrics = append(metrics,
+			nodeMetric{
+				key: "congestionWindowBytes", label: "Congestion window (cwnd)", unit: "bytes",
+				value: float64(state.Congestion.CongestionWindowBytes),
+			},
+			nodeMetric{
+				key: "slowStartThresholdBytes", label: "Slow-start threshold (ssthresh)", unit: "bytes",
+				value: float64(state.Congestion.SlowStartThresholdBytes),
+			},
+		)
+	}
+	return metrics
 }
 
 func metricDefinitions(metrics []nodeMetric) []contract.TopologyMetricDefinition {

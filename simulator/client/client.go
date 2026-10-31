@@ -29,6 +29,7 @@ type Client struct {
 	rto         rtoEstimator
 	rttProbe    roundTripProbe
 	idleTimeout time.Duration
+	congestion  congestionControl
 
 	nextSendSeq      uint64
 	oldestUnackedSeq uint64
@@ -89,6 +90,7 @@ func NewClient(
 		receiveWindowBytes: model.DefaultReceiveBufferBytes,
 		rto:                newRTOEstimator(model.DefaultRTOConfig()),
 		idleTimeout:        model.READ_DEADLINE,
+		congestion:         newCongestionControl(model.DefaultCongestionConfig()),
 		transfer:           transferMetrics{status: model.TransferInProgress},
 	}
 }
@@ -260,5 +262,6 @@ func (c *Client) GetState() model.ClientState {
 		AcknowledgedPayloadBytes: c.acknowledgedPayloadBytes,
 		Transfer:                 c.GetTransferState(),
 		RTO:                      c.GetRTOState(),
+		Congestion:               c.GetCongestionState(),
 	}
 }

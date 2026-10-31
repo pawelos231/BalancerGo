@@ -93,6 +93,7 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 	c.acknowledgedPayloadBytes += uint64(acknowledgedBytes)
 
 	c.pendingSegments.acknowledge(pkt.Ack)
+	c.congestion.acknowledge(uint64(acknowledgedBytes), pkt.Ack)
 	c.oldestSegmentRetransmissions = 0
 	c.cancelEvent(&c.dataTimer)
 	if c.pendingSegments.hasPending() {

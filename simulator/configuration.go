@@ -20,6 +20,7 @@ type configuration struct {
 	streamBytes              int
 	receiveBufferBytes       int
 	rto                      model.RTOConfig
+	congestion               model.CongestionConfig
 	clientIdleTimeout        *time.Duration
 	lbHalfOpenIdleTimeout    *time.Duration
 	lbEstablishedIdleTimeout *time.Duration
@@ -169,69 +170,6 @@ func readConfiguration() (configuration, error) {
 	return c, err
 }
 
-// registerTCPFlags keeps retry timing and idle cleanup independently configurable.
-func (c *configuration) registerTCPFlags() {
-	c.rto = model.DefaultRTOConfig()
-	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
-	c.clientIdleTimeout = &clientIdle
-	c.lbHalfOpenIdleTimeout = &halfOpenIdle
-	c.lbEstablishedIdleTimeout = &establishedIdle
-
-	flag.Func(
-		"tcp-rto-mode",
-		"TCP retransmission timing: fixed or adaptive (default adaptive)",
-		func(value string) error {
-			if value != string(model.RTOFixed) && value != string(model.RTOAdaptive) {
-				return errors.New("tcp.rto.mode: must be fixed or adaptive")
-			}
-			c.rto.Mode = model.RTOMode(value)
-			return nil
-		},
-	)
-	flag.BoolVar(
-		&c.rto.ExponentialBackoff,
-		"tcp-rto-backoff",
-		c.rto.ExponentialBackoff,
-		"double the retransmission delay after a timeout",
-	)
-	flag.DurationVar(
-		&c.rto.InitialTimeout,
-		"tcp-rto-initial",
-		c.rto.InitialTimeout,
-		"initial virtual TCP retransmission timeout",
-	)
-	flag.DurationVar(
-		&c.rto.MinimumTimeout,
-		"tcp-rto-minimum",
-		c.rto.MinimumTimeout,
-		"minimum virtual TCP retransmission timeout",
-	)
-	flag.DurationVar(
-		&c.rto.MaximumTimeout,
-		"tcp-rto-maximum",
-		c.rto.MaximumTimeout,
-		"maximum virtual TCP retransmission timeout",
-	)
-	flag.DurationVar(
-		c.clientIdleTimeout,
-		"tcp-idle-timeout",
-		clientIdle,
-		"client idle timeout; 0 disables idle cleanup",
-	)
-	flag.DurationVar(
-		c.lbHalfOpenIdleTimeout,
-		"lb-half-open-idle-timeout",
-		halfOpenIdle,
-		"LB half-open idle timeout; 0 disables cleanup",
-	)
-	flag.DurationVar(
-		c.lbEstablishedIdleTimeout,
-		"lb-established-idle-timeout",
-		establishedIdle,
-		"LB established idle timeout; 0 disables cleanup",
-	)
-}
-
 // checkFileOptions checks explicit paths and keeps JSON as the source of settings.
 // An empty scenario argument must fail rather than start the interactive server.
 func (c configuration) checkFileOptions() error {
@@ -309,30 +247,4 @@ func (c configuration) normalized() (configuration, error) {
 	c.streamBytes = resolved.DefaultStream.Bytes
 	c.receiveBufferBytes = resolved.TCP.ReceiveBufferBytes
 	return c, nil
-}
-
-// effectiveRTOConfig keeps older internal configurations on the shared TCP defaults.
-// A supplied mode marks a complete policy, including an explicit false backoff.
-func (c configuration) effectiveRTOConfig() model.RTOConfig {
-	if c.rto.Mode == "" {
-		return model.DefaultRTOConfig()
-	}
-	return c.rto
-}
-
-// effectiveIdleTimeouts distinguishes omitted limits from explicitly disabled zeroes.
-func (c configuration) effectiveIdleTimeouts() (client, halfOpen, established time.Duration) {
-	client = model.DefaultClientIdleTimeout
-	halfOpen = model.DefaultLBHalfOpenIdleTimeout
-	established = model.DefaultLBEstablishedIdleTimeout
-	if c.clientIdleTimeout != nil {
-		client = *c.clientIdleTimeout
-	}
-	if c.lbHalfOpenIdleTimeout != nil {
-		halfOpen = *c.lbHalfOpenIdleTimeout
-	}
-	if c.lbEstablishedIdleTimeout != nil {
-		established = *c.lbEstablishedIdleTimeout
-	}
-	return
 }

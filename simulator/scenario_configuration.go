@@ -15,6 +15,8 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 	}
 	rto := c.effectiveRTOConfig()
 	mode := string(rto.Mode)
+	congestion := c.effectiveCongestionConfig()
+	congestionMode := string(congestion.Mode)
 	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
 
 	backends := make([]scenario.BackendConfig, c.servers)
@@ -39,6 +41,11 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 				MaximumTimeout:     &rto.MaximumTimeout,
 			},
 			ClientIdleTimeout: &clientIdle,
+			CongestionControl: scenario.CongestionConfig{
+				Mode:                           &congestionMode,
+				InitialWindowSegments:          &congestion.InitialWindowSegments,
+				InitialSlowStartThresholdBytes: &congestion.InitialSlowStartThresholdBytes,
+			},
 		},
 		Execution: scenario.ExecutionConfig{
 			Duration:         c.duration,

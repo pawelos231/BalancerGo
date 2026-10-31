@@ -26,6 +26,7 @@ type Info struct {
 	Seed                     int64
 	ReceiveBufferBytes       int
 	RTO                      model.RTOConfig
+	CongestionControl        model.CongestionConfig
 	ClientIdleTimeout        time.Duration
 	LBHalfOpenIdleTimeout    time.Duration
 	LBEstablishedIdleTimeout time.Duration
@@ -80,6 +81,11 @@ func (s *World) Info() Info {
 		SnapshotInterval: s.scenario.Execution.SnapshotInterval,
 		Speed:            s.scenario.Execution.Speed, Seed: s.scenario.Execution.Seed,
 		ReceiveBufferBytes: s.scenario.TCP.ReceiveBufferBytes,
+		CongestionControl: model.CongestionConfig{
+			Mode:                           model.CongestionMode(s.scenario.TCP.CongestionControl.Mode),
+			InitialWindowSegments:          s.scenario.TCP.CongestionControl.InitialWindowSegments,
+			InitialSlowStartThresholdBytes: s.scenario.TCP.CongestionControl.InitialSlowStartThresholdBytes,
+		},
 		RTO: model.RTOConfig{
 			Mode:               model.RTOMode(s.scenario.TCP.RTO.Mode),
 			ExponentialBackoff: s.scenario.TCP.RTO.ExponentialBackoff,

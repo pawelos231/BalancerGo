@@ -94,31 +94,35 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		receiveBufferBytes = model.DefaultReceiveBufferBytes
 	}
 	rto := c.effectiveRTOConfig()
+	congestion := c.effectiveCongestionConfig()
 	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
 
 	return contract.SimulationConfig{
-		Clients:                    c.clients,
-		Servers:                    c.servers,
-		Packets:                    c.packets,
-		Bytes:                      c.streamBytes,
-		ReceiveBufferBytes:         receiveBufferBytes,
-		RTOMode:                    string(rto.Mode),
-		RTOBackoff:                 rto.ExponentialBackoff,
-		RTOInitialMs:               float64(rto.InitialTimeout) / float64(time.Millisecond),
-		RTOMinimumMs:               float64(rto.MinimumTimeout) / float64(time.Millisecond),
-		RTOMaximumMs:               float64(rto.MaximumTimeout) / float64(time.Millisecond),
-		ClientIdleTimeoutMs:        float64(clientIdle) / float64(time.Millisecond),
-		LBHalfOpenIdleTimeoutMs:    float64(halfOpenIdle) / float64(time.Millisecond),
-		LBEstablishedIdleTimeoutMs: float64(establishedIdle) / float64(time.Millisecond),
-		DurationSeconds:            float64(c.duration) / float64(time.Second),
-		ClientGapMs:                float64(c.clientGap) / float64(time.Millisecond),
-		PacketGapMs:                float64(c.packetGap) / float64(time.Millisecond),
-		SnapshotIntervalMs:         float64(c.snapshotInterval) / float64(time.Millisecond),
-		BandwidthBitsPerSecond:     c.bandwidth,
-		ForwardingBitsPerSecond:    c.forwardingBitsPerSecond,
-		PacketTravelTimeMs:         float64(c.packetTravelTime) / float64(time.Millisecond),
-		LinkQueue:                  c.queue,
-		Loss:                       c.loss,
+		Clients:                         c.clients,
+		Servers:                         c.servers,
+		Packets:                         c.packets,
+		Bytes:                           c.streamBytes,
+		ReceiveBufferBytes:              receiveBufferBytes,
+		CongestionControl:               string(congestion.Mode),
+		InitialCongestionWindowSegments: congestion.InitialWindowSegments,
+		InitialSlowStartThresholdBytes:  congestion.InitialSlowStartThresholdBytes,
+		RTOMode:                         string(rto.Mode),
+		RTOBackoff:                      rto.ExponentialBackoff,
+		RTOInitialMs:                    float64(rto.InitialTimeout) / float64(time.Millisecond),
+		RTOMinimumMs:                    float64(rto.MinimumTimeout) / float64(time.Millisecond),
+		RTOMaximumMs:                    float64(rto.MaximumTimeout) / float64(time.Millisecond),
+		ClientIdleTimeoutMs:             float64(clientIdle) / float64(time.Millisecond),
+		LBHalfOpenIdleTimeoutMs:         float64(halfOpenIdle) / float64(time.Millisecond),
+		LBEstablishedIdleTimeoutMs:      float64(establishedIdle) / float64(time.Millisecond),
+		DurationSeconds:                 float64(c.duration) / float64(time.Second),
+		ClientGapMs:                     float64(c.clientGap) / float64(time.Millisecond),
+		PacketGapMs:                     float64(c.packetGap) / float64(time.Millisecond),
+		SnapshotIntervalMs:              float64(c.snapshotInterval) / float64(time.Millisecond),
+		BandwidthBitsPerSecond:          c.bandwidth,
+		ForwardingBitsPerSecond:         c.forwardingBitsPerSecond,
+		PacketTravelTimeMs:              float64(c.packetTravelTime) / float64(time.Millisecond),
+		LinkQueue:                       c.queue,
+		Loss:                            c.loss,
 
 		IngressBandwidthBitsPerSecond: c.ingress.BandwidthBitsPerSecond,
 		IngressPacketTravelTimeMs:     float64(c.ingress.PacketTravelTime) / float64(time.Millisecond),
@@ -140,6 +144,15 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 	}
 	if c.RTOMode != string(model.RTOFixed) && c.RTOMode != string(model.RTOAdaptive) {
 		return configuration{}, errors.New("rtoMode must be fixed or adaptive")
+	}
+	if c.CongestionControl != string(model.CongestionNone) &&
+		c.CongestionControl != string(model.CongestionReno) {
+		return configuration{}, errors.New("congestionControl must be none or reno")
+	}
+	base.congestion = model.CongestionConfig{
+		Mode:                           model.CongestionMode(c.CongestionControl),
+		InitialWindowSegments:          c.InitialCongestionWindowSegments,
+		InitialSlowStartThresholdBytes: c.InitialSlowStartThresholdBytes,
 	}
 	base.rto.Mode = model.RTOMode(c.RTOMode)
 	base.rto.ExponentialBackoff = c.RTOBackoff

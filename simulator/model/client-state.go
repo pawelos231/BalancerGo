@@ -7,4 +7,5 @@ type ClientState struct {
 	AcknowledgedPayloadBytes uint64
 	Transfer                 TransferState
 	RTO                      RTOState
+	Congestion               CongestionState
 }

@@ -24,9 +24,18 @@ type Scenario struct {
 // TCPConfig separates transport timers and receive buffering from network links.
 // Omitted settings inherit defaults; a zero idle timeout disables idle cleanup.
 type TCPConfig struct {
-	ReceiveBufferBytes *int           `json:"receiveBufferBytes,omitempty"`
-	RTO                RTOConfig      `json:"rto"`
-	ClientIdleTimeout  *time.Duration `json:"clientIdleTimeoutNanoseconds,omitempty"`
+	ReceiveBufferBytes *int             `json:"receiveBufferBytes,omitempty"`
+	RTO                RTOConfig        `json:"rto"`
+	CongestionControl  CongestionConfig `json:"congestionControl"`
+	ClientIdleTimeout  *time.Duration   `json:"clientIdleTimeoutNanoseconds,omitempty"`
+}
+
+// CongestionConfig limits unacknowledged data as the sender learns network capacity.
+// Omitted fields use defaults; mode none keeps only the receiver's window limit.
+type CongestionConfig struct {
+	Mode                           *string `json:"mode,omitempty"`
+	InitialWindowSegments          *int    `json:"initialWindowSegments,omitempty"`
+	InitialSlowStartThresholdBytes *uint64 `json:"initialSlowStartThresholdBytes,omitempty"`
 }
 
 // RTOConfig controls how long the sender waits before retrying a missing ACK.

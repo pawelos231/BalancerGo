@@ -80,6 +80,9 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 			name: "omitted defaults",
 			wantTCP: contract.TCPConfig{
 				ReceiveBufferBytes: 65535,
+				CongestionControl: contract.CongestionConfig{
+					Mode: "reno", InitialWindowSegments: 4, InitialSlowStartThresholdBytes: 65535,
+				},
 				RTO: contract.RTOConfig{
 					Mode:                  "adaptive",
 					ExponentialBackoff:    true,
@@ -111,6 +114,9 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 			established: &establishedIdle,
 			wantTCP: contract.TCPConfig{
 				ReceiveBufferBytes: receiveBuffer,
+				CongestionControl: contract.CongestionConfig{
+					Mode: "reno", InitialWindowSegments: 4, InitialSlowStartThresholdBytes: 65535,
+				},
 				RTO: contract.RTOConfig{
 					Mode:                  "fixed",
 					ExponentialBackoff:    false,

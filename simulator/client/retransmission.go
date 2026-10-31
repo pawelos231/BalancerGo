@@ -111,6 +111,7 @@ func (c *Client) retransmitSyn() {
 	c.retrySyn++
 	c.transfer.synRetransmissions++
 	c.invalidateRTTProbe()
+	c.congestion.afterSYNRetry()
 	c.rto.backOff()
 	c.sendSyn()
 }
@@ -136,9 +137,11 @@ func (c *Client) retransmitData() {
 
 	c.oldestSegmentRetransmissions++
 	c.transfer.dataRetransmissions++
+	c.congestion.onDataTimeout(c.pendingSegments.oldest(), c.bytesInFlight())
 	c.invalidateRTTProbe()
 	c.rto.backOff()
 	c.armDataTimer()
+	c.congestion.recordDataSent(c.engine.Now())
 	c.emit(c.pendingSegments.oldest())
 }
 

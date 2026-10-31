@@ -22,6 +22,10 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 	if err != nil {
 		return NormalizedTCPConfig{}, err
 	}
+	congestion, err := normalizeCongestion(config.CongestionControl)
+	if err != nil {
+		return NormalizedTCPConfig{}, err
+	}
 	idleTimeout, err := normalizeIdleTimeout(
 		config.ClientIdleTimeout,
 		model.DefaultClientIdleTimeout,
@@ -34,6 +38,7 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 	return NormalizedTCPConfig{
 		ReceiveBufferBytes: capacity,
 		RTO:                rto,
+		CongestionControl:  congestion,
 		ClientIdleTimeout:  idleTimeout,
 	}, nil
 }

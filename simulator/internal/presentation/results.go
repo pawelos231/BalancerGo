@@ -58,6 +58,17 @@ func rtoState(state model.RTOState) contract.RTOState {
 	}
 }
 
+// congestionState copies transport counters without exposing the mutable sender.
+func congestionState(state model.CongestionState) contract.CongestionState {
+	return contract.CongestionState{
+		Mode:                    string(state.Mode),
+		CongestionWindowBytes:   state.CongestionWindowBytes,
+		SlowStartThresholdBytes: state.SlowStartThresholdBytes,
+		BytesInFlight:           state.BytesInFlight,
+		Phase:                   state.Phase,
+	}
+}
+
 func serverState(state model.ServerState) contract.ServerState {
 	return contract.ServerState{
 		ID:                     state.ID,
@@ -196,6 +207,11 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 		Seed:        info.Seed,
 		TCP: contract.TCPConfig{
 			ReceiveBufferBytes: info.ReceiveBufferBytes,
+			CongestionControl: contract.CongestionConfig{
+				Mode:                           string(info.CongestionControl.Mode),
+				InitialWindowSegments:          info.CongestionControl.InitialWindowSegments,
+				InitialSlowStartThresholdBytes: info.CongestionControl.InitialSlowStartThresholdBytes,
+			},
 			RTO: contract.RTOConfig{
 				Mode:                  string(info.RTO.Mode),
 				ExponentialBackoff:    info.RTO.ExponentialBackoff,
@@ -210,6 +226,7 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 			EstablishedIdleTimeoutSeconds: info.LBEstablishedIdleTimeout.Seconds(),
 		},
 		ClientTimings:            make([]contract.ClientTiming, 0, info.CreatedClients),
+		ClientCongestion:         make([]contract.ClientCongestion, 0, info.CreatedClients),
 		ScheduledClients:         info.ScheduledClients,
 		CreatedClients:           info.CreatedClients,
 		CompletedStreams:         info.CompletedStreams,
@@ -270,6 +287,10 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 		result.ClientTimings = append(result.ClientTimings, contract.ClientTiming{
 			ClientID: client.ID,
 			RTO:      rtoState(client.State.RTO),
+		})
+		result.ClientCongestion = append(result.ClientCongestion, contract.ClientCongestion{
+			ClientID: client.ID,
+			State:    congestionState(client.State.Congestion),
 		})
 		if slot, routed := slots[client.State.Key]; routed {
 			result.State.Servers[slot.server].Clients[slot.client] = clientState(client.State)

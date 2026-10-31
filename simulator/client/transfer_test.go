@@ -27,8 +27,18 @@ func newTransferHarness(t *testing.T) *transferHarness {
 	return h
 }
 
-// Keep the constructor's adaptive defaults, including its first 1 s timeout.
+// RTO tests keep adaptive timing but disable the separate congestion window.
 func newAdaptiveTransferHarness(t *testing.T) *transferHarness {
+	t.Helper()
+	h := newRenoTransferHarness(t)
+	config := model.DefaultCongestionConfig()
+	config.Mode = model.CongestionNone
+	h.client.SetCongestionConfig(config)
+	return h
+}
+
+// Keep the constructor's Reno and adaptive RTO defaults for congestion tests.
+func newRenoTransferHarness(t *testing.T) *transferHarness {
 	t.Helper()
 	e := engine.New(3 * time.Minute)
 	c := client.NewClient(e, "10.0.0.1", 1000, "10.0.0.2", 80, model.TCP)

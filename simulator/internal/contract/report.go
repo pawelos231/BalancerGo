@@ -106,6 +106,29 @@ type ClientTiming struct {
 	RTO      RTOState
 }
 
+// CongestionState reports the sender's window separately from link queue sizes.
+// In none mode the window/threshold are zero; BytesInFlight remains meaningful.
+type CongestionState struct {
+	Mode                    string
+	CongestionWindowBytes   uint64
+	SlowStartThresholdBytes uint64
+	BytesInFlight           uint64
+	Phase                   string
+}
+
+// ClientCongestion retains the last sender state after completion or cleanup.
+type ClientCongestion struct {
+	ClientID string
+	State    CongestionState
+}
+
+// CongestionConfig records the selected mode and configured startup settings.
+type CongestionConfig struct {
+	Mode                           string
+	InitialWindowSegments          int
+	InitialSlowStartThresholdBytes uint64
+}
+
 // RTOConfig records the effective timer policy, including resolved defaults.
 type RTOConfig struct {
 	Mode                  string
@@ -118,6 +141,7 @@ type RTOConfig struct {
 // TCPConfig records the effective transport settings, including input defaults.
 type TCPConfig struct {
 	ReceiveBufferBytes       int
+	CongestionControl        CongestionConfig
 	RTO                      RTOConfig
 	ClientIdleTimeoutSeconds float64
 }
@@ -132,12 +156,13 @@ type LBIdleTimeoutConfig struct {
 // SimulationResult preserves the legacy headless report, including PascalCase
 // fields outside its preexisting nested HTTP summaries and balancer state.
 type SimulationResult struct {
-	VirtualTime    string
-	WallTime       string
-	Seed           int64
-	TCP            TCPConfig
-	LBIdleTimeouts LBIdleTimeoutConfig
-	ClientTimings  []ClientTiming
+	VirtualTime      string
+	WallTime         string
+	Seed             int64
+	TCP              TCPConfig
+	LBIdleTimeouts   LBIdleTimeoutConfig
+	ClientTimings    []ClientTiming
+	ClientCongestion []ClientCongestion
 
 	ScheduledClients         int
 	CreatedClients           int
