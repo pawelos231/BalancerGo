@@ -27,7 +27,8 @@ func newClassicWindow(config model.CongestionConfig) classicWindow {
 // onACK grows slow start by at most one MSS per new ACK, then grows one MSS per window.
 // A cumulative 4096-byte ACK increases slow start by one MSS, not four.
 // https://www.rfc-editor.org/rfc/rfc5681.html#section-3.1
-func (window *classicWindow) onACK(_ time.Duration, newBytes uint64) {
+func (window *classicWindow) onACK(ack congestionACK) {
+	newBytes := ack.newBytes
 	if window.congestionWindowBytes < window.slowStartThresholdBytes {
 		increase := min(newBytes, uint64(model.SEGMENT_SIZE))
 		window.congestionWindowBytes = addCongestionBytes(window.congestionWindowBytes, increase)
@@ -80,6 +81,9 @@ func (window *classicWindow) state() congestionPolicyState {
 // A paced algorithm such as BBR can use send time/size to space later packets out.
 // Real stacks may add pacing to window-based algorithms too; these profiles do not.
 func (*classicWindow) onSent(time.Duration, int) {}
+
+// Reno/Tahoe keep their existing ACK growth even when workload or rwnd limits sending.
+func (*classicWindow) onSenderState(congestionSenderState) {}
 
 // we need to satisfy the polocy Tahoe does not react to duplicate ACK's
 func (*classicWindow) onDuplicateACK() {}

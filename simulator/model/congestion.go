@@ -7,6 +7,7 @@ const (
 	CongestionNone  CongestionMode = "none"
 	CongestionReno  CongestionMode = "reno"
 	CongestionTahoe CongestionMode = "tahoe"
+	CongestionCubic CongestionMode = "cubic"
 )
 
 // MaxCongestionWindowBytes keeps configuration and byte arithmetic within int64.
@@ -18,6 +19,7 @@ const MaxCongestionWindowBytes uint64 = 1<<63 - 1
 type CongestionConfig struct {
 	Mode                           CongestionMode
 	FastRetransmit                 bool
+	CubicFastConvergence           bool // CUBIC can release capacity faster when competing flows arrive.
 	InitialWindowSegments          int
 	InitialSlowStartThresholdBytes uint64
 }
@@ -28,6 +30,7 @@ func DefaultCongestionConfig() CongestionConfig {
 	return CongestionConfig{
 		Mode:                           CongestionReno,
 		FastRetransmit:                 true,
+		CubicFastConvergence:           true,
 		InitialWindowSegments:          4,
 		InitialSlowStartThresholdBytes: DefaultReceiveBufferBytes,
 	}

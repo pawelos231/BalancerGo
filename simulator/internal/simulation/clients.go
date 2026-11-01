@@ -128,6 +128,7 @@ func (s *World) startClient(
 	cl.SetCongestionConfig(model.CongestionConfig{
 		Mode:                           model.CongestionMode(congestion.Mode),
 		FastRetransmit:                 congestion.FastRetransmit,
+		CubicFastConvergence:           congestion.CubicFastConvergence,
 		InitialWindowSegments:          congestion.InitialWindowSegments,
 		InitialSlowStartThresholdBytes: congestion.InitialSlowStartThresholdBytes,
 	})

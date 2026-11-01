@@ -124,6 +124,7 @@ func scenarioSummary(resolved scenario.Normalized) contract.SimulationConfig {
 		ReceiveBufferBytes:              resolved.TCP.ReceiveBufferBytes,
 		CongestionControl:               resolved.TCP.CongestionControl.Mode,
 		FastRetransmit:                  resolved.TCP.CongestionControl.FastRetransmit,
+		CubicFastConvergence:            resolved.TCP.CongestionControl.CubicFastConvergence,
 		InitialCongestionWindowSegments: resolved.TCP.CongestionControl.InitialWindowSegments,
 		InitialSlowStartThresholdBytes:  resolved.TCP.CongestionControl.InitialSlowStartThresholdBytes,
 		RTOMode:                         string(resolved.TCP.RTO.Mode),

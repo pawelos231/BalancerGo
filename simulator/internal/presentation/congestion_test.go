@@ -21,6 +21,7 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 		{name: "defaults", mode: "reno", segments: 4, threshold: 65535},
 		{name: "custom Reno", mode: "reno", segments: 2, threshold: 4096},
 		{name: "Tahoe", mode: "tahoe", segments: 2, threshold: 4096},
+		{name: "CUBIC", mode: "cubic", segments: 2, threshold: 4096},
 		{name: "disabled", mode: "none", segments: 7, threshold: 8192},
 	}
 	for _, test := range tests {
@@ -79,6 +80,7 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 			wantConfig := contract.CongestionConfig{
 				Mode:                           test.mode,
 				FastRetransmit:                 test.mode != "none",
+				CubicFastConvergence:           true,
 				InitialWindowSegments:          test.segments,
 				InitialSlowStartThresholdBytes: test.threshold,
 			}

@@ -32,6 +32,7 @@ func (c *Client) queueSegment() {
 	if c.terminated || c.closing || !canSend {
 		return
 	}
+	c.observeSender()
 	if c.remainingPayloadBytesToConfirm == 0 {
 		c.finishStream()
 		return
@@ -70,6 +71,7 @@ func (c *Client) queueSegment() {
 		}
 
 		c.congestion.restartAfterIdle(c.engine.Now(), c.rto.state.CurrentRTO)
+		c.observeSender()
 
 		// Recheck credit: an ACK may have changed the window during the gap.
 		payloadBytes := c.nextPayloadSize()
@@ -90,6 +92,7 @@ func (c *Client) queueSegment() {
 		c.pendingSegments.append(packet)
 		c.recordPayloadStart()
 		c.updateNextSendTime()
+		c.observeSender()
 		c.startRTTProbe(packet)
 		if c.dataTimer == 0 {
 			c.armDataTimer()

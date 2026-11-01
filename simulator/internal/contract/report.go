@@ -128,6 +128,7 @@ type ClientCongestion struct {
 type CongestionConfig struct {
 	Mode                           string
 	FastRetransmit                 bool
+	CubicFastConvergence           bool
 	InitialWindowSegments          int
 	InitialSlowStartThresholdBytes uint64
 }

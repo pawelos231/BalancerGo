@@ -12,11 +12,15 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 	defaults := model.DefaultCongestionConfig()
 	resolved := NormalizedCongestionConfig{
 		Mode:                           string(defaults.Mode),
+		CubicFastConvergence:           defaults.CubicFastConvergence,
 		InitialWindowSegments:          defaults.InitialWindowSegments,
 		InitialSlowStartThresholdBytes: defaults.InitialSlowStartThresholdBytes,
 	}
 	if config.Mode != nil {
 		resolved.Mode = *config.Mode
+	}
+	if config.CubicFastConvergence != nil {
+		resolved.CubicFastConvergence = *config.CubicFastConvergence
 	}
 	if config.InitialWindowSegments != nil {
 		resolved.InitialWindowSegments = *config.InitialWindowSegments
@@ -27,19 +31,20 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 
 	validMode := resolved.Mode == string(model.CongestionNone) ||
 		resolved.Mode == string(model.CongestionReno) ||
-		resolved.Mode == string(model.CongestionTahoe)
+		resolved.Mode == string(model.CongestionTahoe) ||
+		resolved.Mode == string(model.CongestionCubic)
 	if !validMode {
-		return NormalizedCongestionConfig{}, fmt.Errorf("tcp.congestionControl.mode: must be none, reno or tahoe")
+		return NormalizedCongestionConfig{}, fmt.Errorf("tcp.congestionControl.mode: must be none, reno, tahoe or cubic")
 	}
 
-	// Reno and Tahoe detect losses early; each algorithm chooses its window response.
+	// Each enabled algorithm can detect losses early and choose its own window response.
 	resolved.FastRetransmit = resolved.Mode != string(model.CongestionNone) && defaults.FastRetransmit
 	if config.FastRetransmit != nil {
 		resolved.FastRetransmit = *config.FastRetransmit
 	}
 	if resolved.FastRetransmit && resolved.Mode == string(model.CongestionNone) {
 		return NormalizedCongestionConfig{}, fmt.Errorf(
-			"tcp.congestionControl.fastRetransmit: requires Reno or Tahoe congestion control",
+			"tcp.congestionControl.fastRetransmit: requires Reno, Tahoe or CUBIC congestion control",
 		)
 	}
 

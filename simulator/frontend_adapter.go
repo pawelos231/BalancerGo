@@ -105,6 +105,7 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		ReceiveBufferBytes:              receiveBufferBytes,
 		CongestionControl:               string(congestion.Mode),
 		FastRetransmit:                  congestion.FastRetransmit,
+		CubicFastConvergence:            congestion.CubicFastConvergence,
 		InitialCongestionWindowSegments: congestion.InitialWindowSegments,
 		InitialSlowStartThresholdBytes:  congestion.InitialSlowStartThresholdBytes,
 		RTOMode:                         string(rto.Mode),
@@ -148,12 +149,14 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 	}
 	if c.CongestionControl != string(model.CongestionNone) &&
 		c.CongestionControl != string(model.CongestionReno) &&
-		c.CongestionControl != string(model.CongestionTahoe) {
-		return configuration{}, errors.New("congestionControl must be none, reno or tahoe")
+		c.CongestionControl != string(model.CongestionTahoe) &&
+		c.CongestionControl != string(model.CongestionCubic) {
+		return configuration{}, errors.New("congestionControl must be none, reno, tahoe or cubic")
 	}
 	base.congestion = model.CongestionConfig{
 		Mode:                           model.CongestionMode(c.CongestionControl),
 		FastRetransmit:                 c.FastRetransmit,
+		CubicFastConvergence:           c.CubicFastConvergence,
 		InitialWindowSegments:          c.InitialCongestionWindowSegments,
 		InitialSlowStartThresholdBytes: c.InitialSlowStartThresholdBytes,
 	}

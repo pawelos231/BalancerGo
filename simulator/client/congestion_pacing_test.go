@@ -18,8 +18,8 @@ type deadlinePolicy struct {
 	deadlineOnACK time.Duration
 }
 
-func (policy *deadlinePolicy) onACK(now time.Duration, newBytes uint64) {
-	policy.congestionPolicy.onACK(now, newBytes)
+func (policy *deadlinePolicy) onACK(ack congestionACK) {
+	policy.congestionPolicy.onACK(ack)
 	policy.deadline = policy.deadlineOnACK
 }
 

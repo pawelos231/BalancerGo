@@ -653,18 +653,24 @@ closing or terminated clients report zero pending payload after abandoning their
 The **TCP congestion control** form section configures `tcp.congestionControl`:
 
 - `mode`: `reno` by default, `tahoe` for the historical loss-response comparison,
-  or `none` for the earlier rwnd-only baseline;
-- `fastRetransmit`: enabled by default for Reno and Tahoe; controls early retry
+  `cubic` for the selected RFC 9438 profile, or `none` for the rwnd-only baseline;
+- `fastRetransmit`: enabled by default for Reno, Tahoe and CUBIC; controls early retry
   after three duplicate ACKs. Reno uses fast recovery, while Tahoe restarts slow
-  start. With `none`, it defaults to disabled;
+  start. CUBIC uses the existing fast-recovery mechanism with its own reduction
+  factor. With `none`, it defaults to disabled;
+- `cubicFastConvergence`: enabled by default; lets CUBIC lower its remembered
+  window peak when a later loss suggests less capacity is available. Disable it
+  for an isolated single-flow experiment. The field is retained but has no
+  effect with another congestion-control mode;
 - `initialWindowSegments`: 4 by default, each with at most 1024 payload bytes;
 - `initialSlowStartThresholdBytes`: 65535 by default, with a minimum of 2048.
 
 Legacy CLI flags are `-tcp-congestion-control`, `-tcp-fast-retransmit`,
+`-tcp-cubic-fast-convergence`,
 `-tcp-initial-window` and `-tcp-slow-start-threshold`. Omitted settings inherit
 these defaults. `-tcp-fast-retransmit=false` keeps timeout-only recovery while
 retaining the selected algorithm's window rules. An explicit enabled flag
-requires Reno or Tahoe; selecting `none` alone disables it. Larger
+requires Reno, Tahoe or CUBIC; selecting `none` alone disables it. Larger
 custom startup windows are experimental; four segments is the selected RFC 5681
 initial limit for this model's MSS. To reproduce older rwnd-only experiments,
 select `none` explicitly; existing JSON files now inherit Reno.
@@ -714,6 +720,32 @@ to two on that ACK. The old-flight guard also protects Tahoe from repeated cuts.
 This is a documented Tahoe loss-response profile under the simulator's shared
 TCP assumptions, not a reconstruction of every historical TCP detail.
 See [RFC 3390](https://www.rfc-editor.org/rfc/rfc3390.html).
+
+CUBIC uses a versioned, bounded [RFC 9438](https://www.rfc-editor.org/rfc/rfc9438.html)
+profile: coefficient `C=0.4`, decrease factor `beta=0.7`, epoch-based cubic growth,
+the Reno-friendly estimate and configurable fast convergence. Its calculations
+use fractional segments internally; exported windows still count payload bytes.
+The target one SRTT ahead is bounded between the current window and 1.5 times
+that window. Only ACKs confirming new data increase the window; virtual time
+passing alone cannot send packets or grow cwnd.
+
+CUBIC uses the sender's smoothed RTT, not its RTO or a known link bandwidth.
+Workload pauses and receiver-window limitations stop growth and are excluded
+from the epoch clock, including pauses shorter than one RTO. Waiting for ACKs
+while the congestion window itself is full continues the epoch clock.
+
+On fast loss, the byte threshold is `max(floor(0.7*FlightSize), 2*MSS)`.
+The selected classic recovery mechanism temporarily adds three MSS and leaves
+recovery on the first advancing ACK. For example, 8192 bytes in flight produce
+a 5734-byte threshold and an 8806-byte recovery window. On timeout, cwnd falls
+to one MSS; repeated timeouts of the same original segment keep its threshold.
+The first congestion-avoidance epoch after RTO restarts at its current window
+with `K=0`, instead of reusing the earlier peak.
+
+This CUBIC profile keeps Reno-style startup and the simulator's existing classic
+recovery. HyStart++, SACK/NewReno, ECN and spurious-loss undo are not implemented
+by selecting CUBIC. The profile is not a claim of reproducing Linux CUBIC's
+complete TCP stack or offload behavior. Its receiver window is still unscaled.
 
 These are the selected [RFC 5681, sections 2, 3.1, 3.2 and 4.1](https://www.rfc-editor.org/rfc/rfc5681.html)
 rules for Reno. This is classic Reno: multiple gaps in one flight may still require RTO.

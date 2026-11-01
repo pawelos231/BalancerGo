@@ -1,10 +1,6 @@
 package client
 
-import (
-	"time"
-
-	"load-balancer/model"
-)
+import "load-balancer/model"
 
 // renoPolicy retains classic Reno's temporary inflation while a missing segment is repaired.
 // Shared TCP detects the third duplicate ACK and owns the retransmission itself.
@@ -16,14 +12,14 @@ type renoPolicy struct {
 
 // onACK exits recovery on its first advancing ACK, including a partial one.
 // With ssthresh=4096, that ACK leaves cwnd=4096 without another growth increment.
-func (policy *renoPolicy) onACK(now time.Duration, newBytes uint64) {
+func (policy *renoPolicy) onACK(ack congestionACK) {
 	if policy.activeRecovery {
 		policy.stopRecovery()
 		policy.congestionWindowBytes = policy.slowStartThresholdBytes
 		policy.avoidanceAcknowledgedBytes = 0
 		return
 	}
-	policy.classicWindow.onACK(now, newBytes)
+	policy.classicWindow.onACK(ack)
 }
 
 // onDuplicateACK permits another MSS after fast retransmit has already retried the head.

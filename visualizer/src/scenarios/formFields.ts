@@ -2,7 +2,8 @@ import type { ScenarioField } from './draft';
 
 export type NumericScenarioField = Exclude<
   ScenarioField,
-  'algorithm' | 'rtoMode' | 'rtoBackoff' | 'congestionControl' | 'fastRetransmit'
+  'algorithm' | 'rtoMode' | 'rtoBackoff' | 'congestionControl'
+  | 'fastRetransmit' | 'cubicFastConvergence'
 >;
 
 // Inputs keep their existing draft paths; these definitions only organize the form.
@@ -85,7 +86,7 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     integer: true,
     min: 1,
     help:
-      'Initial limit on sent payload awaiting acknowledgements with Reno or Tahoe. ' +
+      'Initial limit on sent payload awaiting acknowledgements with Reno, Tahoe or CUBIC. ' +
       'The default of four 1,024-byte segments allows 4,096 bytes in flight before ACKs return. ' +
       'Values above four are experimental and exceed the selected RFC 5681 initial-window limit. ' +
       'The receiver window can impose a smaller limit. Mode none ignores this setting.',
@@ -96,7 +97,7 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     integer: true,
     min: 2048,
     help:
-      'Congestion-window size at which Reno or Tahoe switches from faster slow-start growth ' +
+      'Congestion-window threshold for switching from faster slow-start growth ' +
       'to slower congestion avoidance. A retransmission timeout can lower this threshold. ' +
       'Must be at least two 1,024-byte segments. Mode none ignores this setting.',
   },
@@ -375,11 +376,13 @@ export const scenarioSelectFields = {
     label: 'Congestion control',
     help:
       'Reno and Tahoe grow the sender window during successful transfers. ' +
-      'After fast retransmit, Reno uses fast recovery; Tahoe restarts slow start. ' +
+      'CUBIC uses elapsed virtual time to shape window growth. ' +
+      'After fast retransmit, Reno/CUBIC use fast recovery; Tahoe restarts slow start. ' +
       'Mode none retains the receive-window-only baseline; retransmission timers still apply.',
     options: [
       { value: 'reno', label: 'Reno' },
       { value: 'tahoe', label: 'Tahoe' },
+      { value: 'cubic', label: 'CUBIC' },
       { value: 'none', label: 'None (receive window only)' },
     ],
   },
@@ -387,8 +390,19 @@ export const scenarioSelectFields = {
     label: 'Fast retransmit',
     help:
       'Three duplicate ACKs retry missing data before the timeout. ' +
-      'Reno uses fast recovery; Tahoe restarts slow start with one segment. ' +
-      'Requires Reno or Tahoe; disable this to compare with timeout-only recovery.',
+      'Reno/CUBIC use fast recovery; Tahoe restarts slow start with one segment. ' +
+      'Requires Reno, Tahoe or CUBIC; disable this to compare with timeout-only recovery.',
+    options: [
+      { value: 'true', label: 'Enabled' },
+      { value: 'false', label: 'Disabled' },
+    ],
+  },
+  cubicFastConvergence: {
+    label: 'CUBIC fast convergence',
+    help:
+      'When competing flows reduce available capacity, CUBIC lowers its remembered window peak ' +
+      'to make room sooner. Disable this for an isolated single-flow experiment. ' +
+      'This setting has no effect with Reno, Tahoe or none.',
     options: [
       { value: 'true', label: 'Enabled' },
       { value: 'false', label: 'Disabled' },
@@ -425,7 +439,7 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
     title: 'TCP congestion control',
     description: 'Limit data in flight and adjust the sender window as acknowledgements and timeouts arrive.',
     fields: [
-      'congestionControl', 'fastRetransmit',
+      'congestionControl', 'fastRetransmit', 'cubicFastConvergence',
       'initialCongestionWindowSegments', 'initialSlowStartThresholdBytes',
     ],
     defaultExpanded: false,

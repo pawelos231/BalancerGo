@@ -7,7 +7,11 @@ import "time"
 type congestionPolicy interface {
 	// New payload bytes were ACKed; update the window and phase.
 	// Example: Reno in slow start grows cwnd from 4 to 5 MSS after a 1-MSS ACK.
-	onACK(now time.Duration, newBytes uint64)
+	onACK(congestionACK)
+
+	// Observe whether workload gaps or rwnd prevent using the congestion window.
+	// Example: CUBIC pauses its growth clock during a known 10 ms workload gap.
+	onSenderState(congestionSenderState)
 
 	// A valid duplicate ACK arrived without confirming new bytes.
 	// Example: Reno may add one MSS to cwnd while already in fast recovery.
@@ -44,6 +48,23 @@ type congestionPolicyState struct {
 	nextSendAt     time.Duration
 }
 
+// congestionACK contains sender measurements, not information about remote links.
+type congestionACK struct {
+	at          time.Duration
+	newBytes    uint64
+	smoothedRTT time.Duration
+}
+
+// congestionSenderState describes why new data might have to wait.
+// readyAt ends a known workload gap; no backlog or a small rwnd can last longer.
+type congestionSenderState struct {
+	at                 time.Duration
+	readyAt            time.Duration
+	hasData            bool
+	flightBytes        uint64
+	receiveWindowBytes uint64
+}
+
 // congestionLossKind tells the policy whether loss was detected by ACKs, RTO or handshake retry.
 type congestionLossKind uint8
 
@@ -66,12 +87,13 @@ type congestionLoss struct {
 // The frontend exposes this policy as "none" in the congestion-control selector.
 type unlimitedPolicy struct{}
 
-func (unlimitedPolicy) onACK(time.Duration, uint64) {}
-func (unlimitedPolicy) onDuplicateACK()             {}
-func (unlimitedPolicy) onLoss(congestionLoss)       {}
-func (unlimitedPolicy) onSent(time.Duration, int)   {}
-func (unlimitedPolicy) onIdle()                     {}
-func (unlimitedPolicy) stopRecovery()               {}
+func (unlimitedPolicy) onACK(congestionACK)                 {}
+func (unlimitedPolicy) onSenderState(congestionSenderState) {}
+func (unlimitedPolicy) onDuplicateACK()                     {}
+func (unlimitedPolicy) onLoss(congestionLoss)               {}
+func (unlimitedPolicy) onSent(time.Duration, int)           {}
+func (unlimitedPolicy) onIdle()                             {}
+func (unlimitedPolicy) stopRecovery()                       {}
 func (unlimitedPolicy) state() congestionPolicyState {
 	return congestionPolicyState{phase: "disabled"}
 }

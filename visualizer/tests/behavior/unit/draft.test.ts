@@ -89,6 +89,7 @@ test('older scenarios display Reno defaults without changing the native document
   const fields = scenarioFormValues(scenario);
   assert.equal(fields.congestionControl, 'reno');
   assert.equal(fields.fastRetransmit, 'true');
+  assert.equal(fields.cubicFastConvergence, 'true');
   assert.equal(fields.initialCongestionWindowSegments, '4');
   assert.equal(fields.initialSlowStartThresholdBytes, '65535');
   assert.deepEqual(scenario, before);
@@ -137,7 +138,7 @@ test('fast recovery follows Reno defaults and preserves an explicit disabled set
   // Switching off Reno disables its dependent policy; turning Reno back on keeps false.
   const none = applyScenarioField(original, 'congestionControl', 'none');
   assert.equal(scenarioFormValues(none).fastRetransmit, 'false');
-  assert.throws(() => applyScenarioField(none, 'fastRetransmit', 'true'), /requires Reno or Tahoe/);
+  assert.throws(() => applyScenarioField(none, 'fastRetransmit', 'true'), /requires Reno, Tahoe or CUBIC/);
   const reno = applyScenarioField(none, 'congestionControl', 'reno');
   assert.equal(scenarioFormValues(reno).fastRetransmit, 'false');
   const enabled = applyScenarioField(reno, 'fastRetransmit', 'true');
@@ -179,9 +180,34 @@ test('Tahoe edits inherit early retransmit and preserve an explicit disabled cho
   assert.deepEqual(original, before);
 });
 
+test('CUBIC edits preserve its convergence setting across native JSON and mode changes', () => {
+  const original = mixedScenario();
+  const before = structuredClone(original);
+
+  const cubic = applyScenarioField(original, 'congestionControl', 'cubic');
+  assert.equal(scenarioFormValues(cubic).fastRetransmit, 'true');
+  assert.equal(scenarioFormValues(cubic).cubicFastConvergence, 'true');
+  assert.equal(cubic.tcp?.congestionControl?.cubicFastConvergence, undefined);
+
+  // A single-flow experiment keeps this explicit false through export/import.
+  const disabled = applyScenarioField(cubic, 'cubicFastConvergence', 'false');
+  assert.deepEqual(disabled.network, original.network);
+  assert.deepEqual(disabled.workload, original.workload);
+  const imported = JSON.parse(JSON.stringify(disabled));
+  assert.equal(imported.tcp.congestionControl.cubicFastConvergence, false);
+  const reno = applyScenarioField(imported, 'congestionControl', 'reno');
+  const selectedAgain = applyScenarioField(reno, 'congestionControl', 'cubic');
+  assert.equal(scenarioFormValues(selectedAgain).cubicFastConvergence, 'false');
+  assert.equal(scenarioFormValues(selectedAgain).congestionControl, 'cubic');
+  assert.deepEqual(selectedAgain.network, imported.network);
+  assert.deepEqual(selectedAgain.workload, imported.workload);
+  assert.deepEqual(original, before);
+  assert.ok(validateScenarioField('cubicFastConvergence', '1'));
+});
+
 test('congestion validation keeps segment multiplication and threshold byte counts in range', () => {
   const invalid: [ScenarioField, string][] = [
-    ['congestionControl', 'cubic'], ['congestionControl', ''],
+    ['congestionControl', 'bbr'], ['congestionControl', ''],
     ['initialCongestionWindowSegments', '0'], ['initialCongestionWindowSegments', '1.5'],
     ['initialCongestionWindowSegments', '9007199254740992'],
     ['initialSlowStartThresholdBytes', '0'], ['initialSlowStartThresholdBytes', '2047'],

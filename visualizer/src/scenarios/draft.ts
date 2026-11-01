@@ -23,6 +23,7 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   receiveBufferBytes: ['tcp', 'receiveBufferBytes'],
   congestionControl: ['tcp', 'congestionControl', 'mode'],
   fastRetransmit: ['tcp', 'congestionControl', 'fastRetransmit'],
+  cubicFastConvergence: ['tcp', 'congestionControl', 'cubicFastConvergence'],
   initialCongestionWindowSegments: ['tcp', 'congestionControl', 'initialWindowSegments'],
   initialSlowStartThresholdBytes: ['tcp', 'congestionControl', 'initialSlowStartThresholdBytes'],
   rtoMode: ['tcp', 'rto', 'mode'],
@@ -73,6 +74,7 @@ const positiveFields = new Set<ScenarioField>([
 const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>> = {
   receiveBufferBytes: 65535,
   congestionControl: 'reno',
+  cubicFastConvergence: true,
   initialCongestionWindowSegments: 4,
   initialSlowStartThresholdBytes: 65535,
   rtoMode: 'adaptive',
@@ -127,14 +129,17 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
     return text === 'fixed' || text === 'adaptive' ? undefined : 'Choose fixed or adaptive timing.';
   }
   if (field === 'congestionControl') {
-    const valid = text === 'none' || text === 'reno' || text === 'tahoe';
-    return valid ? undefined : 'Choose none, Reno or Tahoe congestion control.';
+    const valid = text === 'none' || text === 'reno' || text === 'tahoe' || text === 'cubic';
+    return valid ? undefined : 'Choose none, Reno, Tahoe or CUBIC congestion control.';
   }
   if (field === 'rtoBackoff') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether timeout backoff is enabled.';
   }
   if (field === 'fastRetransmit') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether fast retransmit is enabled.';
+  }
+  if (field === 'cubicFastConvergence') {
+    return text === 'true' || text === 'false' ? undefined : 'Choose whether CUBIC fast convergence is enabled.';
   }
   if (floatFields.has(field)) {
     const value = Number(text);
@@ -208,7 +213,7 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
   if (error) throw new Error(error);
   const mode = scenario.tcp?.congestionControl?.mode ?? 'reno';
   if (field === 'fastRetransmit' && raw.trim() === 'true' && mode === 'none') {
-    throw new Error('Fast retransmit requires Reno or Tahoe congestion control.');
+    throw new Error('Fast retransmit requires Reno, Tahoe or CUBIC congestion control.');
   }
   const updated = structuredClone(scenario);
   if (field === 'clients') {
@@ -230,8 +235,11 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     let value: ExactInteger | boolean;
     if (field === 'algorithm' || field === 'rtoMode' || field === 'congestionControl') {
       value = raw.trim();
-    } else if (field === 'rtoBackoff' || field === 'fastRetransmit') value = raw.trim() === 'true';
-    else if (floatFields.has(field)) value = Number(raw);
+    } else if (
+      field === 'rtoBackoff' || field === 'fastRetransmit' || field === 'cubicFastConvergence'
+    ) {
+      value = raw.trim() === 'true';
+    } else if (floatFields.has(field)) value = Number(raw);
     else {
       const decimals = timeDecimals[field];
       const parsed = decimals === undefined ? BigInt(raw) : duration(raw, decimals);

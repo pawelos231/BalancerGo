@@ -12,8 +12,9 @@ export type ScenarioLinkPatch = Partial<ScenarioLinkConfig>;
 
 // The initial window counts segments; the slow-start threshold counts payload bytes.
 export interface ScenarioCongestionConfig {
-  mode: 'none' | 'reno' | 'tahoe';
+  mode: 'none' | 'reno' | 'tahoe' | 'cubic';
   fastRetransmit: boolean;
+  cubicFastConvergence: boolean;
   initialWindowSegments: ExactInteger;
   initialSlowStartThresholdBytes: ExactInteger;
 }

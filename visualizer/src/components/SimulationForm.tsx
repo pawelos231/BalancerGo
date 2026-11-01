@@ -154,6 +154,8 @@ function SimulationForm({
                             error={errors[name]}
                             disabled={fieldsDisabled || (
                               name === 'fastRetransmit' && values.congestionControl === 'none'
+                            ) || (
+                              name === 'cubicFastConvergence' && values.congestionControl !== 'cubic'
                             )}
                             onChange={onChange}
                             onFocus={onFocus}

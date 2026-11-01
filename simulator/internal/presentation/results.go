@@ -212,6 +212,7 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 			CongestionControl: contract.CongestionConfig{
 				Mode:                           string(info.CongestionControl.Mode),
 				FastRetransmit:                 info.CongestionControl.FastRetransmit,
+				CubicFastConvergence:           info.CongestionControl.CubicFastConvergence,
 				InitialWindowSegments:          info.CongestionControl.InitialWindowSegments,
 				InitialSlowStartThresholdBytes: info.CongestionControl.InitialSlowStartThresholdBytes,
 			},

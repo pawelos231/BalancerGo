@@ -35,6 +35,7 @@ type TCPConfig struct {
 type CongestionConfig struct {
 	Mode                           *string `json:"mode,omitempty"`
 	FastRetransmit                 *bool   `json:"fastRetransmit,omitempty"`
+	CubicFastConvergence           *bool   `json:"cubicFastConvergence,omitempty"`
 	InitialWindowSegments          *int    `json:"initialWindowSegments,omitempty"`
 	InitialSlowStartThresholdBytes *uint64 `json:"initialSlowStartThresholdBytes,omitempty"`
 }

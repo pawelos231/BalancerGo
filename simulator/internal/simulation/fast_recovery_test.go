@@ -8,19 +8,35 @@ import (
 )
 
 // Drop [1,1025) once: later segments create duplicate ACKs through the full network.
-// Reno and Tahoe repair it before RTO, but expose different windows at the retry.
+// Each algorithm repairs it before RTO, but exposes its own window at the retry.
 func TestWorldCongestionStrategiesRecoverSamePayload(t *testing.T) {
 	tests := []struct {
 		name           string
 		mode           string
 		fastRetransmit bool
 		retryWindow    uint64
+		retryThreshold uint64
 		retryPhase     string
 	}{
-		{"Reno fast recovery", "reno", true, 7 * model.SEGMENT_SIZE, "fastRecovery"},
-		{"Tahoe slow start", "tahoe", true, model.SEGMENT_SIZE, "slowStart"},
-		{"Reno timeout only", "reno", false, 0, ""},
-		{"Tahoe timeout only", "tahoe", false, 0, ""},
+		{
+			name: "Reno fast recovery", mode: "reno", fastRetransmit: true,
+			retryWindow: 7 * model.SEGMENT_SIZE, retryThreshold: 4 * model.SEGMENT_SIZE,
+			retryPhase: "fastRecovery",
+		},
+		{
+			name: "Tahoe slow start", mode: "tahoe", fastRetransmit: true,
+			retryWindow: model.SEGMENT_SIZE, retryThreshold: 4 * model.SEGMENT_SIZE,
+			retryPhase: "slowStart",
+		},
+		{
+			// 70% of 8192 bytes rounds down to 5734; recovery adds three MSS.
+			name: "CUBIC fast recovery", mode: "cubic", fastRetransmit: true,
+			retryWindow: 5734 + 3*model.SEGMENT_SIZE, retryThreshold: 5734,
+			retryPhase: "fastRecovery",
+		},
+		{name: "Reno timeout only", mode: "reno"},
+		{name: "Tahoe timeout only", mode: "tahoe"},
+		{name: "CUBIC timeout only", mode: "cubic"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -59,7 +75,7 @@ func TestWorldCongestionStrategiesRecoverSamePayload(t *testing.T) {
 				if retryState.Mode != model.CongestionMode(test.mode) ||
 					retryState.Phase != test.retryPhase || retryState.FastRetransmissions != 1 ||
 					retryState.CongestionWindowBytes != test.retryWindow ||
-					retryState.SlowStartThresholdBytes != 4*model.SEGMENT_SIZE ||
+					retryState.SlowStartThresholdBytes != test.retryThreshold ||
 					retryState.BytesInFlight != 8*model.SEGMENT_SIZE {
 					t.Fatalf("state before fast retry = %+v", retryState)
 				}

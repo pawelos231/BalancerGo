@@ -20,6 +20,7 @@ func TestCongestionDefaultsAndDocumentRoundTrip(t *testing.T) {
 	congestion := resolved.TCP.CongestionControl
 	if congestion.Mode != string(defaults.Mode) ||
 		congestion.FastRetransmit != defaults.FastRetransmit ||
+		congestion.CubicFastConvergence != defaults.CubicFastConvergence ||
 		congestion.InitialWindowSegments != defaults.InitialWindowSegments ||
 		congestion.InitialSlowStartThresholdBytes != defaults.InitialSlowStartThresholdBytes {
 		t.Fatalf("unexpected congestion defaults: %+v", congestion)
@@ -143,11 +144,11 @@ func TestTahoeCongestionSettingsRoundTrip(t *testing.T) {
 
 func TestCongestionValidation(t *testing.T) {
 	// Zero is invalid even in mode none, so enabling Reno later cannot reveal bad settings.
-	for _, mode := range []string{"none", "reno", "tahoe", "", "cubic"} {
+	for _, mode := range []string{"none", "reno", "tahoe", "cubic", "", "bbr"} {
 		input := exampleScenario()
 		input.TCP.CongestionControl.Mode = pointer(mode)
 		_, err := scenario.Normalize(input)
-		valid := mode == "none" || mode == "reno" || mode == "tahoe"
+		valid := mode == "none" || mode == "reno" || mode == "tahoe" || mode == "cubic"
 		if (err == nil) != valid {
 			t.Fatalf("mode %q: error %v", mode, err)
 		}

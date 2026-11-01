@@ -44,6 +44,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 			CongestionControl: scenario.CongestionConfig{
 				Mode:                           &congestionMode,
 				FastRetransmit:                 &congestion.FastRetransmit,
+				CubicFastConvergence:           &congestion.CubicFastConvergence,
 				InitialWindowSegments:          &congestion.InitialWindowSegments,
 				InitialSlowStartThresholdBytes: &congestion.InitialSlowStartThresholdBytes,
 			},

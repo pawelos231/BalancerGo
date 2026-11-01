@@ -11,7 +11,8 @@ func TestConfigurationCongestionRoundTrip(t *testing.T) {
 	defaults := legacyTestConfiguration()
 	requested := defaults.publicConfig()
 	if requested.CongestionControl != "reno" || requested.InitialCongestionWindowSegments != 4 ||
-		requested.InitialSlowStartThresholdBytes != 65535 || !requested.FastRetransmit {
+		requested.InitialSlowStartThresholdBytes != 65535 || !requested.FastRetransmit ||
+		!requested.CubicFastConvergence {
 		t.Fatal("older configurations lost the shared congestion-control defaults")
 	}
 
@@ -84,6 +85,20 @@ func TestFastRetransmitCLIFlag(t *testing.T) {
 		enabled bool
 	}{
 		{name: "Reno default", enabled: true},
+		{
+			name:    "CUBIC default",
+			flags:   []string{"-tcp-congestion-control", "cubic"},
+			enabled: true,
+		},
+		{
+			name:  "CUBIC explicit disable",
+			flags: []string{"-tcp-congestion-control", "cubic", "-tcp-fast-retransmit=false"},
+		},
+		{
+			name:    "CUBIC explicit enable before mode",
+			flags:   []string{"-tcp-fast-retransmit=true", "-tcp-congestion-control", "cubic"},
+			enabled: true,
+		},
 		{
 			name:    "Tahoe default",
 			flags:   []string{"-tcp-congestion-control", "tahoe"},
@@ -178,12 +193,60 @@ func TestCongestionCLIFlags(t *testing.T) {
 
 	for _, arguments := range [][]string{
 		{"-tcp-congestion-control", ""},
-		{"-tcp-congestion-control", "cubic"},
+		{"-tcp-congestion-control", "bbr"},
 		{"-tcp-initial-window", "0"},
 		{"-tcp-slow-start-threshold", "2047"},
 	} {
 		if _, err := readTestConfiguration(t, arguments...); err == nil {
 			t.Fatalf("invalid congestion flags accepted: %v", arguments)
+		}
+	}
+}
+
+// CUBIC settings use the same native/flat paths, including disabled fast convergence.
+func TestConfigurationCubicRoundTrip(t *testing.T) {
+	for _, fastConvergence := range []bool{true, false} {
+		defaults := legacyTestConfiguration()
+		requested := defaults.publicConfig()
+		requested.Bytes = 4096
+		requested.CongestionControl = "cubic"
+		requested.CubicFastConvergence = fastConvergence
+
+		runtime, err := configurationFromPublic(requested, defaults)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if restored := runtime.publicConfig(); restored != requested {
+			t.Fatalf("CUBIC settings changed in the flat form: %+v", restored)
+		}
+		resolved, err := scenario.Normalize(runtime.scenarioDefinition())
+		if err != nil {
+			t.Fatal(err)
+		}
+		config := resolved.TCP.CongestionControl
+		if config.Mode != "cubic" || config.CubicFastConvergence != fastConvergence {
+			t.Fatalf("native scenario lost CUBIC settings: %+v", config)
+		}
+		summary := scenarioSummary(resolved)
+		if summary.CongestionControl != "cubic" || summary.CubicFastConvergence != fastConvergence {
+			t.Fatalf("flat summary lost CUBIC settings: %+v", summary)
+		}
+	}
+}
+
+// A single-flow CLI experiment can disable convergence without changing early retry.
+func TestCubicFastConvergenceCLIFlag(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"-tcp-congestion-control", "cubic", "-tcp-cubic-fast-convergence=false"},
+		{"-tcp-cubic-fast-convergence=false", "-tcp-congestion-control", "cubic"},
+	} {
+		cfg, err := readTestConfiguration(t, arguments...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config := cfg.effectiveCongestionConfig()
+		if config.Mode != model.CongestionCubic || config.CubicFastConvergence || !config.FastRetransmit {
+			t.Fatalf("unexpected CUBIC CLI settings: %+v", config)
 		}
 	}
 }

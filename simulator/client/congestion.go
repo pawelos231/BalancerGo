@@ -25,7 +25,8 @@ type congestionControl struct {
 func newCongestionControl(config model.CongestionConfig) congestionControl {
 	validMode := config.Mode == model.CongestionNone ||
 		config.Mode == model.CongestionReno ||
-		config.Mode == model.CongestionTahoe
+		config.Mode == model.CongestionTahoe ||
+		config.Mode == model.CongestionCubic
 
 	// Start with at least one segment, without exceeding the byte limit.
 	maximumInitialSegments := model.MaxCongestionWindowBytes / model.SEGMENT_SIZE
@@ -51,6 +52,8 @@ func newCongestionControl(config model.CongestionConfig) congestionControl {
 		policy = &renoPolicy{classicWindow: newClassicWindow(config)}
 	case model.CongestionTahoe:
 		policy = &tahoePolicy{classicWindow: newClassicWindow(config)}
+	case model.CongestionCubic:
+		policy = newCubicPolicy(config)
 	case model.CongestionNone:
 		policy = unlimitedPolicy{}
 	}
@@ -106,7 +109,10 @@ func (c *Client) availableCongestionWindowBytes() uint64 {
 // acknowledge handles an ACK that confirms new data and resets the duplicate ACK count.
 // Example: ACK=2049 confirms bytes through 2048, so a retried segment ending at 1025 is done.
 // The selected algorithm then updates cwnd using the newly confirmed bytes.
-func (control *congestionControl) acknowledge(newBytes, ack uint64, now time.Duration) {
+func (control *congestionControl) acknowledge(
+	newBytes, ack uint64,
+	now, smoothedRTT time.Duration,
+) {
 	if control.timedOutSegmentEnd != 0 && ack >= control.timedOutSegmentEnd {
 		control.timedOutSegmentEnd = 0
 	}
@@ -114,7 +120,18 @@ func (control *congestionControl) acknowledge(newBytes, ack uint64, now time.Dur
 	if control.loss.untilSeq != 0 && ack >= control.loss.untilSeq {
 		control.loss.untilSeq = 0
 	}
-	control.policy.onACK(now, newBytes)
+	control.policy.onACK(congestionACK{at: now, newBytes: newBytes, smoothedRTT: smoothedRTT})
+}
+
+// observeSender tells the policy about local demand without exposing the client itself.
+func (c *Client) observeSender() {
+	c.congestion.policy.onSenderState(congestionSenderState{
+		at:                 c.engine.Now(),
+		readyAt:            c.nextNewSegmentAt,
+		hasData:            c.unsentPayloadBytes > 0,
+		flightBytes:        c.bytesInFlight(),
+		receiveWindowBytes: uint64(c.peerReceiveWindow),
+	})
 }
 
 // onDataTimeout keeps RTO accounting separate from a prior fast retransmission.

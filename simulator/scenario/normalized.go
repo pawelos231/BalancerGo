@@ -30,6 +30,7 @@ type NormalizedTCPConfig struct {
 type NormalizedCongestionConfig struct {
 	Mode                           string `json:"mode"`
 	FastRetransmit                 bool   `json:"fastRetransmit"`
+	CubicFastConvergence           bool   `json:"cubicFastConvergence"`
 	InitialWindowSegments          int    `json:"initialWindowSegments"`
 	InitialSlowStartThresholdBytes uint64 `json:"initialSlowStartThresholdBytes"`
 }
