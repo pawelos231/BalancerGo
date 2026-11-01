@@ -874,5 +874,27 @@ may produce a zero window followed by a burst when it finishes.
 Run `go test ./...` from `simulator/`. From `visualizer/`, run `npm test`,
 `npm run build` and `npm run lint`.
 
+Public-API Go unit tests live under each component's `tests/behavior/unit/`.
+Tests that need private state, or share fixtures with those checks, stay beside
+their implementation. This includes the main application's private wiring.
+Tests of cooperation through public boundaries live under
+`simulator/tests/behavior/integration/`; architecture checks live under
+`simulator/tests/behavior/unit/`. Test helpers move with their suites.
+
+The frontend uses `visualizer/tests/behavior/unit/` and
+`visualizer/tests/behavior/integration/`, with shared fixtures in
+`visualizer/tests/`. The npm test command discovers both directories.
+
+For Go coverage across the imported production packages, run
+`go test -coverpkg=./... ./...` from `simulator/`. A package-local command such
+as `go test ./client/...` includes the client's nested tests.
+
+Tests of performance reporting are behavior tests, not execution benchmarks.
+Each test root includes `behavior/integration/` and `performance/`; empty
+directories contain `.gitkeep` placeholders for future suites.
+After the functional work, component benchmarks and repeatable full runs will
+track throughput, execution time and memory changes after each feature or
+optimization, while also checking that the simulated outcomes remain comparable.
+
 Dependencies, build output, runtime traces, and local repository backups are
 excluded from Git by the root `.gitignore`.
