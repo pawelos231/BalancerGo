@@ -1,6 +1,10 @@
 package client
 
-import "time"
+import (
+	"time"
+
+	congestioncontrol "load-balancer/client/congestion_control"
+)
 
 // lossDetection tracks duplicate ACKs independently of Reno's recovery window.
 // Tahoe needs this same guard and retry count without entering Reno fast recovery.
@@ -25,15 +29,18 @@ func (control *congestionControl) duplicateACK(
 
 	control.loss.duplicateACKs++
 	// Reno can inflate its active recovery window; Tahoe ignores this notification.
-	control.policy.onDuplicateACK()
+	control.policy.OnDuplicateACK()
 	if control.loss.untilSeq != 0 || control.loss.duplicateACKs != 3 {
 		return false
 	}
 
 	// Protect this flight even after a partial ACK, so late duplicates cannot cut it again.
 	control.loss.untilSeq = nextSendSeq
-	control.policy.onLoss(congestionLoss{
-		at: now, kind: fastRetransmitLoss, flightBytes: flight, pendingSegments: pendingCount,
+	control.policy.OnLoss(congestioncontrol.Loss{
+		At:              now,
+		Kind:            congestioncontrol.FastRetransmitLoss,
+		FlightBytes:     flight,
+		PendingSegments: pendingCount,
 	})
 	return true
 }

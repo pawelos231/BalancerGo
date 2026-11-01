@@ -767,6 +767,14 @@ accounting, RTT/RTO and actual packet emission. The selected policy owns window
 growth, loss response and its observable phase; it cannot inspect remote links
 or schedule engine callbacks directly.
 
+The algorithms live in `simulator/client/congestion_control/`, a separate Go
+package named `congestioncontrol`. Its `Policy` interface accepts scalar ACK,
+sender and loss observations and returns a detached `State`. `New` validates
+configuration and selects the algorithm; concrete implementations stay private.
+The client keeps `congestion_adapter.go` for translating TCP events and
+`loss_detection.go` for shared duplicate-ACK/retry tracking. Congestion algorithms
+do not import the client, virtual-time engine, network or presentation layers.
+
 The policy may return an optional absolute virtual deadline for the next new
 data send. The sender combines that deadline with its workload gap and rechecks
 it before emission. Current Reno, Tahoe and none do not add pacing deadlines,

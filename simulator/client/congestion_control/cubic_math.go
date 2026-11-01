@@ -1,4 +1,4 @@
-package client
+package congestioncontrol
 
 import (
 	"math"
@@ -31,11 +31,11 @@ func (policy *cubicPolicy) startEpoch(now time.Duration) {
 
 // growCongestionAvoidance implements RFC 9438 sections 4.2 through 4.5.
 // It compares the cubic curve at t with W_est, but aims at the curve one RTT ahead.
-func (policy *cubicPolicy) growCongestionAvoidance(ack congestionACK) {
+func (policy *cubicPolicy) growCongestionAvoidance(ack ACK) {
 	if !policy.epochStarted {
-		policy.startEpoch(ack.at)
+		policy.startEpoch(ack.At)
 	}
-	elapsed := (policy.clock.activeAt(ack.at) - policy.epochActiveAt).Seconds()
+	elapsed := (policy.clock.activeAt(ack.At) - policy.epochActiveAt).Seconds()
 	elapsed = max(elapsed, 0)
 	window := policy.windowSegments
 
@@ -43,7 +43,7 @@ func (policy *cubicPolicy) growCongestionAvoidance(ack congestionACK) {
 	if policy.renoWindowSegments >= policy.priorWindowSegments {
 		policy.renoAlpha = 1
 	}
-	segmentsACKed := float64(ack.newBytes) / model.SEGMENT_SIZE
+	segmentsACKed := float64(ack.NewBytes) / model.SEGMENT_SIZE
 	policy.renoWindowSegments += policy.renoAlpha * segmentsACKed / window
 	if policy.renoWindowSegments >= policy.priorWindowSegments {
 		policy.renoAlpha = 1
@@ -54,7 +54,7 @@ func (policy *cubicPolicy) growCongestionAvoidance(ack congestionACK) {
 		policy.windowSegments = max(window, policy.renoWindowSegments)
 	} else {
 		// A zero RTT from simultaneous virtual events uses the engine's 1 ns time quantum.
-		rtt := max(ack.smoothedRTT, time.Nanosecond).Seconds()
+		rtt := max(ack.SmoothedRTT, time.Nanosecond).Seconds()
 		target := policy.curveWindow(elapsed + rtt)
 		target = max(window, min(target, 1.5*window))
 		// RFC 4.4/4.5 adds this per new ACK; only W_est above weights segmentsACKed.

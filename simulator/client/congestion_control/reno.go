@@ -1,4 +1,4 @@
-package client
+package congestioncontrol
 
 import "load-balancer/model"
 
@@ -10,54 +10,54 @@ type renoPolicy struct {
 	remainingInflations uint64 // How many further duplicate ACKs may add one MSS to cwnd.
 }
 
-// onACK exits recovery on its first advancing ACK, including a partial one.
+// OnACK exits recovery on its first advancing ACK, including a partial one.
 // With ssthresh=4096, that ACK leaves cwnd=4096 without another growth increment.
-func (policy *renoPolicy) onACK(ack congestionACK) {
+func (policy *renoPolicy) OnACK(ack ACK) {
 	if policy.activeRecovery {
-		policy.stopRecovery()
+		policy.StopRecovery()
 		policy.congestionWindowBytes = policy.slowStartThresholdBytes
 		policy.avoidanceAcknowledgedBytes = 0
 		return
 	}
-	policy.classicWindow.onACK(ack)
+	policy.classicWindow.OnACK(ack)
 }
 
-// onDuplicateACK permits another MSS after fast retransmit has already retried the head.
+// OnDuplicateACK permits another MSS after fast retransmit has already retried the head.
 // For example, the fourth duplicate can grow cwnd from six to seven MSS.
-func (policy *renoPolicy) onDuplicateACK() {
+func (policy *renoPolicy) OnDuplicateACK() {
 	if policy.activeRecovery && policy.remainingInflations > 0 {
 		policy.remainingInflations--
 		policy.congestionWindowBytes = addCongestionBytes(policy.congestionWindowBytes, model.SEGMENT_SIZE)
 	}
 }
 
-// onLoss applies RFC 5681's different window responses to fast loss and timeout.
+// OnLoss applies RFC 5681's different window responses to fast loss and timeout.
 // https://www.rfc-editor.org/rfc/rfc5681.html#section-3.2
-func (policy *renoPolicy) onLoss(loss congestionLoss) {
-	switch loss.kind {
-	case fastRetransmitLoss:
-		policy.slowStartThresholdBytes = max(loss.flightBytes/2, 2*model.SEGMENT_SIZE)
+func (policy *renoPolicy) OnLoss(loss Loss) {
+	switch loss.Kind {
+	case FastRetransmitLoss:
+		policy.slowStartThresholdBytes = max(loss.FlightBytes/2, 2*model.SEGMENT_SIZE)
 		policy.congestionWindowBytes = addCongestionBytes(policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE)
 		policy.avoidanceAcknowledgedBytes = 0
 		policy.activeRecovery = true
-		policy.remainingInflations = uint64(max(loss.pendingSegments-3, 0))
-	case timeoutLoss:
-		policy.stopRecovery()
-		policy.restartAfterLoss(loss.flightBytes, loss.alreadyTimedOut)
-	case handshakeLoss:
+		policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
+	case TimeoutLoss:
+		policy.StopRecovery()
+		policy.restartAfterLoss(loss.FlightBytes, loss.AlreadyTimedOut)
+	case HandshakeLoss:
 		policy.restartAfterHandshakeLoss()
 	}
 }
 
-func (policy *renoPolicy) stopRecovery() {
+func (policy *renoPolicy) StopRecovery() {
 	policy.activeRecovery = false
 	policy.remainingInflations = 0
 }
 
-func (policy *renoPolicy) state() congestionPolicyState {
-	state := policy.classicWindow.state()
+func (policy *renoPolicy) State() State {
+	state := policy.classicWindow.State()
 	if policy.activeRecovery {
-		state.phase = "fastRecovery"
+		state.Phase = "fastRecovery"
 	}
 	return state
 }

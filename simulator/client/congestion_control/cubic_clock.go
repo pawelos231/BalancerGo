@@ -1,4 +1,4 @@
-package client
+package congestioncontrol
 
 import "time"
 
@@ -11,27 +11,27 @@ type cubicClock struct {
 	totalPaused time.Duration
 }
 
-// onSenderState observes real sender constraints without inspecting queues on remote hosts.
+// OnSenderState observes real sender constraints without inspecting queues on remote hosts.
 // A known 10 ms workload gap ends at readyAt even if the next observation arrives later.
-func (policy *cubicPolicy) onSenderState(sender congestionSenderState) {
+func (policy *cubicPolicy) OnSenderState(sender SenderState) {
 	clock := &policy.clock
 	if clock.limited {
-		end := sender.at
+		end := sender.At
 		if clock.pausedUntil != 0 {
 			end = min(end, clock.pausedUntil)
 		}
 		clock.totalPaused += max(end-clock.pausedAt, 0)
 	}
 
-	hasSpareWindow := sender.flightBytes < policy.congestionWindowBytes
-	noData := !sender.hasData
-	receiverLimited := sender.receiveWindowBytes < policy.congestionWindowBytes
-	waitingForGap := sender.at < sender.readyAt
+	hasSpareWindow := sender.FlightBytes < policy.congestionWindowBytes
+	noData := !sender.HasData
+	receiverLimited := sender.ReceiveWindowBytes < policy.congestionWindowBytes
+	waitingForGap := sender.At < sender.ReadyAt
 	clock.limited = hasSpareWindow && (noData || receiverLimited || waitingForGap)
-	clock.pausedAt = sender.at
+	clock.pausedAt = sender.At
 	clock.pausedUntil = 0
 	if clock.limited && waitingForGap && !noData && !receiverLimited {
-		clock.pausedUntil = sender.readyAt
+		clock.pausedUntil = sender.ReadyAt
 	}
 }
 

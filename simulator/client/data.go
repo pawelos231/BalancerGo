@@ -46,7 +46,7 @@ func (c *Client) queueSegment() {
 	}
 
 	// Pacing constrains new data only; zero preserves Reno/Tahoe's existing event order.
-	policyDeadline := c.congestion.policy.state().nextSendAt
+	policyDeadline := c.congestion.policy.State().NextSendAt
 	nextSendAt := max(c.engine.Now(), c.nextNewSegmentAt, policyDeadline)
 	if c.sendEvent != 0 {
 		// Keep an existing slot unless an ACK now permits an earlier paced send.
@@ -64,7 +64,7 @@ func (c *Client) queueSegment() {
 
 		// An ACK may move the policy deadline after this callback was scheduled.
 		// Requeue instead of sending early, without restarting the workload's gap.
-		policyDeadline := c.congestion.policy.state().nextSendAt
+		policyDeadline := c.congestion.policy.State().NextSendAt
 		if max(c.nextNewSegmentAt, policyDeadline) > c.engine.Now() {
 			c.queueSegment()
 			return

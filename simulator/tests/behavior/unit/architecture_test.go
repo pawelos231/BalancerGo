@@ -26,6 +26,10 @@ func TestArchitectureDependencyDirections(t *testing.T) {
 		rules = append(rules, rule{directory, []string{"internal/contract", "internal/presentation", "http"}})
 	}
 	rules = append(rules,
+		// Congestion algorithms receive scalar facts; they cannot access hosts or the engine.
+		rule{"client/congestion_control", []string{
+			"engine", "network", "server", "balancer", "algorithms", "scenario", "internal/simulation",
+		}},
 		// An empty package prefix forbids every import from this module: contract
 		// DTOs cannot acquire domain, presentation, transport or application types.
 		rule{"internal/contract", []string{""}},

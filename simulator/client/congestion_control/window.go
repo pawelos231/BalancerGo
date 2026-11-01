@@ -1,4 +1,4 @@
-package client
+package congestioncontrol
 
 import (
 	"time"
@@ -24,11 +24,11 @@ func newClassicWindow(config model.CongestionConfig) classicWindow {
 	}
 }
 
-// onACK grows slow start by at most one MSS per new ACK, then grows one MSS per window.
+// OnACK grows slow start by at most one MSS per new ACK, then grows one MSS per window.
 // A cumulative 4096-byte ACK increases slow start by one MSS, not four.
 // https://www.rfc-editor.org/rfc/rfc5681.html#section-3.1
-func (window *classicWindow) onACK(ack congestionACK) {
-	newBytes := ack.newBytes
+func (window *classicWindow) OnACK(ack ACK) {
+	newBytes := ack.NewBytes
 	if window.congestionWindowBytes < window.slowStartThresholdBytes {
 		increase := min(newBytes, uint64(model.SEGMENT_SIZE))
 		window.congestionWindowBytes = addCongestionBytes(window.congestionWindowBytes, increase)
@@ -58,35 +58,43 @@ func (window *classicWindow) restartAfterHandshakeLoss() {
 	window.avoidanceAcknowledgedBytes = 0
 }
 
-// onIdle uses the connection's effective initial window, including a prior SYN retry.
-func (window *classicWindow) onIdle() {
+// OnIdle uses the connection's effective initial window, including a prior SYN retry.
+func (window *classicWindow) OnIdle() {
 	window.congestionWindowBytes = min(window.congestionWindowBytes, window.startupWindowBytes)
 	window.avoidanceAcknowledgedBytes = 0
 }
 
-func (window *classicWindow) state() congestionPolicyState {
+func (window *classicWindow) State() State {
 	phase := "congestionAvoidance"
 	if window.congestionWindowBytes < window.slowStartThresholdBytes {
 		phase = "slowStart"
 	}
 
-	return congestionPolicyState{
-		windowBytes:    window.congestionWindowBytes,
-		thresholdBytes: window.slowStartThresholdBytes,
-		phase:          phase, limitsNewData: true,
+	return State{
+		WindowBytes:    window.congestionWindowBytes,
+		ThresholdBytes: window.slowStartThresholdBytes,
+		Phase:          phase, LimitsNewData: true,
 	}
 }
 
-// onSent does nothing: our Reno/Tahoe profiles control new sends through cwnd and ACKs.
+// OnSent does nothing: our Reno/Tahoe profiles control new sends through cwnd and ACKs.
 // A paced algorithm such as BBR can use send time/size to space later packets out.
 // Real stacks may add pacing to window-based algorithms too; these profiles do not.
-func (*classicWindow) onSent(time.Duration, int) {}
+func (*classicWindow) OnSent(time.Duration, int) {}
 
 // Reno/Tahoe keep their existing ACK growth even when workload or rwnd limits sending.
-func (*classicWindow) onSenderState(congestionSenderState) {}
+func (*classicWindow) OnSenderState(SenderState) {}
 
 // we need to satisfy the polocy Tahoe does not react to duplicate ACK's
-func (*classicWindow) onDuplicateACK() {}
+func (*classicWindow) OnDuplicateACK() {}
 
-// stopRecovery lets Tahoe satisfy congestionPolicy without keeping a fast-recovery state.
-func (*classicWindow) stopRecovery() {}
+// StopRecovery lets Tahoe satisfy Policy without keeping a fast-recovery state.
+func (*classicWindow) StopRecovery() {}
+
+// addCongestionBytes saturates a window or ACK counter instead of wrapping it.
+func addCongestionBytes(current, increase uint64) uint64 {
+	if increase >= model.MaxCongestionWindowBytes-current {
+		return model.MaxCongestionWindowBytes
+	}
+	return current + increase
+}

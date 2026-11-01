@@ -1,4 +1,4 @@
-package client
+package congestioncontrol
 
 import (
 	"time"
@@ -41,11 +41,11 @@ func newCubicPolicy(config model.CongestionConfig) *cubicPolicy {
 	}
 }
 
-// onACK first completes classic fast recovery, even if the application has no more data.
+// OnACK first completes classic fast recovery, even if the application has no more data.
 // Otherwise CUBIC grows only while local demand can use the congestion window.
-func (policy *cubicPolicy) onACK(ack congestionACK) {
+func (policy *cubicPolicy) OnACK(ack ACK) {
 	if policy.activeRecovery {
-		policy.stopRecovery()
+		policy.StopRecovery()
 		policy.setWindowBytes(policy.slowStartThresholdBytes)
 		return
 	}
@@ -56,7 +56,7 @@ func (policy *cubicPolicy) onACK(ack congestionACK) {
 	// This profile selects Reno slow start rather than the separate HyStart++ mechanism.
 	// RFC 9438 section 4.10 includes equality with ssthresh in slow start.
 	if policy.congestionWindowBytes <= policy.slowStartThresholdBytes {
-		increase := min(ack.newBytes, uint64(model.SEGMENT_SIZE))
+		increase := min(ack.NewBytes, uint64(model.SEGMENT_SIZE))
 		policy.setWindowBytes(addCongestionBytes(policy.congestionWindowBytes, increase))
 		if !policy.hasCongestionEvent {
 			policy.priorWindowSegments = policy.windowSegments
@@ -66,37 +66,37 @@ func (policy *cubicPolicy) onACK(ack congestionACK) {
 	policy.growCongestionAvoidance(ack)
 }
 
-// onDuplicateACK retains classic recovery's bounded one-MSS inflation after the fast retry.
-func (policy *cubicPolicy) onDuplicateACK() {
+// OnDuplicateACK retains classic recovery's bounded one-MSS inflation after the fast retry.
+func (policy *cubicPolicy) OnDuplicateACK() {
 	if policy.activeRecovery && policy.remainingInflations > 0 {
 		policy.remainingInflations--
 		policy.setWindowBytes(addCongestionBytes(policy.congestionWindowBytes, model.SEGMENT_SIZE))
 	}
 }
 
-// onLoss keeps 70% of flight after a new loss, rather than Reno's 50%.
+// OnLoss keeps 70% of flight after a new loss, rather than Reno's 50%.
 // With 8192 bytes outstanding, the threshold is floor(8192 * 0.7) = 5734 bytes.
-func (policy *cubicPolicy) onLoss(loss congestionLoss) {
-	switch loss.kind {
-	case fastRetransmitLoss:
+func (policy *cubicPolicy) OnLoss(loss Loss) {
+	switch loss.Kind {
+	case FastRetransmitLoss:
 		policy.rememberCongestionWindow()
-		policy.slowStartThresholdBytes = cubicLossThreshold(loss.flightBytes)
+		policy.slowStartThresholdBytes = cubicLossThreshold(loss.FlightBytes)
 		policy.setWindowBytes(addCongestionBytes(policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE))
 		policy.activeRecovery = true
-		policy.remainingInflations = uint64(max(loss.pendingSegments-3, 0))
+		policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
 		policy.epochStarted = false
 		policy.resetMaximumAtEpoch = false
-	case timeoutLoss:
-		policy.stopRecovery()
-		if !loss.alreadyTimedOut {
+	case TimeoutLoss:
+		policy.StopRecovery()
+		if !loss.AlreadyTimedOut {
 			policy.rememberCongestionWindow()
-			policy.slowStartThresholdBytes = cubicLossThreshold(loss.flightBytes)
+			policy.slowStartThresholdBytes = cubicLossThreshold(loss.FlightBytes)
 		}
 		policy.setWindowBytes(model.SEGMENT_SIZE)
 		policy.epochStarted = false
 		// RFC 9438 section 4.8: the next CA stage starts with W_max=cwnd_epoch and K=0.
 		policy.resetMaximumAtEpoch = true
-	case handshakeLoss:
+	case HandshakeLoss:
 		policy.restartAfterHandshakeLoss()
 		policy.setWindowBytes(policy.congestionWindowBytes)
 		policy.epochStarted = false
@@ -117,25 +117,25 @@ func (policy *cubicPolicy) rememberCongestionWindow() {
 	policy.hasCongestionEvent = true
 }
 
-// onIdle retains the common conservative restart, then starts a fresh growth epoch.
-func (policy *cubicPolicy) onIdle() {
-	policy.classicWindow.onIdle()
+// OnIdle retains the common conservative restart, then starts a fresh growth epoch.
+func (policy *cubicPolicy) OnIdle() {
+	policy.classicWindow.OnIdle()
 	policy.setWindowBytes(policy.congestionWindowBytes)
 	policy.epochStarted = false
 }
 
-func (policy *cubicPolicy) stopRecovery() {
+func (policy *cubicPolicy) StopRecovery() {
 	policy.activeRecovery = false
 	policy.remainingInflations = 0
 }
 
-func (policy *cubicPolicy) state() congestionPolicyState {
-	state := policy.classicWindow.state()
+func (policy *cubicPolicy) State() State {
+	state := policy.classicWindow.State()
 	if policy.congestionWindowBytes <= policy.slowStartThresholdBytes {
-		state.phase = "slowStart"
+		state.Phase = "slowStart"
 	}
 	if policy.activeRecovery {
-		state.phase = "fastRecovery"
+		state.Phase = "fastRecovery"
 	}
 	return state
 }

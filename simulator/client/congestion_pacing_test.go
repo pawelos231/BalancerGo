@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	congestioncontrol "load-balancer/client/congestion_control"
 	"load-balancer/engine"
 	"load-balancer/model"
 )
@@ -12,25 +13,25 @@ import (
 // deadlinePolicy changes only the next-send deadline of a real window policy.
 // It is a test stand-in for later paced algorithms, not a selectable TCP profile.
 type deadlinePolicy struct {
-	congestionPolicy
+	congestioncontrol.Policy
 	deadline      time.Duration
 	spacing       time.Duration
 	deadlineOnACK time.Duration
 }
 
-func (policy *deadlinePolicy) onACK(ack congestionACK) {
-	policy.congestionPolicy.onACK(ack)
+func (policy *deadlinePolicy) OnACK(ack congestioncontrol.ACK) {
+	policy.Policy.OnACK(ack)
 	policy.deadline = policy.deadlineOnACK
 }
 
-func (policy *deadlinePolicy) onSent(now time.Duration, payloadBytes int) {
-	policy.congestionPolicy.onSent(now, payloadBytes)
+func (policy *deadlinePolicy) OnSent(now time.Duration, payloadBytes int) {
+	policy.Policy.OnSent(now, payloadBytes)
 	policy.deadline = now + policy.spacing
 }
 
-func (policy *deadlinePolicy) state() congestionPolicyState {
-	state := policy.congestionPolicy.state()
-	state.nextSendAt = policy.deadline
+func (policy *deadlinePolicy) State() congestioncontrol.State {
+	state := policy.Policy.State()
+	state.NextSendAt = policy.deadline
 	return state
 }
 
@@ -75,7 +76,7 @@ func TestNewDataSchedulingHonorsChangingPolicyDeadline(t *testing.T) {
 			rto.Mode = model.RTOFixed
 			c.SetRTOConfig(rto)
 			c.congestion.policy = &deadlinePolicy{
-				congestionPolicy: c.congestion.policy, deadline: test.initialDeadline,
+				Policy: c.congestion.policy, deadline: test.initialDeadline,
 				spacing: test.spacing, deadlineOnACK: test.deadlineOnACK,
 			}
 			var sentAt []time.Duration
