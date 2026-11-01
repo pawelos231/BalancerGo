@@ -88,7 +88,7 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 			pendingCount := len(c.pendingSegments.segments) - c.pendingSegments.firstPendingIndex
 
 			// The third qualifying duplicate ACK triggers a retry of the oldest segment.
-			if c.congestion.duplicateACK(c.bytesInFlight(), pendingCount, c.nextSendSeq) {
+			if c.congestion.duplicateACK(c.bytesInFlight(), pendingCount, c.nextSendSeq, c.engine.Now()) {
 				c.fastRetransmitOldest()
 			}
 		}
@@ -107,7 +107,7 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 	c.acknowledgedPayloadBytes += uint64(acknowledgedBytes)
 
 	c.pendingSegments.acknowledge(pkt.Ack)
-	c.congestion.acknowledge(uint64(acknowledgedBytes), pkt.Ack)
+	c.congestion.acknowledge(uint64(acknowledgedBytes), pkt.Ack, c.engine.Now())
 	c.oldestSegmentRetransmissions = 0
 	c.cancelEvent(&c.dataTimer)
 	if c.pendingSegments.hasPending() {

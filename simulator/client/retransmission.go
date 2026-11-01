@@ -111,7 +111,7 @@ func (c *Client) retransmitSyn() {
 	c.retrySyn++
 	c.transfer.synRetransmissions++
 	c.invalidateRTTProbe()
-	c.congestion.afterSYNRetry()
+	c.congestion.afterSYNRetry(c.engine.Now())
 	c.rto.backOff()
 	c.sendSyn()
 }
@@ -131,7 +131,7 @@ func (c *Client) retransmitData() {
 	if !retry {
 		return
 	}
-	c.congestion.onDataTimeout(packet, c.bytesInFlight(), c.nextSendSeq)
+	c.congestion.onDataTimeout(packet, c.bytesInFlight(), c.nextSendSeq, c.engine.Now())
 	c.rto.backOff()
 	c.armDataTimer()
 	c.emit(packet)
@@ -144,7 +144,7 @@ func (c *Client) fastRetransmitOldest() {
 	if !retry {
 		return
 	}
-	c.congestion.recovery.fastRetransmissions++
+	c.congestion.loss.fastRetransmissions++
 	c.armDataTimer()
 	c.emit(packet)
 }
@@ -164,7 +164,7 @@ func (c *Client) prepareDataRetry() (model.Packet, bool) {
 	c.oldestSegmentRetransmissions++
 	c.transfer.dataRetransmissions++
 	c.invalidateRTTProbe()
-	c.congestion.recordDataSent(c.engine.Now())
+	c.congestion.recordDataSent(c.engine.Now(), packet.Size)
 	return packet, true
 }
 

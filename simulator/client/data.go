@@ -29,7 +29,7 @@ func (c *Client) SendCompleteStream(dataSize int, gap time.Duration) {
 // A 4096-byte window can release four 1024-byte segments without waiting for ACKs.
 func (c *Client) queueSegment() {
 	canSend := c.handshakeCompleted && c.streamRequested
-	if c.terminated || c.closing || !canSend || c.sendEvent != 0 {
+	if c.terminated || c.closing || !canSend {
 		return
 	}
 	if c.remainingPayloadBytesToConfirm == 0 {
@@ -44,10 +44,28 @@ func (c *Client) queueSegment() {
 		return
 	}
 
-	nextSendAt := max(c.engine.Now(), c.nextNewSegmentAt)
+	// Pacing constrains new data only; zero preserves Reno/Tahoe's existing event order.
+	policyDeadline := c.congestion.policy.state().nextSendAt
+	nextSendAt := max(c.engine.Now(), c.nextNewSegmentAt, policyDeadline)
+	if c.sendEvent != 0 {
+		// Keep an existing slot unless an ACK now permits an earlier paced send.
+		if nextSendAt >= c.sendEventAt {
+			return
+		}
+		c.cancelEvent(&c.sendEvent)
+	}
+	c.sendEventAt = nextSendAt
 	c.sendEvent = c.engine.ScheduleAt(nextSendAt, func() {
 		c.sendEvent = 0
 		if c.terminated || c.closing {
+			return
+		}
+
+		// An ACK may move the policy deadline after this callback was scheduled.
+		// Requeue instead of sending early, without restarting the workload's gap.
+		policyDeadline := c.congestion.policy.state().nextSendAt
+		if max(c.nextNewSegmentAt, policyDeadline) > c.engine.Now() {
+			c.queueSegment()
 			return
 		}
 
@@ -76,7 +94,7 @@ func (c *Client) queueSegment() {
 		if c.dataTimer == 0 {
 			c.armDataTimer()
 		}
-		c.congestion.recordDataSent(c.engine.Now())
+		c.congestion.recordDataSent(c.engine.Now(), packet.Size)
 
 		// All sender state is ready before a synchronous reply can arrive.
 		c.emit(packet)
@@ -104,7 +122,7 @@ func (c *Client) nextPayloadSize() int {
 	}
 
 	availableBytes := c.peerWindowEnd - c.nextSendSeq
-	availableBytes = min(availableBytes, c.congestionCredit())
+	availableBytes = min(availableBytes, c.availableCongestionWindowBytes())
 	payloadLimit := min(c.unsentPayloadBytes, model.SEGMENT_SIZE)
 	return int(min(uint64(payloadLimit), availableBytes))
 }

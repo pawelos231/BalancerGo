@@ -91,7 +91,7 @@ func clientMetrics(client simulation.ClientObservation) []nodeMetric {
 		{"fastRetransmissions", "Cumulative fast retransmissions", "packets", float64(state.Congestion.FastRetransmissions), false},
 	}
 	// Disabled congestion control has no cwnd; avoid displaying a false zero limit.
-	if state.Congestion.Mode == model.CongestionReno {
+	if state.Congestion.Mode == model.CongestionReno || state.Congestion.Mode == model.CongestionTahoe {
 		metrics = append(metrics,
 			nodeMetric{
 				key: "congestionWindowBytes", label: "Congestion window (cwnd)", unit: "bytes",

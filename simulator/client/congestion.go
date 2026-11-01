@@ -6,47 +6,55 @@ import (
 	"load-balancer/model"
 )
 
-// Reno's window rules below follow RFC 5681 sections 3.1 and 4.1:
-// https://www.rfc-editor.org/rfc/rfc5681.html
-
-// congestionControl limits new data independently of the receiver's free space.
-// Reno starts with a small window, grows on new ACKs and reduces it after loss.
+// congestionControl connects TCP's ACK/loss bookkeeping to the selected algorithm.
+// The policy changes the window; TCP still owns segments, timers and retransmissions.
 type congestionControl struct {
-	config                     model.CongestionConfig
-	startupWindowBytes         uint64
-	congestionWindowBytes      uint64
-	slowStartThresholdBytes    uint64
-	avoidanceAcknowledgedBytes uint64
+	config model.CongestionConfig
+	policy congestionPolicy // The selected congestion-control algorithm, such as Reno or Tahoe.
+	loss   lossDetection
 
 	lastDataSentAt time.Duration
 	hasSentData    bool
 
-	// Partial ACKs can trim a retry, but its original end still identifies it.
-	// Zero means no pending segment has reduced the threshold through an RTO.
+	// A partial ACK can trim a retry without changing the original segment's end.
+	// Only RTO sets this marker; fast retransmit must not consume the first RTO reduction.
 	timedOutSegmentEnd uint64
-
-	recovery fastRecovery
 }
 
-// newCongestionControl starts at the configured window, before any data is sent.
+// newCongestionControl chooses one policy before any segment is sent.
 func newCongestionControl(config model.CongestionConfig) congestionControl {
-	validMode := config.Mode == model.CongestionNone || config.Mode == model.CongestionReno
+	validMode := config.Mode == model.CongestionNone ||
+		config.Mode == model.CongestionReno ||
+		config.Mode == model.CongestionTahoe
+
+	// Start with at least one segment, without exceeding the byte limit.
+	maximumInitialSegments := model.MaxCongestionWindowBytes / model.SEGMENT_SIZE
 	validInitialWindow := config.InitialWindowSegments >= 1 &&
-		uint64(config.InitialWindowSegments) <= model.MaxCongestionWindowBytes/model.SEGMENT_SIZE
-	validThreshold := config.InitialSlowStartThresholdBytes >= 2*model.SEGMENT_SIZE &&
+		uint64(config.InitialWindowSegments) <= maximumInitialSegments
+
+	// Keep the slow-start threshold between two segments and the byte limit.
+	minimumThresholdBytes := uint64(2 * model.SEGMENT_SIZE)
+	validThreshold := config.InitialSlowStartThresholdBytes >= minimumThresholdBytes &&
 		config.InitialSlowStartThresholdBytes <= model.MaxCongestionWindowBytes
-	validRecovery := !config.FastRetransmit || config.Mode == model.CongestionReno
-	if !validMode || !validInitialWindow || !validThreshold || !validRecovery {
+
+	// Mode none must leave fast retransmit disabled.
+	validRetransmit := !config.FastRetransmit ||
+		config.Mode != model.CongestionNone
+
+	if !validMode || !validInitialWindow || !validThreshold || !validRetransmit {
 		panic("client: invalid congestion configuration")
 	}
 
-	initialWindow := uint64(config.InitialWindowSegments) * model.SEGMENT_SIZE
-	return congestionControl{
-		config:                  config,
-		startupWindowBytes:      initialWindow,
-		congestionWindowBytes:   initialWindow,
-		slowStartThresholdBytes: config.InitialSlowStartThresholdBytes,
+	var policy congestionPolicy
+	switch config.Mode {
+	case model.CongestionReno:
+		policy = &renoPolicy{classicWindow: newClassicWindow(config)}
+	case model.CongestionTahoe:
+		policy = &tahoePolicy{classicWindow: newClassicWindow(config)}
+	case model.CongestionNone:
+		policy = unlimitedPolicy{}
 	}
+	return congestionControl{config: config, policy: policy}
 }
 
 // SetCongestionConfig selects sender behavior before the connection starts.
@@ -54,35 +62,22 @@ func (c *Client) SetCongestionConfig(config model.CongestionConfig) {
 	if c.handshakeStarted || c.terminated {
 		panic("client: congestion configuration must be set before the connection starts")
 	}
-
 	c.congestion = newCongestionControl(config)
 }
 
-// GetCongestionState reports the sender window and payload still awaiting ACKs.
-// Disabled control has no congestion window, but its bytes in flight remain visible.
+// GetCongestionState combines algorithm state with TCP's current flight and counters.
 func (c *Client) GetCongestionState() model.CongestionState {
 	control := &c.congestion
-	state := model.CongestionState{
-		Mode:                control.config.Mode,
-		BytesInFlight:       c.bytesInFlight(),
-		DuplicateACKs:       control.recovery.duplicateACKs,
-		FastRetransmissions: control.recovery.fastRetransmissions,
-		Phase:               "disabled",
+	window := control.policy.state()
+	return model.CongestionState{
+		Mode:                    control.config.Mode,
+		CongestionWindowBytes:   window.windowBytes,
+		SlowStartThresholdBytes: window.thresholdBytes,
+		BytesInFlight:           c.bytesInFlight(),
+		DuplicateACKs:           control.loss.duplicateACKs,
+		FastRetransmissions:     control.loss.fastRetransmissions,
+		Phase:                   window.phase,
 	}
-	if control.config.Mode == model.CongestionNone {
-		return state
-	}
-
-	state.CongestionWindowBytes = control.congestionWindowBytes
-	state.SlowStartThresholdBytes = control.slowStartThresholdBytes
-	state.Phase = "congestionAvoidance"
-	if control.congestionWindowBytes < control.slowStartThresholdBytes {
-		state.Phase = "slowStart"
-	}
-	if control.recovery.active {
-		state.Phase = "fastRecovery"
-	}
-	return state
 }
 
 // bytesInFlight counts sent payload that has not yet been cumulatively ACKed.
@@ -94,93 +89,76 @@ func (c *Client) bytesInFlight() uint64 {
 	return c.nextSendSeq - c.oldestUnackedSeq
 }
 
-// congestionCredit allows new bytes only while the window exceeds current flight.
-// After a timeout, old data can exceed the reduced window and block new sends.
-func (c *Client) congestionCredit() uint64 {
-	if c.congestion.config.Mode == model.CongestionNone {
+func (c *Client) availableCongestionWindowBytes() uint64 {
+	window := c.congestion.policy.state()
+	if !window.limitsNewData {
 		return model.MaxCongestionWindowBytes
 	}
-	window := c.congestion.congestionWindowBytes
+
 	flight := c.bytesInFlight()
-	if flight >= window {
+	if flight >= window.windowBytes {
 		return 0
 	}
-	return window - flight
+
+	return window.windowBytes - flight
 }
 
-// acknowledge grows Reno once for this ACK, using only newly confirmed bytes.
-// A cumulative 4096-byte ACK grows slow start by one MSS, rather than four.
-func (control *congestionControl) acknowledge(newBytes, ack uint64) {
+// acknowledge handles an ACK that confirms new data and resets the duplicate ACK count.
+// Example: ACK=2049 confirms bytes through 2048, so a retried segment ending at 1025 is done.
+// The selected algorithm then updates cwnd using the newly confirmed bytes.
+func (control *congestionControl) acknowledge(newBytes, ack uint64, now time.Duration) {
 	if control.timedOutSegmentEnd != 0 && ack >= control.timedOutSegmentEnd {
 		control.timedOutSegmentEnd = 0
 	}
-	if control.acknowledgeRecovery(ack) {
-		return
+	control.loss.duplicateACKs = 0
+	if control.loss.untilSeq != 0 && ack >= control.loss.untilSeq {
+		control.loss.untilSeq = 0
 	}
-	if control.config.Mode == model.CongestionNone {
-		return
-	}
-
-	// RFC 5681 section 3.1: one ACK belongs to the phase active before growth.
-	window := control.congestionWindowBytes
-	if window < control.slowStartThresholdBytes {
-		increase := min(newBytes, uint64(model.SEGMENT_SIZE))
-		control.congestionWindowBytes = addCongestionBytes(window, increase)
-		return
-	}
-
-	// Count a window of new ACKed bytes before adding one MSS in avoidance.
-	acknowledgedBytes := addCongestionBytes(control.avoidanceAcknowledgedBytes, newBytes)
-	control.avoidanceAcknowledgedBytes = acknowledgedBytes
-	if acknowledgedBytes >= window {
-		control.avoidanceAcknowledgedBytes -= window
-		control.congestionWindowBytes = addCongestionBytes(window, model.SEGMENT_SIZE)
-	}
+	control.policy.onACK(now, newBytes)
 }
 
-// onDataTimeout halves flight once for this original segment, then restarts at one MSS.
-// Retrying [513,1025) after a partial ACK of [1,1025) must not halve the threshold again.
-func (control *congestionControl) onDataTimeout(packet model.Packet, flight, nextSendSeq uint64) {
-	if control.config.Mode == model.CongestionNone {
-		return
-	}
-	control.stopFastRecovery()
-	// Old duplicate ACKs must not reinflate cwnd after this timeout drops it to one MSS.
-	control.recovery.untilSeq = nextSendSeq
-	if control.timedOutSegmentEnd == 0 {
-		control.slowStartThresholdBytes = max(flight/2, 2*model.SEGMENT_SIZE)
+// onDataTimeout keeps RTO accounting separate from a prior fast retransmission.
+// Retrying [513,1025) after a partial ACK still belongs to original [1,1025).
+func (control *congestionControl) onDataTimeout(
+	packet model.Packet,
+	flight, nextSendSeq uint64,
+	now time.Duration,
+) {
+	control.loss.duplicateACKs = 0
+	control.loss.untilSeq = nextSendSeq
+	alreadyTimedOut := control.timedOutSegmentEnd != 0
+	if !alreadyTimedOut {
 		control.timedOutSegmentEnd = packet.Seq + uint64(packet.Size)
 	}
-	control.congestionWindowBytes = model.SEGMENT_SIZE
-	control.avoidanceAcknowledgedBytes = 0
+	control.policy.onLoss(congestionLoss{
+		at: now, kind: timeoutLoss, flightBytes: flight, alreadyTimedOut: alreadyTimedOut,
+	})
 }
 
-// afterSYNRetry starts data with one MSS when the handshake already encountered loss.
-func (control *congestionControl) afterSYNRetry() {
-	if control.config.Mode == model.CongestionReno {
-		// This connection's reduced initial window also applies to later idle restarts.
-		control.startupWindowBytes = model.SEGMENT_SIZE
-		control.congestionWindowBytes = model.SEGMENT_SIZE
-		control.avoidanceAcknowledgedBytes = 0
-	}
+// afterSYNRetry reports handshake loss without changing the shared SYN/RTO machinery.
+func (control *congestionControl) afterSYNRetry(now time.Duration) {
+	control.policy.onLoss(congestionLoss{at: now, kind: handshakeLoss})
 }
 
-// restartAfterIdle avoids sending a previously enlarged window as a sudden burst.
-// RFC 5681 section 4.1 restarts at min(current window, initial window) after an RTO of idle.
+// restartAfterIdle notifies the policy only when a send is due after more than one RTO.
 func (control *congestionControl) restartAfterIdle(now, currentRTO time.Duration) {
-	if control.config.Mode == model.CongestionNone || !control.hasSentData {
-		return
-	}
-	if now-control.lastDataSentAt > currentRTO {
-		control.congestionWindowBytes = min(control.congestionWindowBytes, control.startupWindowBytes)
-		control.avoidanceAcknowledgedBytes = 0
+	if control.hasSentData && now-control.lastDataSentAt > currentRTO {
+		control.policy.onIdle()
 	}
 }
 
-// recordDataSent includes retransmissions, which also end an idle period.
-func (control *congestionControl) recordDataSent(now time.Duration) {
+// recordDataSent includes retries, which end the idle interval too.
+func (control *congestionControl) recordDataSent(now time.Duration, payloadBytes int) {
 	control.lastDataSentAt = now
 	control.hasSentData = true
+	control.policy.onSent(now, payloadBytes)
+}
+
+// clearLossTracking abandons pending loss detection but preserves total retry metrics.
+func (control *congestionControl) clearLossTracking() {
+	control.loss.duplicateACKs = 0
+	control.loss.untilSeq = 0
+	control.policy.stopRecovery()
 }
 
 // addCongestionBytes saturates a window or ACK counter instead of wrapping it.

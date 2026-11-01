@@ -25,18 +25,21 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 		resolved.InitialSlowStartThresholdBytes = *config.InitialSlowStartThresholdBytes
 	}
 
-	if resolved.Mode != string(model.CongestionNone) && resolved.Mode != string(model.CongestionReno) {
-		return NormalizedCongestionConfig{}, fmt.Errorf("tcp.congestionControl.mode: must be none or reno")
+	validMode := resolved.Mode == string(model.CongestionNone) ||
+		resolved.Mode == string(model.CongestionReno) ||
+		resolved.Mode == string(model.CongestionTahoe)
+	if !validMode {
+		return NormalizedCongestionConfig{}, fmt.Errorf("tcp.congestionControl.mode: must be none, reno or tahoe")
 	}
 
-	// Older Reno scenarios gain fast recovery; mode none keeps it disabled.
-	resolved.FastRetransmit = resolved.Mode == string(model.CongestionReno) && defaults.FastRetransmit
+	// Reno and Tahoe detect losses early; each algorithm chooses its window response.
+	resolved.FastRetransmit = resolved.Mode != string(model.CongestionNone) && defaults.FastRetransmit
 	if config.FastRetransmit != nil {
 		resolved.FastRetransmit = *config.FastRetransmit
 	}
-	if resolved.FastRetransmit && resolved.Mode != string(model.CongestionReno) {
+	if resolved.FastRetransmit && resolved.Mode == string(model.CongestionNone) {
 		return NormalizedCongestionConfig{}, fmt.Errorf(
-			"tcp.congestionControl.fastRetransmit: requires Reno congestion control",
+			"tcp.congestionControl.fastRetransmit: requires Reno or Tahoe congestion control",
 		)
 	}
 

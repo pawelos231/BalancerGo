@@ -23,7 +23,7 @@ import (
 
 const (
 	experimentReportVersion = 1
-	experimentModel         = "tcp-reno-fast-recovery-v1"
+	experimentModel         = "tcp-congestion-strategies-v1"
 )
 
 // loadedScenario keeps the importable input beside its checked runtime settings.
@@ -35,7 +35,7 @@ type loadedScenario struct {
 }
 
 // runScenarioFile runs the same full document accepted by the frontend.
-// The report preserves its input; only the runtime copy disables pacing.
+// The report preserves its input; only the runtime copy disables wall-clock playback waits.
 func runScenarioFile(
 	ctx context.Context,
 	options configuration,

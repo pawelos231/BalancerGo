@@ -69,6 +69,7 @@ func prepareStart(request startRequest, defaults configuration) (preparedStart, 
 	}
 
 	requested := defaults.publicConfig()
+	previousCongestionMode := requested.CongestionControl
 	// Older payloads omit this flag. Keep omission distinct from an explicit true.
 	inputSettings := struct {
 		*contract.SimulationConfig
@@ -87,6 +88,9 @@ func prepareStart(request startRequest, defaults configuration) (preparedStart, 
 	}
 	if inputSettings.FastRetransmit != nil {
 		requested.FastRetransmit = *inputSettings.FastRetransmit
+	} else if requested.CongestionControl != previousCongestionMode {
+		// Switching from none to Tahoe/Reno uses the new mode's default retry policy.
+		requested.FastRetransmit = requested.CongestionControl != "none"
 	} else if requested.CongestionControl == "none" {
 		requested.FastRetransmit = false
 	}

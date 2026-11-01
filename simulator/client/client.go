@@ -63,6 +63,7 @@ type Client struct {
 	dataTimer    engine.EventID
 	readTimer    engine.EventID
 	sendEvent    engine.EventID
+	sendEventAt  time.Duration
 	floodEvent   engine.EventID
 
 	OnClose          func()
@@ -201,7 +202,7 @@ func (c *Client) Close() {
 	c.pendingSegments.reset()
 	c.oldestSegmentRetransmissions = 0
 	c.rttProbe = roundTripProbe{}
-	c.congestion.stopFastRecovery()
+	c.congestion.clearLossTracking()
 	c.armReadTimer()
 	c.sendEvent = c.engine.ScheduleAfter(0, func() {
 		c.sendEvent = 0
@@ -239,7 +240,7 @@ func (c *Client) ShutdownWithReason(reason model.TransferFailureReason) {
 	c.pendingSegments.reset()
 	c.oldestSegmentRetransmissions = 0
 	c.rttProbe = roundTripProbe{}
-	c.congestion.stopFastRecovery()
+	c.congestion.clearLossTracking()
 	if c.OnClose != nil {
 		c.OnClose()
 	}

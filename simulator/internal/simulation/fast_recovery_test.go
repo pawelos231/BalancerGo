@@ -8,19 +8,27 @@ import (
 )
 
 // Drop [1,1025) once: later segments create duplicate ACKs through the full network.
-// Enabled Reno recovers before 100 ms; disabling it preserves the 200 ms RTO path.
-func TestWorldFastRecoveryUsesDuplicateACKsAcrossPhysicalLinks(t *testing.T) {
-	for _, enabled := range []bool{true, false} {
-		name := "timeout only"
-		if enabled {
-			name = "fast recovery"
-		}
-
-		t.Run(name, func(t *testing.T) {
+// Reno and Tahoe repair it before RTO, but expose different windows at the retry.
+func TestWorldCongestionStrategiesRecoverSamePayload(t *testing.T) {
+	tests := []struct {
+		name           string
+		mode           string
+		fastRetransmit bool
+		retryWindow    uint64
+		retryPhase     string
+	}{
+		{"Reno fast recovery", "reno", true, 7 * model.SEGMENT_SIZE, "fastRecovery"},
+		{"Tahoe slow start", "tahoe", true, model.SEGMENT_SIZE, "slowStart"},
+		{"Reno timeout only", "reno", false, 0, ""},
+		{"Tahoe timeout only", "tahoe", false, 0, ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			definition := congestionScenario()
 			initialSegments := 8
+			definition.TCP.CongestionControl.Mode = &test.mode
 			definition.TCP.CongestionControl.InitialWindowSegments = &initialSegments
-			definition.TCP.CongestionControl.FastRetransmit = &enabled
+			definition.TCP.CongestionControl.FastRetransmit = &test.fastRetransmit
 			world := New(normalizedRuntimeScenario(t, definition))
 
 			droppedFirst := false
@@ -44,19 +52,20 @@ func TestWorldFastRecoveryUsesDuplicateACKsAcrossPhysicalLinks(t *testing.T) {
 			})
 
 			runIngressUntil(t, world, 100*time.Millisecond)
-			if enabled {
+			if test.fastRetransmit {
 				if retriedAt == 0 || retriedAt >= 100*time.Millisecond {
 					t.Fatalf("fast retry at %s did not beat the RTO", retriedAt)
 				}
-				if retryState.Phase != "fastRecovery" || retryState.FastRetransmissions != 1 ||
-					retryState.CongestionWindowBytes != 7*model.SEGMENT_SIZE ||
+				if retryState.Mode != model.CongestionMode(test.mode) ||
+					retryState.Phase != test.retryPhase || retryState.FastRetransmissions != 1 ||
+					retryState.CongestionWindowBytes != test.retryWindow ||
 					retryState.SlowStartThresholdBytes != 4*model.SEGMENT_SIZE ||
 					retryState.BytesInFlight != 8*model.SEGMENT_SIZE {
 					t.Fatalf("state before fast retry = %+v", retryState)
 				}
 				assertNativePayloadProgress(t, world, 12*model.SEGMENT_SIZE, 12*model.SEGMENT_SIZE)
 			} else if retriedAt != 0 {
-				t.Fatalf("disabled fast recovery retried at %s", retriedAt)
+				t.Fatalf("disabled fast retransmit retried at %s", retriedAt)
 			}
 
 			// Both policies eventually recover the same unique payload, without double counting.
@@ -66,7 +75,7 @@ func TestWorldFastRecoveryUsesDuplicateACKsAcrossPhysicalLinks(t *testing.T) {
 				t.Fatalf("finished transfer = %+v", state)
 			}
 			wantFastRetries := uint64(0)
-			if enabled {
+			if test.fastRetransmit {
 				wantFastRetries = 1
 			}
 			if state.Congestion.FastRetransmissions != wantFastRetries {

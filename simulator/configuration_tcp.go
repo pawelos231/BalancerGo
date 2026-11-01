@@ -19,10 +19,13 @@ func (c *configuration) registerTCPFlags() {
 
 	flag.Func(
 		"tcp-congestion-control",
-		"TCP congestion control: none or reno (default reno)",
+		"TCP congestion control: none, reno or tahoe (default reno)",
 		func(value string) error {
-			if value != string(model.CongestionNone) && value != string(model.CongestionReno) {
-				return errors.New("tcp.congestionControl.mode: must be none or reno")
+			validMode := value == string(model.CongestionNone) ||
+				value == string(model.CongestionReno) ||
+				value == string(model.CongestionTahoe)
+			if !validMode {
+				return errors.New("tcp.congestionControl.mode: must be none, reno or tahoe")
 			}
 			c.congestion.Mode = model.CongestionMode(value)
 			return nil
@@ -38,7 +41,7 @@ func (c *configuration) registerTCPFlags() {
 		&c.congestion.FastRetransmit,
 		"tcp-fast-retransmit",
 		c.congestion.FastRetransmit,
-		"enable fast retransmit and Reno fast recovery after three duplicate ACKs",
+		"retry after three duplicate ACKs; Reno uses fast recovery, Tahoe restarts slow start",
 	)
 	flag.Uint64Var(
 		&c.congestion.InitialSlowStartThresholdBytes,

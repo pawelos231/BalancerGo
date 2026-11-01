@@ -147,8 +147,9 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 		return configuration{}, errors.New("rtoMode must be fixed or adaptive")
 	}
 	if c.CongestionControl != string(model.CongestionNone) &&
-		c.CongestionControl != string(model.CongestionReno) {
-		return configuration{}, errors.New("congestionControl must be none or reno")
+		c.CongestionControl != string(model.CongestionReno) &&
+		c.CongestionControl != string(model.CongestionTahoe) {
+		return configuration{}, errors.New("congestionControl must be none, reno or tahoe")
 	}
 	base.congestion = model.CongestionConfig{
 		Mode:                           model.CongestionMode(c.CongestionControl),

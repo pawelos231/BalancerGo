@@ -1,11 +1,12 @@
 package model
 
-// CongestionMode selects Reno's sender limit or the earlier rwnd-only baseline.
+// CongestionMode selects a sender-window algorithm or the rwnd-only baseline.
 type CongestionMode string
 
 const (
-	CongestionNone CongestionMode = "none"
-	CongestionReno CongestionMode = "reno"
+	CongestionNone  CongestionMode = "none"
+	CongestionReno  CongestionMode = "reno"
+	CongestionTahoe CongestionMode = "tahoe"
 )
 
 // MaxCongestionWindowBytes keeps configuration and byte arithmetic within int64.

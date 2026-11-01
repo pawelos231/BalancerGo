@@ -85,7 +85,7 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     integer: true,
     min: 1,
     help:
-      'Initial limit on sent payload awaiting acknowledgements when Reno is enabled. ' +
+      'Initial limit on sent payload awaiting acknowledgements with Reno or Tahoe. ' +
       'The default of four 1,024-byte segments allows 4,096 bytes in flight before ACKs return. ' +
       'Values above four are experimental and exceed the selected RFC 5681 initial-window limit. ' +
       'The receiver window can impose a smaller limit. Mode none ignores this setting.',
@@ -96,7 +96,7 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     integer: true,
     min: 2048,
     help:
-      'Congestion-window size at which Reno switches from faster slow-start growth ' +
+      'Congestion-window size at which Reno or Tahoe switches from faster slow-start growth ' +
       'to slower congestion avoidance. A retransmission timeout can lower this threshold. ' +
       'Must be at least two 1,024-byte segments. Mode none ignores this setting.',
   },
@@ -374,19 +374,21 @@ export const scenarioSelectFields = {
   congestionControl: {
     label: 'Congestion control',
     help:
-      'Reno adds slow start, congestion avoidance and recovery from packet loss. ' +
+      'Reno and Tahoe grow the sender window during successful transfers. ' +
+      'After fast retransmit, Reno uses fast recovery; Tahoe restarts slow start. ' +
       'Mode none retains the receive-window-only baseline; retransmission timers still apply.',
     options: [
       { value: 'reno', label: 'Reno' },
+      { value: 'tahoe', label: 'Tahoe' },
       { value: 'none', label: 'None (receive window only)' },
     ],
   },
   fastRetransmit: {
-    label: 'Fast retransmit and recovery',
+    label: 'Fast retransmit',
     help:
       'Three duplicate ACKs retry missing data before the timeout. ' +
-      'Reno keeps the transfer moving with a reduced window. ' +
-      'Requires Reno; disable this to compare with timeout-only recovery.',
+      'Reno uses fast recovery; Tahoe restarts slow start with one segment. ' +
+      'Requires Reno or Tahoe; disable this to compare with timeout-only recovery.',
     options: [
       { value: 'true', label: 'Enabled' },
       { value: 'false', label: 'Disabled' },

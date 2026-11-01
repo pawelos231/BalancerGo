@@ -176,7 +176,7 @@ requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-reno-fast-recovery-v1` profile. `result.TCP.ReceiveBufferBytes`
+`tcp-congestion-strategies-v1` profile. `result.TCP.ReceiveBufferBytes`
 records the effective receive-buffer limit, including an omitted input's default.
 `result.TCP.RTO` and `result.LBIdleTimeouts` record the effective timer policy.
 `result.ClientTimings` retains each created client's latest RTT estimates and RTO,
@@ -611,7 +611,7 @@ positions instead of segment indices. `Size` remains the payload length, and
 positions by its length; SYN and FIN each consume one position, while pure ACK
 consumes none. The two directions keep separate sequence state.
 
-The `tcp-reno-fast-recovery-v1` profile uses logical `uint64` byte positions and
+The `tcp-congestion-strategies-v1` profile uses logical `uint64` byte positions and
 fixed initial sequence numbers of zero. It does not model the 32-bit sequence
 number wraparound of real TCP. Large streams are checked against native integer
 limits rather than the former 32-bit segment-counter limit. Payload remains
@@ -652,21 +652,24 @@ closing or terminated clients report zero pending payload after abandoning their
 
 The **TCP congestion control** form section configures `tcp.congestionControl`:
 
-- `mode`: `reno` by default, or `none` for the earlier rwnd-only baseline;
-- `fastRetransmit`: enabled by default for Reno; controls fast retransmit and
-  classic Reno fast recovery together. With `none`, it defaults to disabled;
+- `mode`: `reno` by default, `tahoe` for the historical loss-response comparison,
+  or `none` for the earlier rwnd-only baseline;
+- `fastRetransmit`: enabled by default for Reno and Tahoe; controls early retry
+  after three duplicate ACKs. Reno uses fast recovery, while Tahoe restarts slow
+  start. With `none`, it defaults to disabled;
 - `initialWindowSegments`: 4 by default, each with at most 1024 payload bytes;
 - `initialSlowStartThresholdBytes`: 65535 by default, with a minimum of 2048.
 
 Legacy CLI flags are `-tcp-congestion-control`, `-tcp-fast-retransmit`,
 `-tcp-initial-window` and `-tcp-slow-start-threshold`. Omitted settings inherit
 these defaults. `-tcp-fast-retransmit=false` keeps timeout-only recovery while
-retaining Reno's window rules. An explicit enabled flag requires Reno; selecting
-`none` alone disables it. Larger
+retaining the selected algorithm's window rules. An explicit enabled flag
+requires Reno or Tahoe; selecting `none` alone disables it. Larger
 custom startup windows are experimental; four segments is the selected RFC 5681
 initial limit for this model's MSS. To reproduce older rwnd-only experiments,
 select `none` explicitly; existing JSON files now inherit Reno.
 
+Both Reno and Tahoe use the same selected startup and ACK-growth rules.
 During slow start, each ACK confirming new data grows `cwnd` by
 `min(newly acknowledged bytes, MSS)`. At `cwnd >= ssthresh`, congestion avoidance
 counts newly confirmed bytes; confirming one window adds one MSS, at most once
@@ -701,8 +704,19 @@ A protected byte boundary prevents delayed duplicates from cutting the same
 flight repeatedly; RTO clears active recovery and restores timeout behavior.
 All retry state is prepared before a synchronous sender callback can reply.
 
+Tahoe instead sets `ssthresh=max(FlightSize/2, 2*MSS)` and `cwnd=1*MSS` on the
+third duplicate ACK. It immediately retransmits the missing fragment without
+entering Reno fast recovery. Later duplicates do not inflate its window; the
+next ACK confirming new bytes grows slow start normally. For example, eight
+outstanding segments produce a four-MSS threshold: Reno enters recovery at seven
+MSS and deflates to four on an advancing ACK, while Tahoe starts at one and grows
+to two on that ACK. The old-flight guard also protects Tahoe from repeated cuts.
+This is a documented Tahoe loss-response profile under the simulator's shared
+TCP assumptions, not a reconstruction of every historical TCP detail.
+See [RFC 3390](https://www.rfc-editor.org/rfc/rfc3390.html).
+
 These are the selected [RFC 5681, sections 2, 3.1, 3.2 and 4.1](https://www.rfc-editor.org/rfc/rfc5681.html)
-rules. This is classic Reno: multiple gaps in one flight may still require RTO.
+rules for Reno. This is classic Reno: multiple gaps in one flight may still require RTO.
 Limited Transmit on the first two duplicates and NewReno partial-ACK recovery
 remain outside this profile, as does full window validation for senders limited
 by workload pacing or `rwnd`.
@@ -714,6 +728,19 @@ after cleanup. `DuplicateACKs` is the current run since progress/RTO and is
 cleared on close; `FastRetransmissions` is cumulative. Fast retries are also
 included in total data retransmissions; the two counters must not be added.
 Disabled congestion control omits window limits rather than showing a false zero.
+
+Each connection selects its congestion policy before handshake. Common TCP owns
+SEQ/ACK, rwnd, duplicate-ACK detection, the protected flight boundary, retry
+accounting, RTT/RTO and actual packet emission. The selected policy owns window
+growth, loss response and its observable phase; it cannot inspect remote links
+or schedule engine callbacks directly.
+
+The policy may return an optional absolute virtual deadline for the next new
+data send. The sender combines that deadline with its workload gap and rechecks
+it before emission. Current Reno, Tahoe and none do not add pacing deadlines,
+so they retain the existing per-segment scheduling. This seam covers new data;
+retransmissions still use the immediate transport path. Delivery-rate sampling
+and algorithm-specific retransmission pacing remain part of the future BBR scope.
 
 `packetGapNanoseconds` is the initial pause once both the connection and stream
 are ready, and the minimum interval between new data sends. An ACK does not

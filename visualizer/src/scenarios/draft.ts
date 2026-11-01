@@ -127,7 +127,8 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
     return text === 'fixed' || text === 'adaptive' ? undefined : 'Choose fixed or adaptive timing.';
   }
   if (field === 'congestionControl') {
-    return text === 'none' || text === 'reno' ? undefined : 'Choose none or Reno congestion control.';
+    const valid = text === 'none' || text === 'reno' || text === 'tahoe';
+    return valid ? undefined : 'Choose none, Reno or Tahoe congestion control.';
   }
   if (field === 'rtoBackoff') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether timeout backoff is enabled.';
@@ -185,7 +186,7 @@ export function scenarioFormValues(scenario: Scenario): ScenarioDraft {
       return parent == null ? undefined : Reflect.get(parent as object, key);
     }, scenario);
     const inherited = field === 'fastRetransmit'
-      ? (scenario.tcp?.congestionControl?.mode ?? 'reno') === 'reno'
+      ? (scenario.tcp?.congestionControl?.mode ?? 'reno') !== 'none'
       : optionalDefaults[field];
     const value = requested ?? inherited;
     const decimals = timeDecimals[field];
@@ -206,8 +207,8 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
   const error = validateScenarioField(field, raw);
   if (error) throw new Error(error);
   const mode = scenario.tcp?.congestionControl?.mode ?? 'reno';
-  if (field === 'fastRetransmit' && raw.trim() === 'true' && mode !== 'reno') {
-    throw new Error('Fast retransmit and recovery require Reno congestion control.');
+  if (field === 'fastRetransmit' && raw.trim() === 'true' && mode === 'none') {
+    throw new Error('Fast retransmit requires Reno or Tahoe congestion control.');
   }
   const updated = structuredClone(scenario);
   if (field === 'clients') {
@@ -238,7 +239,7 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     }
     Reflect.set(target, path[path.length - 1], value);
 
-    // Turning Reno off also disables its recovery policy, without changing links.
+    // The rwnd-only baseline disables early loss detection, without changing links.
     if (field === 'congestionControl' && value === 'none') {
       Reflect.set(target, 'fastRetransmit', false);
     }

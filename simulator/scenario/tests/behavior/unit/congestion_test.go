@@ -97,13 +97,57 @@ func TestFastRetransmitDefaultsAndDocumentRoundTrip(t *testing.T) {
 	}
 }
 
+// Tahoe shares the scenario window settings but chooses its own loss response.
+func TestTahoeCongestionSettingsRoundTrip(t *testing.T) {
+	tests := []struct {
+		name           string
+		fastRetransmit *bool
+		wantEnabled    bool
+	}{
+		{name: "omitted early retry", wantEnabled: true},
+		{name: "explicit enabled", fastRetransmit: pointer(true), wantEnabled: true},
+		{name: "explicit disabled", fastRetransmit: pointer(false)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := exampleScenario()
+			input.TCP.CongestionControl = scenario.CongestionConfig{
+				Mode:           pointer("tahoe"),
+				FastRetransmit: test.fastRetransmit,
+			}
+
+			// Encoding must preserve omission as well as an explicit false.
+			document, err := scenario.EncodeDocument(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, err := scenario.DecodeDocument(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (restored.TCP.CongestionControl.FastRetransmit == nil) != (test.fastRetransmit == nil) {
+				t.Fatal("native round trip changed whether early retry was configured")
+			}
+			resolved, err := scenario.Normalize(restored)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := resolved.TCP.CongestionControl
+			if config.Mode != "tahoe" || config.FastRetransmit != test.wantEnabled ||
+				config.InitialWindowSegments != 4 || config.InitialSlowStartThresholdBytes != 65535 {
+				t.Fatalf("resolved Tahoe configuration = %+v", config)
+			}
+		})
+	}
+}
+
 func TestCongestionValidation(t *testing.T) {
 	// Zero is invalid even in mode none, so enabling Reno later cannot reveal bad settings.
-	for _, mode := range []string{"none", "reno", "", "cubic"} {
+	for _, mode := range []string{"none", "reno", "tahoe", "", "cubic"} {
 		input := exampleScenario()
 		input.TCP.CongestionControl.Mode = pointer(mode)
 		_, err := scenario.Normalize(input)
-		valid := mode == "none" || mode == "reno"
+		valid := mode == "none" || mode == "reno" || mode == "tahoe"
 		if (err == nil) != valid {
 			t.Fatalf("mode %q: error %v", mode, err)
 		}

@@ -20,6 +20,7 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 	}{
 		{name: "defaults", mode: "reno", segments: 4, threshold: 65535},
 		{name: "custom Reno", mode: "reno", segments: 2, threshold: 4096},
+		{name: "Tahoe", mode: "tahoe", segments: 2, threshold: 4096},
 		{name: "disabled", mode: "none", segments: 7, threshold: 8192},
 	}
 	for _, test := range tests {
@@ -68,7 +69,7 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 				"slowStartThresholdBytes": native.SlowStartThresholdBytes,
 			} {
 				value, exists := clientMetrics[key]
-				if exists != (test.mode == "reno") || (exists && value != float64(want)) {
+				if exists != (test.mode != "none") || (exists && value != float64(want)) {
 					t.Fatalf("projected %s = %v, present = %v, native = %+v", key, value, exists, native)
 				}
 			}
@@ -77,7 +78,7 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 			result := BuildResult(world, 0)
 			wantConfig := contract.CongestionConfig{
 				Mode:                           test.mode,
-				FastRetransmit:                 test.mode == "reno",
+				FastRetransmit:                 test.mode != "none",
 				InitialWindowSegments:          test.segments,
 				InitialSlowStartThresholdBytes: test.threshold,
 			}
@@ -105,8 +106,8 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 				retained.State.BytesInFlight != 0 {
 				t.Fatalf("retained sender state = %+v", retained)
 			}
-			if test.mode == "reno" && retained.State.CongestionWindowBytes == 0 {
-				t.Fatal("completed Reno client's window disappeared")
+			if test.mode != "none" && retained.State.CongestionWindowBytes == 0 {
+				t.Fatal("completed client's congestion window disappeared")
 			}
 		})
 	}
