@@ -89,7 +89,7 @@ func prepareStart(request startRequest, defaults configuration) (preparedStart, 
 	if inputSettings.FastRetransmit != nil {
 		requested.FastRetransmit = *inputSettings.FastRetransmit
 	} else if requested.CongestionControl != previousCongestionMode {
-		// Switching from none to Tahoe/Reno uses the new mode's default retry policy.
+		// Changing the mode uses its default retry policy when the flag is omitted.
 		requested.FastRetransmit = requested.CongestionControl != "none"
 	} else if requested.CongestionControl == "none" {
 		requested.FastRetransmit = false

@@ -20,7 +20,7 @@ type lossDetection struct {
 func (control *congestionControl) duplicateACK(
 	flight uint64,
 	pendingCount int,
-	nextSendSeq uint64,
+	nextSendSeq, oldestUnackedSeq uint64,
 	now time.Duration,
 ) bool {
 	if !control.config.FastRetransmit || flight == 0 {
@@ -34,13 +34,19 @@ func (control *congestionControl) duplicateACK(
 		return false
 	}
 
-	// Protect this flight even after a partial ACK, so late duplicates cannot cut it again.
-	control.loss.untilSeq = nextSendSeq
-	control.policy.OnLoss(congestioncontrol.Loss{
+	response := control.policy.OnLoss(congestioncontrol.Loss{
 		At:              now,
 		Kind:            congestioncontrol.FastRetransmitLoss,
 		FlightBytes:     flight,
+		CumulativeACK:   oldestUnackedSeq,
+		NextSendSeq:     nextSendSeq,
 		PendingSegments: pendingCount,
 	})
+	if response.SuppressFastRetransmit {
+		return false
+	}
+
+	// Protect this flight even after a partial ACK, so late duplicates cannot cut it again.
+	control.loss.untilSeq = nextSendSeq
 	return true
 }

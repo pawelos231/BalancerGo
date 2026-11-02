@@ -88,8 +88,12 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 			pendingCount := len(c.pendingSegments.segments) - c.pendingSegments.firstPendingIndex
 
 			// The third qualifying duplicate ACK triggers a retry of the oldest segment.
-			if c.congestion.duplicateACK(c.bytesInFlight(), pendingCount, c.nextSendSeq, c.engine.Now()) {
-				c.fastRetransmitOldest()
+			retryOldest := c.congestion.duplicateACK(
+				c.bytesInFlight(), pendingCount,
+				c.nextSendSeq, c.oldestUnackedSeq, c.engine.Now(),
+			)
+			if retryOldest {
+				c.fastRetransmitOldest(true)
 			}
 		}
 		// A larger rwnd or recovery cwnd may now allow another new segment to be sent.
@@ -108,17 +112,27 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 
 	c.pendingSegments.acknowledge(pkt.Ack)
 	c.observeSender()
-	c.congestion.acknowledge(
-		uint64(acknowledgedBytes), pkt.Ack, c.engine.Now(), c.rto.state.SmoothedRTT,
+	response := c.congestion.acknowledge(
+		uint64(acknowledgedBytes), pkt.Ack, c.bytesInFlight(),
+		c.engine.Now(), c.rto.state.SmoothedRTT,
 	)
 	c.oldestSegmentRetransmissions = 0
-	c.cancelEvent(&c.dataTimer)
-	if c.pendingSegments.hasPending() {
+
+	// NewReno restarts RTO on its first partial ACK, then keeps that deadline.
+	// Other ACKs keep the existing rule: restart RTO when new bytes are confirmed.
+	if !c.pendingSegments.hasPending() {
+		c.cancelEvent(&c.dataTimer)
+	} else if !response.PreserveRetransmitTimer || c.dataTimer == 0 {
 		c.armDataTimer()
 	}
 
 	if c.OnPayloadAcknowledged != nil {
 		c.OnPayloadAcknowledged(acknowledgedBytes)
+	}
+	if response.RetransmitOldest && c.oldestUnackedSeq == pkt.Ack {
+		// Accounting and timers are ready before sending; its ACK may arrive synchronously.
+		// A payload callback may already have confirmed this gap, making the retry stale.
+		c.fastRetransmitOldest(false)
 	}
 	c.queueSegment()
 }

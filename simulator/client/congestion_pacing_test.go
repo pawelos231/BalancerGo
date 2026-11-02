@@ -19,9 +19,10 @@ type deadlinePolicy struct {
 	deadlineOnACK time.Duration
 }
 
-func (policy *deadlinePolicy) OnACK(ack congestioncontrol.ACK) {
-	policy.Policy.OnACK(ack)
+func (policy *deadlinePolicy) OnACK(ack congestioncontrol.ACK) congestioncontrol.ACKResponse {
+	response := policy.Policy.OnACK(ack)
 	policy.deadline = policy.deadlineOnACK
+	return response
 }
 
 func (policy *deadlinePolicy) OnSent(now time.Duration, payloadBytes int) {

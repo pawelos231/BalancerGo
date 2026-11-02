@@ -138,7 +138,10 @@ test('fast recovery follows Reno defaults and preserves an explicit disabled set
   // Switching off Reno disables its dependent policy; turning Reno back on keeps false.
   const none = applyScenarioField(original, 'congestionControl', 'none');
   assert.equal(scenarioFormValues(none).fastRetransmit, 'false');
-  assert.throws(() => applyScenarioField(none, 'fastRetransmit', 'true'), /requires Reno, Tahoe or CUBIC/);
+  assert.throws(
+    () => applyScenarioField(none, 'fastRetransmit', 'true'),
+    /requires Reno, NewReno, Tahoe or CUBIC/,
+  );
   const reno = applyScenarioField(none, 'congestionControl', 'reno');
   assert.equal(scenarioFormValues(reno).fastRetransmit, 'false');
   const enabled = applyScenarioField(reno, 'fastRetransmit', 'true');
@@ -153,32 +156,34 @@ test('fast recovery follows Reno defaults and preserves an explicit disabled set
   assert.ok(validateScenarioField('fastRetransmit', '1'));
 });
 
-test('Tahoe edits inherit early retransmit and preserve an explicit disabled choice', () => {
-  const original = mixedScenario();
-  const before = structuredClone(original);
+for (const mode of ['tahoe', 'newReno']) {
+  test(`${mode} edits inherit early retransmit and preserve an explicit disabled choice`, () => {
+    const original = mixedScenario();
+    const before = structuredClone(original);
 
-  // Selecting Tahoe inherits early loss detection without writing an extra default.
-  const tahoe = applyScenarioField(original, 'congestionControl', 'tahoe');
-  assert.equal(scenarioFormValues(tahoe).congestionControl, 'tahoe');
-  assert.equal(scenarioFormValues(tahoe).fastRetransmit, 'true');
-  assert.equal(tahoe.tcp?.congestionControl?.fastRetransmit, undefined);
+    // Selecting a mode inherits early retry without writing an extra default.
+    const selected = applyScenarioField(original, 'congestionControl', mode);
+    assert.equal(scenarioFormValues(selected).congestionControl, mode);
+    assert.equal(scenarioFormValues(selected).fastRetransmit, 'true');
+    assert.equal(selected.tcp?.congestionControl?.fastRetransmit, undefined);
 
-  // Disabling and re-enabling fast retransmit survives native JSON export/import.
-  const disabled = applyScenarioField(tahoe, 'fastRetransmit', 'false');
-  const restored = JSON.parse(JSON.stringify(disabled));
-  assert.equal(scenarioFormValues(restored).fastRetransmit, 'false');
-  const enabled = applyScenarioField(restored, 'fastRetransmit', 'true');
-  assert.equal(enabled.tcp?.congestionControl?.mode, 'tahoe');
-  assert.equal(enabled.tcp?.congestionControl?.fastRetransmit, true);
+    // Disabling and re-enabling fast retransmit survives native JSON export/import.
+    const disabled = applyScenarioField(selected, 'fastRetransmit', 'false');
+    const restored = JSON.parse(JSON.stringify(disabled));
+    assert.equal(scenarioFormValues(restored).fastRetransmit, 'false');
+    const enabled = applyScenarioField(restored, 'fastRetransmit', 'true');
+    assert.equal(enabled.tcp?.congestionControl?.mode, mode);
+    assert.equal(enabled.tcp?.congestionControl?.fastRetransmit, true);
 
-  // Switching from none retains its explicit false until the user enables it.
-  const none = applyScenarioField(original, 'congestionControl', 'none');
-  const fromNone = applyScenarioField(none, 'congestionControl', 'tahoe');
-  assert.equal(scenarioFormValues(fromNone).fastRetransmit, 'false');
-  assert.deepEqual(enabled.network, restored.network);
-  assert.deepEqual(enabled.workload, restored.workload);
-  assert.deepEqual(original, before);
-});
+    // Switching from none retains its explicit false until the user enables it.
+    const none = applyScenarioField(original, 'congestionControl', 'none');
+    const fromNone = applyScenarioField(none, 'congestionControl', mode);
+    assert.equal(scenarioFormValues(fromNone).fastRetransmit, 'false');
+    assert.deepEqual(enabled.network, restored.network);
+    assert.deepEqual(enabled.workload, restored.workload);
+    assert.deepEqual(original, before);
+  });
+}
 
 test('CUBIC edits preserve its convergence setting across native JSON and mode changes', () => {
   const original = mixedScenario();
@@ -219,6 +224,7 @@ test('congestion validation keeps segment multiplication and threshold byte coun
 
   const valid: [ScenarioField, string][] = [
     ['congestionControl', 'none'], ['congestionControl', 'reno'],
+    ['congestionControl', 'newReno'],
     ['initialCongestionWindowSegments', '1'],
     ['initialCongestionWindowSegments', '9007199254740991'],
     ['initialSlowStartThresholdBytes', '2048'],

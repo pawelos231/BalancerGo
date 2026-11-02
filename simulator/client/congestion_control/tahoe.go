@@ -9,7 +9,7 @@ type tahoePolicy struct {
 // OnLoss retries with cwnd=1 MSS after either fast loss or an RTO.
 // Later duplicate ACKs do not inflate Tahoe's window; a new ACK grows it normally.
 // https://www.rfc-editor.org/rfc/rfc3390.html#section-6
-func (policy *tahoePolicy) OnLoss(loss Loss) {
+func (policy *tahoePolicy) OnLoss(loss Loss) LossResponse {
 	switch loss.Kind {
 	case FastRetransmitLoss:
 		policy.restartAfterLoss(loss.FlightBytes, false)
@@ -18,4 +18,5 @@ func (policy *tahoePolicy) OnLoss(loss Loss) {
 	case HandshakeLoss:
 		policy.restartAfterHandshakeLoss()
 	}
+	return LossResponse{}
 }

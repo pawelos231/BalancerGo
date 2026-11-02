@@ -77,7 +77,7 @@ func TestConfigurationFastRetransmitRoundTrip(t *testing.T) {
 	}
 }
 
-// Omitting the flag follows the mode; early retransmit works with Reno and Tahoe.
+// Omitting the retry flag follows the selected congestion mode.
 func TestFastRetransmitCLIFlag(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -85,6 +85,20 @@ func TestFastRetransmitCLIFlag(t *testing.T) {
 		enabled bool
 	}{
 		{name: "Reno default", enabled: true},
+		{
+			name:    "NewReno default",
+			flags:   []string{"-tcp-congestion-control", "newReno"},
+			enabled: true,
+		},
+		{
+			name:  "NewReno explicit disable",
+			flags: []string{"-tcp-congestion-control", "newReno", "-tcp-fast-retransmit=false"},
+		},
+		{
+			name:    "NewReno explicit enable before mode",
+			flags:   []string{"-tcp-fast-retransmit=true", "-tcp-congestion-control", "newReno"},
+			enabled: true,
+		},
 		{
 			name:    "CUBIC default",
 			flags:   []string{"-tcp-congestion-control", "cubic"},
@@ -143,35 +157,39 @@ func TestFastRetransmitCLIFlag(t *testing.T) {
 	}
 }
 
-// Form edits and the native scenario keep the selected Tahoe profile and retry flag.
-func TestConfigurationTahoeRoundTrip(t *testing.T) {
-	for _, fastRetransmit := range []bool{true, false} {
-		defaults := legacyTestConfiguration()
-		requested := defaults.publicConfig()
-		requested.Bytes = 4096
-		requested.CongestionControl = "tahoe"
-		requested.FastRetransmit = fastRetransmit
+// Form edits and the native scenario retain each mode and retry flag.
+func TestConfigurationRecoveryModesRoundTrip(t *testing.T) {
+	for _, mode := range []string{"tahoe", "newReno"} {
+		t.Run(mode, func(t *testing.T) {
+			for _, fastRetransmit := range []bool{true, false} {
+				defaults := legacyTestConfiguration()
+				requested := defaults.publicConfig()
+				requested.Bytes = 4096
+				requested.CongestionControl = mode
+				requested.FastRetransmit = fastRetransmit
 
-		runtime, err := configurationFromPublic(requested, defaults)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if restored := runtime.publicConfig(); restored != requested {
-			t.Fatalf("Tahoe settings changed during the form round trip: %+v", restored)
-		}
+				runtime, err := configurationFromPublic(requested, defaults)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if restored := runtime.publicConfig(); restored != requested {
+					t.Fatalf("%s settings changed during the form round trip: %+v", mode, restored)
+				}
 
-		resolved, err := scenario.Normalize(runtime.scenarioDefinition())
-		if err != nil {
-			t.Fatal(err)
-		}
-		config := resolved.TCP.CongestionControl
-		if config.Mode != string(model.CongestionTahoe) || config.FastRetransmit != fastRetransmit {
-			t.Fatalf("native scenario lost the Tahoe profile: %+v", config)
-		}
-		summary := scenarioSummary(resolved)
-		if summary.CongestionControl != "tahoe" || summary.FastRetransmit != fastRetransmit {
-			t.Fatalf("scenario summary lost the Tahoe profile: %+v", summary)
-		}
+				resolved, err := scenario.Normalize(runtime.scenarioDefinition())
+				if err != nil {
+					t.Fatal(err)
+				}
+				config := resolved.TCP.CongestionControl
+				if config.Mode != mode || config.FastRetransmit != fastRetransmit {
+					t.Fatalf("native scenario lost the %s profile: %+v", mode, config)
+				}
+				summary := scenarioSummary(resolved)
+				if summary.CongestionControl != mode || summary.FastRetransmit != fastRetransmit {
+					t.Fatalf("scenario summary lost the %s profile: %+v", mode, summary)
+				}
+			}
+		})
 	}
 }
 

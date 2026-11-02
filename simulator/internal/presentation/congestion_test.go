@@ -20,6 +20,7 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 	}{
 		{name: "defaults", mode: "reno", segments: 4, threshold: 65535},
 		{name: "custom Reno", mode: "reno", segments: 2, threshold: 4096},
+		{name: "NewReno", mode: "newReno", segments: 2, threshold: 4096},
 		{name: "Tahoe", mode: "tahoe", segments: 2, threshold: 4096},
 		{name: "CUBIC", mode: "cubic", segments: 2, threshold: 4096},
 		{name: "disabled", mode: "none", segments: 7, threshold: 8192},

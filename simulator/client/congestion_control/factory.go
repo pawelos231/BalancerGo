@@ -8,6 +8,7 @@ func New(config model.CongestionConfig) Policy {
 	// Accept only the supported congestion-control modes.
 	validMode := config.Mode == model.CongestionNone ||
 		config.Mode == model.CongestionReno ||
+		config.Mode == model.CongestionNewReno ||
 		config.Mode == model.CongestionTahoe ||
 		config.Mode == model.CongestionCubic
 
@@ -32,6 +33,8 @@ func New(config model.CongestionConfig) Policy {
 	switch config.Mode {
 	case model.CongestionReno:
 		return &renoPolicy{classicWindow: newClassicWindow(config)}
+	case model.CongestionNewReno:
+		return newNewRenoPolicy(config)
 	case model.CongestionTahoe:
 		return &tahoePolicy{classicWindow: newClassicWindow(config)}
 	case model.CongestionCubic:

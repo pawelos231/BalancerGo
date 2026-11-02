@@ -149,9 +149,12 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 	}
 	if c.CongestionControl != string(model.CongestionNone) &&
 		c.CongestionControl != string(model.CongestionReno) &&
+		c.CongestionControl != string(model.CongestionNewReno) &&
 		c.CongestionControl != string(model.CongestionTahoe) &&
 		c.CongestionControl != string(model.CongestionCubic) {
-		return configuration{}, errors.New("congestionControl must be none, reno, tahoe or cubic")
+		return configuration{}, errors.New(
+			"congestionControl must be none, reno, newReno, tahoe or cubic",
+		)
 	}
 	base.congestion = model.CongestionConfig{
 		Mode:                           model.CongestionMode(c.CongestionControl),

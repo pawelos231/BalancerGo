@@ -43,14 +43,14 @@ func newCubicPolicy(config model.CongestionConfig) *cubicPolicy {
 
 // OnACK first completes classic fast recovery, even if the application has no more data.
 // Otherwise CUBIC grows only while local demand can use the congestion window.
-func (policy *cubicPolicy) OnACK(ack ACK) {
+func (policy *cubicPolicy) OnACK(ack ACK) ACKResponse {
 	if policy.activeRecovery {
 		policy.StopRecovery()
 		policy.setWindowBytes(policy.slowStartThresholdBytes)
-		return
+		return ACKResponse{}
 	}
 	if policy.clock.limited {
-		return
+		return ACKResponse{}
 	}
 
 	// This profile selects Reno slow start rather than the separate HyStart++ mechanism.
@@ -61,9 +61,10 @@ func (policy *cubicPolicy) OnACK(ack ACK) {
 		if !policy.hasCongestionEvent {
 			policy.priorWindowSegments = policy.windowSegments
 		}
-		return
+		return ACKResponse{}
 	}
 	policy.growCongestionAvoidance(ack)
+	return ACKResponse{}
 }
 
 // OnDuplicateACK retains classic recovery's bounded one-MSS inflation after the fast retry.
@@ -76,7 +77,7 @@ func (policy *cubicPolicy) OnDuplicateACK() {
 
 // OnLoss keeps 70% of flight after a new loss, rather than Reno's 50%.
 // With 8192 bytes outstanding, the threshold is floor(8192 * 0.7) = 5734 bytes.
-func (policy *cubicPolicy) OnLoss(loss Loss) {
+func (policy *cubicPolicy) OnLoss(loss Loss) LossResponse {
 	switch loss.Kind {
 	case FastRetransmitLoss:
 		policy.rememberCongestionWindow()
@@ -102,6 +103,7 @@ func (policy *cubicPolicy) OnLoss(loss Loss) {
 		policy.epochStarted = false
 		policy.resetMaximumAtEpoch = true
 	}
+	return LossResponse{}
 }
 
 // rememberCongestionWindow applies optional fast convergence before reducing the window.

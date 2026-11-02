@@ -19,6 +19,11 @@ func TestLegacyStartResolvesFastRecoveryFromPresentSettings(t *testing.T) {
 	}{
 		{name: "older Reno", payload: `{}`, want: true},
 		{name: "older none", payload: `{"congestionControl":"none"}`},
+		{name: "NewReno default", payload: `{"congestionControl":"newReno"}`, want: true},
+		{
+			name:    "NewReno explicit disabled",
+			payload: `{"congestionControl":"newReno","fastRetransmit":false}`,
+		},
 		{name: "Tahoe default", payload: `{"congestionControl":"tahoe"}`, want: true},
 		{name: "CUBIC default", payload: `{"congestionControl":"cubic"}`, want: true},
 		{
@@ -30,6 +35,12 @@ func TestLegacyStartResolvesFastRecoveryFromPresentSettings(t *testing.T) {
 			payload: `{"congestionControl":"tahoe","fastRetransmit":false}`,
 		},
 		{name: "explicit disabled", payload: `{"fastRetransmit":false}`},
+		{
+			name:     "none to NewReno defaults enabled",
+			payload:  `{"congestionControl":"newReno"}`,
+			baseMode: model.CongestionNone,
+			want:     true,
+		},
 		{
 			name:     "none to Tahoe defaults enabled",
 			payload:  `{"congestionControl":"tahoe"}`,

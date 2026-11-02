@@ -81,8 +81,9 @@ func (c *Client) availableCongestionWindowBytes() uint64 {
 // The selected algorithm then updates cwnd using the newly confirmed bytes.
 func (control *congestionControl) acknowledge(
 	newBytes, ack uint64,
+	flight uint64,
 	now, smoothedRTT time.Duration,
-) {
+) congestioncontrol.ACKResponse {
 	if control.timedOutSegmentEnd != 0 && ack >= control.timedOutSegmentEnd {
 		control.timedOutSegmentEnd = 0
 	}
@@ -90,10 +91,12 @@ func (control *congestionControl) acknowledge(
 	if control.loss.untilSeq != 0 && ack >= control.loss.untilSeq {
 		control.loss.untilSeq = 0
 	}
-	control.policy.OnACK(congestioncontrol.ACK{
-		At:          now,
-		NewBytes:    newBytes,
-		SmoothedRTT: smoothedRTT,
+	return control.policy.OnACK(congestioncontrol.ACK{
+		At:            now,
+		NewBytes:      newBytes,
+		CumulativeACK: ack,
+		FlightBytes:   flight,
+		SmoothedRTT:   smoothedRTT,
 	})
 }
 
@@ -125,6 +128,8 @@ func (control *congestionControl) onDataTimeout(
 		At:              now,
 		Kind:            congestioncontrol.TimeoutLoss,
 		FlightBytes:     flight,
+		CumulativeACK:   packet.Seq,
+		NextSendSeq:     nextSendSeq,
 		AlreadyTimedOut: alreadyTimedOut,
 	})
 }

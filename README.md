@@ -652,9 +652,10 @@ closing or terminated clients report zero pending payload after abandoning their
 
 The **TCP congestion control** form section configures `tcp.congestionControl`:
 
-- `mode`: `reno` by default, `tahoe` for the historical loss-response comparison,
+- `mode`: `reno` by default, `newReno` for partial-ACK recovery without SACK,
+  `tahoe` for the historical loss-response comparison,
   `cubic` for the selected RFC 9438 profile, or `none` for the rwnd-only baseline;
-- `fastRetransmit`: enabled by default for Reno, Tahoe and CUBIC; controls early retry
+- `fastRetransmit`: enabled by default for Reno, NewReno, Tahoe and CUBIC; controls early retry
   after three duplicate ACKs. Reno uses fast recovery, while Tahoe restarts slow
   start. CUBIC uses the existing fast-recovery mechanism with its own reduction
   factor. With `none`, it defaults to disabled;
@@ -670,12 +671,12 @@ Legacy CLI flags are `-tcp-congestion-control`, `-tcp-fast-retransmit`,
 `-tcp-initial-window` and `-tcp-slow-start-threshold`. Omitted settings inherit
 these defaults. `-tcp-fast-retransmit=false` keeps timeout-only recovery while
 retaining the selected algorithm's window rules. An explicit enabled flag
-requires Reno, Tahoe or CUBIC; selecting `none` alone disables it. Larger
+requires Reno, NewReno, Tahoe or CUBIC; selecting `none` alone disables it. Larger
 custom startup windows are experimental; four segments is the selected RFC 5681
 initial limit for this model's MSS. To reproduce older rwnd-only experiments,
 select `none` explicitly; existing JSON files now inherit Reno.
 
-Both Reno and Tahoe use the same selected startup and ACK-growth rules.
+Reno, NewReno and Tahoe use the same selected startup and ACK-growth rules.
 During slow start, each ACK confirming new data grows `cwnd` by
 `min(newly acknowledged bytes, MSS)`. At `cwnd >= ssthresh`, congestion avoidance
 counts newly confirmed bytes; confirming one window adds one MSS, at most once
@@ -709,6 +710,28 @@ ACK, exits recovery with `cwnd=ssthresh`, without another growth on that ACK.
 A protected byte boundary prevents delayed duplicates from cutting the same
 flight repeatedly; RTO clears active recovery and restores timeout behavior.
 All retry state is prepared before a synchronous sender callback can reply.
+
+NewReno is a separate [RFC 6582, sections 3.2 and 4](https://www.rfc-editor.org/rfc/rfc6582.html)
+profile. It records the exclusive end of the old flight when fast recovery starts.
+An advancing ACK below that fixed boundary retries the oldest remaining fragment,
+reduces cwnd by the newly acknowledged bytes and adds back one MSS if at least
+one MSS was acknowledged. The window stays at least one MSS. New data sent
+during recovery cannot move the recorded boundary. This permits multiple holes
+in one flight to be repaired without waiting for another three duplicate ACKs.
+
+Only the first partial ACK restarts RTO; later partial ACKs and their retries
+preserve that deadline. A full ACK reaches the fixed boundary and leaves recovery
+with `cwnd=min(ssthresh, max(remaining flight, MSS)+MSS)`, without growing again
+on the same ACK. RTO exits recovery and uses the existing one-MSS timeout response.
+The policy requests retries; common TCP still owns packets, timers, Karn's rule,
+retry limits and unique-payload accounting.
+
+The selected base NewReno profile retains the RFC's conservative recovery guard:
+a new fast loss is allowed only after ACK progresses beyond the previous boundary,
+also after RTO. Initially that boundary follows SYN at sequence zero. Therefore
+loss of the very first data byte before any payload progress waits for RTO.
+Optional ACK/timestamp heuristics, Limited Transmit and SACK are excluded.
+Selecting `newReno` does not change the classic recovery selected by Reno or CUBIC.
 
 Tahoe instead sets `ssthresh=max(FlightSize/2, 2*MSS)` and `cwnd=1*MSS` on the
 third duplicate ACK. It immediately retransmits the missing fragment without
@@ -771,13 +794,15 @@ The algorithms live in `simulator/client/congestion_control/`, a separate Go
 package named `congestioncontrol`. Its `Policy` interface accepts scalar ACK,
 sender and loss observations and returns a detached `State`. `New` validates
 configuration and selects the algorithm; concrete implementations stay private.
+ACK responses can request a retry of the oldest fragment and preservation of
+the RTO deadline. Loss responses can suppress a stale fast-retransmit indication.
 The client keeps `congestion_adapter.go` for translating TCP events and
 `loss_detection.go` for shared duplicate-ACK/retry tracking. Congestion algorithms
 do not import the client, virtual-time engine, network or presentation layers.
 
 The policy may return an optional absolute virtual deadline for the next new
 data send. The sender combines that deadline with its workload gap and rechecks
-it before emission. Current Reno, Tahoe and none do not add pacing deadlines,
+it before emission. Current Reno, NewReno, Tahoe, CUBIC and none do not add pacing deadlines,
 so they retain the existing per-segment scheduling. This seam covers new data;
 retransmissions still use the immediate transport path. Delivery-rate sampling
 and algorithm-specific retransmission pacing remain part of the future BBR scope.

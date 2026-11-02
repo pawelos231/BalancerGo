@@ -87,7 +87,7 @@ export interface SimulationConfig {
   packets: number;
   bytes: number;
   receiveBufferBytes: number;
-  congestionControl: 'none' | 'reno' | 'tahoe' | 'cubic';
+  congestionControl: 'none' | 'reno' | 'newReno' | 'tahoe' | 'cubic';
   fastRetransmit: boolean;
   cubicFastConvergence: boolean;
   initialCongestionWindowSegments: number;

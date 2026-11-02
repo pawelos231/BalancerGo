@@ -6,7 +6,7 @@ import (
 	"load-balancer/model"
 )
 
-// classicWindow holds the slow-start and congestion-avoidance rules shared by Reno/Tahoe.
+// classicWindow holds the slow-start and congestion-avoidance rules shared by Reno variants.
 // Their loss policies decide when to use these rules and when recovery consumes an ACK.
 type classicWindow struct {
 	startupWindowBytes         uint64
@@ -27,12 +27,12 @@ func newClassicWindow(config model.CongestionConfig) classicWindow {
 // OnACK grows slow start by at most one MSS per new ACK, then grows one MSS per window.
 // A cumulative 4096-byte ACK increases slow start by one MSS, not four.
 // https://www.rfc-editor.org/rfc/rfc5681.html#section-3.1
-func (window *classicWindow) OnACK(ack ACK) {
+func (window *classicWindow) OnACK(ack ACK) ACKResponse {
 	newBytes := ack.NewBytes
 	if window.congestionWindowBytes < window.slowStartThresholdBytes {
 		increase := min(newBytes, uint64(model.SEGMENT_SIZE))
 		window.congestionWindowBytes = addCongestionBytes(window.congestionWindowBytes, increase)
-		return
+		return ACKResponse{}
 	}
 
 	window.avoidanceAcknowledgedBytes = addCongestionBytes(window.avoidanceAcknowledgedBytes, newBytes)
@@ -40,6 +40,7 @@ func (window *classicWindow) OnACK(ack ACK) {
 		window.avoidanceAcknowledgedBytes -= window.congestionWindowBytes
 		window.congestionWindowBytes = addCongestionBytes(window.congestionWindowBytes, model.SEGMENT_SIZE)
 	}
+	return ACKResponse{}
 }
 
 // restartAfterLoss starts at one MSS and halves flight only for a new loss indication.
@@ -85,7 +86,7 @@ func (*classicWindow) OnSent(time.Duration, int) {}
 // Reno/Tahoe keep their existing ACK growth even when workload or rwnd limits sending.
 func (*classicWindow) OnSenderState(SenderState) {}
 
-// we need to satisfy the polocy Tahoe does not react to duplicate ACK's
+// Tahoe does not react to duplicate ACKs.
 func (*classicWindow) OnDuplicateACK() {}
 
 // StopRecovery lets Tahoe satisfy Policy without keeping a fast-recovery state.

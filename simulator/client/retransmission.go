@@ -138,14 +138,16 @@ func (c *Client) retransmitData() {
 }
 
 // fastRetransmitOldest repairs the same pending fragment before RTO expires.
-// Unlike a timeout, it restarts the existing RTO without backing it off.
-func (c *Client) fastRetransmitOldest() {
+// A duplicate-ACK retry restarts RTO; a NewReno partial ACK already chose its deadline.
+func (c *Client) fastRetransmitOldest(restartTimer bool) {
 	packet, retry := c.prepareDataRetry()
 	if !retry {
 		return
 	}
 	c.congestion.loss.fastRetransmissions++
-	c.armDataTimer()
+	if restartTimer {
+		c.armDataTimer()
+	}
 	c.emit(packet)
 }
 

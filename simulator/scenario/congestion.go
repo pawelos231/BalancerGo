@@ -31,10 +31,13 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 
 	validMode := resolved.Mode == string(model.CongestionNone) ||
 		resolved.Mode == string(model.CongestionReno) ||
+		resolved.Mode == string(model.CongestionNewReno) ||
 		resolved.Mode == string(model.CongestionTahoe) ||
 		resolved.Mode == string(model.CongestionCubic)
 	if !validMode {
-		return NormalizedCongestionConfig{}, fmt.Errorf("tcp.congestionControl.mode: must be none, reno, tahoe or cubic")
+		return NormalizedCongestionConfig{}, fmt.Errorf(
+			"tcp.congestionControl.mode: must be none, reno, newReno, tahoe or cubic",
+		)
 	}
 
 	// Each enabled algorithm can detect losses early and choose its own window response.
@@ -44,7 +47,8 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 	}
 	if resolved.FastRetransmit && resolved.Mode == string(model.CongestionNone) {
 		return NormalizedCongestionConfig{}, fmt.Errorf(
-			"tcp.congestionControl.fastRetransmit: requires Reno, Tahoe or CUBIC congestion control",
+			"tcp.congestionControl.fastRetransmit: " +
+				"requires Reno, NewReno, Tahoe or CUBIC congestion control",
 		)
 	}
 

@@ -86,7 +86,8 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     integer: true,
     min: 1,
     help:
-      'Initial limit on sent payload awaiting acknowledgements with Reno, Tahoe or CUBIC. ' +
+      'Initial limit on sent payload awaiting acknowledgements ' +
+      'with Reno, NewReno, Tahoe or CUBIC. ' +
       'The default of four 1,024-byte segments allows 4,096 bytes in flight before ACKs return. ' +
       'Values above four are experimental and exceed the selected RFC 5681 initial-window limit. ' +
       'The receiver window can impose a smaller limit. Mode none ignores this setting.',
@@ -375,12 +376,14 @@ export const scenarioSelectFields = {
   congestionControl: {
     label: 'Congestion control',
     help:
-      'Reno and Tahoe grow the sender window during successful transfers. ' +
+      'Reno, NewReno and Tahoe grow the sender window during successful transfers. ' +
       'CUBIC uses elapsed virtual time to shape window growth. ' +
       'After fast retransmit, Reno/CUBIC use fast recovery; Tahoe restarts slow start. ' +
+      'NewReno stays in recovery through partial ACKs to retry more missing data. ' +
       'Mode none retains the receive-window-only baseline; retransmission timers still apply.',
     options: [
       { value: 'reno', label: 'Reno' },
+      { value: 'newReno', label: 'NewReno' },
       { value: 'tahoe', label: 'Tahoe' },
       { value: 'cubic', label: 'CUBIC' },
       { value: 'none', label: 'None (receive window only)' },
@@ -390,8 +393,9 @@ export const scenarioSelectFields = {
     label: 'Fast retransmit',
     help:
       'Three duplicate ACKs retry missing data before the timeout. ' +
-      'Reno/CUBIC use fast recovery; Tahoe restarts slow start with one segment. ' +
-      'Requires Reno, Tahoe or CUBIC; disable this to compare with timeout-only recovery.',
+      'Reno/NewReno/CUBIC use fast recovery; Tahoe restarts slow start with one segment. ' +
+      'NewReno uses partial ACKs to retry more missing data before leaving recovery. ' +
+      'Requires Reno, NewReno, Tahoe or CUBIC; disable this to compare with timeout-only recovery.',
     options: [
       { value: 'true', label: 'Enabled' },
       { value: 'false', label: 'Disabled' },
@@ -402,7 +406,7 @@ export const scenarioSelectFields = {
     help:
       'When competing flows reduce available capacity, CUBIC lowers its remembered window peak ' +
       'to make room sooner. Disable this for an isolated single-flow experiment. ' +
-      'This setting has no effect with Reno, Tahoe or none.',
+      'This setting has no effect with Reno, NewReno, Tahoe or none.',
     options: [
       { value: 'true', label: 'Enabled' },
       { value: 'false', label: 'Disabled' },

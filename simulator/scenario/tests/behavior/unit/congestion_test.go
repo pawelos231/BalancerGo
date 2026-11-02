@@ -98,22 +98,26 @@ func TestFastRetransmitDefaultsAndDocumentRoundTrip(t *testing.T) {
 	}
 }
 
-// Tahoe shares the scenario window settings but chooses its own loss response.
-func TestTahoeCongestionSettingsRoundTrip(t *testing.T) {
+// Native JSON keeps mode selection and omitted or explicit retry settings.
+func TestRecoveryModeCongestionSettingsRoundTrip(t *testing.T) {
 	tests := []struct {
 		name           string
+		mode           string
 		fastRetransmit *bool
 		wantEnabled    bool
 	}{
-		{name: "omitted early retry", wantEnabled: true},
-		{name: "explicit enabled", fastRetransmit: pointer(true), wantEnabled: true},
-		{name: "explicit disabled", fastRetransmit: pointer(false)},
+		{name: "Tahoe omitted early retry", mode: "tahoe", wantEnabled: true},
+		{name: "Tahoe enabled", mode: "tahoe", fastRetransmit: pointer(true), wantEnabled: true},
+		{name: "Tahoe disabled", mode: "tahoe", fastRetransmit: pointer(false)},
+		{name: "NewReno omitted early retry", mode: "newReno", wantEnabled: true},
+		{name: "NewReno enabled", mode: "newReno", fastRetransmit: pointer(true), wantEnabled: true},
+		{name: "NewReno disabled", mode: "newReno", fastRetransmit: pointer(false)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input := exampleScenario()
 			input.TCP.CongestionControl = scenario.CongestionConfig{
-				Mode:           pointer("tahoe"),
+				Mode:           pointer(test.mode),
 				FastRetransmit: test.fastRetransmit,
 			}
 
@@ -134,9 +138,9 @@ func TestTahoeCongestionSettingsRoundTrip(t *testing.T) {
 				t.Fatal(err)
 			}
 			config := resolved.TCP.CongestionControl
-			if config.Mode != "tahoe" || config.FastRetransmit != test.wantEnabled ||
+			if config.Mode != test.mode || config.FastRetransmit != test.wantEnabled ||
 				config.InitialWindowSegments != 4 || config.InitialSlowStartThresholdBytes != 65535 {
-				t.Fatalf("resolved Tahoe configuration = %+v", config)
+				t.Fatalf("resolved %s configuration = %+v", test.mode, config)
 			}
 		})
 	}
@@ -144,11 +148,12 @@ func TestTahoeCongestionSettingsRoundTrip(t *testing.T) {
 
 func TestCongestionValidation(t *testing.T) {
 	// Zero is invalid even in mode none, so enabling Reno later cannot reveal bad settings.
-	for _, mode := range []string{"none", "reno", "tahoe", "cubic", "", "bbr"} {
+	for _, mode := range []string{"none", "reno", "newReno", "tahoe", "cubic", "", "bbr"} {
 		input := exampleScenario()
 		input.TCP.CongestionControl.Mode = pointer(mode)
 		_, err := scenario.Normalize(input)
-		valid := mode == "none" || mode == "reno" || mode == "tahoe" || mode == "cubic"
+		valid := mode == "none" || mode == "reno" || mode == "newReno" ||
+			mode == "tahoe" || mode == "cubic"
 		if (err == nil) != valid {
 			t.Fatalf("mode %q: error %v", mode, err)
 		}

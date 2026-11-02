@@ -19,14 +19,17 @@ func (c *configuration) registerTCPFlags() {
 
 	flag.Func(
 		"tcp-congestion-control",
-		"TCP congestion control: none, reno, tahoe or cubic (default reno)",
+		"TCP congestion control: none, reno, newReno, tahoe or cubic (default reno)",
 		func(value string) error {
 			validMode := value == string(model.CongestionNone) ||
 				value == string(model.CongestionReno) ||
+				value == string(model.CongestionNewReno) ||
 				value == string(model.CongestionTahoe) ||
 				value == string(model.CongestionCubic)
 			if !validMode {
-				return errors.New("tcp.congestionControl.mode: must be none, reno, tahoe or cubic")
+				return errors.New(
+					"tcp.congestionControl.mode: must be none, reno, newReno, tahoe or cubic",
+				)
 			}
 			c.congestion.Mode = model.CongestionMode(value)
 			return nil

@@ -4,10 +4,11 @@ package model
 type CongestionMode string
 
 const (
-	CongestionNone  CongestionMode = "none"
-	CongestionReno  CongestionMode = "reno"
-	CongestionTahoe CongestionMode = "tahoe"
-	CongestionCubic CongestionMode = "cubic"
+	CongestionNone    CongestionMode = "none"
+	CongestionReno    CongestionMode = "reno"
+	CongestionNewReno CongestionMode = "newReno"
+	CongestionTahoe   CongestionMode = "tahoe"
+	CongestionCubic   CongestionMode = "cubic"
 )
 
 // MaxCongestionWindowBytes keeps configuration and byte arithmetic within int64.

@@ -129,8 +129,9 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
     return text === 'fixed' || text === 'adaptive' ? undefined : 'Choose fixed or adaptive timing.';
   }
   if (field === 'congestionControl') {
-    const valid = text === 'none' || text === 'reno' || text === 'tahoe' || text === 'cubic';
-    return valid ? undefined : 'Choose none, Reno, Tahoe or CUBIC congestion control.';
+    const valid = text === 'none' || text === 'reno' || text === 'newReno'
+      || text === 'tahoe' || text === 'cubic';
+    return valid ? undefined : 'Choose none, Reno, NewReno, Tahoe or CUBIC congestion control.';
   }
   if (field === 'rtoBackoff') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether timeout backoff is enabled.';
@@ -213,7 +214,7 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
   if (error) throw new Error(error);
   const mode = scenario.tcp?.congestionControl?.mode ?? 'reno';
   if (field === 'fastRetransmit' && raw.trim() === 'true' && mode === 'none') {
-    throw new Error('Fast retransmit requires Reno, Tahoe or CUBIC congestion control.');
+    throw new Error('Fast retransmit requires Reno, NewReno, Tahoe or CUBIC congestion control.');
   }
   const updated = structuredClone(scenario);
   if (field === 'clients') {

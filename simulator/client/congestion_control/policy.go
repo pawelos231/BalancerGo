@@ -9,7 +9,7 @@ import "time"
 type Policy interface {
 	// New payload bytes were ACKed; update the window and phase.
 	// Example: Reno in slow start grows cwnd from 4 to 5 MSS after a 1-MSS ACK.
-	OnACK(ACK)
+	OnACK(ACK) ACKResponse
 
 	// Observe whether workload gaps or rwnd prevent using the congestion window.
 	// Example: CUBIC pauses its growth clock during a known 10 ms workload gap.
@@ -21,7 +21,7 @@ type Policy interface {
 
 	// React to loss detected by three duplicate ACKs, an RTO, or a SYN retry.
 	// Example: an RTO makes Reno set cwnd to one MSS; TCP retransmits separately.
-	OnLoss(Loss)
+	OnLoss(Loss) LossResponse
 
 	// Data is about to be sent or retried; use its virtual send time and size if needed.
 	// Example: Reno does nothing; a future BBR policy could plan its next send time.
@@ -52,9 +52,18 @@ type State struct {
 
 // ACK contains sender measurements, not information about remote links.
 type ACK struct {
-	At          time.Duration
-	NewBytes    uint64
-	SmoothedRTT time.Duration
+	At            time.Duration
+	NewBytes      uint64
+	CumulativeACK uint64
+	FlightBytes   uint64 // Bytes still outstanding after this ACK.
+	SmoothedRTT   time.Duration
+}
+
+// ACKResponse lets recovery request the shared TCP retry and timer paths.
+// By default an advancing ACK restarts the retransmit timer.
+type ACKResponse struct {
+	RetransmitOldest        bool
+	PreserveRetransmitTimer bool
 }
 
 // SenderState describes why new data might have to wait.
@@ -81,18 +90,25 @@ type Loss struct {
 	At              time.Duration
 	Kind            LossKind
 	FlightBytes     uint64
+	CumulativeACK   uint64
+	NextSendSeq     uint64 // Exclusive end of all data sent so far.
 	PendingSegments int
 	AlreadyTimedOut bool
+}
+
+// LossResponse can reject a duplicate-ACK loss indication from an old flight.
+type LossResponse struct {
+	SuppressFastRetransmit bool
 }
 
 // unlimitedPolicy preserves the rwnd-only baseline without imposing a congestion window.
 // The frontend exposes this policy as "none" in the congestion-control selector.
 type unlimitedPolicy struct{}
 
-func (unlimitedPolicy) OnACK(ACK)                 {}
+func (unlimitedPolicy) OnACK(ACK) ACKResponse     { return ACKResponse{} }
 func (unlimitedPolicy) OnSenderState(SenderState) {}
 func (unlimitedPolicy) OnDuplicateACK()           {}
-func (unlimitedPolicy) OnLoss(Loss)               {}
+func (unlimitedPolicy) OnLoss(Loss) LossResponse  { return LossResponse{} }
 func (unlimitedPolicy) OnSent(time.Duration, int) {}
 func (unlimitedPolicy) OnIdle()                   {}
 func (unlimitedPolicy) StopRecovery()             {}

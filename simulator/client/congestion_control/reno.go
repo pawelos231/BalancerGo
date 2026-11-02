@@ -12,14 +12,14 @@ type renoPolicy struct {
 
 // OnACK exits recovery on its first advancing ACK, including a partial one.
 // With ssthresh=4096, that ACK leaves cwnd=4096 without another growth increment.
-func (policy *renoPolicy) OnACK(ack ACK) {
+func (policy *renoPolicy) OnACK(ack ACK) ACKResponse {
 	if policy.activeRecovery {
 		policy.StopRecovery()
 		policy.congestionWindowBytes = policy.slowStartThresholdBytes
 		policy.avoidanceAcknowledgedBytes = 0
-		return
+		return ACKResponse{}
 	}
-	policy.classicWindow.OnACK(ack)
+	return policy.classicWindow.OnACK(ack)
 }
 
 // OnDuplicateACK permits another MSS after fast retransmit has already retried the head.
@@ -33,7 +33,7 @@ func (policy *renoPolicy) OnDuplicateACK() {
 
 // OnLoss applies RFC 5681's different window responses to fast loss and timeout.
 // https://www.rfc-editor.org/rfc/rfc5681.html#section-3.2
-func (policy *renoPolicy) OnLoss(loss Loss) {
+func (policy *renoPolicy) OnLoss(loss Loss) LossResponse {
 	switch loss.Kind {
 	case FastRetransmitLoss:
 		policy.slowStartThresholdBytes = max(loss.FlightBytes/2, 2*model.SEGMENT_SIZE)
@@ -47,6 +47,7 @@ func (policy *renoPolicy) OnLoss(loss Loss) {
 	case HandshakeLoss:
 		policy.restartAfterHandshakeLoss()
 	}
+	return LossResponse{}
 }
 
 func (policy *renoPolicy) StopRecovery() {
