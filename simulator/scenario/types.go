@@ -26,8 +26,17 @@ type Scenario struct {
 type TCPConfig struct {
 	ReceiveBufferBytes *int             `json:"receiveBufferBytes,omitempty"`
 	RTO                RTOConfig        `json:"rto"`
+	Close              CloseConfig      `json:"close"`
 	CongestionControl  CongestionConfig `json:"congestionControl"`
 	ClientIdleTimeout  *time.Duration   `json:"clientIdleTimeoutNanoseconds,omitempty"`
+}
+
+// CloseConfig bounds orderly shutdown while retaining duplicate-FIN protection.
+// Pointers retain omitted defaults and an explicitly disabled FIN retry budget.
+type CloseConfig struct {
+	MSL            *time.Duration `json:"mslNanoseconds,omitempty"`
+	FinWaitTimeout *time.Duration `json:"finWaitTimeoutNanoseconds,omitempty"`
+	MaxFINRetries  *int           `json:"maxFINRetries,omitempty"`
 }
 
 // CongestionConfig limits unacknowledged data as the sender learns network capacity.

@@ -100,7 +100,7 @@ func (c *Client) sendSyn() {
 // retransmitSyn backs off after a missing SYN-ACK and discards the ambiguous RTT.
 func (c *Client) retransmitSyn() {
 	c.synTimer = 0
-	if c.terminated || c.closing || c.handshakeCompleted {
+	if c.terminated || c.connection.finSent || c.handshakeCompleted {
 		return
 	}
 	if c.retrySyn >= model.MAX_RETRANSMISIONS {
@@ -154,7 +154,7 @@ func (c *Client) fastRetransmitOldest(restartTimer bool) {
 // prepareDataRetry shares retry limits and accounting between both loss paths.
 // Capture the packet before emitting: a synchronous ACK can remove it immediately.
 func (c *Client) prepareDataRetry() (model.Packet, bool) {
-	if c.terminated || c.closing || !c.pendingSegments.hasPending() {
+	if c.terminated || c.connection.finSent || !c.pendingSegments.hasPending() {
 		return model.Packet{}, false
 	}
 	if c.oldestSegmentRetransmissions >= model.MAX_RETRANSMISIONS {

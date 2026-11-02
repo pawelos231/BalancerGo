@@ -56,6 +56,9 @@ type SimulationConfig struct {
 	RTOInitialMs                    float64 `json:"rtoInitialMs"`
 	RTOMinimumMs                    float64 `json:"rtoMinimumMs"`
 	RTOMaximumMs                    float64 `json:"rtoMaximumMs"`
+	TCPMSLMs                        float64 `json:"tcpMSLMs"`
+	TCPFinWaitTimeoutMs             float64 `json:"tcpFinWaitTimeoutMs"`
+	TCPMaxFINRetries                int     `json:"tcpMaxFINRetries"`
 	ClientIdleTimeoutMs             float64 `json:"clientIdleTimeoutMs"`
 	LBHalfOpenIdleTimeoutMs         float64 `json:"lbHalfOpenIdleTimeoutMs"`
 	LBEstablishedIdleTimeoutMs      float64 `json:"lbEstablishedIdleTimeoutMs"`

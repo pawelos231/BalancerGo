@@ -77,3 +77,24 @@ func TestIdleSnapshotWireFormat(t *testing.T) {
 		t.Fatalf("idle snapshot changed:\n%s\nwant:\n%s", encoded, want)
 	}
 }
+
+func TestConnectionCloseWireFormat(t *testing.T) {
+	state := contract.CloseState{
+		State: "timeWait", FINRetransmissions: 2, Elapsed: 75 * time.Millisecond,
+	}
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"state":"timeWait","finRetransmissions":2,"elapsedNanoseconds":75000000}`; string(encoded) != want {
+		t.Fatalf("close state wire = %s, want %s", encoded, want)
+	}
+	state.State, state.Outcome = "closed", "graceful"
+	encoded, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"state":"closed","outcome":"graceful","finRetransmissions":2,"elapsedNanoseconds":75000000}`; string(encoded) != want {
+		t.Fatalf("terminal close state wire = %s, want %s", encoded, want)
+	}
+}

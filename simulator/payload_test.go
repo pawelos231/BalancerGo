@@ -39,7 +39,11 @@ func assertPayloadProgress(t *testing.T, s *simulation.World, received, acknowle
 
 // TestPayloadProgressIncludesUnfinishedTransfers keeps the two measurement boundaries distinct.
 func TestPayloadProgressIncludesUnfinishedTransfers(t *testing.T) {
-	resolved := normalizedRuntimeScenario(t, payloadScenario())
+	input := payloadScenario()
+	// This test observes cleanup within 60 ms; use an explicit short TIME_WAIT profile.
+	msl := 5 * time.Millisecond
+	input.TCP.Close.MSL = &msl
+	resolved := normalizedRuntimeScenario(t, input)
 	s := simulation.New(resolved)
 	publisher := presentation.NewProjector("payload-run")
 	runIngressUntil(t, s, 5*time.Millisecond)

@@ -43,6 +43,9 @@ func newRenoTransferHarness(t *testing.T) *transferHarness {
 	t.Helper()
 	e := engine.New(3 * time.Minute)
 	c := client.NewClient(e, "10.0.0.1", 1000, "10.0.0.2", 80, model.TCP)
+	closeConfig := model.DefaultCloseConfig()
+	closeConfig.MSL = 10 * time.Millisecond
+	c.SetCloseConfig(closeConfig)
 	h := &transferHarness{t: t, engine: e, client: c}
 	c.SetSender(func(pkt model.Packet) { h.sent = append(h.sent, pkt) })
 	t.Cleanup(c.Shutdown)
@@ -240,9 +243,8 @@ func TestTransferFailuresRetainPartialProgress(t *testing.T) {
 		{"backend removed", model.TransferBackendRemoved, func(h *transferHarness) {
 			h.client.ShutdownWithReason(model.TransferBackendRemoved)
 		}},
-		{"manual close", model.TransferClosedEarly, func(h *transferHarness) { h.client.Close() }},
-		{"remote FIN", model.TransferRemoteClosed, func(h *transferHarness) {
-			h.receive(model.FlagFIN|model.FlagACK, 2049)
+		{"reset", model.TransferReset, func(h *transferHarness) {
+			h.receive(model.FlagRST|model.FlagACK, 1025)
 		}},
 	}
 	for _, test := range tests {
@@ -267,15 +269,6 @@ func TestTransferFailuresRetainPartialProgress(t *testing.T) {
 			assertTransferDuration(t, "retained handshake duration", state.HandshakeDuration, 250*time.Millisecond)
 			if got := h.client.GetState().AcknowledgedPayloadBytes; got != model.SEGMENT_SIZE {
 				t.Fatalf("partial acknowledged payload = %d, want %d", got, model.SEGMENT_SIZE)
-			}
-			if test.reason == model.TransferClosedEarly {
-				if h.client.IsTerminated() {
-					t.Fatal("manual Close skipped the existing FIN exchange")
-				}
-				h.runUntil(h.engine.Now())
-				if h.count(model.FlagFIN) != 1 {
-					t.Fatalf("manual Close sent %d FINs, want 1", h.count(model.FlagFIN))
-				}
 			}
 			h.runUntil(30 * time.Second)
 			h.client.ShutdownWithReason(model.TransferInterrupted)
@@ -326,9 +319,13 @@ func TestTransferSuccessSurvivesFINTimeout(t *testing.T) {
 	if h.count(model.FlagFIN) != 1 {
 		t.Fatalf("completion sent %d FINs, want 1", h.count(model.FlagFIN))
 	}
-	h.runUntil(250*time.Millisecond + model.READ_DEADLINE)
+	h.runUntil(250*time.Millisecond + 6*time.Second)
 	if !h.client.IsTerminated() {
-		t.Fatal("FIN read timeout did not close client")
+		t.Fatal("FIN retry limit did not close client")
+	}
+	if connection := h.client.GetConnectionState(); connection.Outcome != model.CloseFINRetryLimit ||
+		connection.FINRetransmissions != 5 {
+		t.Fatalf("FIN exhaustion = %+v", connection)
 	}
 	h.client.ShutdownWithReason(model.TransferBackendRemoved)
 	h.receive(model.FlagFIN|model.FlagACK, 3)
@@ -391,6 +388,7 @@ func TestTransferRetryLimits(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			h := newTransferHarness(t)
+			h.client.SetIdleTimeout(0)
 			h.client.SendCompleteStream(1, 0)
 			h.client.EstablishConnection()
 			h.runUntil(0)
@@ -400,9 +398,6 @@ func TestTransferRetryLimits(t *testing.T) {
 			}
 			for retry := 1; retry <= model.MAX_RETRANSMISIONS+1; retry++ {
 				at := time.Duration(retry) * timeout
-				h.runUntil(at - time.Nanosecond)
-				// Keep the independent read deadline from masking the retry limit.
-				h.receive(0, 0)
 				h.runUntil(at)
 				if retry <= model.MAX_RETRANSMISIONS && h.transfer().Status != model.TransferInProgress {
 					t.Fatalf("transfer ended before retry %d was exhausted: %+v", retry, h.transfer())

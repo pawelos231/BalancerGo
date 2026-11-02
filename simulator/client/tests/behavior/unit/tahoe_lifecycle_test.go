@@ -39,6 +39,9 @@ func TestTCPTahoeSynchronousRetryACKCompletesAndRetainsMetrics(t *testing.T) {
 	h := newTahoeHarness(t, 4, 4*model.SEGMENT_SIZE)
 	h.client.SetSender(func(packet model.Packet) {
 		h.sent = append(h.sent, packet)
+		if packet.Flag&model.FlagFIN != 0 {
+			h.receive(model.FlagFIN|model.FlagACK, packet.Seq+1)
+		}
 		if packet.Size == 0 {
 			return
 		}
@@ -59,7 +62,7 @@ func TestTCPTahoeSynchronousRetryACKCompletesAndRetainsMetrics(t *testing.T) {
 	}
 }
 
-// Closing or shutting down after a fast retry clears the active flight and duplicate run.
+// Draining or aborting a stream retains Tahoe's fast retry total.
 func TestTCPTahoeCleanupRetainsFastRetryTotal(t *testing.T) {
 	for _, closeWithFIN := range []bool{false, true} {
 		name := "shutdown"
@@ -73,14 +76,30 @@ func TestTCPTahoeCleanupRetainsFastRetryTotal(t *testing.T) {
 			}
 			if closeWithFIN {
 				h.client.Close()
+				if state := congestionState(t, h); state.BytesInFlight != 8192 || state.CongestionWindowBytes != 1024 {
+					t.Fatalf("Close changed Tahoe's pending recovery: %+v", state)
+				}
 			} else {
 				h.client.Shutdown()
 			}
 			h.receive(model.FlagACK, 8193)
+			if closeWithFIN {
+				h.runUntil(h.engine.Now())
+				for _, ack := range []uint64{10241, 13313, 16385} {
+					h.receive(model.FlagACK, ack)
+					h.runUntil(h.engine.Now())
+				}
+				h.receive(model.FlagFIN|model.FlagACK, 16386)
+			}
 			h.runUntil(3 * time.Second)
 			state := congestionState(t, h)
+			wantWindow := uint64(1024)
+			if closeWithFIN {
+				wantWindow = 4096
+			}
 			if state.FastRetransmissions != 1 || state.DuplicateACKs != 0 || state.BytesInFlight != 0 ||
-				state.CongestionWindowBytes != 1024 || h.engine.Pending() != 0 {
+				state.CongestionWindowBytes != wantWindow || h.engine.Pending() != 0 ||
+				h.client.StreamCompleted() != closeWithFIN {
 				t.Fatalf("cleanup changed Tahoe's retained state: %+v", state)
 			}
 		})

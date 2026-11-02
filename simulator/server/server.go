@@ -12,7 +12,6 @@ import (
 const statisticsInterval = 100 * time.Millisecond
 
 // Server receives TCP byte ranges and replies with cumulative ACKs and a window.
-// Closing still uses the simplified FIN exchange rather than a full TCP FSM.
 // All access belongs to the engine's single execution thread.
 type Server struct {
 	ID              string
@@ -51,6 +50,8 @@ type Server struct {
 	engine               *engine.Engine
 	sender               func(model.Packet)
 	connections          map[model.ClientKey]*connection
+	closeConfig          model.CloseConfig
+	rtoConfig            model.RTOConfig
 	started              bool
 	statisticsEvent      engine.EventID
 	previousPacketCount  uint32
@@ -79,6 +80,8 @@ func NewServer(
 		engine: e, connections: make(map[model.ClientKey]*connection),
 		probeEvents:        make(map[engine.EventID]struct{}),
 		receiveBufferBytes: model.DefaultReceiveBufferBytes,
+		closeConfig:        model.DefaultCloseConfig(),
+		rtoConfig:          model.DefaultRTOConfig(),
 	}
 }
 
@@ -132,7 +135,9 @@ func (s *Server) Shutdown() {
 		s.engine.Cancel(event)
 	}
 	clear(s.probeEvents)
-	clear(s.connections)
+	for key := range s.connections {
+		s.ForgetConnection(key)
+	}
 	s.ActiveConnections = 0
 	s.HalfOpenConnections = 0
 	s.LastUpdated = s.engine.Now()

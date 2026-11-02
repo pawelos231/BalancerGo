@@ -86,6 +86,8 @@ func clientMetrics(client simulation.ClientObservation) []nodeMetric {
 		{"dataRetries", "Current segment retries", "retries", float64(state.RetryData), false},
 		{"synRetransmissions", "Cumulative SYN retransmissions", "packets", float64(state.Transfer.SynRetransmissions), false},
 		{"dataRetransmissions", "Cumulative data retransmissions", "packets", float64(state.Transfer.DataRetransmissions), false},
+		{"finRetransmissions", "Cumulative FIN retransmissions", "packets", float64(state.Connection.FINRetransmissions), false},
+		{"closeElapsedNanoseconds", "Elapsed connection closing time", "ns", float64(state.Connection.Elapsed), false},
 		{"bytesInFlight", "Payload awaiting cumulative ACK", "bytes", float64(state.Congestion.BytesInFlight), false},
 		{"duplicateACKs", "Current duplicate ACKs", "ACKs", float64(state.Congestion.DuplicateACKs), false},
 		{"fastRetransmissions", "Cumulative fast retransmissions", "packets", float64(state.Congestion.FastRetransmissions), false},
@@ -215,6 +217,7 @@ func BuildTopology(world *simulation.World) contract.Topology {
 			GroupID: definition.GroupID, Description: definition.Description, Address: definition.Address,
 			Active: live.Active, Metrics: metrics, Traffic: live.Traffic,
 			TCPPhase: live.TCPPhase,
+			TCPState: live.TCPState, CloseOutcome: live.CloseOutcome,
 		})
 	}
 	for index, definition := range document.Links {

@@ -16,6 +16,21 @@ export interface ClientState {
   RetryData: number;
   AcknowledgedPayloadBytes?: number;
   Transfer?: ClientTransfer;
+  Connection?: ClientConnection;
+}
+
+export type TCPState =
+  | 'closed' | 'synSent' | 'synReceived' | 'established'
+  | 'finWait1' | 'finWait2' | 'closeWait' | 'closing' | 'lastAck' | 'timeWait';
+
+export type CloseOutcome = 'graceful' | 'reset' | 'finRetryLimit' | 'finWaitTimeout' | 'aborted';
+
+// Transport teardown can fail after the payload has already succeeded.
+export interface ClientConnection {
+  state: TCPState;
+  outcome?: CloseOutcome;
+  finRetransmissions: number;
+  elapsedNanoseconds: number;
 }
 
 export type TransferFailureReason =
@@ -26,7 +41,9 @@ export type TransferFailureReason =
   | 'closedEarly'
   | 'interrupted'
   | 'balancerTimeout'
-  | 'backendRemoved';
+  | 'backendRemoved'
+  | 'connectionReset'
+  | 'closeTimeout';
 
 export interface ClientTransfer {
   status: 'inProgress' | 'succeeded' | 'failed';
@@ -98,6 +115,9 @@ export interface SimulationConfig {
   rtoInitialMs: number;
   rtoMinimumMs: number;
   rtoMaximumMs: number;
+  tcpMSLMs: number;
+  tcpFinWaitTimeoutMs: number;
+  tcpMaxFINRetries: number;
   clientIdleTimeoutMs: number;
   lbHalfOpenIdleTimeoutMs: number;
   lbEstablishedIdleTimeoutMs: number;

@@ -78,17 +78,19 @@ func restoreTelemetryTopology(t *testing.T, document *contract.TopologyDocument,
 			t.Fatalf("undefined dynamic metric on %q", definition.ID)
 		}
 		graph.Nodes = append(graph.Nodes, contract.TopologyNode{
-			ID:          definition.ID,
-			Kind:        definition.Kind,
-			Label:       definition.Label,
-			ResourceID:  definition.ResourceID,
-			GroupID:     definition.GroupID,
-			Description: definition.Description,
-			Address:     definition.Address,
-			Active:      node.Active,
-			Metrics:     metrics,
-			Traffic:     node.Traffic,
-			TCPPhase:    node.TCPPhase,
+			ID:           definition.ID,
+			Kind:         definition.Kind,
+			Label:        definition.Label,
+			ResourceID:   definition.ResourceID,
+			GroupID:      definition.GroupID,
+			Description:  definition.Description,
+			Address:      definition.Address,
+			Active:       node.Active,
+			Metrics:      metrics,
+			Traffic:      node.Traffic,
+			TCPPhase:     node.TCPPhase,
+			TCPState:     node.TCPState,
+			CloseOutcome: node.CloseOutcome,
 		})
 	}
 	links := make(map[string]contract.TopologyLinkStats, len(live.Links))
@@ -164,6 +166,7 @@ func restoreTelemetryServers(t *testing.T, document *contract.TopologyDocument, 
 				Key: key, RetrySyn: client.RetrySyn, RetryData: client.RetryData,
 				AcknowledgedPayloadBytes: client.AcknowledgedPayloadBytes,
 				Transfer:                 client.Transfer,
+				Connection:               client.Connection,
 			})
 		}
 		servers = append(servers, contract.ServerStateWithClients{
@@ -246,6 +249,9 @@ func TestTelemetryMatchesLegacyProjection(t *testing.T) {
 // TestTelemetryClosedClientsKeepRevision distinguishes lifecycle values from membership.
 func TestTelemetryClosedClientsKeepRevision(t *testing.T) {
 	definition := scenarioRuntimeDefinition()
+	// Keep the active closer through TIME_WAIT, then exercise retained closed values.
+	msl := time.Millisecond
+	definition.TCP.Close.MSL = &msl
 	s := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
 	runIngressUntil(t, s, 0)
 	publisher := presentation.NewProjector("run-closed")

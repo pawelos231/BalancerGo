@@ -1,5 +1,7 @@
 package contract
 
+import "time"
+
 // Protocol is the transport name shown in public client keys.
 type Protocol string
 
@@ -125,17 +127,19 @@ const (
 // Kind remains an open string so additional node types can use the same graph
 // contract. Metrics describe each node without requiring a fixed stats schema.
 type TopologyNode struct {
-	ID          string           `json:"id"`
-	Kind        string           `json:"kind"`
-	Label       string           `json:"label"`
-	ResourceID  string           `json:"resourceId,omitempty"`
-	GroupID     string           `json:"groupId,omitempty"`
-	Description string           `json:"description,omitempty"`
-	Address     string           `json:"address,omitempty"`
-	Active      *bool            `json:"active,omitempty"`
-	Metrics     []TopologyMetric `json:"metrics"`
-	Traffic     *TopologyTraffic `json:"traffic,omitempty"`
-	TCPPhase    string           `json:"tcpPhase,omitempty"`
+	ID           string           `json:"id"`
+	Kind         string           `json:"kind"`
+	Label        string           `json:"label"`
+	ResourceID   string           `json:"resourceId,omitempty"`
+	GroupID      string           `json:"groupId,omitempty"`
+	Description  string           `json:"description,omitempty"`
+	Address      string           `json:"address,omitempty"`
+	Active       *bool            `json:"active,omitempty"`
+	Metrics      []TopologyMetric `json:"metrics"`
+	Traffic      *TopologyTraffic `json:"traffic,omitempty"`
+	TCPPhase     string           `json:"tcpPhase,omitempty"`
+	TCPState     string           `json:"tcpState,omitempty"`
+	CloseOutcome string           `json:"closeOutcome,omitempty"`
 }
 
 // TopologyTraffic measures wire bytes over the last completed virtual-time window.
@@ -260,11 +264,13 @@ type TelemetryTopology struct {
 
 // TelemetryNode contains changing values; metric labels and constants stay in HTTP.
 type TelemetryNode struct {
-	ID       string             `json:"id"`
-	Active   *bool              `json:"active,omitempty"`
-	Metrics  map[string]float64 `json:"metrics"`
-	Traffic  *TopologyTraffic   `json:"traffic,omitempty"`
-	TCPPhase string             `json:"tcpPhase,omitempty"`
+	ID           string             `json:"id"`
+	Active       *bool              `json:"active,omitempty"`
+	Metrics      map[string]float64 `json:"metrics"`
+	Traffic      *TopologyTraffic   `json:"traffic,omitempty"`
+	TCPPhase     string             `json:"tcpPhase,omitempty"`
+	TCPState     string             `json:"tcpState,omitempty"`
+	CloseOutcome string             `json:"closeOutcome,omitempty"`
 }
 
 // TelemetryLink sends one physical path's counters under its stable ID.
@@ -305,6 +311,15 @@ type TelemetryClient struct {
 	RetryData                uint8         `json:"retryData"`
 	AcknowledgedPayloadBytes uint64        `json:"acknowledgedPayloadBytes"`
 	Transfer                 TransferState `json:"transfer"`
+	Connection               CloseState    `json:"connection"`
+}
+
+// CloseState reports the real TCP state and bounded teardown result.
+type CloseState struct {
+	State              string        `json:"state"`
+	Outcome            string        `json:"outcome,omitempty"`
+	FINRetransmissions uint64        `json:"finRetransmissions"`
+	Elapsed            time.Duration `json:"elapsedNanoseconds"`
 }
 
 // TransferStatus describes delivery of a client's payload, independently of
@@ -330,6 +345,8 @@ const (
 	TransferInterrupted     TransferFailureReason = "interrupted"
 	TransferBalancerTimeout TransferFailureReason = "balancerTimeout"
 	TransferBackendRemoved  TransferFailureReason = "backendRemoved"
+	TransferConnectionReset TransferFailureReason = "connectionReset"
+	TransferCloseTimeout    TransferFailureReason = "closeTimeout"
 )
 
 // TransferState is a detached measurement of one attempt in virtual time.

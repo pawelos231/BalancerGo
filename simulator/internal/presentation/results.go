@@ -43,6 +43,14 @@ func clientState(state model.ClientState) contract.ClientState {
 		RetryData:                state.RetryData,
 		AcknowledgedPayloadBytes: state.AcknowledgedPayloadBytes,
 		Transfer:                 transferState(state.Transfer),
+		Connection:               closeState(state.Connection),
+	}
+}
+
+func closeState(state model.CloseState) contract.CloseState {
+	return contract.CloseState{
+		State: string(state.State), Outcome: string(state.Outcome),
+		FINRetransmissions: state.FINRetransmissions, Elapsed: state.Elapsed,
 	}
 }
 
@@ -207,6 +215,9 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 		VirtualTime: info.Now.String(),
 		WallTime:    elapsed.String(),
 		Seed:        info.Seed,
+		EffectiveClose: contract.CloseConfig{
+			MSL: info.Close.MSL, FinWaitTimeout: info.Close.FinWaitTimeout, MaxFINRetries: info.Close.MaxFINRetries,
+		},
 		TCP: contract.TCPConfig{
 			ReceiveBufferBytes: info.ReceiveBufferBytes,
 			CongestionControl: contract.CongestionConfig{
@@ -231,6 +242,7 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 		},
 		ClientTimings:            make([]contract.ClientTiming, 0, info.CreatedClients),
 		ClientCongestion:         make([]contract.ClientCongestion, 0, info.CreatedClients),
+		ClientConnection:         make([]contract.ClientConnection, 0, info.CreatedClients),
 		ScheduledClients:         info.ScheduledClients,
 		CreatedClients:           info.CreatedClients,
 		CompletedStreams:         info.CompletedStreams,
@@ -295,6 +307,9 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 		result.ClientCongestion = append(result.ClientCongestion, contract.ClientCongestion{
 			ClientID: client.ID,
 			State:    congestionState(client.State.Congestion),
+		})
+		result.ClientConnection = append(result.ClientConnection, contract.ClientConnection{
+			ClientID: client.ID, State: closeState(client.State.Connection),
 		})
 		if slot, routed := slots[client.State.Key]; routed {
 			result.State.Servers[slot.server].Clients[slot.client] = clientState(client.State)

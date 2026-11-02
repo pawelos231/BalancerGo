@@ -257,8 +257,13 @@ func TestScenarioRuntimeUsesDirectionalProfilesAndArrivalTimes(t *testing.T) {
 		t.Fatal(err)
 	}
 	report := readWorld(s)
-	if report.CompletedStreams != 3 || report.ClosedClients != 3 {
+	if report.CompletedStreams != 3 || report.ClosedClients != 0 {
 		t.Fatalf("heterogeneous streams did not finish: %+v", report)
+	}
+	for _, cl := range s.clients {
+		if cl.Client.GetConnectionState().State != model.TCPTimeWait {
+			t.Fatal("completed transfers must retain TCP TIME_WAIT through this short horizon")
+		}
 	}
 	if report.CompletedPayloadBytes != 192 {
 		t.Fatalf("completed payload bytes = %d, want 64 + 128 + 0", report.CompletedPayloadBytes)

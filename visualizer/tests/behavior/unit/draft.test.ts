@@ -7,7 +7,7 @@ import {
   validateScenarioField,
 } from '../../../src/scenarios/draft.ts';
 import type { ScenarioField } from '../../../src/scenarios/draft.ts';
-import { scenarioSelectFields } from '../../../src/scenarios/formFields.ts';
+import { scenarioFieldSections, scenarioSelectFields } from '../../../src/scenarios/formFields.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
 import { scenarioFixture } from '../../scenarioFixture.ts';
 
@@ -77,10 +77,73 @@ test('older scenarios display timer defaults without adding settings to the docu
   assert.equal(fields.rtoInitialMs, '1000');
   assert.equal(fields.rtoMinimumMs, '200');
   assert.equal(fields.rtoMaximumMs, '60000');
+  assert.equal(fields.tcpMSLMs, '30000');
+  assert.equal(fields.tcpFinWaitTimeoutMs, '60000');
+  assert.equal(fields.tcpMaxFINRetries, '5');
   assert.equal(fields.clientIdleTimeoutMs, '20000');
   assert.equal(fields.lbHalfOpenIdleTimeoutMs, '5000');
   assert.equal(fields.lbEstablishedIdleTimeoutMs, '50000');
   assert.deepEqual(scenario, before);
+});
+
+test('closing fields display backend defaults and preserve exact edits through native export', () => {
+  const scenario = mixedScenario();
+  scenario.tcp = {
+    close: {
+      mslNanoseconds: 2_500_000,
+      finWaitTimeoutNanoseconds: 7_500_000,
+      maxFINRetries: 2,
+    },
+  };
+  const before = structuredClone(scenario);
+  const fields = scenarioFormValues(scenario);
+  assert.equal(fields.tcpMSLMs, '2.5');
+  assert.equal(fields.tcpFinWaitTimeoutMs, '7.5');
+  assert.equal(fields.tcpMaxFINRetries, '2');
+
+  let edited = applyScenarioField(scenario, 'tcpMSLMs', '4611686018427.387903');
+  edited = applyScenarioField(edited, 'tcpFinWaitTimeoutMs', '9007199254.740993');
+  edited = applyScenarioField(edited, 'tcpMaxFINRetries', '0');
+  const restored = JSON.parse(JSON.stringify(edited));
+  assert.deepEqual(restored.tcp.close, {
+    mslNanoseconds: '4611686018427387903',
+    finWaitTimeoutNanoseconds: '9007199254740993',
+    maxFINRetries: 0,
+  });
+  assert.equal(scenarioFormValues(restored).tcpMSLMs, '4611686018427.387903');
+  assert.equal(scenarioFormValues(restored).tcpFinWaitTimeoutMs, '9007199254.740993');
+  assert.equal(scenarioFormValues(restored).tcpMaxFINRetries, '0');
+  assert.deepEqual(edited.network, scenario.network);
+  assert.deepEqual(edited.workload, scenario.workload);
+  assert.deepEqual(scenario, before);
+
+  const section = scenarioFieldSections.find((entry) => entry.id === 'tcp-closing');
+  assert.deepEqual(section?.fields, ['tcpMSLMs', 'tcpFinWaitTimeoutMs', 'tcpMaxFINRetries']);
+});
+
+test('closing edits keep older document omissions and reject invalid retention and retry limits', () => {
+  const scenario = mixedScenario();
+  const edited = applyScenarioField(scenario, 'tcpMaxFINRetries', '0');
+  assert.deepEqual(edited.tcp, { close: { maxFINRetries: 0 } });
+  assert.equal(scenario.tcp, undefined);
+  const valid: [ScenarioField, string][] = [
+    ['tcpMSLMs', '0.000001'], ['tcpMSLMs', '4611686018427.387903'],
+    ['tcpFinWaitTimeoutMs', '0.000001'], ['tcpFinWaitTimeoutMs', '9223372036854.775807'],
+    ['tcpMaxFINRetries', '0'], ['tcpMaxFINRetries', '30'],
+  ];
+  for (const [field, raw] of valid) {
+    assert.equal(validateScenarioField(field, raw), undefined, `${field}=${raw}`);
+  }
+  const invalid: [ScenarioField, string][] = [
+    ['tcpMSLMs', '0'], ['tcpMSLMs', '4611686018427.387904'],
+    ['tcpMSLMs', '0.0000001'], ['tcpFinWaitTimeoutMs', '0'],
+    ['tcpFinWaitTimeoutMs', '-1'], ['tcpFinWaitTimeoutMs', '9223372036854.775808'],
+    ['tcpMaxFINRetries', '-1'], ['tcpMaxFINRetries', '31'], ['tcpMaxFINRetries', '1.5'],
+  ];
+  for (const [field, raw] of invalid) {
+    assert.ok(validateScenarioField(field, raw), `${field}=${raw}`);
+    assert.throws(() => applyScenarioField(scenario, field, raw));
+  }
 });
 
 test('older scenarios display Reno defaults without changing the native document', () => {

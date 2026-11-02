@@ -86,6 +86,20 @@ type ClientState struct {
 	RetryData                uint8
 	AcknowledgedPayloadBytes uint64
 	Transfer                 TransferState
+	Connection               CloseState
+}
+
+// CloseConfig records shutdown limits in virtual nanoseconds.
+type CloseConfig struct {
+	MSL            time.Duration `json:"mslNanoseconds"`
+	FinWaitTimeout time.Duration `json:"finWaitTimeoutNanoseconds"`
+	MaxFINRetries  int           `json:"maxFINRetries"`
+}
+
+// ClientConnection retains transport completion independently of payload success.
+type ClientConnection struct {
+	ClientID string     `json:"clientId"`
+	State    CloseState `json:"state"`
 }
 
 // RTOState reports a connection's measurements and its current retry delay.
@@ -167,6 +181,8 @@ type SimulationResult struct {
 	LBIdleTimeouts   LBIdleTimeoutConfig
 	ClientTimings    []ClientTiming
 	ClientCongestion []ClientCongestion
+	EffectiveClose   CloseConfig        `json:"effectiveClose"`
+	ClientConnection []ClientConnection `json:"clientConnection"`
 
 	ScheduledClients         int
 	CreatedClients           int

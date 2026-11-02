@@ -80,6 +80,7 @@ func TestReceivedPayloadCountsUniqueSegmentsAcrossFlows(t *testing.T) {
 
 	s.HandlePacket(model.Packet{Key: flowA, Flag: model.FlagFIN | model.FlagACK, Seq: 1062, Ack: 1})
 	assertTotal(wantTotal)
+	s.HandlePacket(model.Packet{Key: flowA, Flag: model.FlagACK, Seq: 1063, Ack: 2})
 	s.ForgetConnection(flowB)
 	s.ForgetConnection(flowB)
 	if s.GetState().ActiveConnections != 0 {

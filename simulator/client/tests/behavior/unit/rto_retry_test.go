@@ -172,8 +172,7 @@ func TestTCPRTOAfterSYNRetry(t *testing.T) {
 	}
 }
 
-// Stopping at 150 ms cancels a pending SYN or data retry and rejects later ACK samples.
-// With idle timeout disabled, no scheduled work may remain after cleanup.
+// Forced shutdown cancels probes; graceful close keeps them until payload is confirmed.
 func TestTCPRTOCleanupCancelsTimersAndProbe(t *testing.T) {
 	for _, action := range []string{"handshake shutdown", "data shutdown", "manual close", "peer FIN"} {
 		t.Run(action, func(t *testing.T) {
@@ -197,7 +196,40 @@ func TestTCPRTOCleanupCancelsTimersAndProbe(t *testing.T) {
 			default:
 				h.client.Shutdown()
 			}
-			// Flush the optional FIN at the same time, then deliver a stale reply.
+			if action == "manual close" || action == "peer FIN" {
+				assertRTOState(t, h, beforeStop)
+				peerSeq := uint64(1)
+				if action == "peer FIN" {
+					peerSeq = 2
+				}
+				for _, ack := range []uint64{1025, 2049} {
+					h.client.HandlePacket(model.Packet{
+						Key: h.client.Key(), Flag: model.FlagACK, Seq: peerSeq, Ack: ack,
+						ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+					})
+					h.runUntil(250 * time.Millisecond)
+				}
+				h.runUntil(h.engine.Now())
+				flag := model.FlagACK
+				if action == "manual close" {
+					flag |= model.FlagFIN
+				}
+				h.client.HandlePacket(model.Packet{
+					Key: h.client.Key(), Flag: flag, Seq: peerSeq, Ack: 2050,
+					ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+				})
+				h.runUntil(300 * time.Millisecond)
+				completed := h.client.GetRTOState()
+				if completed.Samples != beforeStop.Samples+2 || !h.client.StreamCompleted() ||
+					len(sentClientData(h.sent)) != 2 || h.engine.Pending() != 0 {
+					t.Fatalf("graceful close lost probes or left retries: %+v, pending=%d", completed, h.engine.Pending())
+				}
+				h.receive(model.FlagACK, 1025)
+				h.runUntil(5 * time.Second)
+				assertRTOState(t, h, completed)
+				return
+			}
+			// Late replies cannot revive a cancelled probe.
 			h.runUntil(h.engine.Now())
 			h.receive(model.FlagSYN|model.FlagACK, 1)
 			h.receive(model.FlagACK, 1025)

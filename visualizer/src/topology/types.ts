@@ -16,6 +16,8 @@ export interface TopologyNode {
   address?: string;
   active?: boolean;
   tcpPhase?: string;
+  tcpState?: string;
+  closeOutcome?: string;
   metrics: TopologyMetric[];
   traffic?: TopologyTraffic;
 }

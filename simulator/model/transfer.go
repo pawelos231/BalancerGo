@@ -25,6 +25,8 @@ const (
 	TransferInterrupted     TransferFailureReason = "interrupted"
 	TransferBalancerTimeout TransferFailureReason = "balancerTimeout"
 	TransferBackendRemoved  TransferFailureReason = "backendRemoved"
+	TransferReset           TransferFailureReason = "connectionReset"
+	TransferCloseTimeout    TransferFailureReason = "closeTimeout"
 )
 
 // TransferState is a detached measurement of one attempt in virtual time.

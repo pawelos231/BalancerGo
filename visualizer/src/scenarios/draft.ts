@@ -32,6 +32,9 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   rtoInitialMs: ['tcp', 'rto', 'initialTimeoutNanoseconds'],
   rtoMinimumMs: ['tcp', 'rto', 'minimumTimeoutNanoseconds'],
   rtoMaximumMs: ['tcp', 'rto', 'maximumTimeoutNanoseconds'],
+  tcpMSLMs: ['tcp', 'close', 'mslNanoseconds'],
+  tcpFinWaitTimeoutMs: ['tcp', 'close', 'finWaitTimeoutNanoseconds'],
+  tcpMaxFINRetries: ['tcp', 'close', 'maxFINRetries'],
   clientIdleTimeoutMs: ['tcp', 'clientIdleTimeoutNanoseconds'],
   lbHalfOpenIdleTimeoutMs: ['resources', 'loadBalancer', 'halfOpenIdleTimeoutNanoseconds'],
   lbEstablishedIdleTimeoutMs: ['resources', 'loadBalancer', 'establishedIdleTimeoutNanoseconds'],
@@ -57,6 +60,8 @@ const timeDecimals: Partial<Record<ScenarioField, number>> = {
   rtoInitialMs: 6,
   rtoMinimumMs: 6,
   rtoMaximumMs: 6,
+  tcpMSLMs: 6,
+  tcpFinWaitTimeoutMs: 6,
   clientIdleTimeoutMs: 6,
   lbHalfOpenIdleTimeoutMs: 6,
   lbEstablishedIdleTimeoutMs: 6,
@@ -69,6 +74,7 @@ const positiveFields = new Set<ScenarioField>([
   'receiveBufferBytes',
   'initialCongestionWindowSegments',
   'rtoInitialMs', 'rtoMinimumMs', 'rtoMaximumMs',
+  'tcpMSLMs', 'tcpFinWaitTimeoutMs',
 ]);
 
 // Older documents keep their original shape while the form shows effective defaults.
@@ -83,6 +89,9 @@ const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>
   rtoInitialMs: 1_000_000_000,
   rtoMinimumMs: 200_000_000,
   rtoMaximumMs: 60_000_000_000,
+  tcpMSLMs: 30_000_000_000,
+  tcpFinWaitTimeoutMs: 60_000_000_000,
+  tcpMaxFINRetries: 5,
   clientIdleTimeoutMs: 20_000_000_000,
   lbHalfOpenIdleTimeoutMs: 5_000_000_000,
   lbEstablishedIdleTimeoutMs: 50_000_000_000,
@@ -176,6 +185,8 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   if (field === 'receiveBufferBytes') maximum = 65535n;
   if (field === 'initialCongestionWindowSegments') maximum = maxInt64 / 1024n;
   if (field === 'initialSlowStartThresholdBytes') minimum = 2048n;
+  if (field === 'tcpMSLMs') maximum = maxInt64 / 2n;
+  if (field === 'tcpMaxFINRetries') maximum = 30n;
   if (value < minimum || value > maximum) {
     const unit = decimals === undefined ? '' : ' nanoseconds';
     return `Value must be between ${minimum} and ${maximum}${unit}.`;

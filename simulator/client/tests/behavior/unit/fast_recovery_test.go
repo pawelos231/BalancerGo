@@ -110,6 +110,9 @@ func TestTCPFastRetransmitSupportsSynchronousRecoveryACK(t *testing.T) {
 	h := newFastRecoveryHarness(t, 4, 4*model.SEGMENT_SIZE)
 	h.client.SetSender(func(packet model.Packet) {
 		h.sent = append(h.sent, packet)
+		if packet.Flag&model.FlagFIN != 0 {
+			h.receive(model.FlagFIN|model.FlagACK, packet.Seq+1)
+		}
 		if packet.Size > 0 {
 			state := congestionState(t, h)
 			if state.FastRetransmissions != 1 || state.Phase != "fastRecovery" {

@@ -176,7 +176,7 @@ requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-congestion-strategies-v1` profile. `result.TCP.ReceiveBufferBytes`
+`tcp-closing-v1` profile. `result.TCP.ReceiveBufferBytes`
 records the effective receive-buffer limit, including an omitted input's default.
 `result.TCP.RTO` and `result.LBIdleTimeouts` record the effective timer policy.
 `result.ClientTimings` retains each created client's latest RTT estimates and RTO,
@@ -611,7 +611,7 @@ positions instead of segment indices. `Size` remains the payload length, and
 positions by its length; SYN and FIN each consume one position, while pure ACK
 consumes none. The two directions keep separate sequence state.
 
-The `tcp-congestion-strategies-v1` profile uses logical `uint64` byte positions and
+The `tcp-closing-v1` profile uses logical `uint64` byte positions and
 fixed initial sequence numbers of zero. It does not model the 32-bit sequence
 number wraparound of real TCP. Large streams are checked against native integer
 limits rather than the former 32-bit segment-counter limit. Payload remains
@@ -859,8 +859,51 @@ so expiry occurs at the next cleanup check. To observe long backoff, lengthen
 or disable competing idle limits; otherwise they may close the connection first.
 Keep these policies equal when comparing timer modes.
 
-Fast retransmit/recovery, server SYN-ACK timers, FIN retries, a complete TCP state
-machine, alternative congestion algorithms and UDP are deferred.
+### TCP connection closing
+
+`Close()` drains the already accepted stream, including retries of unconfirmed
+payload. This bounded profile sends FIN after all those bytes have been ACKed.
+FIN reserves one sequence position once; every retransmission reuses that position.
+The backend keeps its state until its FIN is acknowledged. The client sends the
+final ACK and retains TIME_WAIT so a repeated peer FIN can receive another ACK.
+ACK and FIN can be combined, and a peer FIN ends only that peer's sending half.
+Accepted client payload can still finish after an early backend FIN.
+
+The **TCP closing** form section configures `tcp.close`:
+
+- `mslNanoseconds`: default 30 seconds, so TIME_WAIT lasts 60 virtual seconds;
+- `finWaitTimeoutNanoseconds`: default 60 seconds waiting for the peer FIN
+  after the local FIN has been acknowledged;
+- `maxFINRetries`: default 5; zero permits the initial FIN but disables retries,
+  with supported values 0..30.
+
+MSL is a chosen profile parameter, not a measured packet-lifetime guarantee.
+It must be positive and at most half the maximum Go duration; the FIN-wait
+timeout must be positive. All timers use virtual events. CLI equivalents are
+`-tcp-msl`, `-tcp-fin-wait-timeout`, and `-tcp-fin-retries`.
+
+FIN retries have separate counters and backoff. The client starts from its current
+RTO; the backend starts from configured initial RTO because it has no payload RTT
+estimator. Both follow the configured backoff switch and maximum timeout. Duplicate
+FINs repeat the necessary ACK without repeatedly consuming sequence positions.
+RST requires a valid state and exact expected peer sequence; a reset answering SYN
+must also acknowledge that SYN. This profile rejects FIN with payload or PSH,
+and does not implement challenge ACKs or TIME_WAIT recycling.
+
+Client observations retain TCP state, close outcome, FIN retries and closing duration.
+CLI reports include `effectiveClose` and per-client `clientConnection`; topology
+details show state and outcome separately from payload success. A payload transfer
+can succeed even if later teardown reaches its retry limit. Completed streams can
+remain in TIME_WAIT when a short experiment ends.
+
+The LB keeps routes through closing and TIME_WAIT; ordinary idle cleanup yields
+to transport closing timers. Graceful closure no longer forcibly deletes the peer's
+TCP state. Forced shutdown and disappearance still use the older shared cleanup;
+fully independent endpoint/LB lifecycles remain the next planned scope.
+
+Closing follows the selected [RFC 9293, section 3.6](https://www.rfc-editor.org/rfc/rfc9293.html#section-3.6)
+profile, with the documented bounds above. Server SYN-ACK retry timers,
+remaining TCP mechanisms, and UDP are deferred.
 The same-flow SYN generator remains a limited model, not a validated SYN flood.
 The L4 model has no application workers or business-operation queues.
 

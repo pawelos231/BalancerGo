@@ -110,7 +110,7 @@ func TestTCPFastRetransmitCanBeDisabled(t *testing.T) {
 	}
 }
 
-// Abandoning recovery stops its timer and current duplicate count, retaining one fast retry.
+// Graceful draining or forced shutdown retains the completed fast retry count.
 func TestTCPFastRecoveryCleanupRetainsRetryTotal(t *testing.T) {
 	for _, closeWithFIN := range []bool{false, true} {
 		name := "shutdown"
@@ -124,14 +124,26 @@ func TestTCPFastRecoveryCleanupRetainsRetryTotal(t *testing.T) {
 			}
 			if closeWithFIN {
 				h.client.Close()
+				if state := congestionState(t, h); state.Phase != "fastRecovery" || state.BytesInFlight != 4096 {
+					t.Fatalf("Close abandoned active recovery: %+v", state)
+				}
+				for _, ack := range []uint64{4097, 6145, 8193} {
+					h.receive(model.FlagACK, ack)
+					h.runUntil(h.engine.Now())
+				}
+				h.receive(model.FlagFIN|model.FlagACK, 8194)
 			} else {
 				h.client.Shutdown()
 			}
 			h.runUntil(3 * time.Second)
 			state := congestionState(t, h)
+			wantData := 5
+			if closeWithFIN {
+				wantData = 9
+			}
 			if state.Phase == "fastRecovery" || state.DuplicateACKs != 0 ||
 				state.BytesInFlight != 0 || state.FastRetransmissions != 1 ||
-				len(sentClientData(h.sent)) != 5 || h.engine.Pending() != 0 {
+				len(sentClientData(h.sent)) != wantData || h.engine.Pending() != 0 {
 				t.Fatalf("cleanup retained recovery work or lost history: %+v", state)
 			}
 		})

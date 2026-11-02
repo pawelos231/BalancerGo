@@ -12,10 +12,18 @@ import (
 func (c *configuration) registerTCPFlags() {
 	c.rto = model.DefaultRTOConfig()
 	c.congestion = model.DefaultCongestionConfig()
+	closeConfig := model.DefaultCloseConfig()
+	c.closeConfig = &closeConfig
 	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
 	c.clientIdleTimeout = &clientIdle
 	c.lbHalfOpenIdleTimeout = &halfOpenIdle
 	c.lbEstablishedIdleTimeout = &establishedIdle
+	flag.DurationVar(&c.closeConfig.MSL, "tcp-msl", closeConfig.MSL,
+		"maximum segment lifetime; TIME_WAIT lasts twice this virtual duration")
+	flag.DurationVar(&c.closeConfig.FinWaitTimeout, "tcp-fin-wait-timeout", closeConfig.FinWaitTimeout,
+		"maximum virtual wait for the peer FIN after our FIN is acknowledged")
+	flag.IntVar(&c.closeConfig.MaxFINRetries, "tcp-fin-retries", closeConfig.MaxFINRetries,
+		"maximum FIN retransmissions after the first send (0..30)")
 
 	flag.Func(
 		"tcp-congestion-control",
@@ -108,6 +116,14 @@ func (c *configuration) registerTCPFlags() {
 		establishedIdle,
 		"LB established idle timeout; 0 disables cleanup",
 	)
+}
+
+// effectiveCloseConfig supplies shared defaults for older internal configurations.
+func (c configuration) effectiveCloseConfig() model.CloseConfig {
+	if c.closeConfig == nil {
+		return model.DefaultCloseConfig()
+	}
+	return *c.closeConfig
 }
 
 // resolveCongestionFlagDefaults keeps -tcp-congestion-control none usable alone.

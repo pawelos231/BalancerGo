@@ -20,6 +20,7 @@ type configuration struct {
 	streamBytes              int
 	receiveBufferBytes       int
 	rto                      model.RTOConfig
+	closeConfig              *model.CloseConfig
 	congestion               model.CongestionConfig
 	clientIdleTimeout        *time.Duration
 	lbHalfOpenIdleTimeout    *time.Duration

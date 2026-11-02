@@ -106,6 +106,9 @@ func TestTCPSynchronousACKKeepsTheWholeStreamExact(t *testing.T) {
 	h := newTransferHarness(t)
 	h.client.SetSender(func(packet model.Packet) {
 		h.sent = append(h.sent, packet)
+		if packet.Flag&model.FlagFIN != 0 {
+			h.receive(model.FlagFIN|model.FlagACK, packet.Seq+1)
+		}
 		if packet.Size > 0 {
 			// The sender must record this range before the callback confirms it.
 			nextMissingByte := packet.Seq + uint64(packet.Size)

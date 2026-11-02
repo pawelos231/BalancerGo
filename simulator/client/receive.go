@@ -6,13 +6,21 @@ func (c *Client) HandlePacket(pkt model.Packet) {
 	if c.terminated || pkt.Key != c.key {
 		return
 	}
-	c.armReadTimer()
 	end, valid := pkt.SequenceEnd()
-	if !valid || pkt.Flag&model.FlagRST != 0 {
+	invalidControls := pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagFIN != 0
+	if !valid || invalidControls {
+		return
+	}
+	// This profile accepts FIN as a separate control segment, without PSH or payload.
+	if pkt.Flag&model.FlagFIN != 0 && (pkt.Size != 0 || pkt.Flag&model.FlagPSH != 0) {
+		return
+	}
+	if pkt.Flag&model.FlagRST != 0 {
+		c.handleReset(pkt)
 		return
 	}
 	if pkt.Flag&model.FlagSYN != 0 {
-		if !c.closing {
+		if !c.connection.finSent {
 			c.handleSynAck(pkt, end)
 		}
 		return
@@ -20,13 +28,22 @@ func (c *Client) HandlePacket(pkt model.Packet) {
 	if !c.handshakeCompleted {
 		return
 	}
-	// FIN|ACK closes the peer side; its ACK must not count as a data ACK.
-	if pkt.Flag&model.FlagFIN != 0 {
-		c.handleFin(pkt, end)
+	if pkt.Flag&model.FlagACK == 0 || pkt.Size != 0 || pkt.Ack < 1 || pkt.Ack > c.nextSendSeq {
 		return
 	}
-	if !c.closing {
+	isFIN := pkt.Flag&model.FlagFIN != 0
+	validSequence := pkt.Seq == c.nextReceiveSeq
+	duplicateFIN := isFIN && c.connection.peerFIN && end == c.nextReceiveSeq
+	if !validSequence && !duplicateFIN {
+		return
+	}
+	if c.connection.finSent {
+		c.acknowledgeFIN(pkt.Ack)
+	} else if validSequence {
 		c.handleDataAck(pkt)
+	}
+	if isFIN && !c.terminated {
+		c.handleFin(pkt, end)
 	}
 }
 
@@ -42,6 +59,7 @@ func (c *Client) handleSynAck(pkt model.Packet, end uint64) {
 			return
 		}
 	} else {
+		c.connection.state = model.TCPEstablished
 		c.cancelEvent(&c.synTimer)
 		c.observeRTTACK(pkt.Ack)
 		if c.retrySyn > 0 {
@@ -58,6 +76,9 @@ func (c *Client) handleSynAck(pkt model.Packet, end uint64) {
 		if c.streamRequested {
 			c.updateNextSendTime()
 		}
+	}
+	if !c.connection.finSent {
+		c.armReadTimer()
 	}
 	c.emit(GeneratePacket(c.key, model.FlagACK, 0, c.nextSendSeq, c.nextReceiveSeq))
 	c.queueSegment()
@@ -76,6 +97,7 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 	if !validPeerPosition || staleAck || acknowledgesUnsentData {
 		return
 	}
+	c.armReadTimer()
 
 	// A repeated ACK can reopen a window without confirming additional bytes.
 	windowUnchanged := pkt.ReceiveWindowBytes == c.peerReceiveWindow
@@ -84,7 +106,7 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 	// ACK has not advanced: ACK=1 still asks for data starting at Seq=1.
 	if pkt.Ack == c.oldestUnackedSeq {
 		// Treat it as a duplicate only if rwnd is unchanged and data is still pending.
-		if windowUnchanged && c.pendingSegments.hasPending() {
+		if pkt.Flag&model.FlagFIN == 0 && windowUnchanged && c.pendingSegments.hasPending() {
 			pendingCount := len(c.pendingSegments.segments) - c.pendingSegments.firstPendingIndex
 
 			// The third qualifying duplicate ACK triggers a retry of the oldest segment.
@@ -97,7 +119,9 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 			}
 		}
 		// A larger rwnd or recovery cwnd may now allow another new segment to be sent.
-		c.queueSegment()
+		if pkt.Flag&model.FlagFIN == 0 {
+			c.queueSegment()
+		}
 		return
 	}
 	if !c.pendingSegments.hasPending() {
@@ -134,7 +158,10 @@ func (c *Client) handleDataAck(pkt model.Packet) {
 		// A payload callback may already have confirmed this gap, making the retry stale.
 		c.fastRetransmitOldest(false)
 	}
-	c.queueSegment()
+	if pkt.Flag&model.FlagFIN == 0 {
+		// A combined FIN/ACK must update the receive half before automatic local close.
+		c.queueSegment()
+	}
 }
 
 // receiveWindowEnd bounds the next permitted byte position without wrapping.
@@ -142,23 +169,4 @@ func receiveWindowEnd(ack uint64, windowBytes uint16) uint64 {
 	maxSequence := ^uint64(0)
 	availablePositions := maxSequence - ack
 	return ack + min(uint64(windowBytes), availablePositions)
-}
-
-// handleFin validates byte positions while retaining the existing simple close.
-// Full closing states and FIN retransmission remain a later step.
-func (c *Client) handleFin(pkt model.Packet, end uint64) {
-	if pkt.Size != 0 || pkt.Seq != c.nextReceiveSeq {
-		return
-	}
-	if c.closing {
-		if pkt.Flag&model.FlagACK == 0 || pkt.Ack != c.nextSendSeq {
-			return
-		}
-	} else if pkt.Flag&model.FlagACK != 0 {
-		if pkt.Ack < c.oldestUnackedSeq || pkt.Ack > c.nextSendSeq {
-			return
-		}
-	}
-	c.nextReceiveSeq = end
-	c.ShutdownWithReason(model.TransferRemoteClosed)
 }

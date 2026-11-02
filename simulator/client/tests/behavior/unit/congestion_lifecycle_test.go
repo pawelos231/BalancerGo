@@ -79,6 +79,9 @@ func TestTCPRenoSynchronousACKSeesUpdatedFlight(t *testing.T) {
 		if packet.Flag == model.FlagSYN {
 			h.receive(model.FlagSYN|model.FlagACK, 1)
 		}
+		if packet.Flag&model.FlagFIN != 0 {
+			h.receive(model.FlagFIN|model.FlagACK, packet.Seq+1)
+		}
 		if packet.Size > 0 {
 			state := congestionState(t, h)
 			if state.BytesInFlight != uint64(packet.Size) || state.BytesInFlight > state.CongestionWindowBytes {
@@ -101,8 +104,7 @@ func TestTCPRenoSynchronousACKSeesUpdatedFlight(t *testing.T) {
 	}
 }
 
-// Closing with 4096 unconfirmed bytes clears flight and stops retries without growing cwnd.
-// A stale ACK delivered after either close path cannot revive the pending stream.
+// Shutdown drops flight; Close keeps it until the accepted stream is acknowledged.
 func TestTCPRenoCleanupClearsFlight(t *testing.T) {
 	for _, closeWithFIN := range []bool{false, true} {
 		name := "shutdown"
@@ -124,16 +126,31 @@ func TestTCPRenoCleanupClearsFlight(t *testing.T) {
 
 			if closeWithFIN {
 				h.client.Close()
+				if state := congestionState(t, h); state != before {
+					t.Fatalf("Close discarded the active flight: %+v", state)
+				}
 			} else {
 				h.client.Shutdown()
 			}
 			h.receive(model.FlagACK, 4097)
+			if closeWithFIN {
+				h.runUntil(h.engine.Now())
+				h.receive(model.FlagACK, 8193)
+				h.runUntil(h.engine.Now())
+				h.receive(model.FlagFIN|model.FlagACK, 8194)
+				before.CongestionWindowBytes += 2 * model.SEGMENT_SIZE
+			}
 			h.runUntil(5 * time.Second)
 			before.BytesInFlight = 0
 			if state := congestionState(t, h); state != before {
 				t.Fatalf("cleanup retained flight or a stale ACK grew the window: %+v", state)
 			}
-			if len(sentClientData(h.sent)) != 4 || h.engine.Pending() != 0 {
+			wantData := 4
+			if closeWithFIN {
+				wantData = 8
+			}
+			if len(sentClientData(h.sent)) != wantData || h.engine.Pending() != 0 ||
+				h.client.StreamCompleted() != closeWithFIN {
 				t.Fatalf("cleanup left payload work running: sent=%+v pending=%d", h.sent, h.engine.Pending())
 			}
 		})

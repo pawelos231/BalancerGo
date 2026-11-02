@@ -157,6 +157,20 @@ func (s *World) addLink(
 	return link
 }
 
+func configuredRTO(config scenario.NormalizedRTOConfig) model.RTOConfig {
+	return model.RTOConfig{
+		Mode: model.RTOMode(config.Mode), ExponentialBackoff: config.ExponentialBackoff,
+		InitialTimeout: config.InitialTimeout, MinimumTimeout: config.MinimumTimeout,
+		MaximumTimeout: config.MaximumTimeout,
+	}
+}
+
+func configuredClose(config scenario.NormalizedCloseConfig) model.CloseConfig {
+	return model.CloseConfig{
+		MSL: config.MSL, FinWaitTimeout: config.FinWaitTimeout, MaxFINRetries: config.MaxFINRetries,
+	}
+}
+
 // configuredLink copies the scenario's link settings into the network model.
 func configuredLink(config scenario.LinkConfig) network.Config {
 	return network.Config{
@@ -204,6 +218,8 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 		100, // Half-open connection limit.
 	)
 	srv.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
+	srv.SetRTOConfig(configuredRTO(s.scenario.TCP.RTO))
+	srv.SetCloseConfig(configuredClose(s.scenario.TCP.Close))
 	endpointID := BackendNodeID(config.ID)
 	// Keep received bytes after this backend's connections close or it is removed.
 	srv.OnPayloadReceived = func(bytes int) {

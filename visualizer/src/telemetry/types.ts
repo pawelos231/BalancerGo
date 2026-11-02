@@ -1,4 +1,4 @@
-import type { ClientKey, ClientTransfer, SimulationMetadata } from '../types';
+import type { ClientConnection, ClientKey, ClientTransfer, SimulationMetadata } from '../types';
 import type {
   TopologyLinkConfig,
   TopologyLinkStats,
@@ -64,6 +64,8 @@ export interface NodeTelemetry {
   id: string;
   active?: boolean;
   tcpPhase?: string;
+  tcpState?: string;
+  closeOutcome?: string;
   metrics: Record<string, number>;
   traffic?: TopologyTraffic;
 }
@@ -83,6 +85,7 @@ export interface ServerTelemetry {
     retryData: number;
     acknowledgedPayloadBytes?: number;
     transfer?: ClientTransfer;
+    connection?: ClientConnection;
   }[];
 }
 

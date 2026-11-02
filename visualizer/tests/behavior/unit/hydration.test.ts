@@ -195,3 +195,43 @@ test('transfer totals survive connection removal and terminal snapshots, then cl
   assert.equal(reset.simulation.transfers, undefined);
   assert.deepEqual(reset.servers, []);
 });
+
+test('closing telemetry preserves transport outcomes separately from successful payload results', () => {
+  const frame = telemetryFrame();
+  const definition = topologyDefinition();
+  frame.simulation.transfers = transferResults();
+  frame.servers[0].clients[0].connection = {
+    state: 'closed', outcome: 'finRetryLimit', finRetransmissions: 5, elapsedNanoseconds: 7_000_000_000,
+  };
+  definition.nodes[2].metrics.push(
+    { key: 'finRetransmissions', label: 'FIN retransmissions' },
+    { key: 'closeElapsedNanoseconds', label: 'Closing elapsed', unit: 'ns' },
+  );
+  frame.topology.nodes[2].tcpState = 'closed';
+  frame.topology.nodes[2].closeOutcome = 'finRetryLimit';
+  frame.topology.nodes[2].metrics.finRetransmissions = 5;
+  frame.topology.nodes[2].metrics.closeElapsedNanoseconds = 7_000_000_000;
+
+  const view = hydrateSnapshot(parseSnapshot(frame), definition);
+  assert.equal(view.simulation.transfers?.succeeded, 1);
+  assert.deepEqual(view.servers[0].clients[0].Connection, frame.servers[0].clients[0].connection);
+  const node = view.topology!.nodes[2];
+  assert.equal(node.tcpState, 'closed');
+  assert.equal(node.closeOutcome, 'finRetryLimit');
+  assert.equal(node.metrics.find((metric) => metric.key === 'finRetransmissions')?.value, 5);
+  assert.equal(node.metrics.find((metric) => metric.key === 'closeElapsedNanoseconds')?.value, 7_000_000_000);
+
+  frame.servers[0].clients[0].connection = {
+    state: 'timeWait', finRetransmissions: 0, elapsedNanoseconds: 0,
+  };
+  frame.topology.nodes[2].tcpState = 'timeWait';
+  delete frame.topology.nodes[2].closeOutcome;
+  frame.topology.nodes[2].metrics.finRetransmissions = 0;
+  frame.topology.nodes[2].metrics.closeElapsedNanoseconds = 0;
+  const next = hydrateSnapshot(frame, definition);
+  assert.equal(next.topology!.nodes[2].tcpState, 'timeWait');
+  assert.equal(next.topology!.nodes[2].closeOutcome, undefined);
+  assert.equal(next.servers[0].clients[0].Connection?.finRetransmissions, 0);
+  assert.equal(next.servers[0].clients[0].Connection?.elapsedNanoseconds, 0);
+  assert.equal(hydrateSnapshot(telemetryFrame(), topologyDefinition()).servers[0].clients[0].Connection, undefined);
+});

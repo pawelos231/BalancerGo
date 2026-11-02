@@ -97,6 +97,33 @@ export function tcpPhaseLabel(phase: string): string {
   return labels[phase] ?? phase;
 }
 
+export function tcpStateLabel(state: string): string {
+  const labels: Record<string, string> = {
+    closed: 'CLOSED',
+    synSent: 'SYN_SENT',
+    synReceived: 'SYN_RECEIVED',
+    established: 'ESTABLISHED',
+    finWait1: 'FIN_WAIT_1',
+    finWait2: 'FIN_WAIT_2',
+    closeWait: 'CLOSE_WAIT',
+    closing: 'CLOSING',
+    lastAck: 'LAST_ACK',
+    timeWait: 'TIME_WAIT',
+  };
+  return labels[state] ?? state;
+}
+
+export function closeOutcomeLabel(outcome: string): string {
+  const labels: Record<string, string> = {
+    graceful: 'Closed gracefully',
+    reset: 'Connection reset',
+    finRetryLimit: 'FIN retry limit reached',
+    finWaitTimeout: 'FIN wait timeout',
+    aborted: 'Aborted',
+  };
+  return labels[outcome] ?? outcome;
+}
+
 export function linkIsBusy(link: TopologyLink): boolean {
   const { transmitting, queuedPackets, travellingPackets } = link.stats;
 

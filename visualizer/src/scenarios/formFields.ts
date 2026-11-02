@@ -133,6 +133,37 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
       'For example, repeated timeouts stop doubling when this limit is reached. ' +
       'Must not be below the initial timeout.',
   },
+  tcpMSLMs: {
+    name: 'tcpMSLMs',
+    label: 'Maximum segment lifetime (virtual ms)',
+    min: 0,
+    exclusiveMin: true,
+    help:
+      'How long an old packet may remain in the network. ' +
+      'The active closer remains in TIME_WAIT for twice this duration, ' +
+      'so it can acknowledge a repeated FIN before releasing the connection.',
+  },
+  tcpFinWaitTimeoutMs: {
+    name: 'tcpFinWaitTimeoutMs',
+    label: 'FIN wait timeout (virtual ms)',
+    min: 0,
+    exclusiveMin: true,
+    help:
+      'Maximum time to wait for the peer to finish closing after it acknowledges our FIN. ' +
+      'If the peer never sends its FIN, the connection ends with a close timeout. ' +
+      'Payload already acknowledged remains successful.',
+  },
+  tcpMaxFINRetries: {
+    name: 'tcpMaxFINRetries',
+    label: 'Maximum FIN retransmissions',
+    integer: true,
+    min: 0,
+    max: 30,
+    help:
+      'How many times an unacknowledged FIN may be sent again after the first attempt. ' +
+      'FIN retries use the TCP retransmission timer and its backoff setting. ' +
+      'Set 0 for one attempt; reaching this limit ends the connection with a close failure.',
+  },
   clientIdleTimeoutMs: {
     name: 'clientIdleTimeoutMs',
     label: 'Client idle timeout (virtual ms)',
@@ -451,6 +482,13 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
       'rtoMode', 'rtoBackoff', 'rtoInitialMs', 'rtoMinimumMs', 'rtoMaximumMs',
       'clientIdleTimeoutMs',
     ],
+    defaultExpanded: false,
+  },
+  {
+    id: 'tcp-closing',
+    title: 'TCP connection closing',
+    description: 'Set FIN retry limits, the peer closing timeout and TIME_WAIT retention.',
+    fields: ['tcpMSLMs', 'tcpFinWaitTimeoutMs', 'tcpMaxFINRetries'],
     defaultExpanded: false,
   },
   {

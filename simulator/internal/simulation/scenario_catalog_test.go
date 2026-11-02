@@ -245,13 +245,13 @@ func TestCatalogMixedStreams(t *testing.T) {
 		if cl.GroupID == "short-streams" && cl.Index < len(wantShortBytes) && bytes != wantShortBytes[cl.Index] {
 			t.Fatalf("short client %d received %d payload bytes", cl.Index, bytes)
 		}
-		if !cl.Client.StreamCompleted() || !cl.Client.IsTerminated() {
-			t.Fatalf("bounded mixed stream %s did not complete and close", cl.ID)
+		if !cl.Client.StreamCompleted() || cl.Client.GetConnectionState().State != model.TCPTimeWait {
+			t.Fatalf("bounded mixed stream %s did not finish payload and enter TIME_WAIT", cl.ID)
 		}
 		expectedPayload += uint64(bytes)
 		minimumSegments := (bytes + model.SEGMENT_SIZE - 1) / model.SEGMENT_SIZE
-		// Uplink includes SYN, standalone handshake ACK, data and FIN.
-		minimumPackets := uint64(minimumSegments + 3)
+		// Uplink includes SYN, handshake ACK, data, FIN and the final closing ACK.
+		minimumPackets := uint64(minimumSegments + 4)
 		stats := scenarioRuntimeLink(t, s, cl.ID, LoadBalancerNodeID).Stats()
 
 		// A 65535-byte window can split a long stream before the next MSS boundary.

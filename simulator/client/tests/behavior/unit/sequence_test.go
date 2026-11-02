@@ -85,6 +85,10 @@ func TestTCPByteSequencesAcrossSlidingWindow(t *testing.T) {
 				Key:                h.client.Key(), Flag: model.FlagFIN | model.FlagACK,
 				Seq: peerInitial + 1, Ack: 2052,
 			})
+			if h.client.IsTerminated() || h.client.GetConnectionState().State != model.TCPTimeWait {
+				t.Fatalf("FIN reply skipped TIME-WAIT: %+v", h.client.GetConnectionState())
+			}
+			h.runUntil(h.engine.Now() + 20*time.Millisecond)
 			if !h.client.IsTerminated() || !h.client.StreamCompleted() ||
 				h.client.GetState().AcknowledgedPayloadBytes != 2050 {
 				t.Fatalf("completed client = %+v", h.client.GetState())
@@ -252,7 +256,7 @@ func TestTCPEmptyTransferUsesSYNAndFINSequencePositions(t *testing.T) {
 		t.Fatalf("empty transfer FIN = %+v", fin)
 	}
 	for _, packet := range []model.Packet{
-		{Flag: model.FlagFIN | model.FlagACK, Seq: 1, Ack: 1},
+		{Flag: model.FlagFIN | model.FlagACK, Seq: 1, Ack: 3},
 		{Flag: model.FlagFIN | model.FlagACK, Seq: 2, Ack: 2},
 	} {
 		packet.Key = h.client.Key()
@@ -263,6 +267,10 @@ func TestTCPEmptyTransferUsesSYNAndFINSequencePositions(t *testing.T) {
 		}
 	}
 	h.receive(model.FlagFIN|model.FlagACK, 2)
+	if h.client.IsTerminated() || h.client.GetConnectionState().State != model.TCPTimeWait {
+		t.Fatalf("empty transfer skipped TIME-WAIT: %+v", h.client.GetConnectionState())
+	}
+	h.runUntil(20 * time.Millisecond)
 	if !h.client.IsTerminated() || h.client.GetState().AcknowledgedPayloadBytes != 0 ||
 		h.transfer().Status != model.TransferSucceeded {
 		t.Fatalf("empty transfer outcome = %+v", h.client.GetState())

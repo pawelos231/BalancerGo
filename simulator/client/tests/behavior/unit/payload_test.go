@@ -103,7 +103,7 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 	}
 }
 
-// Receiving 1024 of 1047 bytes remains partial progress after closure or shutdown.
+// Shutdown preserves partial progress; a peer FIN can confirm the remaining payload.
 func TestAcknowledgedPayloadRetainsPartialTransferAfterClose(t *testing.T) {
 	for _, finAck := range []bool{false, true} {
 		name := "shutdown"
@@ -147,7 +147,6 @@ func TestAcknowledgedPayloadRetainsPartialTransferAfterClose(t *testing.T) {
 				t.Fatalf("expected unacknowledged final data, got %+v", data)
 			}
 			if finAck {
-				// It acknowledges the outstanding range, but FIN still closes the transfer.
 				c.HandlePacket(model.Packet{
 					Key:                c.Key(),
 					Flag:               model.FlagFIN | model.FlagACK,
@@ -158,6 +157,20 @@ func TestAcknowledgedPayloadRetainsPartialTransferAfterClose(t *testing.T) {
 			} else {
 				c.Shutdown()
 			}
+			wantTotal := uint64(model.SEGMENT_SIZE)
+			if finAck {
+				wantTotal += 23
+				if c.IsTerminated() || !c.StreamCompleted() {
+					t.Fatalf("peer FIN failed to finish the acknowledged stream: %+v", c.GetState())
+				}
+				if err := e.RunUntil(0); err != nil {
+					t.Fatal(err)
+				}
+				c.HandlePacket(model.Packet{
+					Key: c.Key(), Flag: model.FlagACK, Seq: 2, Ack: 1049,
+					ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
+				})
+			}
 			c.HandlePacket(model.Packet{
 				Key:                c.Key(),
 				Flag:               model.FlagACK,
@@ -165,10 +178,10 @@ func TestAcknowledgedPayloadRetainsPartialTransferAfterClose(t *testing.T) {
 				Ack:                1048,
 				ReceiveWindowBytes: model.DefaultReceiveBufferBytes,
 			})
-			if got := c.GetState().AcknowledgedPayloadBytes; got != model.SEGMENT_SIZE {
-				t.Fatalf("closed partial transfer acknowledged payload = %d, want %d", got, model.SEGMENT_SIZE)
+			if got := c.GetState().AcknowledgedPayloadBytes; got != wantTotal {
+				t.Fatalf("closed transfer acknowledged payload = %d, want %d", got, wantTotal)
 			}
-			if !c.IsTerminated() || c.StreamCompleted() {
+			if !c.IsTerminated() || c.StreamCompleted() != finAck {
 				t.Fatalf("terminated = %v, completed = %v", c.IsTerminated(), c.StreamCompleted())
 			}
 		})

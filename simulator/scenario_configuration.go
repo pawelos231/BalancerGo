@@ -14,6 +14,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 		receiveBufferBytes = model.DefaultReceiveBufferBytes
 	}
 	rto := c.effectiveRTOConfig()
+	closeConfig := c.effectiveCloseConfig()
 	mode := string(rto.Mode)
 	congestion := c.effectiveCongestionConfig()
 	congestionMode := string(congestion.Mode)
@@ -33,6 +34,10 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 		Version: scenario.Version,
 		TCP: scenario.TCPConfig{
 			ReceiveBufferBytes: &receiveBufferBytes,
+			Close: scenario.CloseConfig{
+				MSL: &closeConfig.MSL, FinWaitTimeout: &closeConfig.FinWaitTimeout,
+				MaxFINRetries: &closeConfig.MaxFINRetries,
+			},
 			RTO: scenario.RTOConfig{
 				Mode:               &mode,
 				ExponentialBackoff: &rto.ExponentialBackoff,

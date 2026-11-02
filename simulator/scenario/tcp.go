@@ -26,6 +26,10 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 	if err != nil {
 		return NormalizedTCPConfig{}, err
 	}
+	closeConfig, err := normalizeClose(config.Close)
+	if err != nil {
+		return NormalizedTCPConfig{}, err
+	}
 	idleTimeout, err := normalizeIdleTimeout(
 		config.ClientIdleTimeout,
 		model.DefaultClientIdleTimeout,
@@ -38,9 +42,37 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 	return NormalizedTCPConfig{
 		ReceiveBufferBytes: capacity,
 		RTO:                rto,
+		Close:              closeConfig,
 		CongestionControl:  congestion,
 		ClientIdleTimeout:  idleTimeout,
 	}, nil
+}
+
+// normalizeClose validates twice-MSL arithmetic before shutdown schedules timers.
+func normalizeClose(config CloseConfig) (NormalizedCloseConfig, error) {
+	defaults := model.DefaultCloseConfig()
+	resolved := NormalizedCloseConfig{
+		MSL: defaults.MSL, FinWaitTimeout: defaults.FinWaitTimeout, MaxFINRetries: defaults.MaxFINRetries,
+	}
+	if config.MSL != nil {
+		resolved.MSL = *config.MSL
+	}
+	if config.FinWaitTimeout != nil {
+		resolved.FinWaitTimeout = *config.FinWaitTimeout
+	}
+	if config.MaxFINRetries != nil {
+		resolved.MaxFINRetries = *config.MaxFINRetries
+	}
+	if resolved.MSL <= 0 || resolved.MSL > time.Duration(math.MaxInt64/2) {
+		return NormalizedCloseConfig{}, fmt.Errorf("tcp.close.mslNanoseconds: must be positive and at most half the time.Duration range")
+	}
+	if resolved.FinWaitTimeout <= 0 {
+		return NormalizedCloseConfig{}, fmt.Errorf("tcp.close.finWaitTimeoutNanoseconds: must be positive")
+	}
+	if resolved.MaxFINRetries < 0 || resolved.MaxFINRetries > 30 {
+		return NormalizedCloseConfig{}, fmt.Errorf("tcp.close.maxFINRetries: must be in 0..30")
+	}
+	return resolved, nil
 }
 
 // normalizeRTO keeps timer limits positive and ordered: minimum <= initial <= maximum.

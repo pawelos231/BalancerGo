@@ -30,6 +30,8 @@ const failureLabels: Record<TransferFailureReason, string> = {
   interrupted: 'Transfer interrupted',
   balancerTimeout: 'Balancer connection timeout',
   backendRemoved: 'Backend removed',
+  connectionReset: 'Connection reset',
+  closeTimeout: 'Connection close timeout',
 };
 
 function durationValue(summary: DurationSummary | undefined, value: number | undefined): string {

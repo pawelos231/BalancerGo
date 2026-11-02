@@ -208,7 +208,11 @@ func (lb *LoadBalancer) Route(cl *client.Client) (*server.Server, error) {
 func (lb *LoadBalancer) forgetClient(key model.ClientKey) {
 	cl := lb.clients[key]
 	if srv := lb.byKey[key]; srv != nil {
-		srv.ForgetConnection(key)
+		// Normal teardown belongs to the endpoints; the peer may still be in TIME_WAIT.
+		// Forced disappearance keeps legacy shared cleanup until the lifecycle refactor.
+		if cl == nil || cl.GetConnectionState().Outcome != model.CloseGraceful {
+			srv.ForgetConnection(key)
+		}
 		list := lb.connTable[srv]
 		for i, entry := range list {
 			if entry == cl {
@@ -338,6 +342,11 @@ func (lb *LoadBalancer) scheduleCleanup() {
 		for _, cl := range lb.clientOrder {
 			key := cl.Key()
 			if lb.clients[key] != cl {
+				continue
+			}
+			if cl.IsClosing() {
+				// FIN retries and closing-state timers own this wait, including TIME_WAIT.
+				remaining = append(remaining, cl)
 				continue
 			}
 			timeout := lb.establishedIdleTimeout

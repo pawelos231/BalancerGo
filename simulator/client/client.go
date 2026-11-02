@@ -15,7 +15,7 @@ type Client struct {
 	sender func(model.Packet)
 
 	terminated         bool
-	closing            bool
+	connection         connectionClose
 	handshakeStarted   bool
 	handshakeCompleted bool
 	retrySyn           uint8
@@ -95,6 +95,7 @@ func NewClient(
 		rto:                newRTOEstimator(model.DefaultRTOConfig()),
 		idleTimeout:        model.READ_DEADLINE,
 		congestion:         newCongestionControl(model.DefaultCongestionConfig()),
+		connection:         connectionClose{config: model.DefaultCloseConfig(), state: model.TCPClosed},
 		transfer:           transferMetrics{status: model.TransferInProgress},
 	}
 }
@@ -132,17 +133,18 @@ func (c *Client) StreamCompleted() bool {
 }
 
 func (c *Client) EstablishConnection() {
-	if c.terminated || c.closing || c.handshakeStarted {
+	if c.terminated || c.connection.requested || c.handshakeStarted {
 		return
 	}
 	c.handshakeStarted = true
+	c.connection.state = model.TCPSynSent
 	// This profile starts at SEQ 0; SYN reserves the first position.
 	c.nextSendSeq = 1
 	c.transfer.startedAt = c.engine.Now()
 	c.armReadTimer()
 	c.synSendEvent = c.engine.ScheduleAfter(0, func() {
 		c.synSendEvent = 0
-		if !c.terminated && !c.closing && !c.handshakeCompleted {
+		if !c.terminated && !c.connection.finSent && !c.handshakeCompleted {
 			c.sendSyn()
 		}
 	})
@@ -167,17 +169,17 @@ func (c *Client) FloodSyn(count int, gap time.Duration) {
 		panic("client: flood count and gap must be nonnegative")
 	}
 	c.cancelEvent(&c.floodEvent)
-	if c.terminated || c.closing || count == 0 {
+	if c.terminated || c.connection.requested || count == 0 {
 		return
 	}
 	var sendNext func(int)
 	sendNext = func(index int) {
 		c.floodEvent = 0
-		if c.terminated || c.closing {
+		if c.terminated || c.connection.requested {
 			return
 		}
 		c.emit(GeneratePacket(c.key, model.FlagSYN, 0, 0, 0))
-		if !c.terminated && !c.closing && index+1 < count {
+		if !c.terminated && !c.connection.requested && index+1 < count {
 			c.floodEvent = c.engine.ScheduleAfter(gap, func() { sendNext(index + 1) })
 		}
 	}
@@ -185,39 +187,18 @@ func (c *Client) FloodSyn(count int, gap time.Duration) {
 }
 
 func (c *Client) Close() {
-	if c.terminated || c.closing {
+	if c.terminated {
 		return
 	}
 	if !c.handshakeCompleted {
 		c.ShutdownWithReason(model.TransferClosedEarly)
 		return
 	}
-	c.recordTransferFailure(model.TransferClosedEarly)
-	c.closing = true
-	c.cancelEvent(&c.synSendEvent)
-	c.cancelEvent(&c.synTimer)
-	c.cancelEvent(&c.dataTimer)
-	c.cancelEvent(&c.sendEvent)
+	c.beginClosing()
+	c.connection.requested = true
 	c.cancelEvent(&c.floodEvent)
-	c.pendingSegments.reset()
-	c.oldestSegmentRetransmissions = 0
-	c.rttProbe = roundTripProbe{}
-	c.congestion.clearLossTracking()
-	c.armReadTimer()
-	c.sendEvent = c.engine.ScheduleAfter(0, func() {
-		c.sendEvent = 0
-		if !c.terminated {
-			packet := GeneratePacket(
-				c.key,
-				model.FlagFIN|model.FlagACK,
-				0,
-				c.nextSendSeq,
-				c.nextReceiveSeq,
-			)
-			c.nextSendSeq++
-			c.emit(packet)
-		}
-	})
+	c.startFINWhenDrained()
+	c.queueSegment()
 }
 
 func (c *Client) Shutdown() {
@@ -230,7 +211,17 @@ func (c *Client) ShutdownWithReason(reason model.TransferFailureReason) {
 		return
 	}
 	c.recordTransferFailure(reason)
+	if c.connection.outcome == "" {
+		c.connection.outcome = model.CloseAborted
+	}
+	c.connection.state = model.TCPClosed
+	if c.connection.started {
+		c.connection.finishedAt = c.engine.Now()
+	}
 	c.terminated = true
+	c.cancelEvent(&c.connection.sendEvent)
+	c.cancelEvent(&c.connection.finTimer)
+	c.cancelEvent(&c.connection.waitTimer)
 	c.cancelEvent(&c.synSendEvent)
 	c.cancelEvent(&c.synTimer)
 	c.cancelEvent(&c.dataTimer)
@@ -262,6 +253,7 @@ func (c *Client) cancelEvent(id *engine.EventID) {
 
 func (c *Client) GetState() model.ClientState {
 	return model.ClientState{
+		Connection:               c.GetConnectionState(),
 		Key:                      c.key,
 		RetrySyn:                 c.retrySyn,
 		RetryData:                c.oldestSegmentRetransmissions,

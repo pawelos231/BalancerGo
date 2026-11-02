@@ -38,6 +38,12 @@ export interface ScenarioRTOConfig {
   maximumTimeoutNanoseconds: ExactInteger;
 }
 
+export interface ScenarioCloseConfig {
+  mslNanoseconds: ExactInteger;
+  finWaitTimeoutNanoseconds: ExactInteger;
+  maxFINRetries: ExactInteger;
+}
+
 export interface ScenarioEndpointNetwork {
   profile?: string;
   toLoadBalancer: ScenarioLinkPatch;
@@ -78,6 +84,7 @@ export interface Scenario {
     receiveBufferBytes?: ExactInteger;
     congestionControl?: Partial<ScenarioCongestionConfig>;
     rto?: Partial<ScenarioRTOConfig>;
+    close?: Partial<ScenarioCloseConfig>;
     clientIdleTimeoutNanoseconds?: ExactInteger;
   };
   network: {
@@ -128,6 +135,7 @@ export interface ResolvedScenario {
     receiveBufferBytes: number;
     congestionControl: ScenarioCongestionConfig;
     rto: ScenarioRTOConfig;
+    close: ScenarioCloseConfig;
     clientIdleTimeoutNanoseconds: ExactInteger;
   };
   networkDefaults: ScenarioLinkConfig;

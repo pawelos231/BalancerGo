@@ -1,6 +1,7 @@
 package model
 
 type ClientState struct {
+	Connection               CloseState
 	Key                      ClientKey
 	RetrySyn                 uint8
 	RetryData                uint8

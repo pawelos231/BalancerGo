@@ -56,7 +56,7 @@ func (c *Client) GetCongestionState() model.CongestionState {
 // bytesInFlight counts sent payload that has not yet been cumulatively ACKed.
 // SYN and FIN reserve sequence positions but do not count as payload in flight.
 func (c *Client) bytesInFlight() uint64 {
-	if !c.handshakeCompleted || c.closing || c.terminated {
+	if !c.handshakeCompleted || c.connection.finSent || c.terminated {
 		return 0
 	}
 	return c.nextSendSeq - c.oldestUnackedSeq
@@ -153,7 +153,7 @@ func (control *congestionControl) recordDataSent(now time.Duration, payloadBytes
 	control.policy.OnSent(now, payloadBytes)
 }
 
-// clearLossTracking abandons pending loss detection but preserves total retry metrics.
+// clearLossTracking resets duplicateACKs and untilSeq, then stops recovery.
 func (control *congestionControl) clearLossTracking() {
 	control.loss.duplicateACKs = 0
 	control.loss.untilSeq = 0

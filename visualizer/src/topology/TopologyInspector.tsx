@@ -15,6 +15,8 @@ import {
   kindLabel,
   linkIsBusy,
   tcpPhaseLabel,
+  tcpStateLabel,
+  closeOutcomeLabel,
 } from './format';
 import { describeLink } from './telemetry';
 import { Fact, TrafficTotals } from './TopologyFacts';
@@ -87,6 +89,8 @@ function NodeDetails({ node, topology }: { node: TopologyNode; topology?: Topolo
         {node.groupId && <Fact label="Client group" value={node.groupId} />}
         {node.address && <Fact label="Address" value={node.address} />}
         {node.tcpPhase && <Fact label="Congestion phase" value={tcpPhaseLabel(node.tcpPhase)} />}
+        {node.tcpState && <Fact label="TCP state" value={tcpStateLabel(node.tcpState)} />}
+        {node.closeOutcome && <Fact label="Connection close outcome" value={closeOutcomeLabel(node.closeOutcome)} />}
         {metrics.map((metric) => (
           <Fact
             key={metric.key}

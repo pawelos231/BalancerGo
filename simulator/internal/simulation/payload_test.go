@@ -75,8 +75,9 @@ func TestPayloadProgressAfterLostFinalACK(t *testing.T) {
 	}
 	client := s.clients[0]
 	uplink := scenarioRuntimeLink(t, s, client.ID, LoadBalancerNodeID).Stats()
-	wantWireBytes := uint64(2050 + 2 + 7*40)
-	if uplink.DeliveredPackets != 7 || uplink.DeliveredBytes != wantWireBytes {
+	// The final ACK of the backend's FIN is now a fourth client control packet.
+	wantWireBytes := uint64(2050 + 2 + 8*40)
+	if uplink.DeliveredPackets != 8 || uplink.DeliveredBytes != wantWireBytes {
 		t.Fatalf("wire counters did not retain the repeated payload and headers: %+v", uplink)
 	}
 }
@@ -127,7 +128,7 @@ func TestSmallReceiveWindowCompletesAfterLostACK(t *testing.T) {
 
 	runtimeClient := world.clients[0]
 	uplink := scenarioRuntimeLink(t, world, runtimeClient.ID, LoadBalancerNodeID).Stats()
-	const packets = 33 + 1 + 3 // Data, retransmission and SYN/ACK/FIN controls.
+	const packets = 33 + 1 + 4 // Data, retry and SYN/handshake ACK/FIN/final ACK.
 	const wireBytes = 2050 + 64 + packets*40
 	if uplink.DeliveredPackets != packets || uplink.DeliveredBytes != wireBytes {
 		t.Fatalf("unexpected small-window wire traffic: %+v", uplink)
@@ -180,7 +181,7 @@ func TestSlidingWindowRecoversMissingFirstSegment(t *testing.T) {
 	}
 
 	uplink := scenarioRuntimeLink(t, world, runtimeClient.ID, LoadBalancerNodeID).Stats()
-	if uplink.DeliveredPackets != 7 {
-		t.Fatalf("expected three original data segments, one retry and three controls: %+v", uplink)
+	if uplink.DeliveredPackets != 8 {
+		t.Fatalf("expected three data segments, one retry and four controls: %+v", uplink)
 	}
 }

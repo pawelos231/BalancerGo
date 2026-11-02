@@ -18,7 +18,7 @@ func TestTCPFastRetransmitRejectsUnrelatedACKs(t *testing.T) {
 		{Flag: model.FlagPSH | model.FlagACK, Seq: 1, Ack: 1, Size: 1},
 		{Flag: model.FlagSYN | model.FlagACK, Seq: 0, Ack: 1},
 		{Flag: model.FlagFIN | model.FlagACK, Seq: 2, Ack: 1},
-		{Flag: model.FlagRST | model.FlagACK, Seq: 1, Ack: 1},
+		{Flag: model.FlagRST | model.FlagACK, Seq: 2, Ack: 1},
 	}
 	for _, packet := range packets {
 		packet.Key = h.client.Key()

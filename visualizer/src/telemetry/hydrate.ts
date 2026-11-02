@@ -42,6 +42,8 @@ export function hydrateSnapshot(
       metrics: node.metrics.map((metric) => metricValue(metric, state.metrics)),
       active: state.active,
       tcpPhase: state.tcpPhase,
+      tcpState: state.tcpState,
+      closeOutcome: state.closeOutcome,
       traffic: state.traffic,
     };
   });
@@ -86,6 +88,7 @@ export function hydrateSnapshot(
         RetryData: client.retryData,
         AcknowledgedPayloadBytes: client.acknowledgedPayloadBytes,
         Transfer: client.transfer,
+        Connection: client.connection,
       })),
     };
   });

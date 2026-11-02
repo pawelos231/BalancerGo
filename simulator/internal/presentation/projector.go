@@ -194,11 +194,13 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 		topology.Nodes = append(topology.Nodes, contract.TelemetryNode{
 			ID: client.ID, Active: &active, Metrics: metricValues(metrics), Traffic: nodeTraffic(world, client.ID),
 			TCPPhase: state.Congestion.Phase,
+			TCPState: string(state.Connection.State), CloseOutcome: string(state.Connection.Outcome),
 		})
 		if slot, routed := slots[state.Key]; routed {
 			servers[slot.server].Clients[slot.client] = contract.TelemetryClient{
 				ID: client.ID, RetrySyn: state.RetrySyn, RetryData: state.RetryData,
 				AcknowledgedPayloadBytes: state.AcknowledgedPayloadBytes, Transfer: transferState(state.Transfer),
+				Connection: closeState(state.Connection),
 			}
 			unresolved--
 		}

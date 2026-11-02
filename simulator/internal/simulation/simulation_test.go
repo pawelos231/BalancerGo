@@ -213,7 +213,7 @@ func TestSimulationCountsTCPWireTraffic(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := readWorld(s)
-		if report.CompletedStreams != definition.Workload.ClientGroups[0].Count || report.ClosedClients != definition.Workload.ClientGroups[0].Count {
+		if report.CompletedStreams != definition.Workload.ClientGroups[0].Count || report.ClosedClients != 0 {
 			t.Fatalf("TCP streams did not finish: completed=%d closed=%d", report.CompletedStreams, report.ClosedClients)
 		}
 

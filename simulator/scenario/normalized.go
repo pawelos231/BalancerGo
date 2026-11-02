@@ -21,8 +21,16 @@ type Normalized struct {
 type NormalizedTCPConfig struct {
 	ReceiveBufferBytes int                        `json:"receiveBufferBytes"`
 	RTO                NormalizedRTOConfig        `json:"rto"`
+	Close              NormalizedCloseConfig      `json:"close"`
 	CongestionControl  NormalizedCongestionConfig `json:"congestionControl"`
 	ClientIdleTimeout  time.Duration              `json:"clientIdleTimeoutNanoseconds"`
+}
+
+// NormalizedCloseConfig contains the effective shutdown limits.
+type NormalizedCloseConfig struct {
+	MSL            time.Duration `json:"mslNanoseconds"`
+	FinWaitTimeout time.Duration `json:"finWaitTimeoutNanoseconds"`
+	MaxFINRetries  int           `json:"maxFINRetries"`
 }
 
 // NormalizedCongestionConfig holds a checked starting window and growth policy.

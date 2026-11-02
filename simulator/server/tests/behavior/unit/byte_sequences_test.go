@@ -108,6 +108,10 @@ func TestServerBytePositionsForHandshakePayloadAndFIN(t *testing.T) {
 	}
 	h.receive(model.FlagFIN|model.FlagACK, 3051, 1, 0)
 	h.assertReply(model.FlagFIN|model.FlagACK, 1, 3052)
+	if h.server.GetState().ActiveConnections != 1 {
+		t.Fatal("FIN released the connection before its final ACK")
+	}
+	h.receive(model.FlagACK, 3052, 2, 0)
 	state := h.server.GetState()
 	if state.ActiveConnections != 0 || state.HalfOpenConnections != 0 ||
 		state.ReceivedPayloadBytes != 2050 || state.LatencyP95Milli != 5 {
@@ -177,7 +181,7 @@ func TestServerRejectsInvalidByteRangesAndACKs(t *testing.T) {
 		{flag: model.FlagSYN | model.FlagFIN, seq: 18},
 		{flag: model.FlagSYN, seq: 0, size: 1},
 		{flag: model.FlagSYN | model.FlagACK, seq: 0, ack: 1},
-		{flag: model.FlagRST | model.FlagACK, seq: 18, ack: 1},
+		{flag: model.FlagRST | model.FlagACK, seq: 17, ack: 1},
 	}
 	for _, packet := range invalid {
 		h.receive(packet.flag, packet.seq, packet.ack, packet.size)
@@ -207,6 +211,7 @@ func TestServerLogicalBytePositionsDoNotWrapAtUint32(t *testing.T) {
 	h.assertReply(model.FlagACK, 1, initial+1025)
 	h.receive(model.FlagFIN|model.FlagACK, initial+1025, 1, 0)
 	h.assertReply(model.FlagFIN|model.FlagACK, 1, initial+1026)
+	h.receive(model.FlagACK, initial+1026, 2, 0)
 	if got := h.server.GetState(); got.ReceivedPayloadBytes != 1024 || got.ActiveConnections != 0 {
 		t.Fatalf("large logical position changed transfer accounting: %+v", got)
 	}

@@ -12,7 +12,7 @@ func (c *Client) SendCompleteStream(dataSize int, gap time.Duration) {
 	if dataSize < 0 || gap < 0 {
 		panic("client: stream size and gap must be nonnegative")
 	}
-	if c.terminated || c.closing || c.streamRequested {
+	if c.terminated || c.connection.requested || c.streamRequested {
 		return
 	}
 	c.streamRequested = true
@@ -29,7 +29,7 @@ func (c *Client) SendCompleteStream(dataSize int, gap time.Duration) {
 // A 4096-byte window can release four 1024-byte segments without waiting for ACKs.
 func (c *Client) queueSegment() {
 	canSend := c.handshakeCompleted && c.streamRequested
-	if c.terminated || c.closing || !canSend {
+	if c.terminated || c.connection.finSent || !canSend {
 		return
 	}
 	c.observeSender()
@@ -58,7 +58,7 @@ func (c *Client) queueSegment() {
 	c.sendEventAt = nextSendAt
 	c.sendEvent = c.engine.ScheduleAt(nextSendAt, func() {
 		c.sendEvent = 0
-		if c.terminated || c.closing {
+		if c.terminated || c.connection.finSent {
 			return
 		}
 

@@ -94,6 +94,7 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		receiveBufferBytes = model.DefaultReceiveBufferBytes
 	}
 	rto := c.effectiveRTOConfig()
+	closeConfig := c.effectiveCloseConfig()
 	congestion := c.effectiveCongestionConfig()
 	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
 
@@ -113,6 +114,9 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		RTOInitialMs:                    float64(rto.InitialTimeout) / float64(time.Millisecond),
 		RTOMinimumMs:                    float64(rto.MinimumTimeout) / float64(time.Millisecond),
 		RTOMaximumMs:                    float64(rto.MaximumTimeout) / float64(time.Millisecond),
+		TCPMSLMs:                        float64(closeConfig.MSL) / float64(time.Millisecond),
+		TCPFinWaitTimeoutMs:             float64(closeConfig.FinWaitTimeout) / float64(time.Millisecond),
+		TCPMaxFINRetries:                closeConfig.MaxFINRetries,
 		ClientIdleTimeoutMs:             float64(clientIdle) / float64(time.Millisecond),
 		LBHalfOpenIdleTimeoutMs:         float64(halfOpenIdle) / float64(time.Millisecond),
 		LBEstablishedIdleTimeoutMs:      float64(establishedIdle) / float64(time.Millisecond),
@@ -161,6 +165,8 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 	}
 	base.rto.Mode = model.RTOMode(c.RTOMode)
 	base.rto.ExponentialBackoff = c.RTOBackoff
+	// Allocate a new policy so a value-copy conversion cannot mutate CLI defaults.
+	base.closeConfig = &model.CloseConfig{MaxFINRetries: c.TCPMaxFINRetries}
 
 	// Keep explicit zero idle limits; zero disables cleanup rather than using defaults.
 	var clientIdle, halfOpenIdle, establishedIdle time.Duration
@@ -192,6 +198,8 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 		{"rtoInitialMs", c.RTOInitialMs, time.Millisecond, &base.rto.InitialTimeout},
 		{"rtoMinimumMs", c.RTOMinimumMs, time.Millisecond, &base.rto.MinimumTimeout},
 		{"rtoMaximumMs", c.RTOMaximumMs, time.Millisecond, &base.rto.MaximumTimeout},
+		{"tcpMSLMs", c.TCPMSLMs, time.Millisecond, &base.closeConfig.MSL},
+		{"tcpFinWaitTimeoutMs", c.TCPFinWaitTimeoutMs, time.Millisecond, &base.closeConfig.FinWaitTimeout},
 		{"clientIdleTimeoutMs", c.ClientIdleTimeoutMs, time.Millisecond, &clientIdle},
 		{"lbHalfOpenIdleTimeoutMs", c.LBHalfOpenIdleTimeoutMs, time.Millisecond, &halfOpenIdle},
 		{"lbEstablishedIdleTimeoutMs", c.LBEstablishedIdleTimeoutMs, time.Millisecond, &establishedIdle},

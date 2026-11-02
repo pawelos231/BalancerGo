@@ -31,6 +31,8 @@ func TestTCPNewRenoRepairsSecondHoleBeforeTimeout(t *testing.T) {
 	h.receive(model.FlagACK, 3073)
 	h.receive(model.FlagACK, 1025)
 	h.receive(model.FlagACK, 8193)
+	h.runUntil(h.engine.Now())
+	h.receive(model.FlagFIN|model.FlagACK, 8194)
 	h.runUntil(3 * time.Second)
 	state = congestionState(t, h)
 	if !h.client.StreamCompleted() || h.transfer().DataRetransmissions != 2 ||
@@ -105,6 +107,9 @@ func TestTCPNewRenoSupportsSynchronousPartialAndFullACKs(t *testing.T) {
 	h.receive(model.FlagACK, 1025)
 	h.client.SetSender(func(packet model.Packet) {
 		h.sent = append(h.sent, packet)
+		if packet.Flag&model.FlagFIN != 0 {
+			h.receive(model.FlagFIN|model.FlagACK, packet.Seq+1)
+		}
 		switch packet.Seq {
 		case 1025:
 			h.receive(model.FlagACK, 3073)

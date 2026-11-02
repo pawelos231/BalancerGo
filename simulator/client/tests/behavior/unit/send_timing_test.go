@@ -139,7 +139,7 @@ func TestTCPZeroGapYieldsBetweenNewSegments(t *testing.T) {
 	}
 }
 
-// Closing after one send cancels the next send and retransmission, even with queued data.
+// Shutdown cancels queued sends; Close drains the accepted stream at its original pace.
 func TestTCPStopCancelsPendingDataAndFutureSends(t *testing.T) {
 	for _, manualClose := range []bool{false, true} {
 		name := "shutdown"
@@ -156,12 +156,23 @@ func TestTCPStopCancelsPendingDataAndFutureSends(t *testing.T) {
 
 			if manualClose {
 				h.client.Close()
+				h.runUntil(400 * time.Millisecond)
+				if len(sentClientData(h.sent)) != 4 || h.count(model.FlagFIN) != 0 {
+					t.Fatalf("Close failed to drain accepted data before FIN: %+v", h.sent)
+				}
+				h.receive(model.FlagACK, 4097)
+				h.runUntil(h.engine.Now())
+				h.receive(model.FlagFIN|model.FlagACK, 4098)
 			} else {
 				h.client.Shutdown()
 			}
 			h.runUntil(5 * time.Second)
 
-			if len(sentClientData(h.sent)) != 1 || h.client.StreamCompleted() {
+			wantData := 1
+			if manualClose {
+				wantData = 4
+			}
+			if len(sentClientData(h.sent)) != wantData || h.client.StreamCompleted() != manualClose {
 				t.Fatalf("stopped transfer kept sending data: %+v", h.sent)
 			}
 			expectedFINs := 0
@@ -170,6 +181,9 @@ func TestTCPStopCancelsPendingDataAndFutureSends(t *testing.T) {
 			}
 			if h.count(model.FlagFIN) != expectedFINs {
 				t.Fatalf("stop sent %d FINs, want %d", h.count(model.FlagFIN), expectedFINs)
+			}
+			if h.engine.Pending() != 0 || !h.client.IsTerminated() {
+				t.Fatalf("completed close retained work: %+v", h.client.GetConnectionState())
 			}
 		})
 	}

@@ -26,6 +26,7 @@ type Info struct {
 	Seed                     int64
 	ReceiveBufferBytes       int
 	RTO                      model.RTOConfig
+	Close                    model.CloseConfig
 	CongestionControl        model.CongestionConfig
 	ClientIdleTimeout        time.Duration
 	LBHalfOpenIdleTimeout    time.Duration
@@ -88,13 +89,8 @@ func (s *World) Info() Info {
 			InitialWindowSegments:          s.scenario.TCP.CongestionControl.InitialWindowSegments,
 			InitialSlowStartThresholdBytes: s.scenario.TCP.CongestionControl.InitialSlowStartThresholdBytes,
 		},
-		RTO: model.RTOConfig{
-			Mode:               model.RTOMode(s.scenario.TCP.RTO.Mode),
-			ExponentialBackoff: s.scenario.TCP.RTO.ExponentialBackoff,
-			InitialTimeout:     s.scenario.TCP.RTO.InitialTimeout,
-			MinimumTimeout:     s.scenario.TCP.RTO.MinimumTimeout,
-			MaximumTimeout:     s.scenario.TCP.RTO.MaximumTimeout,
-		},
+		RTO:                      configuredRTO(s.scenario.TCP.RTO),
+		Close:                    configuredClose(s.scenario.TCP.Close),
 		ClientIdleTimeout:        s.scenario.TCP.ClientIdleTimeout,
 		LBHalfOpenIdleTimeout:    s.scenario.LoadBalancer.HalfOpenIdleTimeout,
 		LBEstablishedIdleTimeout: s.scenario.LoadBalancer.EstablishedIdleTimeout,
