@@ -1,4 +1,5 @@
 import type { SimulationConfig } from '../types';
+import { congestionModeOptions } from './types.ts';
 import type { ExactInteger, Scenario } from './types';
 
 export type ScenarioField = keyof SimulationConfig;
@@ -129,8 +130,7 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
     return text === 'fixed' || text === 'adaptive' ? undefined : 'Choose fixed or adaptive timing.';
   }
   if (field === 'congestionControl') {
-    const valid = text === 'none' || text === 'reno' || text === 'newReno'
-      || text === 'tahoe' || text === 'cubic';
+    const valid = congestionModeOptions.some((option) => option.value === text);
     return valid ? undefined : 'Choose none, Reno, NewReno, Tahoe or CUBIC congestion control.';
   }
   if (field === 'rtoBackoff') {

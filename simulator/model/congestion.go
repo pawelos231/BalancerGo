@@ -11,6 +11,16 @@ const (
 	CongestionCubic   CongestionMode = "cubic"
 )
 
+// Valid reports whether the simulator supports this congestion-control mode.
+func (mode CongestionMode) Valid() bool {
+	switch mode {
+	case CongestionNone, CongestionReno, CongestionNewReno, CongestionTahoe, CongestionCubic:
+		return true
+	default:
+		return false
+	}
+}
+
 // MaxCongestionWindowBytes keeps configuration and byte arithmetic within int64.
 // Larger windows add no useful capacity to this model's unscaled receive window.
 const MaxCongestionWindowBytes uint64 = 1<<63 - 1

@@ -10,9 +10,19 @@ export interface ScenarioLinkConfig {
 
 export type ScenarioLinkPatch = Partial<ScenarioLinkConfig>;
 
+export const congestionModeOptions = [
+  { value: 'reno', label: 'Reno' },
+  { value: 'newReno', label: 'NewReno' },
+  { value: 'tahoe', label: 'Tahoe' },
+  { value: 'cubic', label: 'CUBIC' },
+  { value: 'none', label: 'None (receive window only)' },
+] as const;
+
+export type CongestionMode = (typeof congestionModeOptions)[number]['value'];
+
 // The initial window counts segments; the slow-start threshold counts payload bytes.
 export interface ScenarioCongestionConfig {
-  mode: 'none' | 'reno' | 'newReno' | 'tahoe' | 'cubic';
+  mode: CongestionMode;
   fastRetransmit: boolean;
   cubicFastConvergence: boolean;
   initialWindowSegments: ExactInteger;

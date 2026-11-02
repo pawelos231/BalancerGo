@@ -13,7 +13,7 @@ func TestTCPNewRenoRepairsSecondHoleBeforeTimeout(t *testing.T) {
 	h := newNewRenoHarness(t, 8, 8*model.SEGMENT_SIZE)
 	h.receive(model.FlagACK, 1025)
 	h.runUntil(100 * time.Millisecond)
-	triggerNewRenoFastRetry(h)
+	receiveThreeDuplicateACKs(h)
 
 	h.runUntil(200 * time.Millisecond)
 	h.receive(model.FlagACK, 3073)
@@ -47,7 +47,7 @@ func TestTCPNewRenoRetriesOnlyTheUnacknowledgedFragment(t *testing.T) {
 	h := newNewRenoHarness(t, 8, 8*model.SEGMENT_SIZE)
 	h.receive(model.FlagACK, 1025)
 	samplesBeforeRetry := h.client.GetRTOState().Samples
-	triggerNewRenoFastRetry(h)
+	receiveThreeDuplicateACKs(h)
 	h.receive(model.FlagACK, 1793)
 
 	data := sentClientData(h.sent)
@@ -67,7 +67,7 @@ func TestTCPNewRenoRetriesOnlyTheUnacknowledgedFragment(t *testing.T) {
 func TestTCPNewRenoKeepsRecoveryBoundaryWhileNewDataIsSent(t *testing.T) {
 	h := newNewRenoHarness(t, 8, 32*model.SEGMENT_SIZE)
 	h.receive(model.FlagACK, 1025)
-	triggerNewRenoFastRetry(h)
+	receiveThreeDuplicateACKs(h)
 	h.receive(model.FlagACK, 1025)
 	h.runUntil(h.engine.Now())
 	data := sentClientData(h.sent)
@@ -84,7 +84,7 @@ func TestTCPNewRenoKeepsRecoveryBoundaryWhileNewDataIsSent(t *testing.T) {
 	}
 
 	// ACK at the boundary does not permit a new loss episode from late duplicates.
-	triggerNewRenoFastRetry(h)
+	receiveThreeDuplicateACKs(h)
 	if state := congestionState(t, h); state.FastRetransmissions != 1 {
 		t.Fatalf("late duplicates reopened the old recovery: %+v", state)
 	}
@@ -92,7 +92,7 @@ func TestTCPNewRenoKeepsRecoveryBoundaryWhileNewDataIsSent(t *testing.T) {
 	// Progress beyond the boundary permits an independent loss in a newer flight.
 	h.receive(model.FlagACK, 8705)
 	h.runUntil(h.engine.Now())
-	triggerNewRenoFastRetry(h)
+	receiveThreeDuplicateACKs(h)
 	if state := congestionState(t, h); state.FastRetransmissions != 2 || state.Phase != "fastRecovery" {
 		t.Fatalf("a later flight could not enter its own recovery: %+v", state)
 	}
@@ -112,7 +112,7 @@ func TestTCPNewRenoSupportsSynchronousPartialAndFullACKs(t *testing.T) {
 			h.receive(model.FlagACK, 8193)
 		}
 	})
-	triggerNewRenoFastRetry(h)
+	receiveThreeDuplicateACKs(h)
 	h.runUntil(3 * time.Second)
 
 	state := congestionState(t, h)
@@ -127,7 +127,7 @@ func TestTCPNewRenoSupportsSynchronousPartialAndFullACKs(t *testing.T) {
 func TestTCPNewRenoPayloadCallbackCannotRetryAnAlreadyConfirmedGap(t *testing.T) {
 	h := newNewRenoHarness(t, 8, 32*model.SEGMENT_SIZE)
 	h.receive(model.FlagACK, 1025)
-	triggerNewRenoFastRetry(h)
+	receiveThreeDuplicateACKs(h)
 	h.receive(model.FlagACK, 1025)
 	h.runUntil(h.engine.Now()) // A new 512-byte tail follows the fixed recovery boundary.
 	sendsBeforeACK := len(sentClientData(h.sent))
@@ -151,7 +151,7 @@ func TestTCPNewRenoPayloadCallbackCannotRetryAnAlreadyConfirmedGap(t *testing.T)
 func TestTCPNewRenoCanDisableFastRetransmit(t *testing.T) {
 	h := startNewRenoHarness(t, 8, 8*model.SEGMENT_SIZE, false)
 	h.receive(model.FlagACK, 1025)
-	triggerNewRenoFastRetry(h)
+	receiveThreeDuplicateACKs(h)
 	h.runUntil(time.Second - time.Nanosecond)
 	if h.transfer().DataRetransmissions != 0 {
 		t.Fatal("disabled fast retransmit still sent an early retry")
@@ -164,7 +164,56 @@ func TestTCPNewRenoCanDisableFastRetransmit(t *testing.T) {
 	}
 }
 
-// The NewReno profile reuses the existing harness and changes only the congestion mode.
+// Only the first partial ACK restarts the one-second RTO.
+func TestTCPNewRenoOnlyFirstPartialACKRestartsRTO(t *testing.T) {
+	h := newNewRenoHarness(t, 8, 8*model.SEGMENT_SIZE)
+	h.receive(model.FlagACK, 1025)
+	h.runUntil(100 * time.Millisecond)
+	receiveThreeDuplicateACKs(h)
+
+	h.runUntil(200 * time.Millisecond)
+	h.receive(model.FlagACK, 3073)
+	h.runUntil(400 * time.Millisecond)
+	h.receive(model.FlagACK, 5121)
+	if state := congestionState(t, h); state.FastRetransmissions != 3 {
+		t.Fatalf("partial ACKs did not repair successive holes: %+v", state)
+	}
+
+	h.runUntil(1200*time.Millisecond - time.Nanosecond)
+	if h.transfer().DataRetransmissions != 3 {
+		t.Fatal("timeout fired before the first partial ACK's deadline")
+	}
+	h.runUntil(1200 * time.Millisecond)
+	state := congestionState(t, h)
+	if h.transfer().DataRetransmissions != 4 || state.FastRetransmissions != 3 ||
+		state.CongestionWindowBytes != model.SEGMENT_SIZE ||
+		h.client.GetRTOState().CurrentRTO != 2*time.Second {
+		t.Fatalf("RTO failed to end recovery at its original deadline: %+v", state)
+	}
+
+	// Late duplicates must not undo the timeout response.
+	receiveThreeDuplicateACKs(h)
+	if state := congestionState(t, h); state.FastRetransmissions != 3 ||
+		state.CongestionWindowBytes != model.SEGMENT_SIZE {
+		t.Fatalf("old duplicate ACKs restarted fast recovery after RTO: %+v", state)
+	}
+}
+
+// Losing the first payload byte waits for RTO until ACKs pass the initial boundary.
+func TestTCPNewRenoInitialRecoveryGuardUsesRTO(t *testing.T) {
+	h := newNewRenoHarness(t, 8, 8*model.SEGMENT_SIZE)
+	receiveThreeDuplicateACKs(h)
+	if state := congestionState(t, h); state.FastRetransmissions != 0 {
+		t.Fatalf("initial guard allowed a fast retry before ACK progress: %+v", state)
+	}
+	h.runUntil(time.Second)
+	state := congestionState(t, h)
+	if h.transfer().DataRetransmissions != 1 || state.FastRetransmissions != 0 ||
+		state.CongestionWindowBytes != model.SEGMENT_SIZE {
+		t.Fatalf("initial recovery guard prevented timeout fallback: %+v", state)
+	}
+}
+
 func newNewRenoHarness(t *testing.T, initialSegments, payloadBytes int) *transferHarness {
 	t.Helper()
 	return startNewRenoHarness(t, initialSegments, payloadBytes, true)
@@ -195,8 +244,7 @@ func startNewRenoHarness(
 	return h
 }
 
-// Three duplicates report the same missing byte as the most recent advancing ACK.
-func triggerNewRenoFastRetry(h *transferHarness) {
+func receiveThreeDuplicateACKs(h *transferHarness) {
 	ack := uint64(1) + h.client.GetState().AcknowledgedPayloadBytes
 	for count := 0; count < 3; count++ {
 		h.receive(model.FlagACK, ack)

@@ -1,4 +1,5 @@
 import type { CommandType } from './commands';
+import type { CongestionMode } from './scenarios/types';
 import type { TopologyGraph } from './topology/types';
 
 export interface ClientKey {
@@ -87,7 +88,7 @@ export interface SimulationConfig {
   packets: number;
   bytes: number;
   receiveBufferBytes: number;
-  congestionControl: 'none' | 'reno' | 'newReno' | 'tahoe' | 'cubic';
+  congestionControl: CongestionMode;
   fastRetransmit: boolean;
   cubicFastConvergence: boolean;
   initialCongestionWindowSegments: number;

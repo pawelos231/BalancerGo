@@ -29,12 +29,7 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 		resolved.InitialSlowStartThresholdBytes = *config.InitialSlowStartThresholdBytes
 	}
 
-	validMode := resolved.Mode == string(model.CongestionNone) ||
-		resolved.Mode == string(model.CongestionReno) ||
-		resolved.Mode == string(model.CongestionNewReno) ||
-		resolved.Mode == string(model.CongestionTahoe) ||
-		resolved.Mode == string(model.CongestionCubic)
-	if !validMode {
+	if !model.CongestionMode(resolved.Mode).Valid() {
 		return NormalizedCongestionConfig{}, fmt.Errorf(
 			"tcp.congestionControl.mode: must be none, reno, newReno, tahoe or cubic",
 		)

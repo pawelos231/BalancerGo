@@ -6,11 +6,7 @@ import "load-balancer/model"
 // Invalid settings panic, matching the client's existing configuration checks.
 func New(config model.CongestionConfig) Policy {
 	// Accept only the supported congestion-control modes.
-	validMode := config.Mode == model.CongestionNone ||
-		config.Mode == model.CongestionReno ||
-		config.Mode == model.CongestionNewReno ||
-		config.Mode == model.CongestionTahoe ||
-		config.Mode == model.CongestionCubic
+	validMode := config.Mode.Valid()
 
 	// Start with at least one segment, without exceeding the byte limit.
 	maximumInitialSegments := model.MaxCongestionWindowBytes / model.SEGMENT_SIZE

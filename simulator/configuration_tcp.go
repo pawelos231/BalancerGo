@@ -21,12 +21,7 @@ func (c *configuration) registerTCPFlags() {
 		"tcp-congestion-control",
 		"TCP congestion control: none, reno, newReno, tahoe or cubic (default reno)",
 		func(value string) error {
-			validMode := value == string(model.CongestionNone) ||
-				value == string(model.CongestionReno) ||
-				value == string(model.CongestionNewReno) ||
-				value == string(model.CongestionTahoe) ||
-				value == string(model.CongestionCubic)
-			if !validMode {
+			if !model.CongestionMode(value).Valid() {
 				return errors.New(
 					"tcp.congestionControl.mode: must be none, reno, newReno, tahoe or cubic",
 				)

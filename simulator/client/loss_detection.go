@@ -10,7 +10,7 @@ import (
 // Tahoe needs this same guard and retry count without entering Reno fast recovery.
 type lossDetection struct {
 	duplicateACKs       uint64
-	fastRetransmissions uint64 // Total segments retried by duplicate ACKs rather than a timeout.
+	fastRetransmissions uint64 // Segments retried by duplicate or partial ACKs.
 	untilSeq            uint64 // ACK must reach this byte position before another fast loss is allowed.
 }
 

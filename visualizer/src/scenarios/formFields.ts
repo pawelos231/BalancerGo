@@ -1,4 +1,5 @@
 import type { ScenarioField } from './draft';
+import { congestionModeOptions } from './types.ts';
 
 export type NumericScenarioField = Exclude<
   ScenarioField,
@@ -381,13 +382,7 @@ export const scenarioSelectFields = {
       'After fast retransmit, Reno/CUBIC use fast recovery; Tahoe restarts slow start. ' +
       'NewReno stays in recovery through partial ACKs to retry more missing data. ' +
       'Mode none retains the receive-window-only baseline; retransmission timers still apply.',
-    options: [
-      { value: 'reno', label: 'Reno' },
-      { value: 'newReno', label: 'NewReno' },
-      { value: 'tahoe', label: 'Tahoe' },
-      { value: 'cubic', label: 'CUBIC' },
-      { value: 'none', label: 'None (receive window only)' },
-    ],
+    options: congestionModeOptions,
   },
   fastRetransmit: {
     label: 'Fast retransmit',

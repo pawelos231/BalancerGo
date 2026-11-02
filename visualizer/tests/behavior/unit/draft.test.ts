@@ -7,6 +7,7 @@ import {
   validateScenarioField,
 } from '../../../src/scenarios/draft.ts';
 import type { ScenarioField } from '../../../src/scenarios/draft.ts';
+import { scenarioSelectFields } from '../../../src/scenarios/formFields.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
 import { scenarioFixture } from '../../scenarioFixture.ts';
 
@@ -211,6 +212,13 @@ test('CUBIC edits preserve its convergence setting across native JSON and mode c
 });
 
 test('congestion validation keeps segment multiplication and threshold byte counts in range', () => {
+  assert.deepEqual(scenarioSelectFields.congestionControl.options, [
+    { value: 'reno', label: 'Reno' },
+    { value: 'newReno', label: 'NewReno' },
+    { value: 'tahoe', label: 'Tahoe' },
+    { value: 'cubic', label: 'CUBIC' },
+    { value: 'none', label: 'None (receive window only)' },
+  ]);
   const invalid: [ScenarioField, string][] = [
     ['congestionControl', 'bbr'], ['congestionControl', ''],
     ['initialCongestionWindowSegments', '0'], ['initialCongestionWindowSegments', '1.5'],

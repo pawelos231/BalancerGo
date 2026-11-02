@@ -14,8 +14,8 @@ func TestNewRenoInitialRecoveryGuard(t *testing.T) {
 		Kind: FastRetransmitLoss, CumulativeACK: 1, NextSendSeq: 8193,
 		FlightBytes: 8192, PendingSegments: 8,
 	})
-	if !response.SuppressFastRetransmit || policy.State() != initial || policy.activeRecovery {
-		t.Fatalf("first-byte loss bypassed the initial recovery guard: %+v, %+v", response, policy)
+	if !response.SuppressFastRetransmit || policy.State() != initial {
+		t.Fatalf("first-byte loss bypassed the initial recovery guard: response=%+v, state=%+v", response, policy.State())
 	}
 
 	// Acknowledging one data byte is enough to permit a new recovery episode.
@@ -23,10 +23,10 @@ func TestNewRenoInitialRecoveryGuard(t *testing.T) {
 		Kind: FastRetransmitLoss, CumulativeACK: 2, NextSendSeq: 8194,
 		FlightBytes: 8192, PendingSegments: 8,
 	})
-	if response.SuppressFastRetransmit || !policy.activeRecovery ||
-		policy.recoveryEndSeq != 8194 || policy.congestionWindowBytes != 7168 ||
-		policy.slowStartThresholdBytes != 4096 || policy.State().Phase != "fastRecovery" {
-		t.Fatalf("new loss did not enter recovery at 7 MSS: %+v, %+v", response, policy)
+	state := policy.State()
+	if response.SuppressFastRetransmit || state.Phase != "fastRecovery" ||
+		state.WindowBytes != 7168 || state.ThresholdBytes != 4096 {
+		t.Fatalf("new loss did not enter recovery at 7 MSS: response=%+v, state=%+v", response, state)
 	}
 }
 
@@ -35,28 +35,34 @@ func TestNewRenoPartialACKsDeflateAndOnlyFirstRestartsTimer(t *testing.T) {
 	policy := newRenoTestPolicy()
 	policy.OnLoss(newRenoTestLoss()) // ssthresh=4 MSS, cwnd=7 MSS, boundary=9217.
 	first := policy.OnACK(ACK{CumulativeACK: 3073, NewBytes: 2048, FlightBytes: 6144})
+	state := policy.State()
 	if !first.RetransmitOldest || first.PreserveRetransmitTimer ||
-		!policy.activeRecovery || policy.congestionWindowBytes != 6144 {
-		t.Fatalf("first partial ACK did not retry at 6 MSS with a fresh timer: %+v, %+v", first, policy)
+		state.Phase != "fastRecovery" || state.WindowBytes != 6144 {
+		t.Fatalf("first partial ACK did not retry at 6 MSS with a fresh timer: response=%+v, state=%+v", first, state)
 	}
 	second := policy.OnACK(ACK{CumulativeACK: 4097, NewBytes: 1024, FlightBytes: 5120})
+	state = policy.State()
 	if !second.RetransmitOldest || !second.PreserveRetransmitTimer ||
-		!policy.activeRecovery || policy.congestionWindowBytes != 6144 || policy.recoveryEndSeq != 9217 {
-		t.Fatalf("later partial ACK changed the timer or recovery boundary: %+v, %+v", second, policy)
+		state.Phase != "fastRecovery" || state.WindowBytes != 6144 {
+		t.Fatalf("later partial ACK changed the timer or recovery window: response=%+v, state=%+v", second, state)
 	}
 
 	// A one-byte partial ACK removes one byte without adding back an MSS.
 	policy.OnACK(ACK{CumulativeACK: 4098, NewBytes: 1})
-	if policy.congestionWindowBytes != 6143 {
-		t.Fatalf("one-byte ACK produced cwnd=%d, want 6143", policy.congestionWindowBytes)
+	if state := policy.State(); state.WindowBytes != 6143 {
+		t.Fatalf("one-byte ACK produced cwnd=%d, want 6143", state.WindowBytes)
 	}
 
 	// A separate flight ACKs 8191 of 8192 bytes at once and keeps the one-MSS floor.
 	large := newRenoTestPolicy()
 	large.OnLoss(newRenoTestLoss())
 	large.OnACK(ACK{CumulativeACK: 9216, NewBytes: 8191, FlightBytes: 1})
-	if !large.activeRecovery || large.congestionWindowBytes != 1024 {
-		t.Fatalf("large partial ACK did not retain recovery at one MSS: %+v", large)
+	if state := large.State(); state.Phase != "fastRecovery" || state.WindowBytes != 1024 {
+		t.Fatalf("large partial ACK did not retain recovery at one MSS: %+v", state)
+	}
+	response := large.OnACK(ACK{CumulativeACK: 9217, NewBytes: 1})
+	if state := large.State(); response != (ACKResponse{}) || state.Phase == "fastRecovery" {
+		t.Fatalf("partial ACK moved the recovery boundary: response=%+v, state=%+v", response, state)
 	}
 }
 
@@ -74,13 +80,18 @@ func TestNewRenoFullACKDeflationUsesRemainingFlight(t *testing.T) {
 		policy := newRenoTestPolicy()
 		policy.OnLoss(newRenoTestLoss())
 		response := policy.OnACK(ACK{CumulativeACK: 9217, NewBytes: 8192, FlightBytes: test.flight})
-		if response != (ACKResponse{}) || policy.activeRecovery ||
-			policy.congestionWindowBytes != test.window || policy.recoveryEndSeq != 9217 {
-			t.Fatalf("full ACK with flight=%d: response=%+v, policy=%+v", test.flight, response, policy)
+		state := policy.State()
+		if response != (ACKResponse{}) || state.Phase == "fastRecovery" || state.WindowBytes != test.window {
+			t.Fatalf("full ACK with flight=%d: response=%+v, state=%+v", test.flight, response, state)
 		}
 		// The exit ACK must not also apply slow start or congestion avoidance.
-		if policy.avoidanceAcknowledgedBytes != 0 {
-			t.Fatal("full ACK also grew the congestion window")
+		policy.OnACK(ACK{CumulativeACK: 10241, NewBytes: 1024})
+		want := test.window
+		if want < 4096 {
+			want += 1024
+		}
+		if state := policy.State(); state.WindowBytes != want {
+			t.Fatalf("full ACK contributed extra growth: flight=%d, state=%+v, want cwnd=%d", test.flight, state, want)
 		}
 	}
 }
@@ -92,11 +103,11 @@ func TestNewRenoBoundsInflationAndRejectsSameFlight(t *testing.T) {
 	for count := 0; count < 20; count++ {
 		policy.OnDuplicateACK()
 	}
-	if policy.congestionWindowBytes != 12288 || policy.remainingInflations != 0 {
-		t.Fatalf("eight outstanding segments allowed more than five extra inflations: %+v", policy)
+	if state := policy.State(); state.WindowBytes != 12288 {
+		t.Fatalf("eight outstanding segments allowed more than five extra inflations: %+v", state)
 	}
 	response := policy.OnLoss(newRenoTestLoss())
-	if !response.SuppressFastRetransmit || policy.congestionWindowBytes != 12288 {
+	if !response.SuppressFastRetransmit || policy.State().WindowBytes != 12288 {
 		t.Fatal("active recovery accepted another fast retransmit")
 	}
 	policy.OnACK(ACK{CumulativeACK: 9217, NewBytes: 8192})
@@ -112,9 +123,10 @@ func TestNewRenoBoundsInflationAndRejectsSameFlight(t *testing.T) {
 		Kind: FastRetransmitLoss, CumulativeACK: 10241, NextSendSeq: 13313,
 		FlightBytes: 3072, PendingSegments: 3,
 	})
-	if response.SuppressFastRetransmit || !policy.activeRecovery ||
-		policy.slowStartThresholdBytes != 2048 || policy.congestionWindowBytes != 5120 {
-		t.Fatalf("new flight did not use the two-MSS threshold minimum: %+v", policy)
+	state := policy.State()
+	if response.SuppressFastRetransmit || state.Phase != "fastRecovery" ||
+		state.ThresholdBytes != 2048 || state.WindowBytes != 5120 {
+		t.Fatalf("new flight did not use the two-MSS threshold minimum: response=%+v, state=%+v", response, state)
 	}
 }
 
@@ -125,31 +137,30 @@ func TestNewRenoTimeoutRetainsThresholdAndRecoveryGuard(t *testing.T) {
 	policy.OnACK(ACK{CumulativeACK: 3073, NewBytes: 2048})
 	policy.OnLoss(Loss{Kind: TimeoutLoss, FlightBytes: 10240, NextSendSeq: 13313})
 	policy.OnLoss(Loss{Kind: TimeoutLoss, FlightBytes: 2048, NextSendSeq: 13313, AlreadyTimedOut: true})
-	if policy.activeRecovery || policy.partialACKSeen || policy.remainingInflations != 0 ||
-		policy.congestionWindowBytes != 1024 || policy.slowStartThresholdBytes != 5120 ||
-		policy.recoveryEndSeq != 13313 {
-		t.Fatalf("timeout did not clear recovery while retaining the first reduction: %+v", policy)
+	state := policy.State()
+	if state.Phase != "slowStart" || state.WindowBytes != 1024 || state.ThresholdBytes != 5120 {
+		t.Fatalf("timeout did not clear recovery while retaining the first reduction: %+v", state)
 	}
+	policy.OnDuplicateACK()
 	response := policy.OnLoss(Loss{
 		Kind: FastRetransmitLoss, CumulativeACK: 13313, NextSendSeq: 17409,
 		FlightBytes: 4096, PendingSegments: 4,
 	})
-	if !response.SuppressFastRetransmit || policy.congestionWindowBytes != 1024 ||
-		policy.slowStartThresholdBytes != 5120 {
+	if !response.SuppressFastRetransmit || policy.State() != state {
 		t.Fatal("duplicate ACKs from the timed-out flight caused a second loss response")
 	}
-	policy.OnACK(ACK{CumulativeACK: 14337, NewBytes: 1024})
-	if policy.congestionWindowBytes != 2048 {
-		t.Fatal("ACK after timeout did not resume classic slow start")
+	ackResponse := policy.OnACK(ACK{CumulativeACK: 14337, NewBytes: 1024})
+	if state := policy.State(); ackResponse != (ACKResponse{}) || state.WindowBytes != 2048 {
+		t.Fatalf("ACK after timeout did not resume classic slow start: response=%+v, state=%+v", ackResponse, state)
 	}
 }
 
-func newRenoTestPolicy() *newRenoPolicy {
+func newRenoTestPolicy() Policy {
 	config := model.DefaultCongestionConfig()
 	config.Mode = model.CongestionNewReno
 	config.InitialWindowSegments = 8
 	config.InitialSlowStartThresholdBytes = 16384
-	return New(config).(*newRenoPolicy)
+	return New(config)
 }
 
 func newRenoTestLoss() Loss {
