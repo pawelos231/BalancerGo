@@ -1,11 +1,11 @@
-package client
+package tcp
 
 import (
-	congestioncontrol "load-balancer/client/congestion_control"
 	"load-balancer/model"
+	congestioncontrol "load-balancer/protocols/tcp/congestion_control"
 )
 
-func (c *Client) HandlePacket(pkt model.Packet) {
+func (c *Sender) HandlePacket(pkt model.Packet) {
 	if c.terminated || pkt.Key != c.key || !pkt.ValidSACKOptions() {
 		return
 	}
@@ -66,7 +66,7 @@ func (c *Client) HandlePacket(pkt model.Packet) {
 
 // handleSynAck confirms our SYN and remembers the peer's independent sequence.
 // A repeated SYN-ACK only repeats our ACK; it cannot reset a live data stream.
-func (c *Client) handleSynAck(pkt model.Packet, end uint64) {
+func (c *Sender) handleSynAck(pkt model.Packet, end uint64) {
 	expectedFlags := model.FlagSYN | model.FlagACK
 	if !c.handshakeStarted || pkt.Flag != expectedFlags || pkt.Size != 0 || pkt.Ack != 1 {
 		return
@@ -91,8 +91,8 @@ func (c *Client) handleSynAck(pkt model.Packet, end uint64) {
 		c.peerReceiveWindow = pkt.ReceiveWindowBytes
 		c.sack.negotiated = c.sack.enabled && pkt.SACKPermitted
 		c.handshakeCompleted = true
-		if c.streamRequested {
-			c.updateNextSendTime()
+		if c.source != nil {
+			c.source.Start(c.engine.Now())
 		}
 	}
 	if !c.connection.finSent {
@@ -104,7 +104,7 @@ func (c *Client) handleSynAck(pkt model.Packet, end uint64) {
 
 // handleDataAck releases every confirmed segment and counts new bytes once.
 // ACK=2049 can release both [1,1025) and [1025,2049) at the same time.
-func (c *Client) handleDataAck(pkt model.Packet) (newSACKInformation bool) {
+func (c *Sender) handleDataAck(pkt model.Packet) (newSACKInformation bool) {
 	staleAck := pkt.Ack < c.oldestUnackedSeq
 	if staleAck {
 		// A reordered ACK can carry a range omitted from a newer four-block report.

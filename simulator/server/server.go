@@ -7,12 +7,13 @@ import (
 
 	"load-balancer/engine"
 	"load-balancer/model"
+	"load-balancer/protocols/tcp"
 )
 
 const statisticsInterval = 100 * time.Millisecond
 
-// Server receives TCP byte ranges and replies with cumulative ACKs and a window.
-// All access belongs to the engine's single execution thread.
+// Server owns backend availability, admission limits and host observations.
+// Its TCP receiver owns connection state, byte ranges and protocol timers.
 type Server struct {
 	ID              string
 	Name            string
@@ -45,23 +46,16 @@ type Server struct {
 	// Called only for new payload accepted by a connection, before its ACK is sent.
 	OnPayloadReceived func(int)
 
-	receivedPayloadBytes   uint64
-	receiveBufferBytes     uint16
-	sackEnabled            bool
-	engine                 *engine.Engine
-	sender                 func(model.Packet)
-	connections            map[model.ClientKey]*connection
-	halfOpenIdleTimeout    time.Duration
-	establishedIdleTimeout time.Duration
-	closeConfig            model.CloseConfig
-	rtoConfig              model.RTOConfig
-	started                bool
-	statisticsEvent        engine.EventID
-	previousPacketCount    uint32
-	probeEvents            map[engine.EventID]struct{}
-	latencySamples         [100]int64
-	latencyCount           int
-	latencyPosition        int
+	transport           *tcp.Receiver
+	engine              *engine.Engine
+	sender              func(model.Packet)
+	started             bool
+	statisticsEvent     engine.EventID
+	previousPacketCount uint32
+	probeEvents         map[engine.EventID]struct{}
+	latencySamples      [100]int64
+	latencyCount        int
+	latencyPosition     int
 }
 
 func NewServer(
@@ -74,35 +68,40 @@ func NewServer(
 	if e == nil {
 		panic("server: nil engine")
 	}
-	return &Server{
+	s := &Server{
 		ID: id, Name: name, Address: address, Port: port,
 		Distance: distance, Weight: weight, MaxHalfOpen: maxHalfOpen,
 		Active: true, HealthTCP: true,
 		Tags: []string{}, Metadata: make(map[string]string),
 		DrainTimeout: 120 * time.Second, LastUpdated: e.Now(),
-		engine: e, connections: make(map[model.ClientKey]*connection),
-		probeEvents:            make(map[engine.EventID]struct{}),
-		receiveBufferBytes:     model.DefaultReceiveBufferBytes,
-		closeConfig:            model.DefaultCloseConfig(),
-		rtoConfig:              model.DefaultRTOConfig(),
-		halfOpenIdleTimeout:    model.DefaultBackendHalfOpenIdleTimeout,
-		establishedIdleTimeout: model.DefaultBackendEstablishedIdleTimeout,
+		engine:      e,
+		probeEvents: make(map[engine.EventID]struct{}),
 	}
+	s.transport = tcp.NewReceiver(e, tcp.ReceiverCallbacks{
+		Send: s.emit,
+		CanOpen: func() bool {
+			halfOpenFull := s.MaxHalfOpen > 0 && s.HalfOpenConnections >= s.MaxHalfOpen
+			return s.CanAcceptNewConnection() && !halfOpenFull
+		},
+		CanEstablish: func() bool {
+			return s.MaxConnections == 0 || s.ActiveConnections < s.MaxConnections
+		},
+		OnConnectionCounts: func(active, halfOpen uint32) {
+			s.ActiveConnections = active
+			s.HalfOpenConnections = halfOpen
+			s.LastUpdated = e.Now()
+		},
+		OnPayloadReceived: func(bytes int) {
+			if s.OnPayloadReceived != nil {
+				s.OnPayloadReceived(bytes)
+			}
+		},
+		OnPeerFIN: s.recordConnectionLatency,
+	})
+	return s
 }
 
 func (s *Server) SetSender(sender func(model.Packet)) { s.sender = sender }
-
-// SetReceiveBufferBytes sets each connection's capacity before any packet arrives.
-func (s *Server) SetReceiveBufferBytes(capacity int) {
-	if capacity < 1 || capacity > math.MaxUint16 {
-		panic("server: receive buffer capacity must be in 1..65535")
-	}
-	if s.NumberOfHandledPackets != 0 || len(s.connections) != 0 {
-		panic("server: receive buffer capacity must be set before traffic")
-	}
-
-	s.receiveBufferBytes = uint16(capacity)
-}
 
 // Start schedules the old periodic packet-count proxy, once per server.
 func (s *Server) Start() {
@@ -140,9 +139,7 @@ func (s *Server) Shutdown() {
 		s.engine.Cancel(event)
 	}
 	clear(s.probeEvents)
-	for key := range s.connections {
-		s.ForgetConnection(key)
-	}
+	s.transport.Shutdown()
 	s.ActiveConnections = 0
 	s.HalfOpenConnections = 0
 	s.LastUpdated = s.engine.Now()
@@ -259,12 +256,17 @@ func (s *Server) Score() float64 {
 }
 
 func (s *Server) GetState() model.ServerState {
+	// LB candidate views contain host settings without a running TCP receiver.
+	var receivedPayloadBytes uint64
+	if s.transport != nil {
+		receivedPayloadBytes = s.transport.ReceivedPayloadBytes()
+	}
 	return model.ServerState{
 		ID: s.ID, Name: s.Name, Address: s.Address, Port: s.Port,
 		Active: s.Active, ActiveConnections: s.ActiveConnections,
 		HalfOpenConnections: s.HalfOpenConnections, LatencyP95Milli: s.LatencyP95Milli,
 		CpuUsage:               s.CpuUsage,
 		NumberOfHandledPackets: s.NumberOfHandledPackets,
-		ReceivedPayloadBytes:   s.receivedPayloadBytes,
+		ReceivedPayloadBytes:   receivedPayloadBytes,
 	}
 }

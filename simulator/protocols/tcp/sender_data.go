@@ -1,37 +1,32 @@
-package client
+package tcp
 
-import (
-	"time"
+import "load-balancer/model"
 
-	"load-balancer/model"
-)
-
-// SendCompleteStream may be called before EstablishConnection. A client owns
-// one finite stream; data starts only after the handshake has completed.
-func (c *Client) SendCompleteStream(dataSize int, gap time.Duration) {
-	if dataSize < 0 || gap < 0 {
-		panic("client: stream size and gap must be nonnegative")
+// SetSource accepts one finite source, before or after handshake.
+// It reads workload timing without creating a separate generation event for each byte range.
+func (c *Sender) SetSource(source PayloadSource) bool {
+	if source == nil || source.RemainingBytes() < 0 {
+		panic("tcp: payload source must contain a nonnegative byte count")
 	}
-	if c.terminated || c.connection.requested || c.streamRequested {
-		return
+	if c.terminated || c.connection.requested || c.source != nil {
+		return false
 	}
-	c.streamRequested = true
-	c.unsentPayloadBytes = dataSize
-	c.remainingPayloadBytesToConfirm = dataSize
-	c.gap = gap
+	c.source = source
+	c.remainingPayloadBytesToConfirm = source.RemainingBytes()
 	if c.handshakeCompleted {
-		c.updateNextSendTime()
+		c.source.Start(c.engine.Now())
 		c.queueSegment()
 	}
+	return true
 }
 
 // queueSegment schedules one new segment, then lets the engine run other events.
 // A 4096-byte window can release four 1024-byte segments without waiting for ACKs.
-func (c *Client) queueSegment() {
+func (c *Sender) queueSegment() {
 	if c.sack.active {
 		c.sendSACKRepairs()
 	}
-	canSend := c.handshakeCompleted && c.streamRequested
+	canSend := c.handshakeCompleted && c.source != nil
 	if c.terminated || c.connection.finSent || !canSend {
 		return
 	}
@@ -40,7 +35,8 @@ func (c *Client) queueSegment() {
 		c.finishStream()
 		return
 	}
-	if !c.nextNewSegmentWithinRun {
+	nextPayloadAt, withinRun := c.source.NextSendAt()
+	if !withinRun {
 		return
 	}
 	if c.nextPayloadSize() == 0 {
@@ -50,7 +46,7 @@ func (c *Client) queueSegment() {
 
 	// Pacing constrains new data only; zero preserves Reno/Tahoe's existing event order.
 	policyDeadline := c.congestion.policy.State().NextSendAt
-	nextSendAt := max(c.engine.Now(), c.nextNewSegmentAt, policyDeadline)
+	nextSendAt := max(c.engine.Now(), nextPayloadAt, policyDeadline)
 	if c.sendEvent != 0 {
 		// Keep an existing slot unless an ACK now permits an earlier paced send.
 		if nextSendAt >= c.sendEventAt {
@@ -68,7 +64,8 @@ func (c *Client) queueSegment() {
 		// An ACK may move the policy deadline after this callback was scheduled.
 		// Requeue instead of sending early, without restarting the workload's gap.
 		policyDeadline := c.congestion.policy.State().NextSendAt
-		if max(c.nextNewSegmentAt, policyDeadline) > c.engine.Now() {
+		nextPayloadAt, _ := c.source.NextSendAt()
+		if max(nextPayloadAt, policyDeadline) > c.engine.Now() {
 			c.queueSegment()
 			return
 		}
@@ -91,13 +88,12 @@ func (c *Client) queueSegment() {
 			c.nextReceiveSeq,
 		)
 		c.nextSendSeq += uint64(payloadBytes)
-		c.unsentPayloadBytes -= payloadBytes
 		c.pendingSegments.append(packet)
 		if c.sack.active {
 			c.sack.pipeBytes += uint64(payloadBytes)
 		}
 		c.recordPayloadStart()
-		c.updateNextSendTime()
+		c.source.Sent(payloadBytes, c.engine.Now())
 		c.observeSender()
 		c.startRTTProbe(packet)
 		if c.dataTimer == 0 {
@@ -111,21 +107,17 @@ func (c *Client) queueSegment() {
 	})
 }
 
-// updateNextSendTime starts the pause from readiness or an actual new send.
-// With a 10 ms gap, a send at 30 ms makes the next one eligible at 40 ms.
-func (c *Client) updateNextSendTime() {
-	remainingTime := c.engine.EndTime() - c.engine.Now()
-	// Check whether the gap leaves time to start sending within this run.
-	// example: gap = 10ms, remainingTime (of simulation) 5ms, then we cant send it, beacuse it would be out of the scope of this simulation
-	c.nextNewSegmentWithinRun = c.gap <= remainingTime
-	if c.nextNewSegmentWithinRun {
-		c.nextNewSegmentAt = c.engine.Now() + c.gap
+// unsentBytes reads workload demand; TCP separately retains already-sent pending data.
+func (c *Sender) unsentBytes() int {
+	if c.source == nil {
+		return 0
 	}
+	return c.source.RemainingBytes()
 }
 
 // nextPayloadSize fits new data inside both receiver and congestion windows.
 // Already-sent bytes are excluded by nextSendSeq and must not be subtracted twice.
-func (c *Client) nextPayloadSize() int {
+func (c *Sender) nextPayloadSize() int {
 	if c.peerWindowEnd <= c.nextSendSeq {
 		return 0
 	}
@@ -137,6 +129,6 @@ func (c *Client) nextPayloadSize() int {
 		return 0
 	}
 	availableBytes = min(availableBytes, congestionSpace)
-	payloadLimit := min(c.unsentPayloadBytes, model.SEGMENT_SIZE)
+	payloadLimit := min(c.unsentBytes(), model.SEGMENT_SIZE)
 	return int(min(uint64(payloadLimit), availableBytes))
 }

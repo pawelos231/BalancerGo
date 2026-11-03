@@ -3,7 +3,7 @@ package congestioncontrol
 import "load-balancer/model"
 
 // New selects one congestion-control algorithm before a connection starts.
-// Invalid settings panic, matching the client's existing configuration checks.
+// Invalid settings panic before a transport connection starts.
 func New(config model.CongestionConfig) Policy {
 	// Accept only the supported congestion-control modes.
 	validMode := config.Mode.Valid()
@@ -23,7 +23,7 @@ func New(config model.CongestionConfig) Policy {
 		config.Mode != model.CongestionNone
 
 	if !validMode || !validInitialWindow || !validThreshold || !validRetransmit {
-		panic("client: invalid congestion configuration")
+		panic("tcp: invalid congestion configuration")
 	}
 
 	switch config.Mode {

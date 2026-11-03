@@ -5,73 +5,18 @@ import (
 
 	"load-balancer/engine"
 	"load-balancer/model"
+	"load-balancer/protocols/tcp"
 )
 
-// Client sends data inside the backend's advertised window and tracks pending ACKs.
-// All calls and callbacks belong to the virtual-time engine's owner.
+// Client owns one workload and delegates its connection to the TCP transport.
+// It schedules traffic generation, while TCP owns packets, windows and retries.
 type Client struct {
-	key    model.ClientKey
-	engine *engine.Engine
-	sender func(model.Packet)
+	engine     *engine.Engine
+	transport  *tcp.Sender
+	floodEvent engine.EventID
 
-	terminated         bool
-	connection         connectionClose
-	handshakeStarted   bool
-	handshakeCompleted bool
-	retrySyn           uint8
-
-	// Sent segments remain here until their bytes are cumulatively acknowledged.
-	pendingSegments sendBuffer
-
-	// Counts retries of the oldest pending fragment, resetting on ACK progress.
-	oldestSegmentRetransmissions uint8
-
-	rto         rtoEstimator
-	rttProbe    roundTripProbe
-	idleTimeout time.Duration
-	congestion  congestionControl
-	sack        sackSender
-
-	nextSendSeq      uint64
-	oldestUnackedSeq uint64
-	nextReceiveSeq   uint64
-	peerInitialSeq   uint64
-
-	// New data must stay below the byte position advertised by the backend.
-	peerWindowEnd uint64
-
-	// Keep the raw window too: a window update is not evidence of missing data.
-	peerReceiveWindow uint16
-
-	// Advertised on our packets; this profile receives no backend payload.
-	receiveWindowBytes uint16
-
-	streamRequested                bool
-	streamCompleted                bool
-	unsentPayloadBytes             int
-	remainingPayloadBytesToConfirm int
-	gap                            time.Duration
-
-	// ACK arrival can free window space, but it must not restart the sender pause.
-	nextNewSegmentAt        time.Duration
-	nextNewSegmentWithinRun bool
-
-	acknowledgedPayloadBytes uint64
-	transfer                 transferMetrics
-
-	synSendEvent engine.EventID
-	synTimer     engine.EventID
-	dataTimer    engine.EventID
-	readTimer    engine.EventID
-	sendEvent    engine.EventID
-	sendEventAt  time.Duration
-	floodEvent   engine.EventID
-
-	OnClose          func()
-	OnStreamComplete func()
-
-	// Tells the simulation how many new payload bytes the client has ACK-confirmed.
-	// Repeated ACKs for the same segment do not count those bytes again.
+	OnClose               func()
+	OnStreamComplete      func()
 	OnPayloadAcknowledged func(int)
 }
 
@@ -81,189 +26,76 @@ func NewClient(
 	srcPort uint16,
 	dstIP string,
 	dstPort uint16,
-	proto model.Protocol,
+	protocol model.Protocol,
 ) *Client {
-	if e == nil {
-		panic("client: nil engine")
-	}
-	if proto != model.TCP {
-		panic("client: only the simplified TCP model is implemented")
-	}
-	return &Client{
-		engine:             e,
-		key:                GenerateClientKey(srcIP, srcPort, dstIP, dstPort, proto),
-		receiveWindowBytes: model.DefaultReceiveBufferBytes,
-		rto:                newRTOEstimator(model.DefaultRTOConfig()),
-		idleTimeout:        model.READ_DEADLINE,
-		congestion:         newCongestionControl(model.DefaultCongestionConfig()),
-		connection:         connectionClose{config: model.DefaultCloseConfig(), state: model.TCPClosed},
-		transfer:           transferMetrics{status: model.TransferInProgress},
-	}
-}
-
-// SetReceiveBufferBytes sets the window advertised when this connection starts.
-func (c *Client) SetReceiveBufferBytes(capacity int) {
-	if capacity < 1 || capacity > model.DefaultReceiveBufferBytes {
-		panic("client: receive buffer must be in 1..65535 bytes")
-	}
-	if c.handshakeStarted || c.terminated {
-		panic("client: receive buffer must be set before the connection starts")
-	}
-
-	c.receiveWindowBytes = uint16(capacity)
-}
-
-func (c *Client) SetSender(sender func(model.Packet)) {
-	c.sender = sender
-}
-
-func (c *Client) Key() model.ClientKey {
-	return c.key
-}
-
-func (c *Client) IsHandshakeCompleted() bool {
-	return c.handshakeCompleted
-}
-
-func (c *Client) IsTerminated() bool {
-	return c.terminated
-}
-
-func (c *Client) StreamCompleted() bool {
-	return c.streamCompleted
-}
-
-func (c *Client) EstablishConnection() {
-	if c.terminated || c.connection.requested || c.handshakeStarted {
-		return
-	}
-	c.validateSACKProfile()
-	c.handshakeStarted = true
-	c.connection.state = model.TCPSynSent
-	// This profile starts at SEQ 0; SYN reserves the first position.
-	c.nextSendSeq = 1
-	c.transfer.startedAt = c.engine.Now()
-	c.armReadTimer()
-	c.synSendEvent = c.engine.ScheduleAfter(0, func() {
-		c.synSendEvent = 0
-		if !c.terminated && !c.connection.finSent && !c.handshakeCompleted {
-			c.sendSyn()
+	key := GenerateClientKey(srcIP, srcPort, dstIP, dstPort, protocol)
+	c := &Client{engine: e, transport: tcp.NewSender(e, key)}
+	c.transport.OnClose = func() {
+		c.stopFlood()
+		if c.OnClose != nil {
+			c.OnClose()
 		}
-	})
+	}
+	c.transport.OnStreamComplete = func() {
+		if c.OnStreamComplete != nil {
+			c.OnStreamComplete()
+		}
+		c.stopFlood()
+	}
+	c.transport.OnPayloadAcknowledged = func(bytes int) {
+		if c.OnPayloadAcknowledged != nil {
+			c.OnPayloadAcknowledged(bytes)
+		}
+	}
+	return c
 }
 
-func (c *Client) finishStream() {
-	if c.streamCompleted {
-		return
-	}
-	c.streamCompleted = true
-	c.recordTransferSuccess()
-	if c.OnStreamComplete != nil {
-		c.OnStreamComplete()
-	}
-	c.Close()
+// SendCompleteStream defines a finite workload; TCP pulls from it when ready.
+// Its pause starts after each actual new send, including time spent waiting for ACKs.
+func (c *Client) SendCompleteStream(bytes int, gap time.Duration) {
+	source := newFiniteStream(bytes, gap, c.engine.EndTime())
+	c.transport.SetSource(source)
 }
 
-// FloodSyn retains the previous deliberately limited attack generator: all
-// repeated SYNs share one flow key. It does not model distributed SYN flooding.
+// FloodSyn generates repeated SYNs for one flow without creating extra TCP connections.
 func (c *Client) FloodSyn(count int, gap time.Duration) {
 	if count < 0 || gap < 0 {
 		panic("client: flood count and gap must be nonnegative")
 	}
-	c.cancelEvent(&c.floodEvent)
-	if c.terminated || c.connection.requested || count == 0 {
+	c.stopFlood()
+	if c.IsTerminated() || c.transport.CloseRequested() || count == 0 {
 		return
 	}
 	var sendNext func(int)
 	sendNext = func(index int) {
 		c.floodEvent = 0
-		if c.terminated || c.connection.requested {
+		if c.IsTerminated() || c.transport.CloseRequested() {
 			return
 		}
-		c.emit(GeneratePacket(c.key, model.FlagSYN, 0, 0, 0))
-		if !c.terminated && !c.connection.requested && index+1 < count {
+		c.transport.SendSYNProbe()
+		if !c.IsTerminated() && !c.transport.CloseRequested() && index+1 < count {
 			c.floodEvent = c.engine.ScheduleAfter(gap, func() { sendNext(index + 1) })
 		}
 	}
 	c.floodEvent = c.engine.ScheduleAfter(0, func() { sendNext(0) })
 }
 
+// Close drains accepted payload before TCP starts its FIN exchange.
 func (c *Client) Close() {
-	if c.terminated {
-		return
-	}
-	if !c.handshakeCompleted {
-		c.ShutdownWithReason(model.TransferClosedEarly)
-		return
-	}
-	c.beginClosing()
-	c.connection.requested = true
-	c.cancelEvent(&c.floodEvent)
-	c.startFINWhenDrained()
-	c.queueSegment()
+	c.stopFlood()
+	c.transport.Close()
 }
 
-func (c *Client) Shutdown() {
-	c.ShutdownWithReason(model.TransferInterrupted)
-}
+func (c *Client) Shutdown() { c.transport.Shutdown() }
 
-// ShutdownWithReason annotates the existing shutdown without changing its timers or cleanup.
 func (c *Client) ShutdownWithReason(reason model.TransferFailureReason) {
-	if c.terminated {
-		return
-	}
-	c.recordTransferFailure(reason)
-	if c.connection.outcome == "" {
-		c.connection.outcome = model.CloseAborted
-	}
-	c.connection.state = model.TCPClosed
-	if c.connection.started {
-		c.connection.finishedAt = c.engine.Now()
-	}
-	c.terminated = true
-	c.cancelEvent(&c.connection.sendEvent)
-	c.cancelEvent(&c.connection.finTimer)
-	c.cancelEvent(&c.connection.waitTimer)
-	c.cancelEvent(&c.synSendEvent)
-	c.cancelEvent(&c.synTimer)
-	c.cancelEvent(&c.dataTimer)
-	c.cancelEvent(&c.readTimer)
-	c.cancelEvent(&c.sendEvent)
-	c.cancelEvent(&c.floodEvent)
-	c.pendingSegments.reset()
-	c.sack.board.ranges = nil
-	c.sack.active = false
-	c.oldestSegmentRetransmissions = 0
-	c.rttProbe = roundTripProbe{}
-	c.congestion.clearLossTracking()
-	if c.OnClose != nil {
-		c.OnClose()
-	}
+	c.transport.ShutdownWithReason(reason)
 }
 
-func (c *Client) emit(pkt model.Packet) {
-	if !c.terminated && c.sender != nil {
-		pkt.ReceiveWindowBytes = c.receiveWindowBytes
-		c.sender(pkt)
-	}
-}
-
-func (c *Client) cancelEvent(id *engine.EventID) {
-	if *id != 0 {
-		c.engine.Cancel(*id)
-		*id = 0
-	}
-}
-
-func (c *Client) GetState() model.ClientState {
-	return model.ClientState{
-		Connection:               c.GetConnectionState(),
-		Key:                      c.key,
-		RetrySyn:                 c.retrySyn,
-		RetryData:                c.oldestSegmentRetransmissions,
-		AcknowledgedPayloadBytes: c.acknowledgedPayloadBytes,
-		Transfer:                 c.GetTransferState(),
-		RTO:                      c.GetRTOState(),
-		Congestion:               c.GetCongestionState(),
+// stopFlood cancels generation only; TCP cancels its own transport timers.
+func (c *Client) stopFlood() {
+	if c.floodEvent != 0 {
+		c.engine.Cancel(c.floodEvent)
+		c.floodEvent = 0
 	}
 }

@@ -1,4 +1,4 @@
-package server
+package tcp
 
 import (
 	"time"
@@ -7,8 +7,8 @@ import (
 	"load-balancer/model"
 )
 
-// connection owns one peer's handshake, receive buffer and closing timers.
-type connection struct {
+// receiveConnection owns one peer's handshake, receive buffer and closing timers.
+type receiveConnection struct {
 	startedAt      time.Duration
 	established    bool
 	state          model.TCPState
@@ -40,23 +40,23 @@ type connection struct {
 	pendingFINSeq  uint64
 }
 
-func (s *Server) HandlePacket(pkt model.Packet) {
-	if s.Killed || !s.Active || pkt.Key.Protocol != model.TCP {
+func (r *Receiver) HandlePacket(pkt model.Packet) {
+	if r.stopped || pkt.Key.Protocol != model.TCP {
 		return
 	}
-	s.NumberOfHandledPackets++
+	r.trafficStarted = true
 	sequenceEnd, valid := pkt.SequenceEnd()
 	if !valid || !pkt.ValidSACKOptions() ||
 		pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagFIN != 0 {
 		return
 	}
-	conn := s.connections[pkt.Key]
+	conn := r.connections[pkt.Key]
 	if pkt.Flag&model.FlagRST != 0 {
-		s.handleRST(pkt, conn)
+		r.handleRST(pkt, conn)
 		return
 	}
 	if pkt.Flag&model.FlagSYN != 0 {
-		s.handleSYN(pkt, conn, sequenceEnd)
+		r.handleSYN(pkt, conn, sequenceEnd)
 		return
 	}
 	if conn == nil || conn.state == model.TCPClosed || pkt.Flag&model.FlagACK == 0 ||
@@ -64,7 +64,7 @@ func (s *Server) HandlePacket(pkt model.Packet) {
 		return
 	}
 	if pkt.Flag&model.FlagFIN != 0 {
-		s.handleFIN(pkt, conn)
+		r.handleFIN(pkt, conn)
 		return
 	}
 
@@ -74,14 +74,14 @@ func (s *Server) HandlePacket(pkt model.Packet) {
 		if pkt.Size > 0 {
 			validSequence = conn.receiver.overlapsWindow(pkt.Seq, sequenceEnd)
 		}
-		if !validSequence || !s.establishConnection(pkt.Key, conn) {
+		if !validSequence || !r.establishConnection(pkt.Key, conn) {
 			return
 		}
 	}
 	if pkt.Size == 0 {
 		if pkt.Seq == conn.receiver.nextExpectedSeq {
-			if s.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
-				s.recordConnectionActivity(pkt.Key, conn)
+			if r.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
+				r.recordConnectionActivity(pkt.Key, conn)
 			}
 		}
 		return
@@ -90,10 +90,10 @@ func (s *Server) HandlePacket(pkt model.Packet) {
 		return // The peer has already ended its byte stream.
 	}
 	if conn.receiver.overlapsWindow(pkt.Seq, sequenceEnd) {
-		if !s.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
+		if !r.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
 			return
 		}
-		s.recordConnectionActivity(pkt.Key, conn)
+		r.recordConnectionActivity(pkt.Key, conn)
 	}
 	if conn.pendingFIN {
 		sequenceEnd = min(sequenceEnd, conn.pendingFINSeq)
@@ -101,31 +101,31 @@ func (s *Server) HandlePacket(pkt model.Packet) {
 	newBytes := conn.receiver.accept(pkt.Seq, sequenceEnd)
 	conn.recordSACKArrival(pkt.Seq, sequenceEnd)
 	if newBytes > 0 {
-		s.receivedPayloadBytes += uint64(newBytes)
-		if s.OnPayloadReceived != nil {
-			s.OnPayloadReceived(newBytes)
+		r.receivedPayloadBytes += uint64(newBytes)
+		if r.callbacks.OnPayloadReceived != nil {
+			r.callbacks.OnPayloadReceived(newBytes)
 		}
 	}
-	if s.connections[pkt.Key] != conn {
+	if r.connections[pkt.Key] != conn {
 		return
 	}
 	if conn.pendingFIN && conn.receiver.nextExpectedSeq == conn.pendingFINSeq {
-		s.consumeFIN(pkt.Key, conn, conn.pendingFINSeq)
+		r.consumeFIN(pkt.Key, conn, conn.pendingFINSeq)
 		return
 	}
 
 	// Duplicates and data outside the window repeat the current missing position.
-	s.acknowledge(pkt.Key, conn)
+	r.acknowledge(pkt.Key, conn)
 }
 
 // validACK permits an old ACK while our FIN is still in flight.
-func (conn *connection) validACK(ack uint64) bool {
+func (conn *receiveConnection) validACK(ack uint64) bool {
 	return ack >= 1 && ack <= conn.sendNextSeq
 }
 
 // acknowledge reports the first missing byte and the range we can still accept.
-func (s *Server) acknowledge(key model.ClientKey, conn *connection) {
-	s.emit(model.Packet{
+func (r *Receiver) acknowledge(key model.ClientKey, conn *receiveConnection) {
+	r.emit(model.Packet{
 		Key:                key,
 		Flag:               model.FlagACK,
 		Seq:                conn.sendNextSeq,
@@ -136,38 +136,44 @@ func (s *Server) acknowledge(key model.ClientKey, conn *connection) {
 }
 
 // handleSYN reserves one flow; repeated SYNs keep its original byte positions.
-func (s *Server) handleSYN(pkt model.Packet, conn *connection, sequenceEnd uint64) {
+func (r *Receiver) handleSYN(pkt model.Packet, conn *receiveConnection, sequenceEnd uint64) {
 	if pkt.Size != 0 || pkt.Flag&model.FlagACK != 0 {
 		return
 	}
 	if conn == nil {
-		halfOpenFull := s.MaxHalfOpen > 0 && s.HalfOpenConnections >= s.MaxHalfOpen
-		if !s.CanAcceptNewConnection() || halfOpenFull {
+		if r.callbacks.CanOpen != nil && !r.callbacks.CanOpen() {
 			return
 		}
-		conn = &connection{
-			startedAt:      s.engine.Now(),
+		if r.stopped || r.connections[pkt.Key] != nil {
+			return
+		}
+		conn = &receiveConnection{
+			startedAt:      r.engine.Now(),
 			state:          model.TCPSynReceived,
 			peerInitialSeq: pkt.Seq,
 			sendNextSeq:    1, // Fixed backend ISN zero; SYN occupies one position.
-			sackPermitted:  s.sackEnabled && pkt.SACKPermitted,
+			sackPermitted:  r.sackEnabled && pkt.SACKPermitted,
 			receiver: receiveBuffer{
 				nextExpectedSeq: sequenceEnd,
-				capacity:        s.receiveBufferBytes,
+				capacity:        r.receiveBufferBytes,
 			},
 		}
-		s.connections[pkt.Key] = conn
-		s.HalfOpenConnections++
-		s.LastUpdated = s.engine.Now()
+		r.connections[pkt.Key] = conn
+		r.halfOpenConnections++
 
 		// Retransmitted SYNs keep this first handshake deadline.
-		conn.lastActivity = s.engine.Now()
-		s.scheduleIdleTimeout(pkt.Key, conn, s.halfOpenIdleTimeout)
+		conn.lastActivity = r.engine.Now()
+		r.scheduleIdleTimeout(pkt.Key, conn, r.halfOpenIdleTimeout)
+		r.notifyConnectionCounts()
+		// A host callback can stop the receiver or remove this reservation.
+		if r.stopped || r.connections[pkt.Key] != conn {
+			return
+		}
 	}
 	if pkt.Seq != conn.peerInitialSeq || conn.finSent || conn.state == model.TCPClosed {
 		return
 	}
-	s.emit(model.Packet{
+	r.emit(model.Packet{
 		Key:                pkt.Key,
 		Flag:               model.FlagSYN | model.FlagACK,
 		Seq:                0,
@@ -178,26 +184,29 @@ func (s *Server) handleSYN(pkt model.Packet, conn *connection, sequenceEnd uint6
 }
 
 // establishConnection moves one reservation from half-open to active once.
-func (s *Server) establishConnection(key model.ClientKey, conn *connection) bool {
-	if s.MaxConnections > 0 && s.ActiveConnections >= s.MaxConnections {
-		s.ForgetConnection(key)
+func (r *Receiver) establishConnection(key model.ClientKey, conn *receiveConnection) bool {
+	if r.callbacks.CanEstablish != nil && !r.callbacks.CanEstablish() {
+		r.finishConnection(key, conn, model.CloseAborted)
+		return false
+	}
+	if r.stopped || r.connections[key] != conn {
 		return false
 	}
 	conn.established = true
 	conn.state = model.TCPEstablished
-	s.cancelIdleTimer(conn)
-	s.recordConnectionActivity(key, conn)
-	if s.HalfOpenConnections > 0 {
-		s.HalfOpenConnections--
+	r.cancelIdleTimer(conn)
+	r.recordConnectionActivity(key, conn)
+	if r.halfOpenConnections > 0 {
+		r.halfOpenConnections--
 	}
-	s.ActiveConnections++
-	s.LastUpdated = s.engine.Now()
-	return true
+	r.activeConnections++
+	r.notifyConnectionCounts()
+	return !r.stopped && r.connections[key] == conn
 }
 
 // ForgetConnection releases local state and cancels every connection timer.
-func (s *Server) ForgetConnection(key model.ClientKey) {
-	if conn := s.connections[key]; conn != nil {
-		s.finishConnection(key, conn, model.CloseAborted)
+func (r *Receiver) ForgetConnection(key model.ClientKey) {
+	if conn := r.connections[key]; conn != nil {
+		r.finishConnection(key, conn, model.CloseAborted)
 	}
 }

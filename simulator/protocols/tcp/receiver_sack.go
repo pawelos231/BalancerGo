@@ -1,18 +1,18 @@
-package server
+package tcp
 
 import "load-balancer/model"
 
 // SetSACKEnabled allows range reports when the client's first SYN offers SACK.
-func (s *Server) SetSACKEnabled(enabled bool) {
-	if s.NumberOfHandledPackets != 0 || len(s.connections) != 0 {
-		panic("server: SACK must be configured before traffic")
+func (r *Receiver) SetSACKEnabled(enabled bool) {
+	if r.trafficStarted || len(r.connections) != 0 {
+		panic("tcp: SACK must be configured before traffic")
 	}
-	s.sackEnabled = enabled
+	r.sackEnabled = enabled
 }
 
 // recordSACKArrival puts the block touched by this segment first, then repeats recent blocks.
 // Receiving [9,13) after [5,9) reports their merged block [5,13).
-func (conn *connection) recordSACKArrival(start, end uint64) {
+func (conn *receiveConnection) recordSACKArrival(start, end uint64) {
 	if !conn.sackPermitted {
 		return
 	}
@@ -63,7 +63,7 @@ func (conn *connection) recordSACKArrival(start, end uint64) {
 }
 
 // sackBlocks copies the current report so an in-flight ACK cannot change later.
-func (conn *connection) sackBlocks() []model.SACKBlock {
+func (conn *receiveConnection) sackBlocks() []model.SACKBlock {
 	if conn.sackRecentCount == 0 {
 		return nil
 	}

@@ -15,7 +15,7 @@ import (
 func TestArchitectureDependencyDirections(t *testing.T) {
 	domain := []string{
 		"engine", "network", "client", "server", "balancer", "algorithms",
-		"model", "scenario", "internal/simulation",
+		"model", "scenario", "protocols", "internal/simulation",
 	}
 	type rule struct {
 		directory string
@@ -27,9 +27,11 @@ func TestArchitectureDependencyDirections(t *testing.T) {
 	}
 	rules = append(rules,
 		// Congestion algorithms receive scalar facts; they cannot access hosts or the engine.
-		rule{"client/congestion_control", []string{
-			"engine", "network", "server", "balancer", "algorithms", "scenario", "internal/simulation",
+		rule{"protocols/tcp/congestion_control", []string{
+			"engine", "network", "client", "server", "balancer", "algorithms", "scenario", "internal/simulation",
 		}},
+		// Protocols receive workload and host callbacks, without importing their callers.
+		rule{"protocols", []string{"client", "server", "balancer", "algorithms", "scenario", "internal/simulation"}},
 		// An empty package prefix forbids every import from this module: contract
 		// DTOs cannot acquire domain, presentation, transport or application types.
 		rule{"internal/contract", []string{""}},

@@ -24,7 +24,8 @@ publishing detached data. Packages under `simulator/` divide the work as follows
 | Location                                                     | Responsibility                                                                                  |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `engine/`                                                    | Ordered events, virtual time, cancellation and execution limits.                                |
-| `network/`, `client/`, `server/`, `balancer/`, `algorithms/` | Links and queues, transport endpoints, forwarding, backend selection and local measurements.    |
+| `network/`, `client/`, `server/`, `balancer/`, `algorithms/` | Links and queues, client workloads, backend hosts, forwarding and backend selection.            |
+| `protocols/tcp/`                                             | TCP sender and receiver state, byte ranges, windows, timers, recovery and transport observations. |
 | `model/`                                                     | Native shared packet, connection and measurement types.                                         |
 | `scenario/`                                                  | Scenario documents, exact integer encoding, validation and normalization.                       |
 | `internal/simulation/`                                       | World construction, client arrivals, wiring, RNG, typed operations and virtual-time sampling.   |
@@ -36,6 +37,18 @@ publishing detached data. Packages under `simulator/` divide the work as follows
 `internal/contract` describes the current frontend and CLI interfaces. The shared
 control-plane contract and adapters for other balancer implementations remain
 future work.
+
+Clients own workload definitions and traffic generation; backend hosts own their
+identity, health and local resource limits. Both use the TCP transport under
+`protocols/tcp/`. Congestion algorithms live in `protocols/tcp/congestion_control/`,
+and reusable SACK range tracking lives in `protocols/tcp/sack/`.
+`protocols/udp/` reserves the protocol boundary for future UDP support.
+
+TCP pulls new payload through a small source interface. The client's finite
+stream owns its byte count and workload gap; TCP owns packetization, windows,
+ACKs and retries. The gap begins when the connection and stream are both ready,
+then restarts after each actual new send. A full congestion window does not
+generate a backlog of independently scheduled client packets.
 
 ## Run with Docker Compose
 
@@ -508,7 +521,7 @@ measurement excludes framing and compression and does not measure simulation spe
 - `simulator/network/ingress.go` owns separate client and backend input FIFOs.
   One shared link serves the oldest waiting packet across both queues. Each FIFO
   has its own waiting slots; neither side reserves a share of the common rate.
-- `client/`, `server/` and `balancer/` use short packet handlers and scheduled
+- `protocols/tcp/` and `balancer/` use short packet handlers and scheduled
   callbacks. Connections coexist as state objects. There is no waiting goroutine
   or channel per client, connection or backend.
 - `internal/simulation/world.go` builds the normalized runtime and connects
@@ -825,13 +838,13 @@ accounting, RTT/RTO and actual packet emission. The selected policy owns window
 growth, loss response and its observable phase; it cannot inspect remote links
 or schedule engine callbacks directly.
 
-The algorithms live in `simulator/client/congestion_control/`, a separate Go
+The algorithms live in `simulator/protocols/tcp/congestion_control/`, a separate Go
 package named `congestioncontrol`. Its `Policy` interface accepts scalar ACK,
 sender and loss observations and returns a detached `State`. `New` validates
 configuration and selects the algorithm; concrete implementations stay private.
 ACK responses can request a retry of the oldest fragment and preservation of
 the RTO deadline. Loss responses can suppress a stale fast-retransmit indication.
-The client keeps `congestion_adapter.go` for translating TCP events and
+The TCP package keeps `congestion_adapter.go` for translating transport events and
 `loss_detection.go` for shared duplicate-ACK/retry tracking. Congestion algorithms
 do not import the client, virtual-time engine, network or presentation layers.
 

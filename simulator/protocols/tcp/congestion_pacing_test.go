@@ -1,13 +1,13 @@
-package client
+package tcp
 
 import (
 	"reflect"
 	"testing"
 	"time"
 
-	congestioncontrol "load-balancer/client/congestion_control"
 	"load-balancer/engine"
 	"load-balancer/model"
+	congestioncontrol "load-balancer/protocols/tcp/congestion_control"
 )
 
 // deadlinePolicy changes only the next-send deadline of a real window policy.
@@ -70,7 +70,7 @@ func TestNewDataSchedulingHonorsChangingPolicyDeadline(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			e := engine.New(400 * time.Millisecond)
-			c := NewClient(e, "10.0.0.1", 1000, "10.0.0.2", 80, model.TCP)
+			c := newTestSender(e)
 			t.Cleanup(c.Shutdown)
 			// Keep retransmissions outside this test's 400 ms scheduling horizon.
 			rto := model.DefaultRTOConfig()
@@ -102,7 +102,7 @@ func TestNewDataSchedulingHonorsChangingPolicyDeadline(t *testing.T) {
 					})
 				}
 			})
-			c.SendCompleteStream(2*model.SEGMENT_SIZE, 100*time.Millisecond)
+			c.SetSource(newTestPayloadSource(e, 2*model.SEGMENT_SIZE, 100*time.Millisecond))
 			c.EstablishConnection()
 			if err := e.RunUntil(e.EndTime()); err != nil {
 				t.Fatal(err)

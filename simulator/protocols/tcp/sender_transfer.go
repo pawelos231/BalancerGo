@@ -1,4 +1,4 @@
-package client
+package tcp
 
 import (
 	"time"
@@ -24,7 +24,7 @@ type transferMetrics struct {
 }
 
 // recordPayloadStart excludes the initial sender pause from payload duration.
-func (c *Client) recordPayloadStart() {
+func (c *Sender) recordPayloadStart() {
 	if !c.transfer.payloadStarted {
 		c.transfer.payloadStarted = true
 		c.transfer.payloadStartedAt = c.engine.Now()
@@ -32,7 +32,7 @@ func (c *Client) recordPayloadStart() {
 }
 
 // recordTransferSuccess freezes completion at the final payload ACK, before FIN.
-func (c *Client) recordTransferSuccess() {
+func (c *Sender) recordTransferSuccess() {
 	c.transfer.status = model.TransferSucceeded
 	c.transfer.finishedAt = c.engine.Now()
 	if c.transfer.payloadStarted {
@@ -41,7 +41,7 @@ func (c *Client) recordTransferSuccess() {
 }
 
 // recordTransferFailure keeps the first outcome; later cleanup cannot change it.
-func (c *Client) recordTransferFailure(reason model.TransferFailureReason) {
+func (c *Sender) recordTransferFailure(reason model.TransferFailureReason) {
 	if c.transfer.status != model.TransferInProgress {
 		return
 	}
@@ -54,7 +54,7 @@ func (c *Client) recordTransferFailure(reason model.TransferFailureReason) {
 }
 
 // GetTransferState reads timings without advancing the model or changing samples.
-func (c *Client) GetTransferState() model.TransferState {
+func (c *Sender) GetTransferState() model.TransferState {
 	end := c.engine.Now()
 	if c.transfer.status != model.TransferInProgress {
 		end = c.transfer.finishedAt

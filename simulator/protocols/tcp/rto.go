@@ -1,4 +1,4 @@
-package client
+package tcp
 
 import (
 	"time"
@@ -20,7 +20,7 @@ func newRTOEstimator(config model.RTOConfig) rtoEstimator {
 		config.MinimumTimeout <= config.InitialTimeout &&
 		config.InitialTimeout <= config.MaximumTimeout
 	if !validMode || !validLimits {
-		panic("client: invalid RTO configuration")
+		panic("tcp: invalid RTO configuration")
 	}
 
 	return rtoEstimator{
@@ -36,7 +36,7 @@ func newRTOEstimator(config model.RTOConfig) rtoEstimator {
 // A first 400 ms sample gives SRTT=400 ms, variation=200 ms and raw RTO=1.2 s.
 func (estimator *rtoEstimator) observeRTT(sample time.Duration) {
 	if sample < 0 {
-		panic("client: RTT sample must not be negative")
+		panic("tcp: RTT sample must not be negative")
 	}
 
 	state := &estimator.state

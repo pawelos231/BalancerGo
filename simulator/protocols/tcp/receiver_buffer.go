@@ -1,4 +1,4 @@
-package server
+package tcp
 
 import "math"
 
@@ -29,7 +29,7 @@ func (buffer *receiveBuffer) overlapsWindow(start, end uint64) bool {
 	return start < windowEnd && end > buffer.nextExpectedSeq
 }
 
-// accept merges incoming data with ranges buffered for this backend connection.
+// accept merges incoming data with ranges buffered for this TCP connection.
 // It skips duplicate bytes, respects the window and advances ACK when a gap is filled.
 func (buffer *receiveBuffer) accept(start, end uint64) int {
 	windowEnd := buffer.nextExpectedSeq + uint64(buffer.windowBytes())

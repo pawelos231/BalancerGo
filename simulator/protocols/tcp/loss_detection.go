@@ -1,9 +1,9 @@
-package client
+package tcp
 
 import (
 	"time"
 
-	congestioncontrol "load-balancer/client/congestion_control"
+	congestioncontrol "load-balancer/protocols/tcp/congestion_control"
 )
 
 // lossDetection tracks duplicate ACKs independently of Reno's recovery window.

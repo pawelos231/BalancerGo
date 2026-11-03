@@ -1,16 +1,17 @@
-package client
+// Package sack tracks received ranges and selects missing data for TCP recovery.
+package sack
 
 import "load-balancer/model"
 
-// sackScoreboard remembers bytes reported by SACK until a cumulative ACK covers them.
+// Scoreboard remembers bytes reported by SACK until a cumulative ACK covers them.
 // For example, ACK=1 and SACK=[1025,4097) leave the first 1024 bytes missing.
-type sackScoreboard struct {
+type Scoreboard struct {
 	ranges []model.SACKBlock
 }
 
-// update merges new reports; an omitted block does not undo an earlier report.
+// Update merges new reports; an omitted block does not undo an earlier report.
 // Blocks outside sent data are ignored, including unsupported duplicate-data SACK.
-func (board *sackScoreboard) update(ack, sentEnd uint64, blocks []model.SACKBlock) bool {
+func (board *Scoreboard) Update(ack, sentEnd uint64, blocks []model.SACKBlock) bool {
 	board.discardBefore(ack)
 	before := board.receivedBytes()
 	for _, block := range blocks {
@@ -23,7 +24,7 @@ func (board *sackScoreboard) update(ack, sentEnd uint64, blocks []model.SACKBloc
 }
 
 // discardBefore releases reports already covered by the ordinary ACK.
-func (board *sackScoreboard) discardBefore(ack uint64) {
+func (board *Scoreboard) discardBefore(ack uint64) {
 	remaining := 0
 	for _, block := range board.ranges {
 		if block.End <= ack {
@@ -39,7 +40,7 @@ func (board *sackScoreboard) discardBefore(ack uint64) {
 
 // insert keeps reports sorted and joins overlaps, including adjacent blocks.
 // [1025,2049) and [2049,3073) become one [1025,3073) report.
-func (board *sackScoreboard) insert(incoming model.SACKBlock) {
+func (board *Scoreboard) insert(incoming model.SACKBlock) {
 	first := 0
 	for first < len(board.ranges) && board.ranges[first].End < incoming.Start {
 		first++
@@ -64,7 +65,7 @@ func (board *sackScoreboard) insert(incoming model.SACKBlock) {
 }
 
 // receivedBytes counts unique reported bytes, so overlapping reports count only once.
-func (board *sackScoreboard) receivedBytes() uint64 {
+func (board *Scoreboard) receivedBytes() uint64 {
 	var total uint64
 	for _, block := range board.ranges {
 		total += block.End - block.Start
@@ -72,10 +73,10 @@ func (board *sackScoreboard) receivedBytes() uint64 {
 	return total
 }
 
-// isLost needs three separate reports above a hole or more than two MSS of data.
+// IsLost needs three separate reports above a hole or more than two MSS of data.
 // One later segment can simply mean reordering; it is not enough evidence of loss.
 // RFC 6675 section 4: https://www.rfc-editor.org/rfc/rfc6675.html#section-4
-func (board *sackScoreboard) isLost(sequence uint64) bool {
+func (board *Scoreboard) IsLost(sequence uint64) bool {
 	blocksAbove := 0
 	var bytesAbove uint64
 	for _, block := range board.ranges {
@@ -93,7 +94,7 @@ func (board *sackScoreboard) isLost(sequence uint64) bool {
 
 // holes visits missing ranges, without iterating over individual bytes.
 // Reports [5,9), [13,17) inside [1,20) leave [1,5), [9,13), [17,20).
-func (board *sackScoreboard) holes(start, end uint64, visit func(model.SACKBlock) bool) {
+func (board *Scoreboard) holes(start, end uint64, visit func(model.SACKBlock) bool) {
 	for _, block := range board.ranges {
 		if block.End <= start {
 			continue
@@ -111,12 +112,12 @@ func (board *sackScoreboard) holes(start, end uint64, visit func(model.SACKBlock
 	}
 }
 
-// pipe counts unsacked bytes still thought to be travelling, plus retransmitted copies.
+// Pipe counts unsacked bytes still thought to be travelling, plus retransmitted copies.
 // A speculative retry can count twice: the original might still be on its way.
-func (board *sackScoreboard) pipe(start, end, retransmittedEnd uint64) uint64 {
+func (board *Scoreboard) Pipe(start, end, retransmittedEnd uint64) uint64 {
 	var total uint64
 	board.holes(start, end, func(hole model.SACKBlock) bool {
-		if !board.isLost(hole.Start) {
+		if !board.IsLost(hole.Start) {
 			total += hole.End - hole.Start
 		}
 		if hole.Start < retransmittedEnd {
@@ -127,11 +128,11 @@ func (board *sackScoreboard) pipe(start, end, retransmittedEnd uint64) uint64 {
 	return total
 }
 
-// nextHole picks the earliest eligible gap and limits its retry to one MSS.
-func (board *sackScoreboard) nextHole(start, end uint64, requireLoss bool) (model.SACKBlock, bool) {
+// NextHole picks the earliest eligible gap and limits its retry to one MSS.
+func (board *Scoreboard) NextHole(start, end uint64, requireLoss bool) (model.SACKBlock, bool) {
 	var selected model.SACKBlock
 	board.holes(start, end, func(hole model.SACKBlock) bool {
-		if requireLoss && !board.isLost(hole.Start) {
+		if requireLoss && !board.IsLost(hole.Start) {
 			return true
 		}
 		selected = hole
@@ -141,8 +142,8 @@ func (board *sackScoreboard) nextHole(start, end uint64, requireLoss bool) (mode
 	return selected, selected.Start < selected.End
 }
 
-// lastHole supplies a single rescue retry containing the highest missing byte.
-func (board *sackScoreboard) lastHole(start, end uint64) (model.SACKBlock, bool) {
+// LastHole supplies a single rescue retry containing the highest missing byte.
+func (board *Scoreboard) LastHole(start, end uint64) (model.SACKBlock, bool) {
 	var selected model.SACKBlock
 	board.holes(start, end, func(hole model.SACKBlock) bool {
 		selected = hole
@@ -150,4 +151,22 @@ func (board *sackScoreboard) lastHole(start, end uint64) (model.SACKBlock, bool)
 		return true
 	})
 	return selected, selected.Start < selected.End
+}
+
+// Reset forgets earlier reports, for example when RTO makes their retention uncertain.
+func (board *Scoreboard) Reset() {
+	board.ranges = nil
+}
+
+// HighestReportedEnd is the position just after the highest reported byte, or zero.
+func (board *Scoreboard) HighestReportedEnd() uint64 {
+	if len(board.ranges) == 0 {
+		return 0
+	}
+	return board.ranges[len(board.ranges)-1].End
+}
+
+// RangeCount reports how many separate received ranges remain above cumulative ACK.
+func (board *Scoreboard) RangeCount() int {
+	return len(board.ranges)
 }

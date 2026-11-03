@@ -1,10 +1,10 @@
-package client
+package tcp
 
 import (
 	"time"
 
-	congestioncontrol "load-balancer/client/congestion_control"
 	"load-balancer/model"
+	congestioncontrol "load-balancer/protocols/tcp/congestion_control"
 )
 
 // congestionControl passes TCP events to the separate congestion_control package.
@@ -31,15 +31,15 @@ func newCongestionControl(config model.CongestionConfig) congestionControl {
 }
 
 // SetCongestionConfig selects sender behavior before the connection starts.
-func (c *Client) SetCongestionConfig(config model.CongestionConfig) {
+func (c *Sender) SetCongestionConfig(config model.CongestionConfig) {
 	if c.handshakeStarted || c.terminated {
-		panic("client: congestion configuration must be set before the connection starts")
+		panic("tcp: congestion configuration must be set before the connection starts")
 	}
 	c.congestion = newCongestionControl(config)
 }
 
 // GetCongestionState combines algorithm state with TCP's current flight and counters.
-func (c *Client) GetCongestionState() model.CongestionState {
+func (c *Sender) GetCongestionState() model.CongestionState {
 	control := &c.congestion
 	window := control.policy.State()
 	return model.CongestionState{
@@ -55,14 +55,14 @@ func (c *Client) GetCongestionState() model.CongestionState {
 
 // bytesInFlight counts sent payload that has not yet been cumulatively ACKed.
 // SYN and FIN reserve sequence positions but do not count as payload in flight.
-func (c *Client) bytesInFlight() uint64 {
+func (c *Sender) bytesInFlight() uint64 {
 	if !c.handshakeCompleted || c.connection.finSent || c.terminated {
 		return 0
 	}
 	return c.nextSendSeq - c.oldestUnackedSeq
 }
 
-func (c *Client) availableCongestionWindowBytes() uint64 {
+func (c *Sender) availableCongestionWindowBytes() uint64 {
 	window := c.congestion.policy.State()
 	if !window.LimitsNewData {
 		return model.MaxCongestionWindowBytes
@@ -93,12 +93,16 @@ func (control *congestionControl) acknowledge(ack congestioncontrol.ACK) congest
 	return control.policy.OnACK(ack)
 }
 
-// observeSender tells the policy about local demand without exposing the client itself.
-func (c *Client) observeSender() {
+// observeSender tells the policy about available payload and its next workload deadline.
+func (c *Sender) observeSender() {
+	var readyAt time.Duration
+	if c.source != nil {
+		readyAt, _ = c.source.NextSendAt()
+	}
 	c.congestion.policy.OnSenderState(congestioncontrol.SenderState{
 		At:                 c.engine.Now(),
-		ReadyAt:            c.nextNewSegmentAt,
-		HasData:            c.unsentPayloadBytes > 0,
+		ReadyAt:            readyAt,
+		HasData:            c.unsentBytes() > 0,
 		FlightBytes:        c.bytesInFlight(),
 		ReceiveWindowBytes: uint64(c.peerReceiveWindow),
 	})

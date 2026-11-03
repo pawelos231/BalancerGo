@@ -1,4 +1,4 @@
-package client
+package tcp
 
 import (
 	"testing"
@@ -11,7 +11,7 @@ import (
 type sackHarness struct {
 	t      *testing.T
 	engine *engine.Engine
-	client *Client
+	client *Sender
 	sent   []model.Packet
 }
 
@@ -19,7 +19,7 @@ type sackHarness struct {
 func newSACKHarness(t *testing.T, offer, accept bool, payload int) *sackHarness {
 	t.Helper()
 	e := engine.New(5 * time.Second)
-	c := NewClient(e, "10.0.0.1", 1000, "10.0.0.2", 80, model.TCP)
+	c := newTestSender(e)
 	c.SetSACKEnabled(offer)
 	congestion := model.DefaultCongestionConfig()
 	congestion.InitialWindowSegments = 8
@@ -31,7 +31,7 @@ func newSACKHarness(t *testing.T, offer, accept bool, payload int) *sackHarness 
 	c.SetSender(func(packet model.Packet) { h.sent = append(h.sent, packet) })
 	t.Cleanup(c.Shutdown)
 
-	c.SendCompleteStream(payload, 0)
+	c.SetSource(newTestPayloadSource(e, payload, 0))
 	c.EstablishConnection()
 	h.runUntil(0)
 	c.HandlePacket(model.Packet{
@@ -134,7 +134,7 @@ func TestSACKNewDataSharesTheRecoveryPipeBudget(t *testing.T) {
 func TestSACKUnnegotiatedReportsAreIgnored(t *testing.T) {
 	h := newSACKHarness(t, true, false, 8192)
 	h.acknowledge(1, model.SACKBlock{Start: 1025, End: 8193})
-	if len(h.client.sack.board.ranges) != 0 || h.client.transfer.dataRetransmissions != 0 {
+	if h.client.sack.board.RangeCount() != 0 || h.client.transfer.dataRetransmissions != 0 {
 		t.Fatal("unnegotiated blocks influenced loss recovery")
 	}
 }
@@ -153,7 +153,7 @@ func TestSACKRetriesOnlyTheMissingPartOfASegment(t *testing.T) {
 
 	// ACK=8193 finally confirms everything, including the earlier SACK reports.
 	h.acknowledge(8193)
-	if h.client.sack.active || len(h.client.sack.board.ranges) != 0 ||
+	if h.client.sack.active || h.client.sack.board.RangeCount() != 0 ||
 		h.client.acknowledgedPayloadBytes != 8192 {
 		t.Fatal("full ACK did not finish recovery exactly once")
 	}
@@ -163,7 +163,7 @@ func TestSACKRetriesOnlyTheMissingPartOfASegment(t *testing.T) {
 func TestSACKSenderIgnoresUnsentRanges(t *testing.T) {
 	h := newSACKHarness(t, true, true, 8192)
 	h.acknowledge(1, model.SACKBlock{Start: 1025, End: 10000})
-	if h.client.sack.active || len(h.client.sack.board.ranges) != 0 {
+	if h.client.sack.active || h.client.sack.board.RangeCount() != 0 {
 		t.Fatal("a report beyond sent data was accepted")
 	}
 }
@@ -174,7 +174,7 @@ func TestSACKTimeoutClearsReportsAndKeepsTheRecoveryBoundary(t *testing.T) {
 	h := newSACKHarness(t, true, true, 8192)
 	h.acknowledge(1, model.SACKBlock{Start: 1025, End: 8193})
 	h.runUntil(time.Second)
-	if h.client.sack.active || len(h.client.sack.board.ranges) != 0 ||
+	if h.client.sack.active || h.client.sack.board.RangeCount() != 0 ||
 		h.client.sack.recoveryEndSeq != 8193 {
 		t.Fatal("timeout retained old SACK recovery state")
 	}
@@ -250,7 +250,7 @@ func TestSACKReorderedACKCanAddUsefulRanges(t *testing.T) {
 	h.acknowledge(1025, model.SACKBlock{Start: 4097, End: 5121})
 	windowEnd := h.client.peerWindowEnd
 	h.acknowledge(1, model.SACKBlock{Start: 2049, End: 3073})
-	if len(h.client.sack.board.ranges) != 2 || h.client.oldestUnackedSeq != 1025 ||
+	if h.client.sack.board.RangeCount() != 2 || h.client.oldestUnackedSeq != 1025 ||
 		h.client.acknowledgedPayloadBytes != 1024 || h.client.peerWindowEnd != windowEnd {
 		t.Fatalf("reordered feedback lost ranges or regressed progress: %+v", h.client.GetState())
 	}

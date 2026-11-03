@@ -1,8 +1,9 @@
-package client
+package tcp
 
 import (
-	congestioncontrol "load-balancer/client/congestion_control"
 	"load-balancer/model"
+	congestioncontrol "load-balancer/protocols/tcp/congestion_control"
+	"load-balancer/protocols/tcp/sack"
 )
 
 // sackSender owns selective loss recovery; the congestion policy still owns cwnd.
@@ -10,7 +11,7 @@ import (
 type sackSender struct {
 	enabled    bool
 	negotiated bool
-	board      sackScoreboard
+	board      sack.Scoreboard
 
 	active           bool
 	recoveryEndSeq   uint64 // A cumulative ACK must reach this point to finish recovery.
@@ -23,15 +24,15 @@ type sackSender struct {
 
 // SetSACKEnabled offers selective acknowledgments during the next handshake.
 // It is off by default, preserving the original cumulative-ACK profile.
-func (c *Client) SetSACKEnabled(enabled bool) {
+func (c *Sender) SetSACKEnabled(enabled bool) {
 	if c.handshakeStarted || c.terminated {
-		panic("client: SACK must be configured before the connection starts")
+		panic("tcp: SACK must be configured before the connection starts")
 	}
 	c.sack.enabled = enabled
 }
 
 // validateSACKProfile keeps unsupported combinations out of the low-level API too.
-func (c *Client) validateSACKProfile() {
+func (c *Sender) validateSACKProfile() {
 	if !c.sack.enabled {
 		return
 	}
@@ -39,23 +40,23 @@ func (c *Client) validateSACKProfile() {
 	supported := mode == model.CongestionReno || mode == model.CongestionNewReno ||
 		mode == model.CongestionCubic
 	if !supported || !c.congestion.config.FastRetransmit {
-		panic("client: SACK requires Reno, NewReno or CUBIC with fast retransmit enabled")
+		panic("tcp: SACK requires Reno, NewReno or CUBIC with fast retransmit enabled")
 	}
 }
 
 // recordSACKReports retains received ranges and refreshes the recovery flight estimate.
 // ack is our current cumulative position, even when the report came in an older ACK.
-func (c *Client) recordSACKReports(ack uint64, blocks []model.SACKBlock) bool {
-	changed := c.sack.board.update(ack, c.nextSendSeq, blocks)
+func (c *Sender) recordSACKReports(ack uint64, blocks []model.SACKBlock) bool {
+	changed := c.sack.board.Update(ack, c.nextSendSeq, blocks)
 	if c.sack.active {
-		c.sack.pipeBytes = c.sack.board.pipe(ack, c.nextSendSeq, c.sack.retransmittedEnd)
+		c.sack.pipeBytes = c.sack.board.Pipe(ack, c.nextSendSeq, c.sack.retransmittedEnd)
 	}
 	return changed
 }
 
 // observeSACKFeedback enters recovery only when new reports provide enough evidence.
 // Three small reports also count, even if their bytes total less than three MSS.
-func (c *Client) observeSACKFeedback(newInformation, advancingACK bool) {
+func (c *Sender) observeSACKFeedback(newInformation, advancingACK bool) {
 	if !c.sack.negotiated || c.terminated || !c.pendingSegments.hasPending() {
 		return
 	}
@@ -68,7 +69,7 @@ func (c *Client) observeSACKFeedback(newInformation, advancingACK bool) {
 	c.sack.duplicateACKs++
 	c.congestion.loss.duplicateACKs = c.sack.duplicateACKs
 	canRecover := c.oldestUnackedSeq >= c.sack.recoveryEndSeq
-	enoughEvidence := c.sack.duplicateACKs >= 3 || c.sack.board.isLost(c.oldestUnackedSeq)
+	enoughEvidence := c.sack.duplicateACKs >= 3 || c.sack.board.IsLost(c.oldestUnackedSeq)
 	if !canRecover || !enoughEvidence {
 		return
 	}
@@ -90,9 +91,9 @@ func (c *Client) observeSACKFeedback(newInformation, advancingACK bool) {
 	c.sack.active = true
 	c.sack.recoveryEndSeq = c.nextSendSeq
 	c.sack.retransmittedEnd = c.oldestUnackedSeq
-	c.sack.pipeBytes = c.sack.board.pipe(c.oldestUnackedSeq, c.nextSendSeq, c.oldestUnackedSeq)
+	c.sack.pipeBytes = c.sack.board.Pipe(c.oldestUnackedSeq, c.nextSendSeq, c.oldestUnackedSeq)
 	c.congestion.loss.untilSeq = c.nextSendSeq
-	firstHole, found := c.sack.board.nextHole(c.oldestUnackedSeq, c.nextSendSeq, false)
+	firstHole, found := c.sack.board.NextHole(c.oldestUnackedSeq, c.nextSendSeq, false)
 	if found {
 		c.sack.rescueAfterSeq = firstHole.End
 		c.retransmitSACKHole(firstHole, false)
@@ -101,7 +102,7 @@ func (c *Client) observeSACKFeedback(newInformation, advancingACK bool) {
 
 // sendSACKRepairs follows RFC 6675 NextSeg: lost data, new data, then fallback retries.
 // The existing send event handles new data, including workload gaps and pacing.
-func (c *Client) sendSACKRepairs() {
+func (c *Sender) sendSACKRepairs() {
 	if c.sack.dispatching {
 		return
 	}
@@ -113,23 +114,21 @@ func (c *Client) sendSACKRepairs() {
 			return
 		}
 		start := max(c.oldestUnackedSeq, c.sack.retransmittedEnd)
-		highestReported := c.oldestUnackedSeq
-		if count := len(c.sack.board.ranges); count > 0 {
-			highestReported = c.sack.board.ranges[count-1].End
-		}
+		highestReported := max(c.oldestUnackedSeq, c.sack.board.HighestReportedEnd())
 
 		// Prefer a gap with evidence of loss over sending any more new bytes.
-		hole, found := c.sack.board.nextHole(start, highestReported, true)
+		hole, found := c.sack.board.NextHole(start, highestReported, true)
 		if found {
 			c.retransmitSACKHole(hole, false)
 			continue
 		}
-		if c.nextNewSegmentWithinRun && c.nextPayloadSize() > 0 {
+		_, withinRun := c.source.NextSendAt()
+		if withinRun && c.nextPayloadSize() > 0 {
 			return
 		}
 
 		// With no new data available, cautiously fill the next gap below a SACK block.
-		hole, found = c.sack.board.nextHole(start, highestReported, false)
+		hole, found = c.sack.board.NextHole(start, highestReported, false)
 		if found {
 			c.retransmitSACKHole(hole, false)
 			continue
@@ -137,7 +136,7 @@ func (c *Client) sendSACKRepairs() {
 		if c.oldestUnackedSeq <= c.sack.rescueAfterSeq {
 			return
 		}
-		hole, found = c.sack.board.lastHole(c.oldestUnackedSeq, c.nextSendSeq)
+		hole, found = c.sack.board.LastHole(c.oldestUnackedSeq, c.nextSendSeq)
 		if !found {
 			return
 		}
@@ -151,7 +150,7 @@ func (c *Client) sendSACKRepairs() {
 
 // retransmitSACKHole sends only the selected missing bytes, retaining the original buffer.
 // For example, a report covering [1537,2049) leaves only [1025,1537) to retry.
-func (c *Client) retransmitSACKHole(hole model.SACKBlock, rescue bool) {
+func (c *Sender) retransmitSACKHole(hole model.SACKBlock, rescue bool) {
 	if hole.Start == c.oldestUnackedSeq {
 		if c.oldestSegmentRetransmissions >= model.MAX_RETRANSMISIONS {
 			c.ShutdownWithReason(model.TransferDataRetryLimit)
@@ -179,8 +178,8 @@ func (c *Client) retransmitSACKHole(hole model.SACKBlock, rescue bool) {
 
 // resetSACKAfterTimeout distrusts old reports: the receiver may have discarded them.
 // The old flight must be cumulatively ACKed before starting another fast recovery.
-func (c *Client) resetSACKAfterTimeout() {
-	c.sack.board.ranges = nil
+func (c *Sender) resetSACKAfterTimeout() {
+	c.sack.board.Reset()
 	c.sack.active = false
 	c.sack.duplicateACKs = 0
 	c.sack.recoveryEndSeq = c.nextSendSeq

@@ -1,4 +1,4 @@
-package client
+package tcp
 
 import (
 	"time"
@@ -28,22 +28,22 @@ type connectionClose struct {
 	waitTimer          engine.EventID
 }
 
-func (c *Client) SetCloseConfig(config model.CloseConfig) {
+func (c *Sender) SetCloseConfig(config model.CloseConfig) {
 	if !config.Valid() {
-		panic("client: invalid TCP closing configuration")
+		panic("tcp: invalid TCP closing configuration")
 	}
 	if c.handshakeStarted || c.terminated {
-		panic("client: closing configuration must be set before the connection starts")
+		panic("tcp: closing configuration must be set before the connection starts")
 	}
 	c.connection.config = config
 }
 
 // IsClosing allows LB routing to survive the FIN exchange and TIME_WAIT.
-func (c *Client) IsClosing() bool {
+func (c *Sender) IsClosing() bool {
 	return !c.terminated && (c.connection.finSent || c.connection.peerFIN)
 }
 
-func (c *Client) GetConnectionState() model.CloseState {
+func (c *Sender) GetConnectionState() model.CloseState {
 	close := &c.connection
 	var elapsed time.Duration
 	if close.started {
@@ -61,7 +61,7 @@ func (c *Client) GetConnectionState() model.CloseState {
 	}
 }
 
-func (c *Client) beginClosing() {
+func (c *Sender) beginClosing() {
 	if !c.connection.started {
 		c.connection.started = true
 		c.connection.startedAt = c.engine.Now()
@@ -69,7 +69,7 @@ func (c *Client) beginClosing() {
 }
 
 // startFINWhenDrained sends FIN once all payload has been acknowledged.
-func (c *Client) startFINWhenDrained() {
+func (c *Sender) startFINWhenDrained() {
 	close := &c.connection
 
 	// Start only for a requested close, before FIN has been sent.
@@ -78,7 +78,7 @@ func (c *Client) startFINWhenDrained() {
 	}
 
 	// Wait until all payload is sent and acknowledged.
-	if c.unsentPayloadBytes != 0 || c.pendingSegments.hasPending() {
+	if c.unsentBytes() != 0 || c.pendingSegments.hasPending() {
 		return
 	}
 
@@ -114,20 +114,20 @@ func (c *Client) startFINWhenDrained() {
 	})
 }
 
-func (c *Client) emitFIN() {
+func (c *Sender) emitFIN() {
 	c.emit(GeneratePacket(
 		c.key, model.FlagFIN|model.FlagACK, 0,
 		c.connection.finSeq, c.nextReceiveSeq,
 	))
 }
 
-func (c *Client) scheduleFINRetransmission() {
+func (c *Sender) scheduleFINRetransmission() {
 	c.cancelEvent(&c.connection.finTimer)
 	c.connection.finTimer = c.engine.ScheduleAfter(c.connection.finRetryDelay, c.retryFIN)
 }
 
 // retryFIN backs off its own timer without changing payload RTO measurements or counters.
-func (c *Client) retryFIN() {
+func (c *Sender) retryFIN() {
 	close := &c.connection
 	close.finTimer = 0
 	if c.terminated || close.finAcked {
@@ -154,7 +154,7 @@ func (c *Client) retryFIN() {
 }
 
 // acknowledgeFIN confirms our FIN and advances the closing state.
-func (c *Client) acknowledgeFIN(ack uint64) {
+func (c *Sender) acknowledgeFIN(ack uint64) {
 	close := &c.connection
 
 	// Accept only the first ACK that confirms our FIN.
@@ -190,7 +190,7 @@ func (c *Client) acknowledgeFIN(ack uint64) {
 }
 
 // handleFin accepts the peer's end once; duplicate FINs repeat ACK without consuming another byte.
-func (c *Client) handleFin(pkt model.Packet, end uint64) {
+func (c *Sender) handleFin(pkt model.Packet, end uint64) {
 	close := &c.connection
 	if pkt.Size != 0 || pkt.Flag&model.FlagACK == 0 || pkt.Ack > c.nextSendSeq {
 		return
@@ -232,12 +232,12 @@ func (c *Client) handleFin(pkt model.Packet, end uint64) {
 	c.emitCloseACK()
 }
 
-func (c *Client) emitCloseACK() {
+func (c *Sender) emitCloseACK() {
 	c.emit(GeneratePacket(c.key, model.FlagACK, 0, c.nextSendSeq, c.nextReceiveSeq))
 }
 
-// enterTimeWait retains the client and its route so a repeated peer FIN can get another ACK.
-func (c *Client) enterTimeWait() {
+// enterTimeWait keeps TCP state long enough to acknowledge a repeated peer FIN.
+func (c *Sender) enterTimeWait() {
 	close := &c.connection
 	close.state = model.TCPTimeWait
 	c.cancelEvent(&close.finTimer)
@@ -248,7 +248,7 @@ func (c *Client) enterTimeWait() {
 	})
 }
 
-func (c *Client) finishConnection(outcome model.CloseOutcome, reason model.TransferFailureReason) {
+func (c *Sender) finishConnection(outcome model.CloseOutcome, reason model.TransferFailureReason) {
 	if c.terminated {
 		return
 	}
@@ -259,7 +259,7 @@ func (c *Client) finishConnection(outcome model.CloseOutcome, reason model.Trans
 
 // handleReset accepts only a reset for the current sequence position and state.
 // In SYN_SENT, ACK must cover our SYN; established connections also permit a bare RST.
-func (c *Client) handleReset(pkt model.Packet) {
+func (c *Sender) handleReset(pkt model.Packet) {
 	invalidFlags := pkt.Flag&(model.FlagSYN|model.FlagFIN|model.FlagPSH) != 0
 	if pkt.Size != 0 || invalidFlags {
 		return
