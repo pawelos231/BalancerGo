@@ -81,7 +81,7 @@ func TestPayloadProgressIncludesUnfinishedTransfers(t *testing.T) {
 		t.Fatal("a later observation changed completion accounting or an earlier snapshot")
 	}
 
-	// The final segment is only two bytes; closure and removal retain historical totals.
+	// The final segment is only two bytes; closure and backend failure retain historical totals.
 	runIngressUntil(t, s, 60*time.Millisecond)
 	assertPayloadProgress(t, s, 2050, 2050)
 	if s.Info().CompletedStreams != 1 || payloadClients(s)[0].Active {
@@ -94,7 +94,7 @@ func TestPayloadProgressIncludesUnfinishedTransfers(t *testing.T) {
 			t.Fatal("connection cleanup erased the backend payload total")
 		}
 	})
-	if err := s.RemoveBackend(backendID); err != nil {
+	if err := s.StopBackend(backendID); err != nil {
 		t.Fatal(err)
 	}
 	assertPayloadProgress(t, s, 2050, 2050)

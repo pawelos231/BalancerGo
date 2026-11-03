@@ -86,6 +86,8 @@ export interface Scenario {
     rto?: Partial<ScenarioRTOConfig>;
     close?: Partial<ScenarioCloseConfig>;
     clientIdleTimeoutNanoseconds?: ExactInteger;
+    backendHalfOpenIdleTimeoutNanoseconds?: ExactInteger;
+    backendEstablishedIdleTimeoutNanoseconds?: ExactInteger;
   };
   network: {
     defaults: ScenarioLinkConfig;
@@ -99,6 +101,8 @@ export interface Scenario {
       forwardingBitsPerSecond: ExactInteger;
       halfOpenIdleTimeoutNanoseconds?: ExactInteger;
       establishedIdleTimeoutNanoseconds?: ExactInteger;
+      closingIdleTimeoutNanoseconds?: ExactInteger;
+      resetIdleTimeoutNanoseconds?: ExactInteger;
     };
     backends: {
       id: string;
@@ -137,9 +141,16 @@ export interface ResolvedScenario {
     rto: ScenarioRTOConfig;
     close: ScenarioCloseConfig;
     clientIdleTimeoutNanoseconds: ExactInteger;
+    backendHalfOpenIdleTimeoutNanoseconds: ExactInteger;
+    backendEstablishedIdleTimeoutNanoseconds: ExactInteger;
   };
   networkDefaults: ScenarioLinkConfig;
-  loadBalancer: Scenario['resources']['loadBalancer'];
+  loadBalancer: Scenario['resources']['loadBalancer'] & {
+    halfOpenIdleTimeoutNanoseconds: ExactInteger;
+    establishedIdleTimeoutNanoseconds: ExactInteger;
+    closingIdleTimeoutNanoseconds: ExactInteger;
+    resetIdleTimeoutNanoseconds: ExactInteger;
+  };
   totalClients: ExactInteger;
   defaultStream: ScenarioStream;
   backends: {

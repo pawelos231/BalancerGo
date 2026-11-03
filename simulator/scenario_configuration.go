@@ -19,6 +19,8 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 	congestion := c.effectiveCongestionConfig()
 	congestionMode := string(congestion.Mode)
 	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
+	closingIdle, resetIdle := c.effectiveLBFinalIdleTimeouts()
+	backendHalfOpen, backendEstablished := c.effectiveBackendIdleTimeouts()
 
 	backends := make([]scenario.BackendConfig, c.servers)
 	for i := range backends {
@@ -45,7 +47,9 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 				MinimumTimeout:     &rto.MinimumTimeout,
 				MaximumTimeout:     &rto.MaximumTimeout,
 			},
-			ClientIdleTimeout: &clientIdle,
+			ClientIdleTimeout:             &clientIdle,
+			BackendHalfOpenIdleTimeout:    &backendHalfOpen,
+			BackendEstablishedIdleTimeout: &backendEstablished,
 			CongestionControl: scenario.CongestionConfig{
 				Mode:                           &congestionMode,
 				FastRetransmit:                 &congestion.FastRetransmit,
@@ -77,6 +81,8 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 				ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
 				HalfOpenIdleTimeout:     &halfOpenIdle,
 				EstablishedIdleTimeout:  &establishedIdle,
+				ClosingIdleTimeout:      &closingIdle,
+				ResetIdleTimeout:        &resetIdle,
 			},
 			Backends: backends,
 		},

@@ -23,6 +23,11 @@ func runInteractive(
 	publication *httpserver.Publication,
 ) error {
 	var current *simulation.World
+	defer func() {
+		if current != nil {
+			current.Stop()
+		}
+	}()
 	var projector *presentation.Projector
 	var started time.Time
 	var elapsed time.Duration
@@ -67,7 +72,10 @@ func runInteractive(
 	}
 
 	clear := func() error {
-		// Stop discards the model rather than closing each connection separately.
+		// Whole-run Stop is allowed to clear all endpoint and network state together.
+		if current != nil {
+			current.Stop()
+		}
 		current, projector = nil, nil
 		started, elapsed = time.Time{}, 0
 		status, lastError, runID = "idle", "", ""
@@ -121,6 +129,9 @@ func runInteractive(
 			control.setRunStatus(runID, status)
 		}
 		started, elapsed = time.Now(), 0
+		if current != nil {
+			current.Stop()
+		}
 		current = simulation.New(prepared.scenario)
 		projector = presentation.NewProjector(runID)
 		handled := func(err error) {

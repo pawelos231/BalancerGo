@@ -60,8 +60,12 @@ type SimulationConfig struct {
 	TCPFinWaitTimeoutMs             float64 `json:"tcpFinWaitTimeoutMs"`
 	TCPMaxFINRetries                int     `json:"tcpMaxFINRetries"`
 	ClientIdleTimeoutMs             float64 `json:"clientIdleTimeoutMs"`
+	BackendHalfOpenIdleTimeoutMs    float64 `json:"backendHalfOpenIdleTimeoutMs"`
+	BackendEstablishedIdleTimeoutMs float64 `json:"backendEstablishedIdleTimeoutMs"`
 	LBHalfOpenIdleTimeoutMs         float64 `json:"lbHalfOpenIdleTimeoutMs"`
 	LBEstablishedIdleTimeoutMs      float64 `json:"lbEstablishedIdleTimeoutMs"`
+	LBClosingIdleTimeoutMs          float64 `json:"lbClosingIdleTimeoutMs"`
+	LBResetIdleTimeoutMs            float64 `json:"lbResetIdleTimeoutMs"`
 	DurationSeconds                 float64 `json:"durationSeconds"`
 	ClientGapMs                     float64 `json:"clientGapMs"`
 	PacketGapMs                     float64 `json:"packetGapMs"`

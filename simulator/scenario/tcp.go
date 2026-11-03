@@ -39,12 +39,32 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 		return NormalizedTCPConfig{}, err
 	}
 
+	backendHalfOpen, err := normalizeIdleTimeout(
+		config.BackendHalfOpenIdleTimeout,
+		model.DefaultBackendHalfOpenIdleTimeout,
+		"tcp.backendHalfOpenIdleTimeoutNanoseconds",
+	)
+	if err != nil {
+		return NormalizedTCPConfig{}, err
+	}
+
+	backendEstablished, err := normalizeIdleTimeout(
+		config.BackendEstablishedIdleTimeout,
+		model.DefaultBackendEstablishedIdleTimeout,
+		"tcp.backendEstablishedIdleTimeoutNanoseconds",
+	)
+	if err != nil {
+		return NormalizedTCPConfig{}, err
+	}
+
 	return NormalizedTCPConfig{
-		ReceiveBufferBytes: capacity,
-		RTO:                rto,
-		Close:              closeConfig,
-		CongestionControl:  congestion,
-		ClientIdleTimeout:  idleTimeout,
+		ReceiveBufferBytes:            capacity,
+		RTO:                           rto,
+		Close:                         closeConfig,
+		CongestionControl:             congestion,
+		ClientIdleTimeout:             idleTimeout,
+		BackendHalfOpenIdleTimeout:    backendHalfOpen,
+		BackendEstablishedIdleTimeout: backendEstablished,
 	}, nil
 }
 
@@ -132,7 +152,7 @@ func normalizeIdleTimeout(
 	return *value, nil
 }
 
-// normalizeLoadBalancer resolves separate idle limits for pending and established connections.
+// normalizeLoadBalancer resolves an independent idle limit for each mapping phase.
 func normalizeLoadBalancer(config LoadBalancerConfig) (NormalizedLoadBalancerConfig, error) {
 	if err := validateLoadBalancer(config); err != nil {
 		return NormalizedLoadBalancerConfig{}, err
@@ -153,6 +173,22 @@ func normalizeLoadBalancer(config LoadBalancerConfig) (NormalizedLoadBalancerCon
 	if err != nil {
 		return NormalizedLoadBalancerConfig{}, err
 	}
+	closing, err := normalizeIdleTimeout(
+		config.ClosingIdleTimeout,
+		model.DefaultLBClosingIdleTimeout,
+		"resources.loadBalancer.closingIdleTimeoutNanoseconds",
+	)
+	if err != nil {
+		return NormalizedLoadBalancerConfig{}, err
+	}
+	reset, err := normalizeIdleTimeout(
+		config.ResetIdleTimeout,
+		model.DefaultLBResetIdleTimeout,
+		"resources.loadBalancer.resetIdleTimeoutNanoseconds",
+	)
+	if err != nil {
+		return NormalizedLoadBalancerConfig{}, err
+	}
 	return NormalizedLoadBalancerConfig{
 		ID:                      config.ID,
 		Algorithm:               config.Algorithm,
@@ -160,5 +196,7 @@ func normalizeLoadBalancer(config LoadBalancerConfig) (NormalizedLoadBalancerCon
 		ForwardingBitsPerSecond: config.ForwardingBitsPerSecond,
 		HalfOpenIdleTimeout:     halfOpen,
 		EstablishedIdleTimeout:  established,
+		ClosingIdleTimeout:      closing,
+		ResetIdleTimeout:        reset,
 	}, nil
 }

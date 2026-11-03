@@ -55,6 +55,15 @@ func (e *Engine) EventsExecuted() uint64 {
 	return e.executed
 }
 
+// Clear discards pending callbacks when the whole simulation is stopped.
+func (e *Engine) Clear() {
+	for _, item := range e.queue {
+		item.callback = nil
+	}
+	e.queue = nil
+	clear(e.byID)
+}
+
 // ScheduleAt schedules a callback, or returns zero when at exceeds EndTime.
 func (e *Engine) ScheduleAt(at time.Duration, callback func()) EventID {
 	if callback == nil {

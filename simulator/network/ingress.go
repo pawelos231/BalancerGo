@@ -115,6 +115,19 @@ func (ingress *Ingress) Stats() Stats {
 	return stats
 }
 
+// DiscardPending releases shared input work after the whole engine queue is cleared.
+func (ingress *Ingress) DiscardPending() {
+	ingress.link.DiscardPending()
+	ingress.transmittingInput = nil
+	ingress.stats.QueuedPackets = 0
+	for _, input := range ingress.inputs {
+		input.queue = nil
+		input.queueHead = 0
+		input.stats.Transmitting = false
+		input.stats.TravellingPackets = 0
+	}
+}
+
 // Stats reports this input's admissions, FIFO and physical packet outcomes.
 func (input *Input) Stats() Stats {
 	stats := input.stats

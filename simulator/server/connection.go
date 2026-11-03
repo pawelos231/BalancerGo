@@ -15,6 +15,8 @@ type connection struct {
 	peerInitialSeq uint64
 	sendNextSeq    uint64
 	receiver       receiveBuffer
+	lastActivity   time.Duration
+	idleEvent      engine.EventID
 
 	closeStarted   bool
 	closeStartedAt time.Duration
@@ -72,7 +74,9 @@ func (s *Server) HandlePacket(pkt model.Packet) {
 	}
 	if pkt.Size == 0 {
 		if pkt.Seq == conn.receiver.nextExpectedSeq {
-			s.acknowledgeFIN(pkt.Key, conn, pkt.Ack)
+			if s.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
+				s.recordConnectionActivity(pkt.Key, conn)
+			}
 		}
 		return
 	}
@@ -83,6 +87,7 @@ func (s *Server) HandlePacket(pkt model.Packet) {
 		if !s.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
 			return
 		}
+		s.recordConnectionActivity(pkt.Key, conn)
 	}
 	if conn.pendingFIN {
 		sequenceEnd = min(sequenceEnd, conn.pendingFINSeq)
@@ -145,6 +150,10 @@ func (s *Server) handleSYN(pkt model.Packet, conn *connection, sequenceEnd uint6
 		s.connections[pkt.Key] = conn
 		s.HalfOpenConnections++
 		s.LastUpdated = s.engine.Now()
+
+		// Retransmitted SYNs keep this first handshake deadline.
+		conn.lastActivity = s.engine.Now()
+		s.scheduleIdleTimeout(pkt.Key, conn, s.halfOpenIdleTimeout)
 	}
 	if pkt.Seq != conn.peerInitialSeq || conn.finSent || conn.state == model.TCPClosed {
 		return
@@ -166,6 +175,8 @@ func (s *Server) establishConnection(key model.ClientKey, conn *connection) bool
 	}
 	conn.established = true
 	conn.state = model.TCPEstablished
+	s.cancelIdleTimer(conn)
+	s.recordConnectionActivity(key, conn)
 	if s.HalfOpenConnections > 0 {
 		s.HalfOpenConnections--
 	}

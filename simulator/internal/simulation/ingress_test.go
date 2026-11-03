@@ -372,6 +372,9 @@ func replaceIngressClient(t *testing.T, s *World, old *client.Client) *client.Cl
 	key := old.Key()
 	output := firstIngressClientOutput(t, s)
 	old.Shutdown()
+	// Reusing the key is explicit; stopping the endpoint does not clear LB routes.
+	s.ClearConnections()
+
 	replacement := client.NewClient(
 		s.engine,
 		key.SrcIP,

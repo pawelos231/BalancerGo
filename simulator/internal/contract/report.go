@@ -158,10 +158,12 @@ type RTOConfig struct {
 
 // TCPConfig records the effective transport settings, including input defaults.
 type TCPConfig struct {
-	ReceiveBufferBytes       int
-	CongestionControl        CongestionConfig
-	RTO                      RTOConfig
-	ClientIdleTimeoutSeconds float64
+	ReceiveBufferBytes                   int
+	CongestionControl                    CongestionConfig
+	RTO                                  RTOConfig
+	ClientIdleTimeoutSeconds             float64
+	BackendHalfOpenIdleTimeoutSeconds    float64
+	BackendEstablishedIdleTimeoutSeconds float64
 }
 
 // LBIdleTimeoutConfig records when the balancer forgets inactive connections.
@@ -169,6 +171,8 @@ type TCPConfig struct {
 type LBIdleTimeoutConfig struct {
 	HalfOpenIdleTimeoutSeconds    float64
 	EstablishedIdleTimeoutSeconds float64
+	ClosingIdleTimeoutSeconds     float64
+	ResetIdleTimeoutSeconds       float64
 }
 
 // SimulationResult preserves the legacy headless report, including PascalCase

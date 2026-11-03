@@ -161,6 +161,17 @@ func (e *Egress) Stats() ForwardingStats {
 	return stats
 }
 
+// DiscardPending releases dispatcher work after the whole engine queue is cleared.
+func (e *Egress) DiscardPending() {
+	e.stats.BudgetWait += e.currentBudgetWait()
+	e.stats.QueuedPackets = 0
+	e.readyOutputs = nil
+	e.budgetWaiting = false
+	e.nextGrantAt = e.engine.Now()
+	e.grantBeyondEnd = false
+	e.wakeEvent = 0
+}
+
 // Stats combines this FIFO's admissions with the link's physical progress.
 func (output *Output) Stats() Stats {
 	stats := output.link.Stats()
@@ -172,6 +183,13 @@ func (output *Output) Stats() Stats {
 	stats.QueueDroppedBytes = output.stats.QueueDroppedBytes
 	stats.QueuedPackets = output.queued()
 	return stats
+}
+
+// DiscardPending releases this output's queue after the whole engine queue is cleared.
+func (output *Output) DiscardPending() {
+	output.queue = nil
+	output.queueHead = 0
+	output.readyIndex = -1
 }
 
 // queued counts waiting packets without the consumed prefix of the slice.

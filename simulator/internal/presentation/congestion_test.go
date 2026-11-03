@@ -96,11 +96,13 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 			}
 
 			advanceProjection(t, world, world.EndTime())
-			if err := world.RemoveBackend("one"); err != nil {
+			world.ClearConnections()
+			if err := world.StopBackend("one"); err != nil {
 				t.Fatal(err)
 			}
 			finished := BuildResult(world, 0)
-			if finished.CompletedStreams != 1 || len(finished.State.Servers) != 0 ||
+			if finished.CompletedStreams != 1 || len(finished.State.Servers) != 1 ||
+				finished.State.Servers[0].Server.Active || len(finished.State.Servers[0].Clients) != 0 ||
 				len(finished.ClientCongestion) != 1 {
 				t.Fatalf("completed report lost the client: %+v", finished.ClientCongestion)
 			}

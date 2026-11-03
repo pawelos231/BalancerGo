@@ -18,6 +18,12 @@ func (c *configuration) registerTCPFlags() {
 	c.clientIdleTimeout = &clientIdle
 	c.lbHalfOpenIdleTimeout = &halfOpenIdle
 	c.lbEstablishedIdleTimeout = &establishedIdle
+	closingIdle, resetIdle := c.effectiveLBFinalIdleTimeouts()
+	c.lbClosingIdleTimeout = &closingIdle
+	c.lbResetIdleTimeout = &resetIdle
+	backendHalfOpen, backendEstablished := c.effectiveBackendIdleTimeouts()
+	c.backendHalfOpenIdleTimeout = &backendHalfOpen
+	c.backendEstablishedIdleTimeout = &backendEstablished
 	flag.DurationVar(&c.closeConfig.MSL, "tcp-msl", closeConfig.MSL,
 		"maximum segment lifetime; TIME_WAIT lasts twice this virtual duration")
 	flag.DurationVar(&c.closeConfig.FinWaitTimeout, "tcp-fin-wait-timeout", closeConfig.FinWaitTimeout,
@@ -105,6 +111,18 @@ func (c *configuration) registerTCPFlags() {
 		"client idle timeout; 0 disables idle cleanup",
 	)
 	flag.DurationVar(
+		c.backendHalfOpenIdleTimeout,
+		"backend-half-open-idle-timeout",
+		backendHalfOpen,
+		"backend handshake deadline; 0 disables cleanup",
+	)
+	flag.DurationVar(
+		c.backendEstablishedIdleTimeout,
+		"backend-established-idle-timeout",
+		backendEstablished,
+		"backend connection idle timeout; 0 disables cleanup",
+	)
+	flag.DurationVar(
 		c.lbHalfOpenIdleTimeout,
 		"lb-half-open-idle-timeout",
 		halfOpenIdle,
@@ -115,6 +133,18 @@ func (c *configuration) registerTCPFlags() {
 		"lb-established-idle-timeout",
 		establishedIdle,
 		"LB established idle timeout; 0 disables cleanup",
+	)
+	flag.DurationVar(
+		c.lbClosingIdleTimeout,
+		"lb-closing-idle-timeout",
+		closingIdle,
+		"LB closing idle timeout; 0 disables cleanup",
+	)
+	flag.DurationVar(
+		c.lbResetIdleTimeout,
+		"lb-reset-idle-timeout",
+		resetIdle,
+		"LB reset idle timeout; 0 disables cleanup",
 	)
 }
 
@@ -174,6 +204,33 @@ func (c configuration) effectiveIdleTimeouts() (client, halfOpen, established ti
 	}
 	if c.lbEstablishedIdleTimeout != nil {
 		established = *c.lbEstablishedIdleTimeout
+	}
+	return
+}
+
+// effectiveLBFinalIdleTimeouts keeps closing and reset limits independent of endpoint timers.
+func (c configuration) effectiveLBFinalIdleTimeouts() (closing, reset time.Duration) {
+	closing = model.DefaultLBClosingIdleTimeout
+	reset = model.DefaultLBResetIdleTimeout
+	if c.lbClosingIdleTimeout != nil {
+		closing = *c.lbClosingIdleTimeout
+	}
+	if c.lbResetIdleTimeout != nil {
+		reset = *c.lbResetIdleTimeout
+	}
+	return
+}
+
+// effectiveBackendIdleTimeouts keeps omitted settings distinct from disabled cleanup.
+func (c configuration) effectiveBackendIdleTimeouts() (halfOpen, established time.Duration) {
+	halfOpen = model.DefaultBackendHalfOpenIdleTimeout
+	established = model.DefaultBackendEstablishedIdleTimeout
+
+	if c.backendHalfOpenIdleTimeout != nil {
+		halfOpen = *c.backendHalfOpenIdleTimeout
+	}
+	if c.backendEstablishedIdleTimeout != nil {
+		established = *c.backendEstablishedIdleTimeout
 	}
 	return
 }

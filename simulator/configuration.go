@@ -14,17 +14,21 @@ import (
 )
 
 type configuration struct {
-	clients                  int
-	servers                  int
-	packets                  int
-	streamBytes              int
-	receiveBufferBytes       int
-	rto                      model.RTOConfig
-	closeConfig              *model.CloseConfig
-	congestion               model.CongestionConfig
-	clientIdleTimeout        *time.Duration
-	lbHalfOpenIdleTimeout    *time.Duration
-	lbEstablishedIdleTimeout *time.Duration
+	clients                       int
+	servers                       int
+	packets                       int
+	streamBytes                   int
+	receiveBufferBytes            int
+	rto                           model.RTOConfig
+	closeConfig                   *model.CloseConfig
+	congestion                    model.CongestionConfig
+	clientIdleTimeout             *time.Duration
+	backendHalfOpenIdleTimeout    *time.Duration
+	backendEstablishedIdleTimeout *time.Duration
+	lbHalfOpenIdleTimeout         *time.Duration
+	lbEstablishedIdleTimeout      *time.Duration
+	lbClosingIdleTimeout          *time.Duration
+	lbResetIdleTimeout            *time.Duration
 
 	clientGap        time.Duration
 	packetGap        time.Duration

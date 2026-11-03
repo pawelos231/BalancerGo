@@ -24,11 +24,13 @@ type Scenario struct {
 // TCPConfig separates transport timers and receive buffering from network links.
 // Omitted settings inherit defaults; a zero idle timeout disables idle cleanup.
 type TCPConfig struct {
-	ReceiveBufferBytes *int             `json:"receiveBufferBytes,omitempty"`
-	RTO                RTOConfig        `json:"rto"`
-	Close              CloseConfig      `json:"close"`
-	CongestionControl  CongestionConfig `json:"congestionControl"`
-	ClientIdleTimeout  *time.Duration   `json:"clientIdleTimeoutNanoseconds,omitempty"`
+	ReceiveBufferBytes            *int             `json:"receiveBufferBytes,omitempty"`
+	RTO                           RTOConfig        `json:"rto"`
+	Close                         CloseConfig      `json:"close"`
+	CongestionControl             CongestionConfig `json:"congestionControl"`
+	ClientIdleTimeout             *time.Duration   `json:"clientIdleTimeoutNanoseconds,omitempty"`
+	BackendHalfOpenIdleTimeout    *time.Duration   `json:"backendHalfOpenIdleTimeoutNanoseconds,omitempty"`
+	BackendEstablishedIdleTimeout *time.Duration   `json:"backendEstablishedIdleTimeoutNanoseconds,omitempty"`
 }
 
 // CloseConfig bounds orderly shutdown while retaining duplicate-FIN protection.
@@ -128,6 +130,8 @@ type LoadBalancerConfig struct {
 	ForwardingBitsPerSecond int64          `json:"forwardingBitsPerSecond"`
 	HalfOpenIdleTimeout     *time.Duration `json:"halfOpenIdleTimeoutNanoseconds,omitempty"`
 	EstablishedIdleTimeout  *time.Duration `json:"establishedIdleTimeoutNanoseconds,omitempty"`
+	ClosingIdleTimeout      *time.Duration `json:"closingIdleTimeoutNanoseconds,omitempty"`
+	ResetIdleTimeout        *time.Duration `json:"resetIdleTimeoutNanoseconds,omitempty"`
 }
 
 // BackendConfig identifies one server and its network settings.

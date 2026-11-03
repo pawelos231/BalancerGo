@@ -15,10 +15,8 @@ import (
 )
 
 const (
-	HalfOpenTimeout    = model.DefaultLBHalfOpenIdleTimeout
-	EstablishedTimeout = model.DefaultLBEstablishedIdleTimeout
-	CleanupInterval    = 5 * time.Second
-	healthInterval     = time.Second
+	CleanupInterval = 5 * time.Second
+	healthInterval  = time.Second
 )
 
 type Sender func(model.Packet)
@@ -27,6 +25,8 @@ type healthCheck struct {
 	tick    engine.EventID
 	timeout engine.EventID
 	serial  uint64
+	healthy bool
+	view    server.Server // Backend settings and connection counts known to this LB.
 }
 
 type LoadBalancer struct {
@@ -40,7 +40,7 @@ type LoadBalancer struct {
 	clientOrder     []*client.Client
 	connTable       map[*server.Server][]*client.Client
 	byKey           map[model.ClientKey]*server.Server
-	lastActivity    map[model.ClientKey]time.Duration
+	connections     map[model.ClientKey]*connectionState
 	clientTx        map[model.ClientKey]Sender
 	toServer        map[*server.Server]Sender
 	health          map[*server.Server]*healthCheck
@@ -48,8 +48,7 @@ type LoadBalancer struct {
 	cleanup         engine.EventID
 	closed          bool
 
-	halfOpenIdleTimeout    time.Duration
-	establishedIdleTimeout time.Duration
+	timeouts TimeoutConfig
 }
 
 func NewLoadBalancer(e *engine.Engine, mode model.LBMode, algo algorithms.Algorithm, refreshInterval time.Duration, rng *rand.Rand) *LoadBalancer {
@@ -58,59 +57,51 @@ func NewLoadBalancer(e *engine.Engine, mode model.LBMode, algo algorithms.Algori
 	}
 	lb := &LoadBalancer{
 		engine: e, Mode: mode, algo: algo, RefreshInterval: refreshInterval, rng: rng,
-		clients:                make(map[model.ClientKey]*client.Client),
-		connTable:              make(map[*server.Server][]*client.Client),
-		byKey:                  make(map[model.ClientKey]*server.Server),
-		lastActivity:           make(map[model.ClientKey]time.Duration),
-		clientTx:               make(map[model.ClientKey]Sender),
-		toServer:               make(map[*server.Server]Sender),
-		health:                 make(map[*server.Server]*healthCheck),
-		halfOpenIdleTimeout:    HalfOpenTimeout,
-		establishedIdleTimeout: EstablishedTimeout,
+		clients:     make(map[model.ClientKey]*client.Client),
+		connTable:   make(map[*server.Server][]*client.Client),
+		byKey:       make(map[model.ClientKey]*server.Server),
+		connections: make(map[model.ClientKey]*connectionState),
+		clientTx:    make(map[model.ClientKey]Sender),
+		toServer:    make(map[*server.Server]Sender),
+		health:      make(map[*server.Server]*healthCheck),
+		timeouts: TimeoutConfig{
+			HalfOpen:    model.DefaultLBHalfOpenIdleTimeout,
+			Established: model.DefaultLBEstablishedIdleTimeout,
+			Closing:     model.DefaultLBClosingIdleTimeout,
+			Reset:       model.DefaultLBResetIdleTimeout,
+		},
 	}
 	lb.scheduleCleanup()
 	return lb
-}
-
-// SetIdleTimeouts sets separate cleanup limits before any clients arrive.
-// Zero disables that limit, so long retransmission waits can be studied alone.
-func (lb *LoadBalancer) SetIdleTimeouts(halfOpen, established time.Duration) {
-	if halfOpen < 0 || established < 0 {
-		panic("balancer: idle timeouts must be nonnegative")
-	}
-	if len(lb.clients) != 0 {
-		panic("balancer: idle timeouts must be configured before adding clients")
-	}
-	lb.halfOpenIdleTimeout = halfOpen
-	lb.establishedIdleTimeout = established
 }
 
 func (lb *LoadBalancer) AddClient(cl *client.Client, send Sender) error {
 	if lb.closed || cl == nil || cl.IsTerminated() || send == nil {
 		return errors.New("balancer: cannot add client")
 	}
+
 	key := cl.Key()
-	if _, exists := lb.clients[key]; exists {
+	if lb.byKey[key] != nil {
 		return fmt.Errorf("balancer: duplicate client key: %v", key)
 	}
+
+	previous := lb.clients[key]
 	lb.clients[key], lb.clientTx[key] = cl, send
-	lb.lastActivity[key] = lb.engine.Now()
-	lb.clientOrder = append(lb.clientOrder, cl)
-	previous := cl.OnClose
-	cl.OnClose = func() {
-		if lb.clients[key] == cl {
-			lb.forgetClient(key)
-		}
-		if previous != nil {
-			previous()
+	if previous != nil {
+		for i, existing := range lb.clientOrder {
+			if existing == previous {
+				lb.clientOrder[i] = cl
+				return nil
+			}
 		}
 	}
+	lb.clientOrder = append(lb.clientOrder, cl)
 	return nil
 }
 
 // The instance check prevents old deliveries from reaching a replacement client.
 func (lb *LoadBalancer) HasClient(cl *client.Client) bool {
-	return !lb.closed && cl != nil && lb.clients[cl.Key()] == cl && !cl.IsTerminated()
+	return !lb.closed && cl != nil && lb.clients[cl.Key()] == cl
 }
 
 func (lb *LoadBalancer) GetClient(key model.ClientKey) *client.Client { return lb.clients[key] }
@@ -126,7 +117,13 @@ func (lb *LoadBalancer) AddServer(srv *server.Server, send Sender) error {
 	}
 	lb.servers = append(lb.servers, srv)
 	lb.toServer[srv] = send
-	check := &healthCheck{}
+	check := &healthCheck{
+		healthy: true,
+		view: server.Server{
+			ID: srv.ID, Name: srv.Name, Address: srv.Address, Port: srv.Port,
+			Weight: srv.Weight, MaxConnections: srv.MaxConnections,
+		},
+	}
 	lb.health[srv] = check
 	lb.scheduleHealthCheck(srv, check)
 	return nil
@@ -137,31 +134,34 @@ func (lb *LoadBalancer) HandleClientPacket(pkt model.Packet) {
 	if cl == nil || !lb.HasClient(cl) {
 		return
 	}
-	lb.lastActivity[pkt.Key] = lb.engine.Now()
 	srv := lb.byKey[pkt.Key]
-	if srv == nil && pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagACK == 0 {
+	if srv == nil && pkt.Flag == model.FlagSYN && supportedMappingPacket(pkt, false) {
 		var err error
 		srv, err = lb.Route(cl)
 		if err != nil {
 			return
 		} // The client's virtual timeout handles this.
 	}
-	if srv == nil || srv.Killed {
+	if srv == nil {
 		return
 	}
+	connection := lb.connections[pkt.Key]
+	connection.observe(pkt, false, lb.engine.Now())
+
 	lb.forward(lb.toServer[srv], pkt, func() bool {
-		return lb.HasClient(cl) && lb.byKey[pkt.Key] == srv && !srv.Killed
+		return lb.HasClient(cl) && lb.connections[pkt.Key] == connection
 	})
 }
 
 func (lb *LoadBalancer) HandleServerPacket(srv *server.Server, pkt model.Packet) {
 	cl := lb.clients[pkt.Key]
-	if cl == nil || !lb.HasClient(cl) || lb.byKey[pkt.Key] != srv || srv.Killed {
+	if cl == nil || !lb.HasClient(cl) || lb.byKey[pkt.Key] != srv {
 		return
 	}
-	lb.lastActivity[pkt.Key] = lb.engine.Now()
+	connection := lb.connections[pkt.Key]
+	connection.observe(pkt, true, lb.engine.Now())
 	lb.forward(lb.clientTx[pkt.Key], pkt, func() bool {
-		return lb.HasClient(cl) && lb.byKey[pkt.Key] == srv && !srv.Killed
+		return lb.HasClient(cl) && lb.connections[pkt.Key] == connection
 	})
 }
 
@@ -187,32 +187,38 @@ func (lb *LoadBalancer) Route(cl *client.Client) (*server.Server, error) {
 	}
 	eligible := make([]*server.Server, 0, len(lb.servers))
 	for _, srv := range lb.servers {
-		if srv.CanAcceptNewConnection() {
-			eligible = append(eligible, srv)
+		check := lb.health[srv]
+		if check.healthy {
+			check.view.ActiveConnections = uint32(len(lb.connTable[srv]))
+			eligible = append(eligible, &check.view)
 		}
 	}
 
-	srv, err := lb.algo.Pick(eligible)
+	selected, err := lb.algo.Pick(eligible)
 	if err != nil {
 		return nil, err
 	}
-	if srv == nil {
+	if selected == nil {
 		return nil, errors.New("balancer: no available backend")
 	}
-
-	lb.connTable[srv] = append(lb.connTable[srv], cl)
-	lb.byKey[cl.Key()] = srv
-	return srv, nil
+	for _, srv := range lb.servers {
+		if &lb.health[srv].view == selected {
+			lb.connTable[srv] = append(lb.connTable[srv], cl)
+			lb.byKey[cl.Key()] = srv
+			lb.connections[cl.Key()] = &connectionState{
+				lastActivity: lb.engine.Now(),
+				phase:        stateHalfOpen,
+			}
+			return srv, nil
+		}
+	}
+	return nil, errors.New("balancer: algorithm selected an unknown backend")
 }
 
-func (lb *LoadBalancer) forgetClient(key model.ClientKey) {
+// forgetRoute releases only the mapping owned by this LB.
+func (lb *LoadBalancer) forgetRoute(key model.ClientKey) {
 	cl := lb.clients[key]
 	if srv := lb.byKey[key]; srv != nil {
-		// Normal teardown belongs to the endpoints; the peer may still be in TIME_WAIT.
-		// Forced disappearance keeps legacy shared cleanup until the lifecycle refactor.
-		if cl == nil || cl.GetConnectionState().Outcome != model.CloseGraceful {
-			srv.ForgetConnection(key)
-		}
 		list := lb.connTable[srv]
 		for i, entry := range list {
 			if entry == cl {
@@ -223,30 +229,8 @@ func (lb *LoadBalancer) forgetClient(key model.ClientKey) {
 			}
 		}
 	}
-	delete(lb.clients, key)
 	delete(lb.byKey, key)
-	delete(lb.clientTx, key)
-	delete(lb.lastActivity, key)
-}
-
-func (lb *LoadBalancer) RemoveServer(srv *server.Server) {
-	for _, cl := range append([]*client.Client(nil), lb.connTable[srv]...) {
-		cl.ShutdownWithReason(model.TransferBackendRemoved)
-	}
-	if check := lb.health[srv]; check != nil {
-		lb.engine.Cancel(check.tick)
-		lb.engine.Cancel(check.timeout)
-		delete(lb.health, srv)
-	}
-	for i, candidate := range lb.servers {
-		if candidate == srv {
-			lb.servers = append(lb.servers[:i], lb.servers[i+1:]...)
-			break
-		}
-	}
-	delete(lb.toServer, srv)
-	delete(lb.connTable, srv)
-	srv.Shutdown()
+	delete(lb.connections, key)
 }
 
 func (lb *LoadBalancer) GetServers() []*server.Server {
@@ -261,12 +245,11 @@ func (lb *LoadBalancer) GetConnectionTable() map[*server.Server][]*client.Client
 	return result
 }
 
+// ClearConnectionTable drops LB mappings while leaving endpoints and registrations intact.
 func (lb *LoadBalancer) ClearConnectionTable() {
-	for _, cl := range lb.clientOrder {
-		if lb.clients[cl.Key()] == cl {
-			cl.Shutdown()
-		}
-	}
+	clear(lb.connTable)
+	clear(lb.byKey)
+	clear(lb.connections)
 }
 
 func (lb *LoadBalancer) SetAlgorithm(algo algorithms.Algorithm) {
@@ -289,78 +272,20 @@ func (lb *LoadBalancer) SetChaosConfig(config *model.ChaosConfig) {
 	lb.chaos = *config
 }
 
-func (lb *LoadBalancer) ReviveServer(serverID string) error {
-	for _, srv := range lb.servers {
-		if srv.ID == serverID {
-			if srv.Killed {
-				return fmt.Errorf("balancer: server %s has been shut down", serverID)
-			}
-			srv.MarkHealthy()
-			return nil
-		}
-	}
-	return fmt.Errorf("balancer: server %s not found", serverID)
-}
-
-func (lb *LoadBalancer) KillRandomServer() (string, error) {
-	var candidates []*server.Server
-	for _, srv := range lb.servers {
-		if srv.IsHealthy() {
-			candidates = append(candidates, srv)
-		}
-	}
-	if len(candidates) == 0 {
-		return "", errors.New("balancer: no healthy server")
-	}
-	srv := candidates[lb.rng.Intn(len(candidates))]
-	srv.Shutdown()
-	return srv.ID, nil
-}
-
-func (lb *LoadBalancer) KillRandomClient() (string, error) {
-	var candidates []*client.Client
-	for _, cl := range lb.clientOrder {
-		if lb.HasClient(cl) {
-			candidates = append(candidates, cl)
-		}
-	}
-	if len(candidates) == 0 {
-		return "", errors.New("balancer: no client")
-	}
-	cl := candidates[lb.rng.Intn(len(candidates))]
-	cl.Shutdown()
-	return cl.Key().SrcIP, nil
-}
-
+// scheduleCleanup checks idle mappings every five virtual seconds.
+// Traffic arriving before a sweep can refresh a mapping past its nominal deadline.
 func (lb *LoadBalancer) scheduleCleanup() {
 	lb.cleanup = lb.engine.ScheduleAfter(CleanupInterval, func() {
 		if lb.closed {
 			return
 		}
 		// Stable ordering keeps timer actions independent of Go map iteration.
-		remaining := lb.clientOrder[:0]
 		for _, cl := range lb.clientOrder {
 			key := cl.Key()
-			if lb.clients[key] != cl {
-				continue
-			}
-			if cl.IsClosing() {
-				// FIN retries and closing-state timers own this wait, including TIME_WAIT.
-				remaining = append(remaining, cl)
-				continue
-			}
-			timeout := lb.establishedIdleTimeout
-			if !cl.IsHandshakeCompleted() {
-				timeout = lb.halfOpenIdleTimeout
-			}
-			if timeout > 0 && lb.engine.Now()-lb.lastActivity[key] >= timeout {
-				cl.ShutdownWithReason(model.TransferBalancerTimeout)
-			} else {
-				remaining = append(remaining, cl)
+			if connection := lb.connections[key]; connection != nil && lb.expired(connection) {
+				lb.forgetRoute(key)
 			}
 		}
-		clear(lb.clientOrder[len(remaining):])
-		lb.clientOrder = remaining
 		lb.scheduleCleanup()
 	})
 }
@@ -368,20 +293,20 @@ func (lb *LoadBalancer) scheduleCleanup() {
 // Probes retain the old idealised path. They do not yet consume link capacity.
 func (lb *LoadBalancer) scheduleHealthCheck(srv *server.Server, check *healthCheck) {
 	check.tick = lb.engine.ScheduleAfter(healthInterval, func() {
-		if lb.closed || lb.health[srv] != check || srv.Killed {
+		if lb.closed || lb.health[srv] != check {
 			return
 		}
 		check.serial++
 		serial := check.serial
 		check.timeout = lb.engine.ScheduleAfter(healthInterval/2, func() {
-			if lb.health[srv] == check && check.serial == serial && !srv.Killed {
-				srv.UpdateHealth(false, srv.LatencyP95Milli)
+			if lb.health[srv] == check && check.serial == serial {
+				check.healthy = false
 			}
 		})
 		srv.HandleProbe(func() {
-			if lb.health[srv] == check && check.serial == serial && !srv.Killed {
+			if lb.health[srv] == check && check.serial == serial {
 				lb.engine.Cancel(check.timeout)
-				srv.UpdateHealth(true, srv.LatencyP95Milli)
+				check.healthy = true
 			}
 		})
 		lb.scheduleHealthCheck(srv, check)
@@ -411,7 +336,14 @@ func (lb *LoadBalancer) Shutdown() {
 	lb.closed = true
 	lb.engine.Cancel(lb.cleanup)
 	lb.ClearConnectionTable()
-	for _, srv := range append([]*server.Server(nil), lb.servers...) {
-		lb.RemoveServer(srv)
+	for _, check := range lb.health {
+		lb.engine.Cancel(check.tick)
+		lb.engine.Cancel(check.timeout)
 	}
+	clear(lb.clients)
+	clear(lb.clientTx)
+	clear(lb.toServer)
+	clear(lb.health)
+	lb.clientOrder = nil
+	lb.servers = nil
 }

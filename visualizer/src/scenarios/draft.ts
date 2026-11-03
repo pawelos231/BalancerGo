@@ -36,8 +36,12 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   tcpFinWaitTimeoutMs: ['tcp', 'close', 'finWaitTimeoutNanoseconds'],
   tcpMaxFINRetries: ['tcp', 'close', 'maxFINRetries'],
   clientIdleTimeoutMs: ['tcp', 'clientIdleTimeoutNanoseconds'],
+  backendHalfOpenIdleTimeoutMs: ['tcp', 'backendHalfOpenIdleTimeoutNanoseconds'],
+  backendEstablishedIdleTimeoutMs: ['tcp', 'backendEstablishedIdleTimeoutNanoseconds'],
   lbHalfOpenIdleTimeoutMs: ['resources', 'loadBalancer', 'halfOpenIdleTimeoutNanoseconds'],
   lbEstablishedIdleTimeoutMs: ['resources', 'loadBalancer', 'establishedIdleTimeoutNanoseconds'],
+  lbClosingIdleTimeoutMs: ['resources', 'loadBalancer', 'closingIdleTimeoutNanoseconds'],
+  lbResetIdleTimeoutMs: ['resources', 'loadBalancer', 'resetIdleTimeoutNanoseconds'],
   packetGapMs: ['workload', 'defaults', 'packetGapNanoseconds'],
   bandwidthBitsPerSecond: ['network', 'defaults', 'bandwidthBitsPerSecond'],
   packetTravelTimeMs: ['network', 'defaults', 'packetTravelTimeNanoseconds'],
@@ -63,8 +67,12 @@ const timeDecimals: Partial<Record<ScenarioField, number>> = {
   tcpMSLMs: 6,
   tcpFinWaitTimeoutMs: 6,
   clientIdleTimeoutMs: 6,
+  backendHalfOpenIdleTimeoutMs: 6,
+  backendEstablishedIdleTimeoutMs: 6,
   lbHalfOpenIdleTimeoutMs: 6,
   lbEstablishedIdleTimeoutMs: 6,
+  lbClosingIdleTimeoutMs: 6,
+  lbResetIdleTimeoutMs: 6,
 };
 
 const floatFields = new Set<ScenarioField>(['speed', 'loss', 'ingressLoss']);
@@ -93,8 +101,12 @@ const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>
   tcpFinWaitTimeoutMs: 60_000_000_000,
   tcpMaxFINRetries: 5,
   clientIdleTimeoutMs: 20_000_000_000,
+  backendHalfOpenIdleTimeoutMs: 5_000_000_000,
+  backendEstablishedIdleTimeoutMs: 0,
   lbHalfOpenIdleTimeoutMs: 5_000_000_000,
   lbEstablishedIdleTimeoutMs: 50_000_000_000,
+  lbClosingIdleTimeoutMs: 120_000_000_000,
+  lbResetIdleTimeoutMs: 10_000_000_000,
 };
 
 // Reject already-rounded numbers before converting native document integers.

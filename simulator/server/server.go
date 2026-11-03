@@ -45,20 +45,22 @@ type Server struct {
 	// Called only for new payload accepted by a connection, before its ACK is sent.
 	OnPayloadReceived func(int)
 
-	receivedPayloadBytes uint64
-	receiveBufferBytes   uint16
-	engine               *engine.Engine
-	sender               func(model.Packet)
-	connections          map[model.ClientKey]*connection
-	closeConfig          model.CloseConfig
-	rtoConfig            model.RTOConfig
-	started              bool
-	statisticsEvent      engine.EventID
-	previousPacketCount  uint32
-	probeEvents          map[engine.EventID]struct{}
-	latencySamples       [100]int64
-	latencyCount         int
-	latencyPosition      int
+	receivedPayloadBytes   uint64
+	receiveBufferBytes     uint16
+	engine                 *engine.Engine
+	sender                 func(model.Packet)
+	connections            map[model.ClientKey]*connection
+	halfOpenIdleTimeout    time.Duration
+	establishedIdleTimeout time.Duration
+	closeConfig            model.CloseConfig
+	rtoConfig              model.RTOConfig
+	started                bool
+	statisticsEvent        engine.EventID
+	previousPacketCount    uint32
+	probeEvents            map[engine.EventID]struct{}
+	latencySamples         [100]int64
+	latencyCount           int
+	latencyPosition        int
 }
 
 func NewServer(
@@ -78,10 +80,12 @@ func NewServer(
 		Tags: []string{}, Metadata: make(map[string]string),
 		DrainTimeout: 120 * time.Second, LastUpdated: e.Now(),
 		engine: e, connections: make(map[model.ClientKey]*connection),
-		probeEvents:        make(map[engine.EventID]struct{}),
-		receiveBufferBytes: model.DefaultReceiveBufferBytes,
-		closeConfig:        model.DefaultCloseConfig(),
-		rtoConfig:          model.DefaultRTOConfig(),
+		probeEvents:            make(map[engine.EventID]struct{}),
+		receiveBufferBytes:     model.DefaultReceiveBufferBytes,
+		closeConfig:            model.DefaultCloseConfig(),
+		rtoConfig:              model.DefaultRTOConfig(),
+		halfOpenIdleTimeout:    model.DefaultBackendHalfOpenIdleTimeout,
+		establishedIdleTimeout: model.DefaultBackendEstablishedIdleTimeout,
 	}
 }
 

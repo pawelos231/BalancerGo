@@ -9,7 +9,7 @@ import (
 )
 
 // A blackholed SYN can retry through 63 s when client/LB idle timers are disabled.
-// A 750 ms client limit closes directly; a 1 s LB limit is checked every 5 s.
+// Only the client's idle limit ends its attempt; LB cleanup leaves the sender alone.
 func TestWorldRTOBlackholedSYNIdlePolicies(t *testing.T) {
 	for _, test := range []struct {
 		name            string
@@ -32,9 +32,9 @@ func TestWorldRTOBlackholedSYNIdlePolicies(t *testing.T) {
 			elapsed: 750 * time.Millisecond, currentRTO: time.Second,
 		},
 		{
-			name: "half-open LB timeout", halfOpenIdle: time.Second,
-			until: 40 * time.Second, failure: model.TransferBalancerTimeout,
-			elapsed: 5 * time.Second, retries: 2, currentRTO: 4 * time.Second,
+			name: "LB half-open limit does not stop sender", halfOpenIdle: time.Second,
+			until: 40 * time.Second, elapsed: 40 * time.Second,
+			retries: 5, currentRTO: 32 * time.Second,
 		},
 		{
 			name: "established timer ignores SYN", establishedIdle: time.Millisecond,
@@ -50,7 +50,7 @@ func TestWorldRTOBlackholedSYNIdlePolicies(t *testing.T) {
 			input.Resources.LoadBalancer.HalfOpenIdleTimeout = &test.halfOpenIdle
 			input.Resources.LoadBalancer.EstablishedIdleTimeout = &test.establishedIdle
 			world := New(normalizedRuntimeScenario(t, input))
-			t.Cleanup(world.lb.Shutdown)
+			t.Cleanup(world.Stop)
 
 			runIngressUntil(t, world, test.until)
 			observed := onlyRTOClient(t, world)
@@ -73,7 +73,7 @@ func TestWorldRTOBlackholedSYNIdlePolicies(t *testing.T) {
 }
 
 // An established connection ignores the 1 ms half-open limit while waiting to send.
-// Its own 2 s idle limit closes at the 5 s cleanup tick; zero keeps it alive beyond 50 s.
+// The LB's 2 s idle limit expires its route at 5 s, leaving both endpoints alive.
 func TestWorldRTOEstablishedIdlePolicy(t *testing.T) {
 	for _, establishedIdle := range []time.Duration{0, 2 * time.Second} {
 		t.Run(establishedIdle.String(), func(t *testing.T) {
@@ -85,7 +85,7 @@ func TestWorldRTOEstablishedIdlePolicy(t *testing.T) {
 			input.Resources.LoadBalancer.EstablishedIdleTimeout = &establishedIdle
 			input.Workload.Defaults = scenario.StreamConfig{Bytes: 1, PacketGap: 2 * time.Minute}
 			world := New(normalizedRuntimeScenario(t, input))
-			t.Cleanup(world.lb.Shutdown)
+			t.Cleanup(world.Stop)
 
 			// Handshake finishes quickly; no data or ACK traffic refreshes its idle clock.
 			runIngressUntil(t, world, 5*time.Second-time.Nanosecond)
@@ -93,11 +93,17 @@ func TestWorldRTOEstablishedIdlePolicy(t *testing.T) {
 			if !beforeCleanup.Active || !beforeCleanup.State.Transfer.HandshakeCompleted {
 				t.Fatalf("established connection closed before its cleanup tick: %+v", beforeCleanup)
 			}
+			if len(readWorld(world).Routes) != 1 {
+				t.Fatal("the established route expired before its cleanup tick")
+			}
 
 			if establishedIdle == 0 {
 				runIngressUntil(t, world, input.Execution.Duration)
 				if observed := onlyRTOClient(t, world); !observed.Active {
 					t.Fatalf("disabled established idle timer still closed the client: %+v", observed)
+				}
+				if len(readWorld(world).Routes) != 1 {
+					t.Fatal("disabled LB cleanup still expired the established route")
 				}
 				return
 			}
@@ -105,9 +111,12 @@ func TestWorldRTOEstablishedIdlePolicy(t *testing.T) {
 			runIngressUntil(t, world, 5*time.Second)
 			observed := onlyRTOClient(t, world)
 			transfer := observed.State.Transfer
-			if observed.Active || transfer.FailureReason != model.TransferBalancerTimeout ||
+			if !observed.Active || transfer.FailureReason != "" ||
 				transfer.Elapsed != 5*time.Second {
-				t.Fatalf("established idle cleanup = %+v", observed)
+				t.Fatalf("LB cleanup changed the client: %+v", observed)
+			}
+			if len(readWorld(world).Routes) != 0 || world.lb.GetServers()[0].ActiveConnections != 1 {
+				t.Fatal("LB cleanup did not expire only its own route")
 			}
 		})
 	}
@@ -136,7 +145,7 @@ func TestWorldRTOMeasuresPhysicalTopologyAndUsesFixedConfiguration(t *testing.T)
 				}
 			}
 			world := New(normalizedRuntimeScenario(t, input))
-			t.Cleanup(world.lb.Shutdown)
+			t.Cleanup(world.Stop)
 			runIngressUntil(t, world, input.Execution.Duration)
 
 			observed := onlyRTOClient(t, world)

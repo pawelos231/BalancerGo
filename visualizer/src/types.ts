@@ -119,8 +119,12 @@ export interface SimulationConfig {
   tcpFinWaitTimeoutMs: number;
   tcpMaxFINRetries: number;
   clientIdleTimeoutMs: number;
+  backendHalfOpenIdleTimeoutMs: number;
+  backendEstablishedIdleTimeoutMs: number;
   lbHalfOpenIdleTimeoutMs: number;
   lbEstablishedIdleTimeoutMs: number;
+  lbClosingIdleTimeoutMs: number;
+  lbResetIdleTimeoutMs: number;
   durationSeconds: number;
   clientGapMs: number;
   packetGapMs: number;

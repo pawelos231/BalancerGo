@@ -8,6 +8,7 @@ import {
 } from '../../../src/scenarios/draft.ts';
 import type { ScenarioField } from '../../../src/scenarios/draft.ts';
 import { scenarioFieldSections, scenarioSelectFields } from '../../../src/scenarios/formFields.ts';
+import { serializeScenario } from '../../../src/scenarios/files.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
 import { scenarioFixture } from '../../scenarioFixture.ts';
 
@@ -81,9 +82,84 @@ test('older scenarios display timer defaults without adding settings to the docu
   assert.equal(fields.tcpFinWaitTimeoutMs, '60000');
   assert.equal(fields.tcpMaxFINRetries, '5');
   assert.equal(fields.clientIdleTimeoutMs, '20000');
+  assert.equal(fields.backendHalfOpenIdleTimeoutMs, '5000');
+  assert.equal(fields.backendEstablishedIdleTimeoutMs, '0');
   assert.equal(fields.lbHalfOpenIdleTimeoutMs, '5000');
   assert.equal(fields.lbEstablishedIdleTimeoutMs, '50000');
+  assert.equal(fields.lbClosingIdleTimeoutMs, '120000');
+  assert.equal(fields.lbResetIdleTimeoutMs, '10000');
   assert.deepEqual(scenario, before);
+});
+
+test('LB mapping timers preserve omission, explicit zero and exact native export in every phase', () => {
+  const original = mixedScenario();
+  original.tcp = {
+    backendHalfOpenIdleTimeoutNanoseconds: 123,
+    backendEstablishedIdleTimeoutNanoseconds: 456,
+    rto: { initialTimeoutNanoseconds: 789 },
+    close: { mslNanoseconds: 1_000_000 },
+  };
+  const before = structuredClone(original);
+  const timers = [
+    ['lbHalfOpenIdleTimeoutMs', 'halfOpenIdleTimeoutNanoseconds'],
+    ['lbEstablishedIdleTimeoutMs', 'establishedIdleTimeoutNanoseconds'],
+    ['lbClosingIdleTimeoutMs', 'closingIdleTimeoutNanoseconds'],
+    ['lbResetIdleTimeoutMs', 'resetIdleTimeoutNanoseconds'],
+  ] as const;
+
+  for (const [field, nativeField] of timers) {
+    const disabled = applyScenarioField(original, field, '0');
+    const disabledRoundTrip = JSON.parse(serializeScenario(disabled));
+    assert.equal(disabledRoundTrip.resources.loadBalancer[nativeField], 0);
+    assert.equal(scenarioFormValues(disabledRoundTrip)[field], '0');
+
+    const exact = applyScenarioField(disabledRoundTrip, field, '9007199254.740993');
+    const restored = JSON.parse(serializeScenario(exact));
+    const expected = structuredClone(original);
+    expected.resources.loadBalancer[nativeField] = '9007199254740993';
+    assert.deepEqual(restored, JSON.parse(serializeScenario(expected)));
+    assert.equal(scenarioFormValues(restored)[field], '9007199254.740993');
+    for (const [, omittedField] of timers) {
+      if (omittedField !== nativeField) {
+        assert.equal(Object.hasOwn(restored.resources.loadBalancer, omittedField), false);
+      }
+    }
+    assert.equal(validateScenarioField(field, '0'), undefined);
+    assert.equal(validateScenarioField(field, '0.000001'), undefined);
+    assert.equal(validateScenarioField(field, '9223372036854.775807'), undefined);
+    for (const invalid of ['-1', '0.0000001', '9223372036854.775808', '']) {
+      assert.ok(validateScenarioField(field, invalid), `${field}=${invalid}`);
+      assert.throws(() => applyScenarioField(original, field, invalid));
+    }
+  }
+  assert.deepEqual(original, before);
+  const section = scenarioFieldSections.find((entry) => entry.id === 'load-balancer');
+  assert.deepEqual(section?.fields.slice(-4), timers.map(([field]) => field));
+});
+
+test('backend timer edits retain exact values and do not fill unrelated defaults', () => {
+  const original = mixedScenario();
+  const before = structuredClone(original);
+
+  // Disable handshake cleanup while retaining a large exact idle timeout.
+  let edited = applyScenarioField(original, 'backendHalfOpenIdleTimeoutMs', '0');
+  edited = applyScenarioField(edited, 'backendEstablishedIdleTimeoutMs', '9007199254.740993');
+  const restored = JSON.parse(JSON.stringify(edited));
+
+  assert.deepEqual(restored.tcp, {
+    backendHalfOpenIdleTimeoutNanoseconds: 0,
+    backendEstablishedIdleTimeoutNanoseconds: '9007199254740993',
+  });
+  assert.equal(scenarioFormValues(restored).backendHalfOpenIdleTimeoutMs, '0');
+  assert.equal(scenarioFormValues(restored).backendEstablishedIdleTimeoutMs, '9007199254.740993');
+  assert.deepEqual(original, before);
+
+  for (const field of ['backendHalfOpenIdleTimeoutMs', 'backendEstablishedIdleTimeoutMs'] as const) {
+    assert.equal(validateScenarioField(field, '0'), undefined);
+    assert.equal(validateScenarioField(field, '0.000001'), undefined);
+    assert.ok(validateScenarioField(field, '-1'));
+    assert.ok(validateScenarioField(field, '0.0000001'));
+  }
 });
 
 test('closing fields display backend defaults and preserve exact edits through native export', () => {

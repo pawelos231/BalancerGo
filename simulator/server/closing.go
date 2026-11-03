@@ -125,6 +125,7 @@ func (s *Server) handleFIN(pkt model.Packet, conn *connection) {
 	if !s.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
 		return
 	}
+	s.recordConnectionActivity(pkt.Key, conn)
 	if pkt.Seq != conn.receiver.nextExpectedSeq {
 		conn.pendingFIN = true
 		conn.pendingFINSeq = pkt.Seq
@@ -184,6 +185,9 @@ func (s *Server) acknowledgeFIN(key model.ClientKey, conn *connection, ack uint6
 }
 
 func (s *Server) startFIN(key model.ClientKey, conn *connection, state model.TCPState) {
+	// Closing has its own retry and wait deadlines.
+	s.cancelIdleTimer(conn)
+
 	if !conn.closeStarted {
 		conn.closeStarted = true
 		conn.closeStartedAt = s.engine.Now()
@@ -253,6 +257,7 @@ func (s *Server) finishConnection(key model.ClientKey, conn *connection, outcome
 	if s.connections[key] != conn {
 		return
 	}
+	s.cancelIdleTimer(conn)
 	s.cancelCloseTimers(conn)
 	conn.state = model.TCPClosed
 	conn.outcome = outcome

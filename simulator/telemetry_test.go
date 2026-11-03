@@ -323,47 +323,44 @@ func TestTelemetryArrivalsAndSpawnReviseDefinitions(t *testing.T) {
 	}
 }
 
-// TestTelemetryRemovedBackendsFiltersHistoricalLinks checks IDs as well as counts.
-func TestTelemetryRemovedBackendsFiltersHistoricalLinks(t *testing.T) {
+// A backend failure changes live values; adding another backend revises graph membership.
+func TestTelemetryStoppedBackendsRetainLinksAndNewBackendsReviseDefinitions(t *testing.T) {
 	definition := scenarioRuntimeDefinition()
 	definition.Workload.ClientGroups[0].Count = 0
 	resolved := normalizedRuntimeScenario(t, definition)
 	s := newScenarioSimulation(resolved)
-	publisher := presentation.NewProjector("run-removal")
+	publisher := presentation.NewProjector("run-backend-lifecycle")
 	first := sampleTelemetry(t, publisher, s)
 	frozenFirst := telemetryJSON(t, first.Document)
 	oldLinks := len(presentation.BuildResult(s, 0).Links)
-	removed := first.Document.Servers[0].ID
-	if err := s.RemoveBackend(removed); err != nil {
+	stopped := first.Document.Servers[0].ID
+	if err := s.StopBackend(stopped); err != nil {
 		t.Fatal(err)
 	}
 	second := sampleTelemetry(t, publisher, s)
-	if second.Document == nil || second.Topology.Revision != "2" || len(presentation.BuildResult(s, 0).Links) != oldLinks {
-		t.Fatal("backend removal must revise the graph without discarding historical link objects")
+	if second.Document != nil || second.Topology.Revision != "1" ||
+		len(second.Servers) != len(first.Servers) || second.Servers[0].Active {
+		t.Fatal("stopping a backend must update live state without revising membership")
 	}
-	for _, link := range second.Document.Links {
-		if link.Source == simulation.BackendNodeID(removed) || link.Target == simulation.BackendNodeID(removed) {
-			t.Fatal("removed backend paths leaked into current definitions")
-		}
+	if len(presentation.BuildResult(s, 0).Links) != oldLinks || len(second.Topology.Links) != oldLinks {
+		t.Fatal("stopping a backend discarded its physical paths")
 	}
-	if actual := restoreTelemetryTopology(t, second.Document, second.Topology); !reflect.DeepEqual(actual, presentation.BuildTopology(s)) {
-		t.Fatal("filtered live paths differ from the full projection")
+	if actual := restoreTelemetryTopology(t, first.Document, second.Topology); !reflect.DeepEqual(actual, presentation.BuildTopology(s)) {
+		t.Fatal("stopped backend values differ from the full projection")
 	}
 
-	// Replace the remaining backend before sampling: the count stays the same.
-	if err := s.RemoveBackend(second.Document.Servers[0].ID); err != nil {
-		t.Fatal(err)
-	}
-	replacement := resolved.Backends[0]
-	replacement.ID = "replacement"
-	replacement.Address = "10.99.0.1"
-	s.AddBackend(replacement)
+	// A distinct backend changes actual membership and contributes two additional paths.
+	additional := resolved.Backends[0]
+	additional.ID = "additional"
+	additional.Address = "10.99.0.1"
+	s.AddBackend(additional)
 	third := sampleTelemetry(t, publisher, s)
-	if third.Document == nil || third.Topology.Revision != "3" || len(third.Servers) != len(second.Servers) {
-		t.Fatal("same-count backend replacement must still revise definitions")
+	if third.Document == nil || third.Topology.Revision != "2" ||
+		len(third.Servers) != len(second.Servers)+1 || len(third.Topology.Links) != oldLinks+2 {
+		t.Fatal("new backend membership did not revise complete definitions")
 	}
-	if third.Document.Servers[0].ID != "replacement" {
-		t.Fatal("replacement server definitions did not follow actual membership")
+	if third.Document.Servers[len(third.Servers)-1].ID != "additional" {
+		t.Fatal("additional backend definitions did not follow registration order")
 	}
 	if string(frozenFirst) != string(telemetryJSON(t, first.Document)) {
 		t.Fatal("backend changes mutated an older HTTP document")

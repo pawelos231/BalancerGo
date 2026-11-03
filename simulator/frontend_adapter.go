@@ -97,6 +97,8 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 	closeConfig := c.effectiveCloseConfig()
 	congestion := c.effectiveCongestionConfig()
 	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
+	closingIdle, resetIdle := c.effectiveLBFinalIdleTimeouts()
+	backendHalfOpen, backendEstablished := c.effectiveBackendIdleTimeouts()
 
 	return contract.SimulationConfig{
 		Clients:                         c.clients,
@@ -118,8 +120,12 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		TCPFinWaitTimeoutMs:             float64(closeConfig.FinWaitTimeout) / float64(time.Millisecond),
 		TCPMaxFINRetries:                closeConfig.MaxFINRetries,
 		ClientIdleTimeoutMs:             float64(clientIdle) / float64(time.Millisecond),
+		BackendHalfOpenIdleTimeoutMs:    float64(backendHalfOpen) / float64(time.Millisecond),
+		BackendEstablishedIdleTimeoutMs: float64(backendEstablished) / float64(time.Millisecond),
 		LBHalfOpenIdleTimeoutMs:         float64(halfOpenIdle) / float64(time.Millisecond),
 		LBEstablishedIdleTimeoutMs:      float64(establishedIdle) / float64(time.Millisecond),
+		LBClosingIdleTimeoutMs:          float64(closingIdle) / float64(time.Millisecond),
+		LBResetIdleTimeoutMs:            float64(resetIdle) / float64(time.Millisecond),
 		DurationSeconds:                 float64(c.duration) / float64(time.Second),
 		ClientGapMs:                     float64(c.clientGap) / float64(time.Millisecond),
 		PacketGapMs:                     float64(c.packetGap) / float64(time.Millisecond),
@@ -170,9 +176,15 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 
 	// Keep explicit zero idle limits; zero disables cleanup rather than using defaults.
 	var clientIdle, halfOpenIdle, establishedIdle time.Duration
+	var closingIdle, resetIdle time.Duration
+	var backendHalfOpen, backendEstablished time.Duration
 	base.clientIdleTimeout = &clientIdle
+	base.backendHalfOpenIdleTimeout = &backendHalfOpen
+	base.backendEstablishedIdleTimeout = &backendEstablished
 	base.lbHalfOpenIdleTimeout = &halfOpenIdle
 	base.lbEstablishedIdleTimeout = &establishedIdle
+	base.lbClosingIdleTimeout = &closingIdle
+	base.lbResetIdleTimeout = &resetIdle
 
 	base.clients, base.servers = c.Clients, c.Servers
 	base.packets, base.streamBytes = c.Packets, c.Bytes
@@ -201,8 +213,22 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 		{"tcpMSLMs", c.TCPMSLMs, time.Millisecond, &base.closeConfig.MSL},
 		{"tcpFinWaitTimeoutMs", c.TCPFinWaitTimeoutMs, time.Millisecond, &base.closeConfig.FinWaitTimeout},
 		{"clientIdleTimeoutMs", c.ClientIdleTimeoutMs, time.Millisecond, &clientIdle},
+		{
+			name:  "backendHalfOpenIdleTimeoutMs",
+			value: c.BackendHalfOpenIdleTimeoutMs,
+			unit:  time.Millisecond,
+			out:   &backendHalfOpen,
+		},
+		{
+			name:  "backendEstablishedIdleTimeoutMs",
+			value: c.BackendEstablishedIdleTimeoutMs,
+			unit:  time.Millisecond,
+			out:   &backendEstablished,
+		},
 		{"lbHalfOpenIdleTimeoutMs", c.LBHalfOpenIdleTimeoutMs, time.Millisecond, &halfOpenIdle},
 		{"lbEstablishedIdleTimeoutMs", c.LBEstablishedIdleTimeoutMs, time.Millisecond, &establishedIdle},
+		{"lbClosingIdleTimeoutMs", c.LBClosingIdleTimeoutMs, time.Millisecond, &closingIdle},
+		{"lbResetIdleTimeoutMs", c.LBResetIdleTimeoutMs, time.Millisecond, &resetIdle},
 		{
 			name:  "ingressPacketTravelTimeMs",
 			value: c.IngressPacketTravelTimeMs,

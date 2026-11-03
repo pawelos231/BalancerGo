@@ -16,30 +16,34 @@ func BackendNodeID(resourceID string) string { return "backend/" + resourceID }
 // Info contains scalar run configuration and measurements at the current time.
 // It owns no endpoint references, mutable collections or external representation.
 type Info struct {
-	LoadBalancerID           string
-	Algorithm                string
-	Mode                     model.LBMode
-	Now                      time.Duration
-	EndTime                  time.Duration
-	SnapshotInterval         time.Duration
-	Speed                    float64
-	Seed                     int64
-	ReceiveBufferBytes       int
-	RTO                      model.RTOConfig
-	Close                    model.CloseConfig
-	CongestionControl        model.CongestionConfig
-	ClientIdleTimeout        time.Duration
-	LBHalfOpenIdleTimeout    time.Duration
-	LBEstablishedIdleTimeout time.Duration
-	EventsExecuted           uint64
-	PendingEvents            int
-	ScheduledClients         int
-	CreatedClients           int
-	CompletedStreams         int
-	ClosedClients            int
-	CompletedPayloadBytes    uint64
-	Payload                  PayloadProgress
-	Forwarding               network.ForwardingStats
+	LoadBalancerID                string
+	Algorithm                     string
+	Mode                          model.LBMode
+	Now                           time.Duration
+	EndTime                       time.Duration
+	SnapshotInterval              time.Duration
+	Speed                         float64
+	Seed                          int64
+	ReceiveBufferBytes            int
+	RTO                           model.RTOConfig
+	Close                         model.CloseConfig
+	CongestionControl             model.CongestionConfig
+	ClientIdleTimeout             time.Duration
+	BackendHalfOpenIdleTimeout    time.Duration
+	BackendEstablishedIdleTimeout time.Duration
+	LBHalfOpenIdleTimeout         time.Duration
+	LBEstablishedIdleTimeout      time.Duration
+	LBClosingIdleTimeout          time.Duration
+	LBResetIdleTimeout            time.Duration
+	EventsExecuted                uint64
+	PendingEvents                 int
+	ScheduledClients              int
+	CreatedClients                int
+	CompletedStreams              int
+	ClosedClients                 int
+	CompletedPayloadBytes         uint64
+	Payload                       PayloadProgress
+	Forwarding                    network.ForwardingStats
 }
 
 type ClientObservation struct {
@@ -89,12 +93,16 @@ func (s *World) Info() Info {
 			InitialWindowSegments:          s.scenario.TCP.CongestionControl.InitialWindowSegments,
 			InitialSlowStartThresholdBytes: s.scenario.TCP.CongestionControl.InitialSlowStartThresholdBytes,
 		},
-		RTO:                      configuredRTO(s.scenario.TCP.RTO),
-		Close:                    configuredClose(s.scenario.TCP.Close),
-		ClientIdleTimeout:        s.scenario.TCP.ClientIdleTimeout,
-		LBHalfOpenIdleTimeout:    s.scenario.LoadBalancer.HalfOpenIdleTimeout,
-		LBEstablishedIdleTimeout: s.scenario.LoadBalancer.EstablishedIdleTimeout,
-		EventsExecuted:           s.engine.EventsExecuted(), PendingEvents: s.engine.Pending(),
+		RTO:                           configuredRTO(s.scenario.TCP.RTO),
+		Close:                         configuredClose(s.scenario.TCP.Close),
+		ClientIdleTimeout:             s.scenario.TCP.ClientIdleTimeout,
+		BackendHalfOpenIdleTimeout:    s.scenario.TCP.BackendHalfOpenIdleTimeout,
+		BackendEstablishedIdleTimeout: s.scenario.TCP.BackendEstablishedIdleTimeout,
+		LBHalfOpenIdleTimeout:         s.scenario.LoadBalancer.HalfOpenIdleTimeout,
+		LBEstablishedIdleTimeout:      s.scenario.LoadBalancer.EstablishedIdleTimeout,
+		LBClosingIdleTimeout:          s.scenario.LoadBalancer.ClosingIdleTimeout,
+		LBResetIdleTimeout:            s.scenario.LoadBalancer.ResetIdleTimeout,
+		EventsExecuted:                s.engine.EventsExecuted(), PendingEvents: s.engine.Pending(),
 		ScheduledClients: s.scheduledClients, CreatedClients: s.createdClients,
 		CompletedStreams: s.completedStreams, ClosedClients: s.closedClients,
 		CompletedPayloadBytes: s.completedPayloadBytes, Payload: s.payload,

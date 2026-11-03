@@ -83,7 +83,7 @@ func TestTransferResultsPartitionAttempts(t *testing.T) {
 		telemetry.Topology.Nodes[0].Metrics["inProgressTransfers"] != 1 {
 		t.Fatal("live transfer results differ from headless results")
 	}
-	s.ClearConnections()
+	s.Stop()
 	after := presentation.TransferResults(s)
 	if after.Failed != 2 || after.InProgress != 0 || after.Succeeded != 1 || summary.Failed != 1 ||
 		summary.Failures[contract.TransferInterrupted] != 1 {
@@ -146,21 +146,40 @@ func TestTransferCompletionAtHorizon(t *testing.T) {
 	}
 }
 
-// TestTransferBackendRemovalRecordsExistingInterruption annotates removal without waiting for a new timer.
-func TestTransferBackendRemovalRecordsExistingInterruption(t *testing.T) {
-	s := simulation.New(normalizedRuntimeScenario(t, payloadScenario()))
+// A stopped backend leaves the sender active until its own read timeout expires.
+func TestTransferBackendFailureWaitsForClientTimeout(t *testing.T) {
+	input := payloadScenario()
+	input.TCP.ClientIdleTimeout = scenarioRuntimeValue(50 * time.Millisecond)
+	s := simulation.New(normalizedRuntimeScenario(t, input))
 	runIngressUntil(t, s, 17*time.Millisecond)
 	var backendID string
 	s.VisitBackends(func(backend simulation.BackendObservation) { backendID = backend.State.ID })
-	if err := s.RemoveBackend(backendID); err != nil {
+	if err := s.StopBackend(backendID); err != nil {
 		t.Fatal(err)
 	}
+
+	// Failure does not directly notify the client or rewrite its transfer result.
 	summary := presentation.TransferResults(s)
-	if summary.Failed != 1 || summary.Failures[contract.TransferBackendRemoved] != 1 ||
-		summary.Handshake.Samples != 1 || summary.Payload.Samples != 0 {
-		t.Fatalf("removed backend's transfer = %+v", summary)
+	if summary.Failed != 0 || summary.InProgress != 1 || !payloadClients(s)[0].Active {
+		t.Fatalf("stopping the backend terminated its peer: %+v", summary)
 	}
 	assertPayloadProgress(t, s, 1024, 0)
+
+	// The ACK emitted before the crash still arrives and confirms the first segment.
+	runIngressUntil(t, s, 19*time.Millisecond)
+	assertPayloadProgress(t, s, 1024, 1024)
+	runIngressUntil(t, s, 60*time.Millisecond)
+	if !payloadClients(s)[0].Active {
+		t.Fatal("the client stopped before its own inactivity limit")
+	}
+
+	runIngressUntil(t, s, 80*time.Millisecond)
+	summary = presentation.TransferResults(s)
+	if summary.Failed != 1 || summary.Failures[contract.TransferReadTimeout] != 1 ||
+		summary.Handshake.Samples != 1 || summary.Payload.Samples != 0 {
+		t.Fatalf("silent backend failure's transfer = %+v", summary)
+	}
+	assertPayloadProgress(t, s, 1024, 1024)
 }
 
 // TestTransferSnapshotLifecycle checks success, endpoint failure, future arrivals and reset over WS.

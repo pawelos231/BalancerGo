@@ -176,7 +176,7 @@ requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-closing-v1` profile. `result.TCP.ReceiveBufferBytes`
+`tcp-lb-mapping-timeouts-v1` profile. `result.TCP.ReceiveBufferBytes`
 records the effective receive-buffer limit, including an omitted input's default.
 `result.TCP.RTO` and `result.LBIdleTimeouts` record the effective timer policy.
 `result.ClientTimings` retains each created client's latest RTT estimates and RTO,
@@ -611,7 +611,7 @@ positions instead of segment indices. `Size` remains the payload length, and
 positions by its length; SYN and FIN each consume one position, while pure ACK
 consumes none. The two directions keep separate sequence state.
 
-The `tcp-closing-v1` profile uses logical `uint64` byte positions and
+The `tcp-lb-mapping-timeouts-v1` profile uses logical `uint64` byte positions and
 fixed initial sequence numbers of zero. It does not model the 32-bit sequence
 number wraparound of real TCP. Large streams are checked against native integer
 limits rather than the former 32-bit segment-counter limit. Payload remains
@@ -849,15 +849,87 @@ still collecting safe RTT measurements. Legacy CLI equivalents are
 `-tcp-rto-mode`, `-tcp-rto-backoff`, `-tcp-rto-initial`, `-tcp-rto-minimum`
 and `-tcp-rto-maximum`.
 
-Idle cleanup is a separate policy: `tcp.clientIdleTimeoutNanoseconds` defaults
-to 20 s; `resources.loadBalancer.halfOpenIdleTimeoutNanoseconds` and
-`establishedIdleTimeoutNanoseconds` default to 5 s and 50 s. Explicit zero
-disables that limit, while omission preserves its default. CLI flags are
-`-tcp-idle-timeout`, `-lb-half-open-idle-timeout`, and
-`-lb-established-idle-timeout`. LB cleanup checks every 5 virtual seconds,
-so expiry occurs at the next cleanup check. To observe long backoff, lengthen
-or disable competing idle limits; otherwise they may close the connection first.
-Keep these policies equal when comparing timer modes.
+Client idle cleanup is separate from retransmission: `tcp.clientIdleTimeoutNanoseconds`
+defaults to 20 s; `-tcp-idle-timeout` is its CLI equivalent. Zero disables it.
+Backend cleanup and LB mapping expiry have their own policies below. When comparing
+timer modes, keep these policies equal: an endpoint's idle timeout can terminate it,
+while an LB timeout removes only the route used by later retransmissions.
+
+### Independent endpoint lifecycle
+
+Each endpoint and the LB release only their own connection state. Stopping a
+client leaves the backend connection and LB route until their own deadlines.
+Stopping a backend clears its local state without ending remote clients or
+migrating their active TCP streams. Packets emitted before the sender stops can
+still arrive; FIN/RST take effect at the receiver only when delivered.
+
+Backend cleanup is configured under `tcp`:
+
+- `backendHalfOpenIdleTimeoutNanoseconds`: defaults to 5 s, measured from
+  the first SYN. Repeated SYNs do not extend this handshake deadline.
+- `backendEstablishedIdleTimeoutNanoseconds`: defaults to zero (disabled).
+  When enabled, valid incoming traffic refreshes the backend's idle deadline.
+
+The CLI flags are `-backend-half-open-idle-timeout` and
+`-backend-established-idle-timeout`; both settings also appear in the form and
+effective TCP report. Zero disables either limit. Closing uses its own timers.
+
+The LB keeps only a phase and last activity time for each flow mapping. Its four
+idle limits are independent of endpoint RTO, MSL and FIN-wait settings:
+
+| Observed phase | Native field under `resources.loadBalancer` | Default |
+|---|---|---:|
+| `halfOpen`: new client SYN | `halfOpenIdleTimeoutNanoseconds` | 5 s |
+| `established`: client ACK or DATA+ACK | `establishedIdleTimeoutNanoseconds` | 50 s |
+| `closing`: FIN from either side | `closingIdleTimeoutNanoseconds` | 120 s |
+| `reset`: RST from either side | `resetIdleTimeoutNanoseconds` | 10 s |
+
+Omission inherits the default; zero disables expiry for that phase only. CLI flags
+are `-lb-half-open-idle-timeout`, `-lb-established-idle-timeout`,
+`-lb-closing-idle-timeout` and `-lb-reset-idle-timeout`. The form exposes all four,
+and reports record them in `LBIdleTimeouts`.
+
+Supported matching packets from either direction refresh activity when seen by the
+LB, before its chaos or output drops. RST selects reset; otherwise FIN selects
+closing; only a client ACK without SYN/FIN/RST can promote half-open to established.
+Reset takes precedence over closing, and delayed SYN/SYN+ACK/ACK/data cannot reopen
+either terminal phase. Repeated traffic can extend those idle deadlines.
+
+The observer supports client SYN, backend SYN+ACK, ACK with optional payload/PSH,
+FIN+ACK, and RST with optional ACK. Controls must have no payload; unsupported
+combinations and negative sizes do not update its state. Invalid new SYN shapes
+cannot create a route. Existing-route forwarding leaves TCP acceptance to receivers.
+The LB does not validate SEQ/ACK positions: a supported RST with an unacceptable
+sequence number selects reset retention even if the TCP receiver rejects it.
+
+Cleanup runs every five virtual seconds and expires idle mappings at a sweep.
+A packet arriving after the nominal deadline but before the sweep can refresh it;
+equal-time events follow the engine's scheduling order. Short configured limits
+may therefore expire up to a sweep later. A closing timeout shorter than RTO can
+expire before a FIN retry, without terminating either endpoint or extending the
+configured limit. Completed closing mappings now default to 120 s retention,
+independently of the endpoint's TIME_WAIT.
+
+Endpoint registrations remain available for delivery and historical observations
+until the run is reset; they are separate from live LB mappings.
+Missing mappings drop non-SYN traffic. A later client SYN can allocate a route;
+before expiry, a same-key SYN remains pinned without reopening a terminal phase.
+This does not add endpoint tuple-reuse or TCP-incarnation handling.
+
+This is a simplified flag/direction policy inspired by
+[IPVS state-based timeouts](https://github.com/torvalds/linux/blob/master/net/netfilter/ipvs/ip_vs_proto_tcp.c),
+with fewer phases and sticky closing/reset, rather than full IPVS conformance.
+
+Backend availability for new routes is the LB's own last probe result. A silent
+crash is discovered on probe timeout, while an existing flow keeps its backend.
+These probes still use the earlier idealized path without consuming link capacity;
+network health checks are a later scope. Selection uses registered backend settings
+and the LB's mapping counts, without reading remote live connection counters.
+Stopped backends remain visible in topology and reports.
+
+Whole-run Stop/reset is the explicit exception: it stops all endpoints, cancels
+pending events and discards queued/in-flight work. Interactive reset then removes
+the world and publishes the empty state.
 
 ### TCP connection closing
 
@@ -896,10 +968,9 @@ details show state and outcome separately from payload success. A payload transf
 can succeed even if later teardown reaches its retry limit. Completed streams can
 remain in TIME_WAIT when a short experiment ends.
 
-The LB keeps routes through closing and TIME_WAIT; ordinary idle cleanup yields
-to transport closing timers. Graceful closure no longer forcibly deletes the peer's
-TCP state. Forced shutdown and disappearance still use the older shared cleanup;
-fully independent endpoint/LB lifecycles remain the next planned scope.
+The LB retains closing mappings using its own observations and timers, independently
+of endpoint termination. Neither graceful closure nor forced disappearance directly
+deletes another endpoint's TCP state.
 
 Closing follows the selected [RFC 9293, section 3.6](https://www.rfc-editor.org/rfc/rfc9293.html#section-3.6)
 profile, with the documented bounds above. Server SYN-ACK retry timers,

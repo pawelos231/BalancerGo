@@ -174,16 +174,37 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
       'This is a separate cleanup policy: it can end the connection before a long retransmission timer expires. ' +
       'Set 0 to study retransmissions without this idle limit.',
   },
+  backendHalfOpenIdleTimeoutMs: {
+    name: 'backendHalfOpenIdleTimeoutMs',
+    label: 'Backend handshake timeout (virtual ms)',
+    min: 0,
+    hint: '0 disables handshake cleanup.',
+    help:
+      'How long a backend reserves a half-open connection while waiting for the handshake to finish. ' +
+      'Repeated SYNs do not extend this deadline. ' +
+      'Expiry releases only the backend state; it does not stop the client or remove the LB mapping.',
+  },
+  backendEstablishedIdleTimeoutMs: {
+    name: 'backendEstablishedIdleTimeoutMs',
+    label: 'Backend connection idle timeout (virtual ms)',
+    min: 0,
+    hint: '0 disables idle cleanup (default).',
+    help:
+      'How long a backend retains an established connection without a valid incoming packet. ' +
+      'Expiry releases only the backend state; the client and LB use their own timers. ' +
+      'FIN retransmission and TIME_WAIT use the separate closing timers.',
+  },
   lbHalfOpenIdleTimeoutMs: {
     name: 'lbHalfOpenIdleTimeoutMs',
     label: 'LB half-open idle timeout (virtual ms)',
     min: 0,
     hint: '0 disables idle cleanup.',
     help:
-      'How long the LB retains an inactive connection whose handshake has not finished. ' +
-      'This cleanup timer is independent of the TCP sender\'s retransmission timeout. ' +
-      'Cleanup checks run every 5 virtual seconds. ' +
-      'Set 0 to disable this idle cleanup.',
+      'How long the LB retains a mapping whose handshake has not finished, ' +
+      'measured from the last matching packet seen in either direction. ' +
+      'Expiry removes only the LB mapping; endpoint TCP state is unchanged. ' +
+      'Cleanup runs at the next sweep, every 5 virtual seconds. ' +
+      'Set 0 to disable cleanup in this phase.',
   },
   lbEstablishedIdleTimeoutMs: {
     name: 'lbEstablishedIdleTimeoutMs',
@@ -191,10 +212,37 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     min: 0,
     hint: '0 disables idle cleanup.',
     help:
-      'How long the LB retains an established connection without traffic. ' +
-      'A short value can remove the connection while a sender is waiting to retry. ' +
-      'Cleanup checks run every 5 virtual seconds. ' +
-      'Set 0 to disable this idle cleanup.',
+      'How long the LB retains an established mapping, ' +
+      'measured from the last matching packet seen in either direction. ' +
+      'Expiry removes only the LB mapping; endpoint TCP state is unchanged. ' +
+      'Cleanup runs at the next sweep, every 5 virtual seconds. ' +
+      'Set 0 to disable cleanup in this phase.',
+  },
+  lbClosingIdleTimeoutMs: {
+    name: 'lbClosingIdleTimeoutMs',
+    label: 'LB closing idle timeout (virtual ms)',
+    min: 0,
+    hint: 'After FIN. 0 disables cleanup in this phase.',
+    help:
+      'How long the LB retains a closing mapping after observing FIN, ' +
+      'measured from the last matching packet seen in either direction. ' +
+      'Expiry removes only the LB mapping; endpoint TCP state is unchanged. ' +
+      'This limit is configured independently of TCP retransmission and closing timers. ' +
+      'Cleanup runs at the next sweep, every 5 virtual seconds. ' +
+      'Set 0 to disable cleanup in this phase.',
+  },
+  lbResetIdleTimeoutMs: {
+    name: 'lbResetIdleTimeoutMs',
+    label: 'LB reset idle timeout (virtual ms)',
+    min: 0,
+    hint: 'After RST. 0 disables cleanup in this phase.',
+    help:
+      'How long the LB retains a reset mapping after observing RST, ' +
+      'measured from the last matching packet seen in either direction. ' +
+      'Expiry removes only the LB mapping; endpoint TCP state is unchanged. ' +
+      'This limit is configured independently of TCP retransmission and closing timers. ' +
+      'Cleanup runs at the next sweep, every 5 virtual seconds. ' +
+      'Set 0 to disable cleanup in this phase.',
   },
   durationSeconds: {
     name: 'durationSeconds',
@@ -477,10 +525,11 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
   {
     id: 'tcp-timers',
     title: 'TCP retransmission and idle timers',
-    description: 'Choose RTT-based timing, retry backoff and independent client idle cleanup.',
+    description: 'Choose RTT-based timing, retry backoff and independent client and backend cleanup.',
     fields: [
       'rtoMode', 'rtoBackoff', 'rtoInitialMs', 'rtoMinimumMs', 'rtoMaximumMs',
       'clientIdleTimeoutMs',
+      'backendHalfOpenIdleTimeoutMs', 'backendEstablishedIdleTimeoutMs',
     ],
     defaultExpanded: false,
   },
@@ -505,6 +554,8 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
       'ingressLoss',
       'lbHalfOpenIdleTimeoutMs',
       'lbEstablishedIdleTimeoutMs',
+      'lbClosingIdleTimeoutMs',
+      'lbResetIdleTimeoutMs',
     ],
     defaultExpanded: false,
   },

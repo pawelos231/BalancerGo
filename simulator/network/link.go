@@ -187,6 +187,14 @@ func (l *Link) Stats() Stats {
 	return stats
 }
 
+// DiscardPending drops unfinished work after the whole engine queue is cleared.
+func (l *Link) DiscardPending() {
+	l.queue = nil
+	l.queueHead = 0
+	l.transmitting = false
+	l.travelling = 0
+}
+
 // queued excludes consumed slots retained at the front of the slice.
 func (l *Link) queued() int {
 	return len(l.queue) - l.queueHead

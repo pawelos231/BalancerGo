@@ -9,18 +9,20 @@ import (
 )
 
 // Each closing message is dropped once after crossing its access and ingress links.
-// A 6-second TIME_WAIT survives both the backend FIN retry and the LB's 5-second sweep.
+// Separate 6-second TIME_WAIT and LB closing limits leave time for the backend FIN retry.
 func TestWorldClosingRecoversLostControls(t *testing.T) {
 	for _, lost := range []string{"client FIN", "backend FIN", "final ACK"} {
 		t.Run(lost, func(t *testing.T) {
 			definition := baseScenario()
-			definition.Execution.Duration = 8 * time.Second
+			definition.Execution.Duration = 15 * time.Second
 			definition.Resources.Backends = definition.Resources.Backends[:1]
 			definition.Workload.ClientGroups[0].Count = 1
 			definition.Workload.Defaults.Bytes = 2050
 			msl := 3 * time.Second
 			definition.TCP.Close.MSL = &msl
-			// The LB's ordinary idle cleanup must not remove an endpoint in TIME_WAIT.
+			closingIdle := 6 * time.Second
+			definition.Resources.LoadBalancer.ClosingIdleTimeout = &closingIdle
+			// Observing FIN selects the closing limit instead of this short established limit.
 			idle := 10 * time.Millisecond
 			definition.Resources.LoadBalancer.EstablishedIdleTimeout = &idle
 			world := New(normalizedRuntimeScenario(t, definition))
@@ -55,9 +57,11 @@ func TestWorldClosingRecoversLostControls(t *testing.T) {
 				state.Transfer.Status != model.TransferSucceeded || state.Transfer.DataRetransmissions != 0 {
 				t.Fatalf("lost %s was not recovered gracefully: %+v", lost, state)
 			}
-			if world.Info().ClosedClients != 1 || world.lb.GetClient(client.Key()) != nil ||
-				world.lb.GetServers()[0].ActiveConnections != 0 {
-				t.Fatal("closing left a routed client or backend connection behind")
+			// The LB expires its own route at a later sweep; endpoint history remains.
+			backend := world.lb.GetServers()[0]
+			if world.Info().ClosedClients != 1 || len(world.lb.GetConnectionTable()[backend]) != 0 ||
+				backend.ActiveConnections != 0 || world.lb.GetClient(client.Key()) != client {
+				t.Fatal("closing lost endpoint history or left active route/connection state behind")
 			}
 			if lost == "final ACK" && (backendFINs != 2 || finalACKs != 2) {
 				t.Fatalf("TIME_WAIT did not answer the retried FIN: FINs=%d ACKs=%d", backendFINs, finalACKs)

@@ -147,29 +147,24 @@ func TestProjectionRevisionsRetainHistoricalReportLinks(t *testing.T) {
 		t.Fatal("spawned arrival did not revise definitions")
 	}
 	linksBefore := len(BuildResult(world, 0).Links)
-	if err := world.RemoveBackend("one"); err != nil {
+	if err := world.StopBackend("one"); err != nil {
 		t.Fatal(err)
 	}
-	removed := project(t, projector, world)
-	if removed.Document == nil || removed.Document.Revision != "5" || len(removed.Servers) != 0 {
-		t.Fatal("backend removal did not revise current membership")
+	stopped := project(t, projector, world)
+	if stopped.Document != nil || stopped.Topology.Revision != "4" ||
+		len(stopped.Servers) != 1 || stopped.Servers[0].Active {
+		t.Fatal("stopping a backend changed graph membership instead of its live state")
 	}
-	if len(BuildResult(world, 0).Links) != linksBefore || len(removed.Topology.Links) != linksBefore-2 {
-		t.Fatal("current graph and historical report did not apply their respective link membership")
-	}
-	for _, link := range removed.Document.Links {
-		if link.Source == "backend/one" || link.Target == "backend/one" {
-			t.Fatal("removed backend retained visible paths")
-		}
+	if len(BuildResult(world, 0).Links) != linksBefore || len(stopped.Topology.Links) != linksBefore {
+		t.Fatal("backend failure removed physical paths from the graph or report")
 	}
 	if jsonProjection(t, initial.Document) != frozen {
 		t.Fatal("later membership changed an older document")
 	}
 }
 
-// Replacing a backend under the same ID keeps node membership unchanged. The
-// additional retained physical paths reveal the change only during link visits.
-func TestProjectionRebuildsDefinitionsAfterLateLinkChange(t *testing.T) {
+// A late backend adds its own node and two links while earlier definitions stay immutable.
+func TestProjectionRebuildsDefinitionsAfterLateBackendAddition(t *testing.T) {
 	definition := projectionScenario()
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, 0)
@@ -180,16 +175,15 @@ func TestProjectionRebuildsDefinitionsAfterLateLinkChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	replacement := resolved.Backends[0]
-	replacement.Name, replacement.Address = "Replacement", "10.99.0.1"
-	if err := world.RemoveBackend(replacement.ID); err != nil {
-		t.Fatal(err)
-	}
-	world.AddBackend(replacement)
+	additional := resolved.Backends[0]
+	additional.ID = "two"
+	additional.Name, additional.Address = "Additional", "10.99.0.1"
+	world.AddBackend(additional)
 	second := project(t, projector, world)
 	if second.Document == nil || second.Document.Revision != "2" ||
-		second.Document.Nodes[1].Label != "Replacement" || second.Document.Nodes[1].Address != "10.99.0.1:80" ||
-		len(second.Document.Nodes) != len(first.Document.Nodes) || len(second.Document.Links) != len(first.Document.Links)+2 {
+		second.Document.Nodes[2].ID != "backend/two" || second.Document.Nodes[2].Label != "Additional" ||
+		second.Document.Nodes[2].Address != "10.99.0.1:80" ||
+		len(second.Document.Nodes) != len(first.Document.Nodes)+1 || len(second.Document.Links) != len(first.Document.Links)+2 {
 		t.Fatalf("late change did not refresh complete definitions: %+v", second.Document)
 	}
 	if jsonProjection(t, first.Document) != frozen {

@@ -43,6 +43,7 @@ type World struct {
 	closedClients         int
 	completedPayloadBytes uint64
 	payload               PayloadProgress
+	stopped               bool
 }
 
 // namedLink identifies a physical path and its optional LB output.
@@ -89,10 +90,12 @@ func New(resolved scenario.Normalized) *World {
 		execution.SnapshotInterval,
 		s.resourceRNG("balancer"),
 	)
-	s.lb.SetIdleTimeouts(
-		resolved.LoadBalancer.HalfOpenIdleTimeout,
-		resolved.LoadBalancer.EstablishedIdleTimeout,
-	)
+	s.lb.SetMappingTimeouts(balancer.TimeoutConfig{
+		HalfOpen:    resolved.LoadBalancer.HalfOpenIdleTimeout,
+		Established: resolved.LoadBalancer.EstablishedIdleTimeout,
+		Closing:     resolved.LoadBalancer.ClosingIdleTimeout,
+		Reset:       resolved.LoadBalancer.ResetIdleTimeout,
+	})
 	s.egress = network.NewEgress(e, resolved.LoadBalancer.ForwardingBitsPerSecond)
 
 	// Two input queues share one physical receiver before LB processing.
@@ -110,6 +113,9 @@ func New(resolved scenario.Normalized) *World {
 // including when millions share a timestamp. RunUntil retains its queue on an
 // event-limit error, so resuming does not alter virtual ordering or event times.
 func (s *World) Advance(ctx context.Context, until time.Duration) error {
+	if s.stopped {
+		return nil
+	}
 	const batchSize uint64 = 4096
 	limit := s.engine.MaxEvents
 	defer func() { s.engine.MaxEvents = limit }()
@@ -220,6 +226,10 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 	srv.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
 	srv.SetRTOConfig(configuredRTO(s.scenario.TCP.RTO))
 	srv.SetCloseConfig(configuredClose(s.scenario.TCP.Close))
+	srv.SetIdleTimeouts(
+		s.scenario.TCP.BackendHalfOpenIdleTimeout,
+		s.scenario.TCP.BackendEstablishedIdleTimeout,
+	)
 	endpointID := BackendNodeID(config.ID)
 	// Keep received bytes after this backend's connections close or it is removed.
 	srv.OnPayloadReceived = func(bytes int) {
@@ -296,10 +306,11 @@ func (s *World) ScheduleAfter(delay time.Duration, callback func()) engine.Event
 // AddBackend connects a backend using the same event and network wiring as New.
 func (s *World) AddBackend(config scenario.NormalizedBackend) { s.addBackend(config) }
 
-func (s *World) RemoveBackend(id string) error {
+// StopBackend represents a silent crash; only this backend's local state is cleared.
+func (s *World) StopBackend(id string) error {
 	for _, srv := range s.lb.GetServers() {
 		if srv.ID == id {
-			s.lb.RemoveServer(srv)
+			srv.Shutdown()
 			return nil
 		}
 	}
@@ -326,4 +337,32 @@ func (s *World) StopClient(id string) error {
 		}
 	}
 	return fmt.Errorf("simulation: client %s not found", id)
+}
+
+// Stop is the explicit exception that shuts down every endpoint and discards network work.
+func (s *World) Stop() {
+	if s.stopped {
+		return
+	}
+	s.stopped = true
+
+	for _, runtime := range s.clients {
+		runtime.Client.Shutdown()
+	}
+	for _, backend := range s.lb.GetServers() {
+		backend.Shutdown()
+	}
+	s.lb.Shutdown()
+
+	// Drop arrivals, queued packets and periodic callbacks together.
+	s.engine.Clear()
+	s.clientGroups = nil
+	for _, link := range s.links {
+		if link.Output != nil {
+			link.Output.DiscardPending()
+		}
+		link.Link.DiscardPending()
+	}
+	s.ingress.DiscardPending()
+	s.egress.DiscardPending()
 }

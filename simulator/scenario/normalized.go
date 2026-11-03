@@ -19,11 +19,13 @@ type Normalized struct {
 // NormalizedTCPConfig holds the effective transport settings after validation.
 // Optional input settings have already been replaced by concrete defaults.
 type NormalizedTCPConfig struct {
-	ReceiveBufferBytes int                        `json:"receiveBufferBytes"`
-	RTO                NormalizedRTOConfig        `json:"rto"`
-	Close              NormalizedCloseConfig      `json:"close"`
-	CongestionControl  NormalizedCongestionConfig `json:"congestionControl"`
-	ClientIdleTimeout  time.Duration              `json:"clientIdleTimeoutNanoseconds"`
+	ReceiveBufferBytes            int                        `json:"receiveBufferBytes"`
+	RTO                           NormalizedRTOConfig        `json:"rto"`
+	Close                         NormalizedCloseConfig      `json:"close"`
+	CongestionControl             NormalizedCongestionConfig `json:"congestionControl"`
+	ClientIdleTimeout             time.Duration              `json:"clientIdleTimeoutNanoseconds"`
+	BackendHalfOpenIdleTimeout    time.Duration              `json:"backendHalfOpenIdleTimeoutNanoseconds"`
+	BackendEstablishedIdleTimeout time.Duration              `json:"backendEstablishedIdleTimeoutNanoseconds"`
 }
 
 // NormalizedCloseConfig contains the effective shutdown limits.
@@ -62,6 +64,8 @@ type NormalizedLoadBalancerConfig struct {
 	ForwardingBitsPerSecond int64         `json:"forwardingBitsPerSecond"`
 	HalfOpenIdleTimeout     time.Duration `json:"halfOpenIdleTimeoutNanoseconds"`
 	EstablishedIdleTimeout  time.Duration `json:"establishedIdleTimeoutNanoseconds"`
+	ClosingIdleTimeout      time.Duration `json:"closingIdleTimeoutNanoseconds"`
+	ResetIdleTimeout        time.Duration `json:"resetIdleTimeoutNanoseconds"`
 }
 
 // DirectionalLinks holds the final settings for an endpoint's two link directions.

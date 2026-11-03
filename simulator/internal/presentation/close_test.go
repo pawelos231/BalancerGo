@@ -44,7 +44,8 @@ func TestResultRetainsConnectionAndCloseLimits(t *testing.T) {
 	definition.TCP.Close = scenario.CloseConfig{MSL: &msl, FinWaitTimeout: &wait, MaxFINRetries: &retries}
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, world.EndTime())
-	if err := world.RemoveBackend("one"); err != nil {
+	world.ClearConnections()
+	if err := world.StopBackend("one"); err != nil {
 		t.Fatal(err)
 	}
 	result := BuildResult(world, 0)

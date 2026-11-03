@@ -7,9 +7,13 @@ const DefaultReceiveBufferBytes = 65535
 
 // Idle limits are separate from retransmission timers; zero disables idle cleanup.
 const (
-	DefaultClientIdleTimeout        = 20 * time.Second
-	DefaultLBHalfOpenIdleTimeout    = 5 * time.Second
-	DefaultLBEstablishedIdleTimeout = 50 * time.Second
+	DefaultClientIdleTimeout             = 20 * time.Second
+	DefaultLBHalfOpenIdleTimeout         = 5 * time.Second
+	DefaultLBEstablishedIdleTimeout      = 50 * time.Second
+	DefaultLBClosingIdleTimeout          = 120 * time.Second
+	DefaultLBResetIdleTimeout            = 10 * time.Second
+	DefaultBackendHalfOpenIdleTimeout    = 5 * time.Second
+	DefaultBackendEstablishedIdleTimeout = time.Duration(0)
 )
 
 const (

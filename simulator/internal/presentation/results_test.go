@@ -8,8 +8,8 @@ import (
 	"load-balancer/scenario"
 )
 
-// A completed client leaves the routing table, but its measured RTT stays in the report.
-func TestResultRetainsClientTimingAfterCompletionAndBackendRemoval(t *testing.T) {
+// Explicit LB route cleanup and a later backend stop retain the client's measured RTT.
+func TestResultRetainsClientTimingAfterRouteCleanupAndBackendStop(t *testing.T) {
 	definition := projectionScenario()
 	definition.Workload.ClientGroups[0].Count = 1
 	definition.Workload.Defaults = scenario.StreamConfig{
@@ -32,14 +32,16 @@ func TestResultRetainsClientTimingAfterCompletionAndBackendRemoval(t *testing.T)
 		t.Fatalf("handshake timing = %+v", handshakeTiming)
 	}
 
-	// Finish the transfer and remove its backend to eliminate every current route.
+	// Finish the transfer, then clear only the LB's routes and stop the backend locally.
 	advanceProjection(t, world, 10*time.Millisecond)
-	if err := world.RemoveBackend("one"); err != nil {
+	world.ClearConnections()
+	if err := world.StopBackend("one"); err != nil {
 		t.Fatal(err)
 	}
 	finished := BuildResult(world, 0)
-	if finished.CompletedStreams != 1 || len(finished.State.Servers) != 0 {
-		t.Fatal("expected a completed transfer without a remaining backend")
+	if finished.CompletedStreams != 1 || len(finished.State.Servers) != 1 ||
+		finished.State.Servers[0].Server.Active || len(finished.State.Servers[0].Clients) != 0 {
+		t.Fatal("expected a completed transfer and a retained stopped backend without LB routes")
 	}
 	if len(finished.ClientTimings) != 1 {
 		t.Fatal("completed client's timing disappeared")
@@ -66,6 +68,7 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 	disabledIdle := time.Duration(0)
 	halfOpenIdle := 750 * time.Millisecond
 	establishedIdle := 3 * time.Second
+	closingIdle := 1250 * time.Millisecond
 	receiveBuffer := 4096
 
 	tests := []struct {
@@ -73,6 +76,8 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 		tcp         scenario.TCPConfig
 		halfOpen    *time.Duration
 		established *time.Duration
+		closing     *time.Duration
+		reset       *time.Duration
 		wantTCP     contract.TCPConfig
 		wantLB      contract.LBIdleTimeoutConfig
 	}{
@@ -91,11 +96,14 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 					MinimumTimeoutSeconds: 0.2,
 					MaximumTimeoutSeconds: 60,
 				},
-				ClientIdleTimeoutSeconds: 20,
+				ClientIdleTimeoutSeconds:          20,
+				BackendHalfOpenIdleTimeoutSeconds: 5,
 			},
 			wantLB: contract.LBIdleTimeoutConfig{
 				HalfOpenIdleTimeoutSeconds:    5,
 				EstablishedIdleTimeoutSeconds: 50,
+				ClosingIdleTimeoutSeconds:     120,
+				ResetIdleTimeoutSeconds:       10,
 			},
 		},
 		{
@@ -113,6 +121,8 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 			},
 			halfOpen:    &halfOpenIdle,
 			established: &establishedIdle,
+			closing:     &closingIdle,
+			reset:       &disabledIdle,
 			wantTCP: contract.TCPConfig{
 				ReceiveBufferBytes: receiveBuffer,
 				CongestionControl: contract.CongestionConfig{
@@ -126,11 +136,14 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 					MinimumTimeoutSeconds: 0.1,
 					MaximumTimeoutSeconds: 2,
 				},
-				ClientIdleTimeoutSeconds: 0,
+				ClientIdleTimeoutSeconds:          0,
+				BackendHalfOpenIdleTimeoutSeconds: 5,
 			},
 			wantLB: contract.LBIdleTimeoutConfig{
 				HalfOpenIdleTimeoutSeconds:    0.75,
 				EstablishedIdleTimeoutSeconds: 3,
+				ClosingIdleTimeoutSeconds:     1.25,
+				ResetIdleTimeoutSeconds:       0,
 			},
 		},
 	}
@@ -141,6 +154,8 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 			definition.TCP = test.tcp
 			definition.Resources.LoadBalancer.HalfOpenIdleTimeout = test.halfOpen
 			definition.Resources.LoadBalancer.EstablishedIdleTimeout = test.established
+			definition.Resources.LoadBalancer.ClosingIdleTimeout = test.closing
+			definition.Resources.LoadBalancer.ResetIdleTimeout = test.reset
 			world := projectionWorld(t, definition)
 
 			// No advancement is needed: effective settings exist before clients start.
