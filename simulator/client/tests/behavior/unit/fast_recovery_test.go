@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ func TestTCPFastRetransmitAndRenoRecovery(t *testing.T) {
 	h.receive(model.FlagACK, 1)
 	data := sentClientData(h.sent)
 	state := congestionState(t, h)
-	if len(data) != 9 || data[8] != data[0] {
+	if len(data) != 9 || !reflect.DeepEqual(data[8], data[0]) {
 		t.Fatalf("third duplicate did not retry the oldest segment: %+v", data)
 	}
 	if state.Phase != "fastRecovery" || state.CongestionWindowBytes != 7168 ||

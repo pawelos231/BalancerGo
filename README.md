@@ -176,7 +176,7 @@ requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-lb-mapping-timeouts-v1` profile. `result.TCP.ReceiveBufferBytes`
+`tcp-sack-v1` profile. `result.TCP.ReceiveBufferBytes`
 records the effective receive-buffer limit, including an omitted input's default.
 `result.TCP.RTO` and `result.LBIdleTimeouts` record the effective timer policy.
 `result.ClientTimings` retains each created client's latest RTT estimates and RTO,
@@ -607,11 +607,11 @@ The generated file is committed, so frontend and Docker builds need no generator
 
 The current **byte-based sliding-window model** uses separate `Seq` and `Ack`
 positions instead of segment indices. `Size` remains the payload length, and
-`WireSize()` still adds 40 modeled IPv4/TCP header bytes. Data advances sequence
+`WireSize()` adds 40 modeled IPv4/TCP header bytes plus any padded SACK options. Data advances sequence
 positions by its length; SYN and FIN each consume one position, while pure ACK
 consumes none. The two directions keep separate sequence state.
 
-The `tcp-lb-mapping-timeouts-v1` profile uses logical `uint64` byte positions and
+The `tcp-sack-v1` profile uses logical `uint64` byte positions and
 fixed initial sequence numbers of zero. It does not model the 32-bit sequence
 number wraparound of real TCP. Large streams are checked against native integer
 limits rather than the former 32-bit segment-counter limit. Payload remains
@@ -649,6 +649,40 @@ For example, `cwnd=4096 B` with `3072 B` still in flight permits another `1024 B
 provided the receiver also has enough window credit. Retrying already-sent bytes
 does not add another copy to this unique byte count. SYN/FIN positions are excluded;
 closing or terminated clients report zero pending payload after abandoning their queue.
+
+### Selective acknowledgments
+
+`tcp.sackEnabled` enables the optional SACK profile; its default is `false`.
+Use **Selective acknowledgements (SACK)** in the TCP traffic form or
+`-sack-enabled=true` in the CLI. The effective choice appears in
+`result.TCP.SACKEnabled` and in the experiment's scenario manifest.
+This profile supports Reno, NewReno and CUBIC with fast retransmit enabled;
+other combinations are rejected explicitly.
+
+Endpoints exchange SACK-permitted during handshake. The backend reports up to
+four buffered byte ranges, most recent first, using the existing receive buffer.
+The sender merges these reports in a scoreboard and follows a bounded
+[RFC 6675](https://www.rfc-editor.org/rfc/rfc6675.html) recovery procedure:
+loss inference, a fixed recovery boundary, Pipe accounting, selective retries,
+new-data priority over speculative retries, and a single eligible rescue retry.
+Reno/NewReno halve the outstanding flight; CUBIC keeps its selected 70% loss
+reduction. Recovery uses the reduced window without Reno's duplicate-ACK inflation.
+SACK replaces the classic retry selection while enabled; it does not run a
+second NewReno recovery loop. Optional Limited Transmit is not implemented.
+
+SACK reports do not release the retransmission buffer, complete the transfer,
+or increment ACK-confirmed payload. Only cumulative ACKs do that. After RTO,
+old reports are discarded, the oldest pending bytes are retried, and a new fast
+recovery is blocked until the timed-out flight is cumulatively acknowledged.
+The receiver retains its buffered ranges; active receiver reneging is not modeled.
+Recovery retries restart the virtual RTO as permitted by RFC 6675 section 6;
+Karn's rule and timeout backoff remain in effect.
+
+The selected option profile follows [RFC 2018](https://www.rfc-editor.org/rfc/rfc2018.html),
+without timestamps, duplicate-data SACK or on-wire sequence wraparound. SACK
+options consume modeled wire bytes: an offered SYN is 44 bytes, an ACK with one
+block is 52 bytes, and one with four blocks is 76 bytes. ACKs are still immediate;
+delayed ACK remains a separate planned mechanism.
 
 The **TCP congestion control** form section configures `tcp.congestionControl`:
 
@@ -730,7 +764,8 @@ The selected base NewReno profile retains the RFC's conservative recovery guard:
 a new fast loss is allowed only after ACK progresses beyond the previous boundary,
 also after RTO. Initially that boundary follows SYN at sequence zero. Therefore
 loss of the very first data byte before any payload progress waits for RTO.
-Optional ACK/timestamp heuristics, Limited Transmit and SACK are excluded.
+Optional ACK/timestamp heuristics and Limited Transmit are excluded.
+SACK is a separate opt-in setting and replaces this classic recovery when enabled.
 Selecting `newReno` does not change the classic recovery selected by Reno or CUBIC.
 
 Tahoe instead sets `ssthresh=max(FlightSize/2, 2*MSS)` and `cwnd=1*MSS` on the

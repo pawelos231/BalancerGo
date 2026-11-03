@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestTCPCloseDrainsAcceptedStreamAfterPayloadLoss(t *testing.T) {
 	}
 	h.runUntil(1100 * time.Millisecond)
 	data = sentClientData(h.sent)
-	if len(data) != 4 || data[3] != data[0] || h.transfer().DataRetransmissions != 1 {
+	if len(data) != 4 || !reflect.DeepEqual(data[3], data[0]) || h.transfer().DataRetransmissions != 1 {
 		t.Fatalf("Close lost the pending payload retry: %+v", data)
 	}
 	h.receive(model.FlagACK, 1025)
@@ -187,7 +188,7 @@ func TestTCPFINRetriesKeepSequenceAndUseSeparateBackoff(t *testing.T) {
 			t.Fatalf("FIN retry fired before %s", deadline)
 		}
 		h.runUntil(deadline)
-		if retry := h.sent[len(h.sent)-1]; retry != fin || h.count(model.FlagFIN) != index+2 ||
+		if retry := h.sent[len(h.sent)-1]; !reflect.DeepEqual(retry, fin) || h.count(model.FlagFIN) != index+2 ||
 			h.client.GetConnectionState().FINRetransmissions != uint64(index+1) || h.engine.Pending() != 1 {
 			t.Fatalf("FIN retry changed sequence or timer count: %+v, pending=%d", retry, h.engine.Pending())
 		}
@@ -285,7 +286,7 @@ func TestTCPDuplicateFINRepeatsFinalACKAndRestartsTimeWait(t *testing.T) {
 	h.runUntil(60 * time.Millisecond)
 	before := len(h.sent)
 	h.receive(model.FlagFIN|model.FlagACK, 2)
-	if len(h.sent) != before+1 || h.sent[len(h.sent)-1] != firstACK || h.engine.Pending() != 1 {
+	if len(h.sent) != before+1 || !reflect.DeepEqual(h.sent[len(h.sent)-1], firstACK) || h.engine.Pending() != 1 {
 		t.Fatalf("duplicate FIN changed the final ACK or added a timer: %+v", h.sent)
 	}
 	h.runUntil(120 * time.Millisecond)

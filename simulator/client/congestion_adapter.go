@@ -69,6 +69,9 @@ func (c *Client) availableCongestionWindowBytes() uint64 {
 	}
 
 	flight := c.bytesInFlight()
+	if c.sack.active {
+		flight = c.sack.pipeBytes
+	}
 	if flight >= window.WindowBytes {
 		return 0
 	}
@@ -79,25 +82,15 @@ func (c *Client) availableCongestionWindowBytes() uint64 {
 // acknowledge handles an ACK that confirms new data and resets the duplicate ACK count.
 // Example: ACK=2049 confirms bytes through 2048, so a retried segment ending at 1025 is done.
 // The selected algorithm then updates cwnd using the newly confirmed bytes.
-func (control *congestionControl) acknowledge(
-	newBytes, ack uint64,
-	flight uint64,
-	now, smoothedRTT time.Duration,
-) congestioncontrol.ACKResponse {
-	if control.timedOutSegmentEnd != 0 && ack >= control.timedOutSegmentEnd {
+func (control *congestionControl) acknowledge(ack congestioncontrol.ACK) congestioncontrol.ACKResponse {
+	if control.timedOutSegmentEnd != 0 && ack.CumulativeACK >= control.timedOutSegmentEnd {
 		control.timedOutSegmentEnd = 0
 	}
 	control.loss.duplicateACKs = 0
-	if control.loss.untilSeq != 0 && ack >= control.loss.untilSeq {
+	if control.loss.untilSeq != 0 && ack.CumulativeACK >= control.loss.untilSeq {
 		control.loss.untilSeq = 0
 	}
-	return control.policy.OnACK(congestioncontrol.ACK{
-		At:            now,
-		NewBytes:      newBytes,
-		CumulativeACK: ack,
-		FlightBytes:   flight,
-		SmoothedRTT:   smoothedRTT,
-	})
+	return control.policy.OnACK(ack)
 }
 
 // observeSender tells the policy about local demand without exposing the client itself.

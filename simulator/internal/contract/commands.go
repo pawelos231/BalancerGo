@@ -46,6 +46,7 @@ type SimulationConfig struct {
 	Packets                         int     `json:"packets"`
 	Bytes                           int     `json:"bytes"`
 	ReceiveBufferBytes              int     `json:"receiveBufferBytes"`
+	SACKEnabled                     bool    `json:"sackEnabled"`
 	CongestionControl               string  `json:"congestionControl"`
 	FastRetransmit                  bool    `json:"fastRetransmit"`
 	CubicFastConvergence            bool    `json:"cubicFastConvergence"`

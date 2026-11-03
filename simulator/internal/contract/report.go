@@ -159,6 +159,7 @@ type RTOConfig struct {
 // TCPConfig records the effective transport settings, including input defaults.
 type TCPConfig struct {
 	ReceiveBufferBytes                   int
+	SACKEnabled                          bool
 	CongestionControl                    CongestionConfig
 	RTO                                  RTOConfig
 	ClientIdleTimeoutSeconds             float64

@@ -26,6 +26,49 @@ function mixedScenario() {
   return scenario;
 }
 
+test('SACK is opt-in and preserves omission and explicit false in native documents', () => {
+  const original = mixedScenario();
+  const before = structuredClone(original);
+
+  // Looking at an older scenario does not write the inherited false into it.
+  assert.equal(scenarioFormValues(original).sackEnabled, 'false');
+  assert.equal(original.tcp, undefined);
+
+  const enabled = applyScenarioField(original, 'sackEnabled', 'true');
+  assert.deepEqual(enabled.tcp, { sackEnabled: true });
+  assert.equal(scenarioFormValues(enabled).sackEnabled, 'true');
+
+  // Export and a later explicit disable retain the boolean, rather than omit it.
+  const disabled = applyScenarioField(enabled, 'sackEnabled', 'false');
+  const restored = JSON.parse(serializeScenario(disabled));
+  assert.deepEqual(restored.tcp, { sackEnabled: false });
+  assert.equal(scenarioFormValues(restored).sackEnabled, 'false');
+  assert.deepEqual(original, before);
+  assert.ok(validateScenarioField('sackEnabled', '1'));
+
+  const traffic = scenarioFieldSections.find((section) => section.id === 'tcp-traffic');
+  assert.ok(traffic?.fields.includes('sackEnabled'));
+});
+
+test('SACK edits reject recovery combinations that the simulator does not support', () => {
+  const original = mixedScenario();
+
+  for (const mode of ['reno', 'newReno', 'cubic'] as const) {
+    const selected = applyScenarioField(original, 'congestionControl', mode);
+    const enabled = applyScenarioField(selected, 'sackEnabled', 'true');
+    assert.equal(enabled.tcp?.sackEnabled, true);
+    assert.throws(() => applyScenarioField(enabled, 'fastRetransmit', 'false'), /SACK requires/);
+    assert.throws(() => applyScenarioField(enabled, 'congestionControl', 'tahoe'), /SACK requires/);
+    assert.throws(() => applyScenarioField(enabled, 'congestionControl', 'none'), /SACK requires/);
+  }
+
+  // Timeout-only and Tahoe runs remain available with SACK disabled.
+  for (const mode of ['none', 'tahoe'] as const) {
+    const selected = applyScenarioField(original, 'congestionControl', mode);
+    assert.throws(() => applyScenarioField(selected, 'sackEnabled', 'true'), /SACK requires/);
+  }
+});
+
 test('form projection retains exact native integers and nanosecond precision', () => {
   const scenario = scenarioFixture();
   const fields = scenarioFormValues(scenario);

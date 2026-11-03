@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"math"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -60,7 +61,7 @@ func (h *byteServerHarness) assertReplyWindow(flag model.Flag, seq, ack uint64, 
 		Key: h.flow, Flag: flag, Seq: seq, Ack: ack,
 		ReceiveWindowBytes: window,
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		h.t.Fatalf("last reply = %+v, want %+v", got, want)
 	}
 }

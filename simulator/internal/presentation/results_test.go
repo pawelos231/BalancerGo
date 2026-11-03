@@ -58,6 +58,18 @@ func TestResultRetainsClientTimingAfterRouteCleanupAndBackendStop(t *testing.T) 
 	}
 }
 
+// A report records the selected SACK profile even before connections start.
+func TestResultRecordsSACKConfiguration(t *testing.T) {
+	definition := projectionScenario()
+	enabled := true
+	definition.TCP.SACKEnabled = &enabled
+	world := projectionWorld(t, definition)
+
+	if !world.Info().SACKEnabled || !BuildResult(world, 0).TCP.SACKEnabled {
+		t.Fatal("the effective SACK setting was lost from the report")
+	}
+}
+
 // Reports show resolved defaults and explicit settings, including disabled cleanup.
 func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 	fixedMode := "fixed"

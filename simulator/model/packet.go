@@ -18,6 +18,10 @@ type Packet struct {
 
 	// How many bytes this endpoint is willing to receive starting at Ack.
 	ReceiveWindowBytes uint16
+
+	// SYN offers SACK; later ACKs can report received ranges beyond a gap.
+	SACKPermitted bool
+	SACKBlocks    []SACKBlock
 }
 
 // SequenceEnd is the next position after this packet's payload.
@@ -48,7 +52,16 @@ func (p Packet) SequenceEnd() (uint64, bool) {
 	return p.Seq + length, true
 }
 
-// WireSize models IPv4 plus TCP headers without options
+// WireSize includes IPv4, TCP and its options, padded to a four-byte boundary.
 func (p Packet) WireSize() int {
-	return p.Size + 40
+	optionBytes := 0
+	if p.SACKPermitted {
+		optionBytes += 2
+	}
+	if len(p.SACKBlocks) > 0 {
+		// Logical uint64 positions still model the eight-byte TCP SACK block.
+		optionBytes += 2 + 8*min(len(p.SACKBlocks), MaxSACKBlocks)
+	}
+	optionBytes = (optionBytes + 3) / 4 * 4
+	return p.Size + 40 + optionBytes
 }

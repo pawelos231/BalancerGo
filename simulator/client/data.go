@@ -28,6 +28,9 @@ func (c *Client) SendCompleteStream(dataSize int, gap time.Duration) {
 // queueSegment schedules one new segment, then lets the engine run other events.
 // A 4096-byte window can release four 1024-byte segments without waiting for ACKs.
 func (c *Client) queueSegment() {
+	if c.sack.active {
+		c.sendSACKRepairs()
+	}
 	canSend := c.handshakeCompleted && c.streamRequested
 	if c.terminated || c.connection.finSent || !canSend {
 		return
@@ -90,6 +93,9 @@ func (c *Client) queueSegment() {
 		c.nextSendSeq += uint64(payloadBytes)
 		c.unsentPayloadBytes -= payloadBytes
 		c.pendingSegments.append(packet)
+		if c.sack.active {
+			c.sack.pipeBytes += uint64(payloadBytes)
+		}
 		c.recordPayloadStart()
 		c.updateNextSendTime()
 		c.observeSender()
@@ -125,7 +131,12 @@ func (c *Client) nextPayloadSize() int {
 	}
 
 	availableBytes := c.peerWindowEnd - c.nextSendSeq
-	availableBytes = min(availableBytes, c.availableCongestionWindowBytes())
+	congestionSpace := c.availableCongestionWindowBytes()
+	// RFC 6675 recovery waits for one MSS of cwnd space before choosing another send.
+	if c.sack.active && congestionSpace < model.SEGMENT_SIZE {
+		return 0
+	}
+	availableBytes = min(availableBytes, congestionSpace)
 	payloadLimit := min(c.unsentPayloadBytes, model.SEGMENT_SIZE)
 	return int(min(uint64(payloadLimit), availableBytes))
 }

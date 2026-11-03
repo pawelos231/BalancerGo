@@ -19,6 +19,7 @@ type configuration struct {
 	packets                       int
 	streamBytes                   int
 	receiveBufferBytes            int
+	sackEnabled                   bool
 	rto                           model.RTOConfig
 	closeConfig                   *model.CloseConfig
 	congestion                    model.CongestionConfig

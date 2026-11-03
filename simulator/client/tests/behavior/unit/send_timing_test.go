@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -28,7 +29,7 @@ func TestTCPTimerFollowsOldestPendingData(t *testing.T) {
 	}
 	h.runUntil(1200 * time.Millisecond)
 	data := sentClientData(h.sent)
-	if len(data) != 5 || data[4] != data[0] {
+	if len(data) != 5 || !reflect.DeepEqual(data[4], data[0]) {
 		t.Fatalf("later sends or ACKs moved the original timeout: %+v", data)
 	}
 

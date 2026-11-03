@@ -57,6 +57,11 @@ type ACK struct {
 	CumulativeACK uint64
 	FlightBytes   uint64 // Bytes still outstanding after this ACK.
 	SmoothedRTT   time.Duration
+
+	// TCP uses SACK recovery to repair several holes without NewReno retry requests.
+	SACKRecovery bool
+	// The cumulative ACK has now covered the whole flight that entered recovery.
+	EndSACKRecovery bool
 }
 
 // ACKResponse lets recovery request the shared TCP retry and timer paths.
@@ -94,6 +99,9 @@ type Loss struct {
 	NextSendSeq     uint64 // Exclusive end of all data sent so far.
 	PendingSegments int
 	AlreadyTimedOut bool
+
+	// TCP will limit retransmissions with Pipe, so cwnd needs no duplicate-ACK inflation.
+	SACKRecovery bool
 }
 
 // LossResponse can reject a duplicate-ACK loss indication from an old flight.

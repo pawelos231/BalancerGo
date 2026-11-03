@@ -26,6 +26,20 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 	if err != nil {
 		return NormalizedTCPConfig{}, err
 	}
+
+	// SACK recovery replaces classic recovery only for the supported profiles.
+	sackEnabled := config.SACKEnabled != nil && *config.SACKEnabled
+	if sackEnabled {
+		supportedMode := congestion.Mode == string(model.CongestionReno) ||
+			congestion.Mode == string(model.CongestionNewReno) ||
+			congestion.Mode == string(model.CongestionCubic)
+		if !supportedMode || !congestion.FastRetransmit {
+			return NormalizedTCPConfig{}, fmt.Errorf(
+				"tcp.sackEnabled: requires Reno, NewReno or CUBIC with fastRetransmit enabled",
+			)
+		}
+	}
+
 	closeConfig, err := normalizeClose(config.Close)
 	if err != nil {
 		return NormalizedTCPConfig{}, err
@@ -59,6 +73,7 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 
 	return NormalizedTCPConfig{
 		ReceiveBufferBytes:            capacity,
+		SACKEnabled:                   sackEnabled,
 		RTO:                           rto,
 		Close:                         closeConfig,
 		CongestionControl:             congestion,

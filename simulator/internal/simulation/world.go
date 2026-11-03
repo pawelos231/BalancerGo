@@ -224,6 +224,7 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 		100, // Half-open connection limit.
 	)
 	srv.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
+	srv.SetSACKEnabled(s.scenario.TCP.SACKEnabled)
 	srv.SetRTOConfig(configuredRTO(s.scenario.TCP.RTO))
 	srv.SetCloseConfig(configuredClose(s.scenario.TCP.Close))
 	srv.SetIdleTimeouts(

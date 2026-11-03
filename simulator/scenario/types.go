@@ -25,6 +25,7 @@ type Scenario struct {
 // Omitted settings inherit defaults; a zero idle timeout disables idle cleanup.
 type TCPConfig struct {
 	ReceiveBufferBytes            *int             `json:"receiveBufferBytes,omitempty"`
+	SACKEnabled                   *bool            `json:"sackEnabled,omitempty"`
 	RTO                           RTOConfig        `json:"rto"`
 	Close                         CloseConfig      `json:"close"`
 	CongestionControl             CongestionConfig `json:"congestionControl"`

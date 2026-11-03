@@ -18,6 +18,11 @@ type connection struct {
 	lastActivity   time.Duration
 	idleEvent      engine.EventID
 
+	// Keep the first SYN's SACK agreement and recently reported blocks.
+	sackPermitted   bool
+	sackRecent      [model.MaxSACKBlocks]model.SACKBlock
+	sackRecentCount int
+
 	closeStarted   bool
 	closeStartedAt time.Duration
 	outcome        model.CloseOutcome
@@ -41,7 +46,8 @@ func (s *Server) HandlePacket(pkt model.Packet) {
 	}
 	s.NumberOfHandledPackets++
 	sequenceEnd, valid := pkt.SequenceEnd()
-	if !valid || pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagFIN != 0 {
+	if !valid || !pkt.ValidSACKOptions() ||
+		pkt.Flag&model.FlagSYN != 0 && pkt.Flag&model.FlagFIN != 0 {
 		return
 	}
 	conn := s.connections[pkt.Key]
@@ -93,6 +99,7 @@ func (s *Server) HandlePacket(pkt model.Packet) {
 		sequenceEnd = min(sequenceEnd, conn.pendingFINSeq)
 	}
 	newBytes := conn.receiver.accept(pkt.Seq, sequenceEnd)
+	conn.recordSACKArrival(pkt.Seq, sequenceEnd)
 	if newBytes > 0 {
 		s.receivedPayloadBytes += uint64(newBytes)
 		if s.OnPayloadReceived != nil {
@@ -124,6 +131,7 @@ func (s *Server) acknowledge(key model.ClientKey, conn *connection) {
 		Seq:                conn.sendNextSeq,
 		Ack:                conn.receiver.nextExpectedSeq,
 		ReceiveWindowBytes: conn.receiver.windowBytes(),
+		SACKBlocks:         conn.sackBlocks(),
 	})
 }
 
@@ -142,6 +150,7 @@ func (s *Server) handleSYN(pkt model.Packet, conn *connection, sequenceEnd uint6
 			state:          model.TCPSynReceived,
 			peerInitialSeq: pkt.Seq,
 			sendNextSeq:    1, // Fixed backend ISN zero; SYN occupies one position.
+			sackPermitted:  s.sackEnabled && pkt.SACKPermitted,
 			receiver: receiveBuffer{
 				nextExpectedSeq: sequenceEnd,
 				capacity:        s.receiveBufferBytes,
@@ -164,6 +173,7 @@ func (s *Server) handleSYN(pkt model.Packet, conn *connection, sequenceEnd uint6
 		Seq:                0,
 		Ack:                conn.peerInitialSeq + 1,
 		ReceiveWindowBytes: conn.receiver.windowBytes(),
+		SACKPermitted:      conn.sackPermitted,
 	})
 }
 

@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestTCPCubicFastLossUsesSeventyPercentThreshold(t *testing.T) {
 		t.Fatalf("CUBIC did not prepare the expected fast-retry state: %+v", state)
 	}
 	data := sentClientData(h.sent)
-	if len(data) != 9 || data[8] != data[0] || h.transfer().DataRetransmissions != 1 {
+	if len(data) != 9 || !reflect.DeepEqual(data[8], data[0]) || h.transfer().DataRetransmissions != 1 {
 		t.Fatalf("fast retransmit did not retain the original head: %+v", data)
 	}
 

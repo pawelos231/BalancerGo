@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -176,7 +177,7 @@ func TestTCPCongestionNonePreservesReceiveWindowBaseline(t *testing.T) {
 		t.Fatalf("disabled congestion state = %+v, want %+v", state, want)
 	}
 	data := sentClientData(h.sent)
-	if len(data) != 9 || data[8] != data[0] {
+	if len(data) != 9 || !reflect.DeepEqual(data[8], data[0]) {
 		t.Fatalf("receive-window baseline did not send eight segments and retry its head: %+v", data)
 	}
 	h.receive(model.FlagACK, 8193)

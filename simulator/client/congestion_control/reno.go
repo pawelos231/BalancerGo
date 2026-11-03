@@ -6,14 +6,18 @@ import "load-balancer/model"
 // Shared TCP detects the third duplicate ACK and owns the retransmission itself.
 type renoPolicy struct {
 	classicWindow
-	activeRecovery      bool   // A fast retry is waiting for its first advancing ACK.
+	activeRecovery      bool   // Classic Reno waits for ACK progress; SACK waits for the old flight.
 	remainingInflations uint64 // How many further duplicate ACKs may add one MSS to cwnd.
 }
 
-// OnACK exits recovery on its first advancing ACK, including a partial one.
+// OnACK exits classic recovery on its first advancing ACK; SACK waits for the full flight.
 // With ssthresh=4096, that ACK leaves cwnd=4096 without another growth increment.
 func (policy *renoPolicy) OnACK(ack ACK) ACKResponse {
 	if policy.activeRecovery {
+		// A partial ACK can leave another hole; SACK recovery waits for the whole flight.
+		if ack.SACKRecovery && !ack.EndSACKRecovery {
+			return ACKResponse{}
+		}
 		policy.StopRecovery()
 		policy.congestionWindowBytes = policy.slowStartThresholdBytes
 		policy.avoidanceAcknowledgedBytes = 0
@@ -31,16 +35,22 @@ func (policy *renoPolicy) OnDuplicateACK() {
 	}
 }
 
-// OnLoss applies RFC 5681's different window responses to fast loss and timeout.
+// OnLoss applies the loss reduction; SACK uses RFC 6675's uninflated recovery window.
 // https://www.rfc-editor.org/rfc/rfc5681.html#section-3.2
 func (policy *renoPolicy) OnLoss(loss Loss) LossResponse {
 	switch loss.Kind {
 	case FastRetransmitLoss:
 		policy.slowStartThresholdBytes = max(loss.FlightBytes/2, 2*model.SEGMENT_SIZE)
-		policy.congestionWindowBytes = addCongestionBytes(policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE)
+		policy.congestionWindowBytes = policy.slowStartThresholdBytes
 		policy.avoidanceAcknowledgedBytes = 0
 		policy.activeRecovery = true
-		policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
+		policy.remainingInflations = 0
+
+		// Classic Reno uses inflated cwnd; RFC 6675 uses the reduced window and Pipe.
+		if !loss.SACKRecovery {
+			policy.congestionWindowBytes = addCongestionBytes(policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE)
+			policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
+		}
 	case TimeoutLoss:
 		policy.StopRecovery()
 		policy.restartAfterLoss(loss.FlightBytes, loss.AlreadyTimedOut)

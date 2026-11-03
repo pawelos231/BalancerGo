@@ -122,6 +122,7 @@ func scenarioSummary(resolved scenario.Normalized) contract.SimulationConfig {
 		Packets:                         stream.Packets,
 		Bytes:                           stream.Bytes,
 		ReceiveBufferBytes:              resolved.TCP.ReceiveBufferBytes,
+		SACKEnabled:                     resolved.TCP.SACKEnabled,
 		CongestionControl:               resolved.TCP.CongestionControl.Mode,
 		FastRetransmit:                  resolved.TCP.CongestionControl.FastRetransmit,
 		CubicFastConvergence:            resolved.TCP.CongestionControl.CubicFastConvergence,

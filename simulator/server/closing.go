@@ -208,6 +208,7 @@ func (s *Server) emitFIN(key model.ClientKey, conn *connection) {
 		Seq:                conn.finSeq,
 		Ack:                conn.receiver.nextExpectedSeq,
 		ReceiveWindowBytes: conn.receiver.windowBytes(),
+		SACKBlocks:         conn.sackBlocks(),
 	})
 }
 

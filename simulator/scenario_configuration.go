@@ -36,6 +36,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 		Version: scenario.Version,
 		TCP: scenario.TCPConfig{
 			ReceiveBufferBytes: &receiveBufferBytes,
+			SACKEnabled:        &c.sackEnabled,
 			Close: scenario.CloseConfig{
 				MSL: &closeConfig.MSL, FinWaitTimeout: &closeConfig.FinWaitTimeout,
 				MaxFINRetries: &closeConfig.MaxFINRetries,

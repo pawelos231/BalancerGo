@@ -106,6 +106,7 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		Packets:                         c.packets,
 		Bytes:                           c.streamBytes,
 		ReceiveBufferBytes:              receiveBufferBytes,
+		SACKEnabled:                     c.sackEnabled,
 		CongestionControl:               string(congestion.Mode),
 		FastRetransmit:                  congestion.FastRetransmit,
 		CubicFastConvergence:            congestion.CubicFastConvergence,
@@ -189,6 +190,7 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 	base.clients, base.servers = c.Clients, c.Servers
 	base.packets, base.streamBytes = c.Packets, c.Bytes
 	base.receiveBufferBytes = c.ReceiveBufferBytes
+	base.sackEnabled = c.SACKEnabled
 	base.bandwidth, base.queue = c.BandwidthBitsPerSecond, c.LinkQueue
 	base.forwardingBitsPerSecond = c.ForwardingBitsPerSecond
 	base.loss, base.seed = c.Loss, c.Seed

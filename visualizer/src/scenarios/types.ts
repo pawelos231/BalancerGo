@@ -82,6 +82,7 @@ export interface Scenario {
   };
   tcp?: {
     receiveBufferBytes?: ExactInteger;
+    sackEnabled?: boolean;
     congestionControl?: Partial<ScenarioCongestionConfig>;
     rto?: Partial<ScenarioRTOConfig>;
     close?: Partial<ScenarioCloseConfig>;
@@ -137,6 +138,7 @@ export interface ResolvedScenario {
   execution: Scenario['execution'];
   tcp: {
     receiveBufferBytes: number;
+    sackEnabled: boolean;
     congestionControl: ScenarioCongestionConfig;
     rto: ScenarioRTOConfig;
     close: ScenarioCloseConfig;

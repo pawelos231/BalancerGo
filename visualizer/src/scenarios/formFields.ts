@@ -4,7 +4,7 @@ import { congestionModeOptions } from './types.ts';
 export type NumericScenarioField = Exclude<
   ScenarioField,
   'algorithm' | 'rtoMode' | 'rtoBackoff' | 'congestionControl'
-  | 'fastRetransmit' | 'cubicFastConvergence'
+  | 'fastRetransmit' | 'cubicFastConvergence' | 'sackEnabled'
 >;
 
 // Inputs keep their existing draft paths; these definitions only organize the form.
@@ -437,6 +437,18 @@ export const rtoBackoffHelp =
 
 // Select inputs share rendering while keeping each transport policy's explanation close by.
 export const scenarioSelectFields = {
+  sackEnabled: {
+    label: 'Selective acknowledgements (SACK)',
+    help:
+      'The receiver reports byte ranges already received beyond a missing fragment. ' +
+      'The sender can repair several gaps without waiting for each cumulative ACK. ' +
+      'Requires Reno, NewReno or CUBIC with fast retransmit enabled. ' +
+      'Disabled preserves the existing cumulative-ACK recovery profile.',
+    options: [
+      { value: 'true', label: 'Enabled' },
+      { value: 'false', label: 'Disabled' },
+    ],
+  },
   algorithm: {
     label: 'Initial algorithm',
     help: algorithmHelp,
@@ -509,7 +521,10 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
     id: 'tcp-traffic',
     title: 'TCP traffic',
     description: 'Set client arrivals, payload, receive buffering and pauses between segments.',
-    fields: ['clients', 'clientGapMs', 'packets', 'bytes', 'packetGapMs', 'receiveBufferBytes'],
+    fields: [
+      'clients', 'clientGapMs', 'packets', 'bytes', 'packetGapMs',
+      'receiveBufferBytes', 'sackEnabled',
+    ],
     defaultExpanded: true,
   },
   {

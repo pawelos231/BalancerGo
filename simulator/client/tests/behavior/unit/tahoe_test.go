@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -28,7 +29,7 @@ func TestTCPTahoeFastLossRestartsSlowStart(t *testing.T) {
 				t.Fatalf("third duplicate did not restart Tahoe: %+v", state)
 			}
 			data := sentClientData(h.sent)
-			if len(data) != 9 || data[8] != data[0] || h.transfer().DataRetransmissions != 1 {
+			if len(data) != 9 || !reflect.DeepEqual(data[8], data[0]) || h.transfer().DataRetransmissions != 1 {
 				t.Fatalf("fast loss did not retry the original head exactly once: %+v", data)
 			}
 

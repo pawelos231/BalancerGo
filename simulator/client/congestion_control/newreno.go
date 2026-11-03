@@ -19,11 +19,20 @@ func newNewRenoPolicy(config model.CongestionConfig) *newRenoPolicy {
 	}
 }
 
-// OnACK retries the next hole on a partial ACK, consuming that ACK's window update.
+// OnACK retries the next hole on a classic NewReno partial ACK; SACK selects its own retries.
 // Full ACKs use RFC 6582's first deflation option to limit the next burst.
 func (policy *newRenoPolicy) OnACK(ack ACK) ACKResponse {
 	if !policy.activeRecovery {
 		return policy.classicWindow.OnACK(ack)
+	}
+	// SACK chooses its own holes; a partial ACK must not also request NewReno's retry.
+	if ack.SACKRecovery {
+		if ack.EndSACKRecovery {
+			policy.StopRecovery()
+			policy.congestionWindowBytes = policy.slowStartThresholdBytes
+			policy.avoidanceAcknowledgedBytes = 0
+		}
+		return ACKResponse{}
 	}
 	if ack.CumulativeACK >= policy.recoveryEndSeq {
 		policy.StopRecovery()
@@ -59,23 +68,31 @@ func (policy *newRenoPolicy) OnDuplicateACK() {
 	}
 }
 
-// OnLoss only accepts a new fast loss after ACKs advance beyond the old flight.
-// Loss of the first data byte therefore waits for RTO with this conservative profile.
+// OnLoss uses NewReno's old-flight guard unless TCP manages SACK recovery.
+// Without SACK, loss of the first data byte waits for RTO in this conservative profile.
 func (policy *newRenoPolicy) OnLoss(loss Loss) LossResponse {
 	switch loss.Kind {
 	case FastRetransmitLoss:
-		if policy.activeRecovery || loss.CumulativeACK <= policy.recoveryEndSeq {
+		// The SACK sender owns its recovery boundary, including a loss of the first byte.
+		oldNewRenoFlight := !loss.SACKRecovery && loss.CumulativeACK <= policy.recoveryEndSeq
+		if policy.activeRecovery || oldNewRenoFlight {
 			return LossResponse{SuppressFastRetransmit: true}
 		}
 		policy.recoveryEndSeq = loss.NextSendSeq
 		policy.slowStartThresholdBytes = max(loss.FlightBytes/2, 2*model.SEGMENT_SIZE)
-		policy.congestionWindowBytes = addCongestionBytes(
-			policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE,
-		)
+		policy.congestionWindowBytes = policy.slowStartThresholdBytes
 		policy.avoidanceAcknowledgedBytes = 0
 		policy.activeRecovery = true
-		policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
+		policy.remainingInflations = 0
 		policy.partialACKSeen = false
+
+		// RFC 6675 accounts for data still in transit with Pipe rather than inflation.
+		if !loss.SACKRecovery {
+			policy.congestionWindowBytes = addCongestionBytes(
+				policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE,
+			)
+			policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
+		}
 	case TimeoutLoss:
 		policy.StopRecovery()
 		policy.recoveryEndSeq = loss.NextSendSeq

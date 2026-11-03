@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"math"
+	"reflect"
 	"testing"
 	"time"
 
@@ -146,7 +147,7 @@ func TestTCPSYNRetryKeepsItsOriginalSequence(t *testing.T) {
 		t.Fatalf("SYN transmissions = %d, want original plus two retries", len(h.sent))
 	}
 	for _, packet := range h.sent {
-		if packet != h.sent[0] || packet.Flag != model.FlagSYN ||
+		if !reflect.DeepEqual(packet, h.sent[0]) || packet.Flag != model.FlagSYN ||
 			packet.Seq != 0 || packet.Ack != 0 || packet.Size != 0 {
 			t.Fatalf("SYN retry changed its reserved position: %+v", h.sent)
 		}
@@ -192,7 +193,7 @@ func TestTCPDataAcknowledgmentsMatchOutstandingByteRange(t *testing.T) {
 	// Invalid ACKs leave the original range outstanding for its existing timer.
 	h.runUntil(model.SEGMENT_TIMEOUT)
 	data := sentClientData(h.sent)
-	if len(data) != 2 || data[1] != original {
+	if len(data) != 2 || !reflect.DeepEqual(data[1], original) {
 		t.Fatalf("byte-range retransmission = %+v", data)
 	}
 	h.receive(model.FlagACK, 18)
@@ -218,7 +219,7 @@ func TestTCPDuplicateHandshakeDoesNotResetOutstandingData(t *testing.T) {
 	}
 	h.runUntil(model.SEGMENT_TIMEOUT)
 	data := sentClientData(h.sent)
-	if len(data) != 3 || data[2] != original {
+	if len(data) != 3 || !reflect.DeepEqual(data[2], original) {
 		t.Fatalf("duplicate handshake changed the outstanding range or timer: %+v", data)
 	}
 

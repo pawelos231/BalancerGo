@@ -25,6 +25,7 @@ type Info struct {
 	Speed                         float64
 	Seed                          int64
 	ReceiveBufferBytes            int
+	SACKEnabled                   bool
 	RTO                           model.RTOConfig
 	Close                         model.CloseConfig
 	CongestionControl             model.CongestionConfig
@@ -86,6 +87,7 @@ func (s *World) Info() Info {
 		SnapshotInterval: s.scenario.Execution.SnapshotInterval,
 		Speed:            s.scenario.Execution.Speed, Seed: s.scenario.Execution.Seed,
 		ReceiveBufferBytes: s.scenario.TCP.ReceiveBufferBytes,
+		SACKEnabled:        s.scenario.TCP.SACKEnabled,
 		CongestionControl: model.CongestionConfig{
 			Mode:                           model.CongestionMode(s.scenario.TCP.CongestionControl.Mode),
 			FastRetransmit:                 s.scenario.TCP.CongestionControl.FastRetransmit,

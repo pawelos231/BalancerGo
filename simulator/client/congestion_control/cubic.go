@@ -45,6 +45,10 @@ func newCubicPolicy(config model.CongestionConfig) *cubicPolicy {
 // Otherwise CUBIC grows only while local demand can use the congestion window.
 func (policy *cubicPolicy) OnACK(ack ACK) ACKResponse {
 	if policy.activeRecovery {
+		// SACK can acknowledge one repaired hole while another still needs recovery.
+		if ack.SACKRecovery && !ack.EndSACKRecovery {
+			return ACKResponse{}
+		}
 		policy.StopRecovery()
 		policy.setWindowBytes(policy.slowStartThresholdBytes)
 		return ACKResponse{}
@@ -82,9 +86,15 @@ func (policy *cubicPolicy) OnLoss(loss Loss) LossResponse {
 	case FastRetransmitLoss:
 		policy.rememberCongestionWindow()
 		policy.slowStartThresholdBytes = cubicLossThreshold(loss.FlightBytes)
-		policy.setWindowBytes(addCongestionBytes(policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE))
+		policy.setWindowBytes(policy.slowStartThresholdBytes)
 		policy.activeRecovery = true
-		policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
+		policy.remainingInflations = 0
+
+		// Keep CUBIC's 70% reduction; SACK recovery uses Pipe without Reno inflation.
+		if !loss.SACKRecovery {
+			policy.setWindowBytes(addCongestionBytes(policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE))
+			policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
+		}
 		policy.epochStarted = false
 		policy.resetMaximumAtEpoch = false
 	case TimeoutLoss:

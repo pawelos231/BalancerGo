@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func TestTCPRTOBackoffIsIndependentOfEstimatorMode(t *testing.T) {
 
 					h.runUntil(deadline)
 					data := sentClientData(h.sent)
-					if len(data) != 2+retry || data[len(data)-1] != data[0] {
+					if len(data) != 2+retry || !reflect.DeepEqual(data[len(data)-1], data[0]) {
 						t.Fatalf("retry %d did not resend only the oldest segment: %+v", retry, data)
 					}
 					if backoff {

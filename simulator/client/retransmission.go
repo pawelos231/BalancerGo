@@ -89,6 +89,7 @@ func (c *Client) invalidateRTTProbe() {
 // sendSyn starts the SYN timer before emitting, so an immediate reply can cancel it.
 func (c *Client) sendSyn() {
 	packet := GeneratePacket(c.key, model.FlagSYN, 0, 0, 0)
+	packet.SACKPermitted = c.sack.enabled
 	if c.retrySyn == 0 {
 		c.startRTTProbe(packet)
 	}
@@ -130,6 +131,9 @@ func (c *Client) retransmitData() {
 	packet, retry := c.prepareDataRetry()
 	if !retry {
 		return
+	}
+	if c.sack.negotiated {
+		c.resetSACKAfterTimeout()
 	}
 	c.congestion.onDataTimeout(packet, c.bytesInFlight(), c.nextSendSeq, c.engine.Now())
 	c.rto.backOff()

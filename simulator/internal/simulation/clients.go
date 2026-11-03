@@ -132,6 +132,7 @@ func (s *World) startClient(
 		InitialWindowSegments:          congestion.InitialWindowSegments,
 		InitialSlowStartThresholdBytes: congestion.InitialSlowStartThresholdBytes,
 	})
+	cl.SetSACKEnabled(s.scenario.TCP.SACKEnabled)
 
 	// Each connection estimates its own RTT using the scenario's timer policy.
 	cl.SetRTOConfig(configuredRTO(s.scenario.TCP.RTO))

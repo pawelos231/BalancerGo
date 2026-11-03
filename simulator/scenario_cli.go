@@ -23,7 +23,7 @@ import (
 
 const (
 	experimentReportVersion = 1
-	experimentModel         = "tcp-lb-mapping-timeouts-v1"
+	experimentModel         = "tcp-sack-v1"
 )
 
 // loadedScenario keeps the importable input beside its checked runtime settings.

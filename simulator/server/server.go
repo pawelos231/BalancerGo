@@ -47,6 +47,7 @@ type Server struct {
 
 	receivedPayloadBytes   uint64
 	receiveBufferBytes     uint16
+	sackEnabled            bool
 	engine                 *engine.Engine
 	sender                 func(model.Packet)
 	connections            map[model.ClientKey]*connection

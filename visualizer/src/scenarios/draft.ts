@@ -22,6 +22,7 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   packets: ['workload', 'defaults', 'packets'],
   bytes: ['workload', 'defaults', 'bytes'],
   receiveBufferBytes: ['tcp', 'receiveBufferBytes'],
+  sackEnabled: ['tcp', 'sackEnabled'],
   congestionControl: ['tcp', 'congestionControl', 'mode'],
   fastRetransmit: ['tcp', 'congestionControl', 'fastRetransmit'],
   cubicFastConvergence: ['tcp', 'congestionControl', 'cubicFastConvergence'],
@@ -88,6 +89,7 @@ const positiveFields = new Set<ScenarioField>([
 // Older documents keep their original shape while the form shows effective defaults.
 const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>> = {
   receiveBufferBytes: 65535,
+  sackEnabled: false,
   congestionControl: 'reno',
   cubicFastConvergence: true,
   initialCongestionWindowSegments: 4,
@@ -159,6 +161,9 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   }
   if (field === 'fastRetransmit') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether fast retransmit is enabled.';
+  }
+  if (field === 'sackEnabled') {
+    return text === 'true' || text === 'false' ? undefined : 'Choose whether selective ACKs are enabled.';
   }
   if (field === 'cubicFastConvergence') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether CUBIC fast convergence is enabled.';
@@ -260,7 +265,8 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     if (field === 'algorithm' || field === 'rtoMode' || field === 'congestionControl') {
       value = raw.trim();
     } else if (
-      field === 'rtoBackoff' || field === 'fastRetransmit' || field === 'cubicFastConvergence'
+      field === 'rtoBackoff' || field === 'fastRetransmit'
+      || field === 'cubicFastConvergence' || field === 'sackEnabled'
     ) {
       value = raw.trim() === 'true';
     } else if (floatFields.has(field)) value = Number(raw);
@@ -274,6 +280,17 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     // The rwnd-only baseline disables early loss detection, without changing links.
     if (field === 'congestionControl' && value === 'none') {
       Reflect.set(target, 'fastRetransmit', false);
+    }
+  }
+
+  // Keep SACK and its recovery policy explicit instead of silently changing either.
+  if (updated.tcp?.sackEnabled) {
+    const congestion = updated.tcp.congestionControl;
+    const selectedMode = congestion?.mode ?? 'reno';
+    const supportedMode = selectedMode === 'reno'
+      || selectedMode === 'newReno' || selectedMode === 'cubic';
+    if (!supportedMode || congestion?.fastRetransmit === false) {
+      throw new Error('SACK requires Reno, NewReno or CUBIC with fast retransmit enabled.');
     }
   }
   return updated;

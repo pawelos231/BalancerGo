@@ -30,6 +30,7 @@ type Client struct {
 	rttProbe    roundTripProbe
 	idleTimeout time.Duration
 	congestion  congestionControl
+	sack        sackSender
 
 	nextSendSeq      uint64
 	oldestUnackedSeq uint64
@@ -136,6 +137,7 @@ func (c *Client) EstablishConnection() {
 	if c.terminated || c.connection.requested || c.handshakeStarted {
 		return
 	}
+	c.validateSACKProfile()
 	c.handshakeStarted = true
 	c.connection.state = model.TCPSynSent
 	// This profile starts at SEQ 0; SYN reserves the first position.
@@ -229,6 +231,8 @@ func (c *Client) ShutdownWithReason(reason model.TransferFailureReason) {
 	c.cancelEvent(&c.sendEvent)
 	c.cancelEvent(&c.floodEvent)
 	c.pendingSegments.reset()
+	c.sack.board.ranges = nil
+	c.sack.active = false
 	c.oldestSegmentRetransmissions = 0
 	c.rttProbe = roundTripProbe{}
 	c.congestion.clearLossTracking()

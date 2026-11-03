@@ -10,6 +10,8 @@ import (
 
 // registerTCPFlags keeps congestion, retry timing and idle cleanup configurable.
 func (c *configuration) registerTCPFlags() {
+	flag.BoolVar(&c.sackEnabled, "sack-enabled", false,
+		"negotiate selective ACKs; requires Reno, NewReno or CUBIC and fast retransmit")
 	c.rto = model.DefaultRTOConfig()
 	c.congestion = model.DefaultCongestionConfig()
 	closeConfig := model.DefaultCloseConfig()

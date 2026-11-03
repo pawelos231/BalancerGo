@@ -20,6 +20,7 @@ type Normalized struct {
 // Optional input settings have already been replaced by concrete defaults.
 type NormalizedTCPConfig struct {
 	ReceiveBufferBytes            int                        `json:"receiveBufferBytes"`
+	SACKEnabled                   bool                       `json:"sackEnabled"`
 	RTO                           NormalizedRTOConfig        `json:"rto"`
 	Close                         NormalizedCloseConfig      `json:"close"`
 	CongestionControl             NormalizedCongestionConfig `json:"congestionControl"`

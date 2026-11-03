@@ -105,6 +105,7 @@ export interface SimulationConfig {
   packets: number;
   bytes: number;
   receiveBufferBytes: number;
+  sackEnabled: boolean;
   congestionControl: CongestionMode;
   fastRetransmit: boolean;
   cubicFastConvergence: boolean;

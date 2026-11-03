@@ -220,6 +220,7 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 		},
 		TCP: contract.TCPConfig{
 			ReceiveBufferBytes: info.ReceiveBufferBytes,
+			SACKEnabled:        info.SACKEnabled,
 			CongestionControl: contract.CongestionConfig{
 				Mode:                           string(info.CongestionControl.Mode),
 				FastRetransmit:                 info.CongestionControl.FastRetransmit,

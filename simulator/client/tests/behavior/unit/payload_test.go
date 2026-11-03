@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -64,7 +65,7 @@ func TestAcknowledgedPayloadCountsUniqueProgress(t *testing.T) {
 	// Only the oldest range is retried; merely sending it still confirms no bytes.
 	h.runUntil(time.Millisecond + model.SEGMENT_TIMEOUT)
 	data = sentClientData(h.sent)
-	if len(data) != 4 || data[3] != data[0] {
+	if len(data) != 4 || !reflect.DeepEqual(data[3], data[0]) {
 		t.Fatalf("expected retransmission of the oldest segment, got %+v", data)
 	}
 	assertTotal(0)
