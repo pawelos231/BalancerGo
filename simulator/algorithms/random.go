@@ -2,7 +2,6 @@ package algorithms
 
 import (
 	"errors"
-	"load-balancer/server"
 	"math/rand"
 )
 
@@ -16,15 +15,15 @@ func NewRandom(seed int64) *Random {
 	return &Random{RNG: rand.New(rand.NewSource(seed))}
 }
 
-func (r *Random) Pick(servers []*server.Server) (*server.Server, error) {
-	available := make([]*server.Server, 0, len(servers))
-	for _, srv := range servers {
-		if srv != nil && (srv.MaxConnections == 0 || srv.ActiveConnections < srv.MaxConnections) {
-			available = append(available, srv)
+func (r *Random) Pick(candidates []Candidate) (int, error) {
+	available := make([]int, 0, len(candidates))
+	for index, candidate := range candidates {
+		if candidate.MaxConnections == 0 || candidate.MappedConnections < candidate.MaxConnections {
+			available = append(available, index)
 		}
 	}
 	if len(available) == 0 {
-		return nil, errors.New("no available backends")
+		return -1, errors.New("no available backends")
 	}
 	if r.RNG == nil {
 		// Preserve a usable zero value with a reproducible fallback seed.

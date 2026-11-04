@@ -256,17 +256,12 @@ func (s *Server) Score() float64 {
 }
 
 func (s *Server) GetState() model.ServerState {
-	// LB candidate views contain host settings without a running TCP receiver.
-	var receivedPayloadBytes uint64
-	if s.transport != nil {
-		receivedPayloadBytes = s.transport.ReceivedPayloadBytes()
-	}
 	return model.ServerState{
 		ID: s.ID, Name: s.Name, Address: s.Address, Port: s.Port,
 		Active: s.Active, ActiveConnections: s.ActiveConnections,
 		HalfOpenConnections: s.HalfOpenConnections, LatencyP95Milli: s.LatencyP95Milli,
 		CpuUsage:               s.CpuUsage,
 		NumberOfHandledPackets: s.NumberOfHandledPackets,
-		ReceivedPayloadBytes:   receivedPayloadBytes,
+		ReceivedPayloadBytes:   s.transport.ReceivedPayloadBytes(),
 	}
 }

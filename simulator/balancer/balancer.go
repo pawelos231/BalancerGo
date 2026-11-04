@@ -22,11 +22,11 @@ const (
 type Sender func(model.Packet)
 
 type healthCheck struct {
-	tick    engine.EventID
-	timeout engine.EventID
-	serial  uint64
-	healthy bool
-	view    server.Server // Backend settings and connection counts known to this LB.
+	tick           engine.EventID
+	timeout        engine.EventID
+	serial         uint64
+	healthy        bool
+	maxConnections uint32 // Backend capacity recorded by the LB at registration.
 }
 
 type LoadBalancer struct {
@@ -117,11 +117,8 @@ func (lb *LoadBalancer) AddServer(srv *server.Server, send Sender) error {
 	lb.servers = append(lb.servers, srv)
 	lb.toServer[srv] = send
 	check := &healthCheck{
-		healthy: true,
-		view: server.Server{
-			ID: srv.ID, Name: srv.Name, Address: srv.Address, Port: srv.Port,
-			Weight: srv.Weight, MaxConnections: srv.MaxConnections,
-		},
+		healthy:        true,
+		maxConnections: srv.MaxConnections,
 	}
 	lb.health[srv] = check
 	lb.scheduleHealthCheck(srv, check)
@@ -184,34 +181,37 @@ func (lb *LoadBalancer) Route(cl *client.Client) (*server.Server, error) {
 	if mapped := lb.byKey[cl.Key()]; mapped != nil {
 		return mapped, nil
 	}
-	eligible := make([]*server.Server, 0, len(lb.servers))
+	// Candidates contain only LB knowledge. The matching backend stays at the
+	// same index, so selection never needs a partially initialized server.
+	candidates := make([]algorithms.Candidate, 0, len(lb.servers))
+	backends := make([]*server.Server, 0, len(lb.servers))
 	for _, srv := range lb.servers {
 		check := lb.health[srv]
 		if check.healthy {
-			check.view.ActiveConnections = uint32(len(lb.connTable[srv]))
-			eligible = append(eligible, &check.view)
+			candidates = append(candidates, algorithms.Candidate{
+				MaxConnections:    check.maxConnections,
+				MappedConnections: uint32(len(lb.connTable[srv])),
+			})
+			backends = append(backends, srv)
 		}
 	}
 
-	selected, err := lb.algo.Pick(eligible)
+	selected, err := lb.algo.Pick(candidates)
 	if err != nil {
 		return nil, err
 	}
-	if selected == nil {
-		return nil, errors.New("balancer: no available backend")
+	if selected < 0 || selected >= len(backends) {
+		return nil, errors.New("balancer: algorithm selected an unknown backend")
 	}
-	for _, srv := range lb.servers {
-		if &lb.health[srv].view == selected {
-			lb.connTable[srv] = append(lb.connTable[srv], cl)
-			lb.byKey[cl.Key()] = srv
-			lb.connections[cl.Key()] = &connectionState{
-				lastActivity: lb.engine.Now(),
-				phase:        stateHalfOpen,
-			}
-			return srv, nil
-		}
+
+	srv := backends[selected]
+	lb.connTable[srv] = append(lb.connTable[srv], cl)
+	lb.byKey[cl.Key()] = srv
+	lb.connections[cl.Key()] = &connectionState{
+		lastActivity: lb.engine.Now(),
+		phase:        stateHalfOpen,
 	}
-	return nil, errors.New("balancer: algorithm selected an unknown backend")
+	return srv, nil
 }
 
 // forgetRoute releases only the mapping owned by this LB.

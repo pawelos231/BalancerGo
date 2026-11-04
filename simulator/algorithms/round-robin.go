@@ -2,7 +2,6 @@ package algorithms
 
 import (
 	"errors"
-	"load-balancer/server"
 	"sync"
 )
 
@@ -11,22 +10,23 @@ type RoundRobin struct {
 	idx int
 }
 
-// Pick checks at most one full rotation. A full backend set returns an error
-// rather than recurring indefinitely. Eligibility is otherwise filtered by LB.
-func (rr *RoundRobin) Pick(backends []*server.Server) (*server.Server, error) {
-	if len(backends) == 0 {
-		return nil, errors.New("no backends")
+// Pick checks at most one full rotation, skipping candidates at their mapping limit.
+// The LB filters unavailable backends before calling Pick.
+func (rr *RoundRobin) Pick(candidates []Candidate) (int, error) {
+	if len(candidates) == 0 {
+		return -1, errors.New("no backends")
 	}
 
 	rr.mu.Lock()
 	defer rr.mu.Unlock()
-	rr.idx %= len(backends)
-	for checked := 0; checked < len(backends); checked++ {
-		s := backends[rr.idx]
-		rr.idx = (rr.idx + 1) % len(backends)
-		if s != nil && (s.MaxConnections == 0 || s.ActiveConnections < s.MaxConnections) {
-			return s, nil
+	rr.idx %= len(candidates)
+	for checked := 0; checked < len(candidates); checked++ {
+		index := rr.idx
+		candidate := candidates[index]
+		rr.idx = (rr.idx + 1) % len(candidates)
+		if candidate.MaxConnections == 0 || candidate.MappedConnections < candidate.MaxConnections {
+			return index, nil
 		}
 	}
-	return nil, errors.New("no available backends")
+	return -1, errors.New("no available backends")
 }
