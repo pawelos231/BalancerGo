@@ -289,8 +289,11 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     const selectedMode = congestion?.mode ?? 'reno';
     const supportedMode = selectedMode === 'reno'
       || selectedMode === 'newReno' || selectedMode === 'cubic';
-    if (!supportedMode || congestion?.fastRetransmit === false) {
-      throw new Error('SACK requires Reno, NewReno or CUBIC with fast retransmit enabled.');
+    if (!supportedMode) {
+      throw new Error('SACK requires Reno, NewReno or CUBIC congestion control.');
+    }
+    if (congestion?.fastRetransmit === false) {
+      throw new Error('SACK requires fast retransmit to be enabled.');
     }
   }
   return updated;

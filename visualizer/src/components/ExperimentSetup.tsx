@@ -1,11 +1,9 @@
 import { Alert, Button, Card, CardContent, CardHeader, Stack } from '@mui/material';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  applyScenarioField,
-  scenarioFormValues,
-  validateScenarioField,
-} from '../scenarios/draft';
+import { scenarioFormValues } from '../scenarios/draft';
 import type { ScenarioDraft, ScenarioField } from '../scenarios/draft';
+import { editScenarioForm } from '../scenarios/formState';
+import type { FieldErrors } from '../scenarios/formState';
 import { readScenarioFile, serializeScenario } from '../scenarios/files';
 import { scenarioPresets } from '../scenarios/presets';
 import { scenarioApi } from '../scenarios/runtimeApi';
@@ -33,8 +31,6 @@ interface CountEdit {
   baseline: Scenario;
 }
 
-type FieldErrors = Partial<Record<ScenarioField, string>>;
-
 // One native document drives both presets and manual edits, independently of the active run.
 function ExperimentSetup({
   connected,
@@ -59,12 +55,18 @@ function ExperimentSetup({
   const [fileNotice, setFileNotice] = useState<ScenarioFileNotice | null>(null);
   const validationRef = useRef<AbortController | null>(null);
   const scenarioRef = useRef<Scenario | null>(null);
+  const valuesRef = useRef<ScenarioDraft | null>(null);
   const errorsRef = useRef<FieldErrors>({});
   const countEditRef = useRef<CountEdit | null>(null);
 
   const setNativeScenario = useCallback((definition: Scenario) => {
     scenarioRef.current = definition;
     setScenario(definition);
+  }, []);
+
+  const setFormValues = useCallback((draft: ScenarioDraft) => {
+    valuesRef.current = draft;
+    setValues(draft);
   }, []);
 
   useEffect(() => {
@@ -75,7 +77,7 @@ function ExperimentSetup({
       // A late defaults response must not overwrite an already imported draft.
       if (!scenarioRef.current) {
         setNativeScenario(definition);
-        setValues(scenarioFormValues(definition));
+        setFormValues(scenarioFormValues(definition));
       }
       setError(null);
     }).catch((failure: unknown) => {
@@ -86,7 +88,7 @@ function ExperimentSetup({
     });
 
     return () => controller.abort();
-  }, [reload, setNativeScenario]);
+  }, [reload, setNativeScenario, setFormValues]);
 
   useEffect(() => () => validationRef.current?.abort(), []);
 
@@ -118,7 +120,7 @@ function ExperimentSetup({
 
       countEditRef.current = null;
       setNativeScenario(result.scenario);
-      setValues(nextValues);
+      setFormValues(nextValues);
       errorsRef.current = {};
       setFieldErrors({});
       setValidation(result);
@@ -208,12 +210,11 @@ function ExperimentSetup({
 
   function changeField(name: ScenarioField, raw: string) {
     const current = scenarioRef.current;
-    if (!current || validationRef.current || pending) return;
+    const requested = valuesRef.current;
+    if (!current || !requested || validationRef.current || pending) return;
     setValidation(null);
     setFileNotice(null);
-    setValues((previous) => previous ? { ...previous, [name]: raw } : previous);
     setApplied((previous) => previous ? { ...previous, pristine: false } : null);
-    let message = validateScenarioField(name, raw);
 
     if (name === 'clients' || name === 'servers') {
       if (countEditRef.current?.field !== name) {
@@ -224,26 +225,14 @@ function ExperimentSetup({
     }
     const baseline = countEditRef.current?.baseline ?? current;
 
-    if (!message) {
-      try {
-        const updated = applyScenarioField(baseline, name, raw);
-        setNativeScenario(updated);
-        if (name === 'congestionControl') {
-          // The dependent recovery field follows a mode change immediately.
-          const fastRetransmit = scenarioFormValues(updated).fastRetransmit;
-          setValues((previous) => previous ? { ...previous, fastRetransmit } : previous);
-        }
-      } catch (failure) {
-        message = failure instanceof Error ? failure.message : 'Cannot apply this setting.';
-      }
-    }
-
-    const nextErrors = { ...errorsRef.current };
-    if (message) nextErrors[name] = message;
-    else delete nextErrors[name];
-    if (!message && name === 'congestionControl') delete nextErrors.fastRetransmit;
-    errorsRef.current = nextErrors;
-    setFieldErrors(nextErrors);
+    const next = editScenarioForm(
+      { scenario: current, values: requested, errors: errorsRef.current },
+      name, raw, baseline,
+    );
+    setNativeScenario(next.scenario);
+    setFormValues(next.values);
+    errorsRef.current = next.errors;
+    setFieldErrors(next.errors);
   }
 
   // Intermediate count digits must not erase group proportions or custom backends.
