@@ -10,7 +10,7 @@ import (
 // EventID identifies one scheduled callback
 type EventID uint64
 
-const DefaultMaxEvents uint64 = 50_000_000
+const DefaultMaxEvents uint64 = 5_000_000_000
 
 var (
 	ErrEventLimit   = errors.New("engine: event execution limit reached")
