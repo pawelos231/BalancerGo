@@ -2,8 +2,6 @@ package main
 
 import (
 	"testing"
-
-	"load-balancer/scenario"
 )
 
 // The old form and native summary carry both explicit SACK choices unchanged.
@@ -17,16 +15,13 @@ func TestConfigurationSACKRoundTrip(t *testing.T) {
 		requested := defaults.publicConfig()
 		requested.SACKEnabled = enabled
 
-		runtime, err := configurationFromPublic(requested, defaults)
+		prepared, err := preparePublicScenario(requested, defaults)
 		if err != nil {
 			t.Fatal(err)
 		}
-		resolved, err := scenario.Normalize(runtime.scenarioDefinition())
-		if err != nil {
-			t.Fatal(err)
-		}
+		resolved := prepared.resolved
 
-		if runtime.publicConfig().SACKEnabled != enabled ||
+		if *prepared.definition.TCP.SACKEnabled != enabled ||
 			resolved.TCP.SACKEnabled != enabled || scenarioSummary(resolved).SACKEnabled != enabled {
 			t.Fatalf("SACK enabled=%v was lost by a configuration adapter", enabled)
 		}

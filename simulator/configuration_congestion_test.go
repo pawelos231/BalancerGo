@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"load-balancer/model"
-	"load-balancer/scenario"
 )
 
 func TestConfigurationCongestionRoundTrip(t *testing.T) {
@@ -22,18 +21,17 @@ func TestConfigurationCongestionRoundTrip(t *testing.T) {
 	requested.FastRetransmit = false
 	requested.InitialCongestionWindowSegments = 2
 	requested.InitialSlowStartThresholdBytes = 9_007_199_254_740_993
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored := runtime.publicConfig(); restored != requested {
-		t.Fatalf("congestion settings changed during the form round trip: %+v", restored)
+	input := prepared.definition.TCP.CongestionControl
+	if *input.Mode != "none" || *input.FastRetransmit || *input.InitialWindowSegments != 2 ||
+		*input.InitialSlowStartThresholdBytes != requested.InitialSlowStartThresholdBytes {
+		t.Fatalf("congestion settings changed in the retained input: %+v", input)
 	}
 
-	resolved, err := scenario.Normalize(runtime.scenarioDefinition())
-	if err != nil {
-		t.Fatal(err)
-	}
+	resolved := prepared.resolved
 	congestion := resolved.TCP.CongestionControl
 	if congestion.Mode != "none" || congestion.InitialWindowSegments != 2 ||
 		congestion.InitialSlowStartThresholdBytes != requested.InitialSlowStartThresholdBytes {
@@ -54,17 +52,14 @@ func TestConfigurationFastRetransmitRoundTrip(t *testing.T) {
 	requested := defaults.publicConfig()
 	requested.FastRetransmit = false
 
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.effectiveCongestionConfig().FastRetransmit || runtime.publicConfig().FastRetransmit {
+	if *prepared.definition.TCP.CongestionControl.FastRetransmit {
 		t.Fatal("the explicit false was replaced by the Reno default")
 	}
-	resolved, err := scenario.Normalize(runtime.scenarioDefinition())
-	if err != nil {
-		t.Fatal(err)
-	}
+	resolved := prepared.resolved
 	if resolved.TCP.CongestionControl.FastRetransmit || scenarioSummary(resolved).FastRetransmit {
 		t.Fatal("the scenario lost the disabled recovery policy")
 	}
@@ -72,7 +67,7 @@ func TestConfigurationFastRetransmitRoundTrip(t *testing.T) {
 	// Mode none cannot request early loss detection through the legacy API.
 	requested.CongestionControl = "none"
 	requested.FastRetransmit = true
-	if _, err := configurationFromPublic(requested, defaults); err == nil {
+	if _, err := preparePublicScenario(requested, defaults); err == nil {
 		t.Fatal("fast retransmit was accepted with congestion control disabled")
 	}
 }
@@ -168,18 +163,16 @@ func TestConfigurationRecoveryModesRoundTrip(t *testing.T) {
 				requested.CongestionControl = mode
 				requested.FastRetransmit = fastRetransmit
 
-				runtime, err := configurationFromPublic(requested, defaults)
+				prepared, err := preparePublicScenario(requested, defaults)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if restored := runtime.publicConfig(); restored != requested {
-					t.Fatalf("%s settings changed during the form round trip: %+v", mode, restored)
+				input := prepared.definition.TCP.CongestionControl
+				if *input.Mode != mode || *input.FastRetransmit != fastRetransmit {
+					t.Fatalf("%s settings changed in the retained input: %+v", mode, input)
 				}
 
-				resolved, err := scenario.Normalize(runtime.scenarioDefinition())
-				if err != nil {
-					t.Fatal(err)
-				}
+				resolved := prepared.resolved
 				config := resolved.TCP.CongestionControl
 				if config.Mode != mode || config.FastRetransmit != fastRetransmit {
 					t.Fatalf("native scenario lost the %s profile: %+v", mode, config)
@@ -230,17 +223,15 @@ func TestConfigurationCubicRoundTrip(t *testing.T) {
 		requested.CongestionControl = "cubic"
 		requested.CubicFastConvergence = fastConvergence
 
-		runtime, err := configurationFromPublic(requested, defaults)
+		prepared, err := preparePublicScenario(requested, defaults)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if restored := runtime.publicConfig(); restored != requested {
-			t.Fatalf("CUBIC settings changed in the flat form: %+v", restored)
+		input := prepared.definition.TCP.CongestionControl
+		if *input.Mode != "cubic" || *input.CubicFastConvergence != fastConvergence {
+			t.Fatalf("CUBIC settings changed in the retained input: %+v", input)
 		}
-		resolved, err := scenario.Normalize(runtime.scenarioDefinition())
-		if err != nil {
-			t.Fatal(err)
-		}
+		resolved := prepared.resolved
 		config := resolved.TCP.CongestionControl
 		if config.Mode != "cubic" || config.CubicFastConvergence != fastConvergence {
 			t.Fatalf("native scenario lost CUBIC settings: %+v", config)

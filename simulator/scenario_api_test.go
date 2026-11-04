@@ -208,6 +208,58 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 	scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusNotFound)
 }
 
+// A packets-only form edit keeps Bytes=-1 in the stored input. Runtime receives
+// the resolved byte count, while explicit zero timeouts and false flags stay exact.
+func TestLegacyStartRetainsRequestedAndResolvedSettings(t *testing.T) {
+	defaults := legacyTestConfiguration()
+	request := startRequest{
+		legacy: &runtimeCommand{Payload: []byte(`{
+			"packets": 7,
+			"rtoBackoff": false,
+			"cubicFastConvergence": false,
+			"tcpMaxFINRetries": 0,
+			"clientIdleTimeoutMs": 0,
+			"backendHalfOpenIdleTimeoutMs": 0,
+			"lbHalfOpenIdleTimeoutMs": 0,
+			"packetTravelTimeMs": 0.000013
+		}`)},
+	}
+	prepared, err := prepareStart(request, defaults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := scenario.DecodeDocument(prepared.document)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Defaults and the stored document keep the user's unresolved byte choice.
+	if defaults.streamBytes != -1 || defaults.packets != 3 ||
+		stored.Workload.Defaults.Bytes != -1 || stored.Workload.Defaults.Packets != 7 {
+		t.Fatal("preparation replaced raw stream defaults with runtime values")
+	}
+	if prepared.scenario.DefaultStream.Bytes != 7*1024 {
+		t.Fatalf("resolved payload bytes = %d", prepared.scenario.DefaultStream.Bytes)
+	}
+
+	// Both retained representations describe the same explicit timer policy.
+	if *stored.TCP.RTO.ExponentialBackoff || prepared.scenario.TCP.RTO.ExponentialBackoff ||
+		*stored.TCP.CongestionControl.CubicFastConvergence ||
+		prepared.scenario.TCP.CongestionControl.CubicFastConvergence {
+		t.Fatal("preparation lost an explicit false flag")
+	}
+	if *stored.TCP.Close.MaxFINRetries != 0 || prepared.scenario.TCP.Close.MaxFINRetries != 0 ||
+		*stored.TCP.ClientIdleTimeout != 0 || prepared.scenario.TCP.ClientIdleTimeout != 0 ||
+		*stored.TCP.BackendHalfOpenIdleTimeout != 0 || prepared.scenario.TCP.BackendHalfOpenIdleTimeout != 0 ||
+		*stored.Resources.LoadBalancer.HalfOpenIdleTimeout != 0 || prepared.scenario.LoadBalancer.HalfOpenIdleTimeout != 0 {
+		t.Fatal("preparation replaced explicit zero limits")
+	}
+	if stored.Network.Defaults.PacketTravelTime != 13*time.Nanosecond ||
+		prepared.scenario.NetworkDefaults.PacketTravelTime != stored.Network.Defaults.PacketTravelTime {
+		t.Fatal("preparation changed native travel-time precision")
+	}
+}
+
 // TestScenarioStartAdmission checks simultaneous transports, detached records and Stop.
 func TestScenarioStartAdmission(t *testing.T) {
 	serviceCtx, cancelService := context.WithCancel(context.Background())

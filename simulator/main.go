@@ -17,7 +17,6 @@ import (
 	"load-balancer/internal/contract"
 	"load-balancer/internal/presentation"
 	"load-balancer/internal/simulation"
-	"load-balancer/scenario"
 )
 
 func main() {
@@ -28,7 +27,7 @@ func main() {
 }
 
 func run() error {
-	defaults, err := readConfiguration()
+	defaults, prepared, err := readConfiguration()
 	if err != nil {
 		return err
 	}
@@ -58,15 +57,7 @@ func run() error {
 
 	// Headless runs remain explicit CLI experiments without a browser.
 	if defaults.headless {
-		cfg, err := defaults.normalized()
-		if err != nil {
-			return err
-		}
-		resolved, err := scenario.Normalize(cfg.scenarioDefinition())
-		if err != nil {
-			return err
-		}
-		sim := simulation.New(resolved)
+		sim := simulation.New(prepared.resolved)
 		started := time.Now()
 		err = runWorld(ctx, sim, nil, nil, nil)
 		result := presentation.BuildResult(sim, time.Since(started))

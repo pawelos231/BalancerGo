@@ -56,7 +56,7 @@ type configuration struct {
 	outputDirectory string
 }
 
-func readConfiguration() (configuration, error) {
+func readConfiguration() (configuration, *preparedScenario, error) {
 	var c configuration
 	ingressDefaults := scenario.DefaultIngressConfig()
 	c.registerTCPFlags()
@@ -154,27 +154,30 @@ func readConfiguration() (configuration, error) {
 		"write series reports and index.json in a new directory",
 	)
 	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
-		return c, err
+		return c, nil, err
 	}
 	c.resolveCongestionFlagDefaults()
 	if flag.NArg() != 0 {
-		return c, fmt.Errorf("unexpected arguments: %v", flag.Args())
+		return c, nil, fmt.Errorf("unexpected arguments: %v", flag.Args())
 	}
 	if err := c.checkFileOptions(); err != nil {
-		return c, err
+		return c, nil, err
 	}
 
 	if c.scenarioPath != "" {
 		c.headless = true
-		return c, nil
+		return c, nil, nil
 	}
 	if c.receiveBufferBytes == 0 {
-		return c, errors.New("tcp.receiveBufferBytes: must be in 1..65535")
+		return c, nil, errors.New("tcp.receiveBufferBytes: must be in 1..65535")
 	}
-	// Keep the raw -1 byte sentinel for frontend defaults. Normalization must
-	// happen after the user has had a chance to change the packet count.
-	_, err := c.normalized()
-	return c, err
+	// Keep raw defaults for the form and retain the prepared CLI scenario.
+	// A later frontend request prepares its own settings independently.
+	prepared, err := c.prepareScenario()
+	if err != nil {
+		return c, nil, err
+	}
+	return c, &prepared, nil
 }
 
 // checkFileOptions checks explicit paths and keeps JSON as the source of settings.
@@ -231,27 +234,35 @@ func (c configuration) checkFileOptions() error {
 	return nil
 }
 
-// normalized validates a value copy and resolves options used by the model.
-// The caller's CLI/default configuration remains unchanged.
-func (c configuration) normalized() (configuration, error) {
+// preparedScenario keeps requested settings beside their checked runtime values.
+// For example, definition retains Bytes=-1 while resolved contains the byte count.
+type preparedScenario struct {
+	definition scenario.Scenario
+	resolved   scenario.Normalized
+}
+
+// prepareScenario builds and normalizes one scenario without changing defaults.
+func (c configuration) prepareScenario() (preparedScenario, error) {
 	if c.clients < 0 || c.clients > scenario.MaxClients || c.servers < 0 {
-		return c, errors.New("invalid client or server count")
+		return preparedScenario{}, errors.New("invalid client or server count")
 	}
 	if c.servers > scenario.MaxBackends {
-		return c, fmt.Errorf("server count must not exceed %d", scenario.MaxBackends)
+		return preparedScenario{}, fmt.Errorf("server count must not exceed %d", scenario.MaxBackends)
 	}
 	if c.speed < 0 || math.IsNaN(c.speed) || math.IsInf(c.speed, 0) {
-		return c, errors.New("speed must be finite and nonnegative")
-	}
-	if c.headless {
-		c.speed = 0
+		return preparedScenario{}, errors.New("speed must be finite and nonnegative")
 	}
 
-	resolved, err := scenario.Normalize(c.scenarioDefinition())
-	if err != nil {
-		return c, err
+	definition := c.scenarioDefinition()
+	runtimeDefinition := definition
+	// Headless ignores playback speed after validating the requested value.
+	if c.headless {
+		runtimeDefinition.Execution.Speed = 0
 	}
-	c.streamBytes = resolved.DefaultStream.Bytes
-	c.receiveBufferBytes = resolved.TCP.ReceiveBufferBytes
-	return c, nil
+
+	resolved, err := scenario.Normalize(runtimeDefinition)
+	if err != nil {
+		return preparedScenario{}, err
+	}
+	return preparedScenario{definition: definition, resolved: resolved}, nil
 }

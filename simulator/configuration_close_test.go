@@ -8,7 +8,6 @@ import (
 
 	"load-balancer/internal/contract"
 	"load-balancer/model"
-	"load-balancer/scenario"
 )
 
 func TestCloseConfigurationRoundTripAndOmission(t *testing.T) {
@@ -21,17 +20,16 @@ func TestCloseConfigurationRoundTripAndOmission(t *testing.T) {
 	requested.TCPMSLMs = 12.5
 	requested.TCPFinWaitTimeoutMs = 750
 	requested.TCPMaxFINRetries = 0
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.publicConfig() != requested || defaults.closeConfig != nil {
+	closeInput := prepared.definition.TCP.Close
+	if *closeInput.MSL != 12500*time.Microsecond || *closeInput.FinWaitTimeout != 750*time.Millisecond ||
+		*closeInput.MaxFINRetries != 0 || defaults.closeConfig != nil {
 		t.Fatal("legacy overlay changed values or modified its defaults")
 	}
-	resolved, err := scenario.Normalize(runtime.scenarioDefinition())
-	if err != nil {
-		t.Fatal(err)
-	}
+	resolved := prepared.resolved
 	if resolved.TCP.Close.MSL != 12500*time.Microsecond || resolved.TCP.Close.FinWaitTimeout != 750*time.Millisecond ||
 		resolved.TCP.Close.MaxFINRetries != 0 {
 		t.Fatalf("native mapping lost close settings: %+v", resolved.TCP.Close)
@@ -45,18 +43,18 @@ func TestCloseConfigurationRoundTripAndOmission(t *testing.T) {
 	// Defaults supplied by the process survive an older WebSocket payload.
 	policy := model.CloseConfig{MSL: time.Second, FinWaitTimeout: 2 * time.Second, MaxFINRetries: 3}
 	defaults.closeConfig = &policy
-	prepared, err := prepareStart(startRequest{legacy: &runtimeCommand{kind: startCommand, Payload: json.RawMessage(`{"bytes":0}`)}}, defaults)
+	legacyStart, err := prepareStart(startRequest{legacy: &runtimeCommand{kind: startCommand, Payload: json.RawMessage(`{"bytes":0}`)}}, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prepared.scenario.TCP.Close.MSL != policy.MSL || prepared.scenario.TCP.Close.MaxFINRetries != 3 {
+	if legacyStart.scenario.TCP.Close.MSL != policy.MSL || legacyStart.scenario.TCP.Close.MaxFINRetries != 3 {
 		t.Fatal("omitted legacy close settings lost process defaults")
 	}
-	prepared, err = prepareStart(startRequest{legacy: &runtimeCommand{kind: startCommand, Payload: json.RawMessage(`{"tcpMaxFINRetries":0}`)}}, defaults)
+	legacyStart, err = prepareStart(startRequest{legacy: &runtimeCommand{kind: startCommand, Payload: json.RawMessage(`{"tcpMaxFINRetries":0}`)}}, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prepared.scenario.TCP.Close.MaxFINRetries != 0 || policy.MaxFINRetries != 3 {
+	if legacyStart.scenario.TCP.Close.MaxFINRetries != 0 || policy.MaxFINRetries != 3 {
 		t.Fatal("explicit zero FIN retries was replaced or mutated the defaults")
 	}
 }
@@ -86,7 +84,7 @@ func TestCloseCLIFlagsAndInvalidPublicValues(t *testing.T) {
 	} {
 		requested := legacyTestConfiguration().publicConfig()
 		change(&requested)
-		if _, err := configurationFromPublic(requested, legacyTestConfiguration()); err == nil {
+		if _, err := preparePublicScenario(requested, legacyTestConfiguration()); err == nil {
 			t.Fatalf("invalid public close configuration accepted: %+v", requested)
 		}
 	}

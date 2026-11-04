@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"load-balancer/scenario"
 )
 
 func TestLBClosingAndResetIdleConfiguration(t *testing.T) {
@@ -23,17 +21,17 @@ func TestLBClosingAndResetIdleConfiguration(t *testing.T) {
 		requested := defaults.publicConfig()
 		requested.Bytes = 64
 		requested.LBClosingIdleTimeoutMs, requested.LBResetIdleTimeoutMs = limits[0], limits[1]
-		runtime, err := configurationFromPublic(requested, defaults)
+		prepared, err := preparePublicScenario(requested, defaults)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if runtime.publicConfig() != requested || defaults.lbClosingIdleTimeout != nil || defaults.lbResetIdleTimeout != nil {
+		lbInput := prepared.definition.Resources.LoadBalancer
+		if float64(*lbInput.ClosingIdleTimeout)/float64(time.Millisecond) != limits[0] ||
+			float64(*lbInput.ResetIdleTimeout)/float64(time.Millisecond) != limits[1] ||
+			defaults.lbClosingIdleTimeout != nil || defaults.lbResetIdleTimeout != nil {
 			t.Fatal("LB idle conversion changed settings or process defaults")
 		}
-		resolved, err := scenario.Normalize(runtime.scenarioDefinition())
-		if err != nil {
-			t.Fatal(err)
-		}
+		resolved := prepared.resolved
 		summary := scenarioSummary(resolved)
 		if summary.LBClosingIdleTimeoutMs != limits[0] || summary.LBResetIdleTimeoutMs != limits[1] {
 			t.Fatalf("scenario summary lost LB idle limits: %+v", summary)
@@ -51,7 +49,7 @@ func TestLBClosingAndResetIdleConfigurationRejectsUnsafeDurations(t *testing.T) 
 			} else {
 				requested.LBResetIdleTimeoutMs = value
 			}
-			_, err := configurationFromPublic(requested, defaults)
+			_, err := preparePublicScenario(requested, defaults)
 			if err == nil || !strings.Contains(err.Error(), field) {
 				t.Fatalf("unsafe %s = %v: %v", field, value, err)
 			}

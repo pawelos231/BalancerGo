@@ -6,6 +6,7 @@ import (
 	"load-balancer/internal/contract"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,11 +39,11 @@ func TestConfigurationKeepsForwardingAndLinkBandwidthIndependent(t *testing.T) {
 	cfg.bandwidth = 125_000_000
 	cfg.forwardingBitsPerSecond = 750_000_000
 
-	runtime, err := cfg.normalized()
+	prepared, err := cfg.prepareScenario()
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := runtime.scenarioDefinition()
+	definition := prepared.definition
 	if definition.Network.Defaults.BandwidthBitsPerSecond != cfg.bandwidth {
 		t.Fatal("scenario link bandwidth changed")
 	}
@@ -58,11 +59,12 @@ func TestConfigurationKeepsForwardingAndLinkBandwidthIndependent(t *testing.T) {
 	if requested.ForwardingBitsPerSecond != cfg.forwardingBitsPerSecond {
 		t.Fatal("public forwarding budget changed")
 	}
-	restored, err := configurationFromPublic(requested, legacyTestConfiguration())
+	restored, err := preparePublicScenario(requested, legacyTestConfiguration())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.bandwidth != cfg.bandwidth || restored.forwardingBitsPerSecond != cfg.forwardingBitsPerSecond {
+	if restored.resolved.NetworkDefaults.BandwidthBitsPerSecond != cfg.bandwidth ||
+		restored.resolved.LoadBalancer.ForwardingBitsPerSecond != cfg.forwardingBitsPerSecond {
 		t.Fatal("configuration overlay mixed the two bandwidth limits")
 	}
 }
@@ -75,18 +77,18 @@ func TestConfigurationTCPReceiveBufferRoundTrip(t *testing.T) {
 	}
 
 	requested.ReceiveBufferBytes = 64
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := runtime.scenarioDefinition()
+	definition := prepared.definition
 	if definition.TCP.ReceiveBufferBytes == nil || *definition.TCP.ReceiveBufferBytes != 64 {
 		t.Fatal("the form overlay lost the TCP receive-buffer capacity")
 	}
 
 	for _, invalid := range []int{0, -1, 65536} {
 		requested.ReceiveBufferBytes = invalid
-		if _, err := configurationFromPublic(requested, defaults); err == nil {
+		if _, err := preparePublicScenario(requested, defaults); err == nil {
 			t.Fatalf("invalid receive buffer %d was accepted", invalid)
 		}
 	}
@@ -128,19 +130,20 @@ func TestConfigurationTCPTimerRoundTrip(t *testing.T) {
 	requested.LBHalfOpenIdleTimeoutMs = 0
 	requested.LBEstablishedIdleTimeoutMs = 40000
 
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored := runtime.publicConfig(); restored != requested {
-		t.Fatalf("timer form round trip changed settings:\n got %+v\nwant %+v", restored, requested)
+	input := prepared.definition
+	if *input.TCP.RTO.ExponentialBackoff || *input.TCP.ClientIdleTimeout != 0 ||
+		*input.Resources.LoadBalancer.HalfOpenIdleTimeout != 0 {
+		t.Fatal("the retained input lost explicit false or zero timer settings")
 	}
-	resolved, err := scenario.Normalize(runtime.scenarioDefinition())
-	if err != nil {
-		t.Fatal(err)
-	}
+	resolved := prepared.resolved
 	if resolved.TCP.RTO.Mode != "fixed" || resolved.TCP.RTO.ExponentialBackoff ||
 		resolved.TCP.RTO.InitialTimeout != 200*time.Millisecond ||
+		resolved.TCP.RTO.MinimumTimeout != 100*time.Millisecond ||
+		resolved.TCP.RTO.MaximumTimeout != 2*time.Second ||
 		resolved.TCP.ClientIdleTimeout != 0 || resolved.LoadBalancer.HalfOpenIdleTimeout != 0 ||
 		resolved.LoadBalancer.EstablishedIdleTimeout != 40*time.Second {
 		t.Fatal("the scenario lost explicit timer settings")
@@ -201,14 +204,14 @@ func TestConfigurationOmittedForwardingBudgetUsesDefaults(t *testing.T) {
 	if err := json.Unmarshal([]byte(input), &requested); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.bandwidth != 250_000_000 {
+	if prepared.resolved.NetworkDefaults.BandwidthBitsPerSecond != 250_000_000 {
 		t.Fatal("explicit link bandwidth override ignored")
 	}
-	if runtime.forwardingBitsPerSecond != defaults.forwardingBitsPerSecond {
+	if prepared.resolved.LoadBalancer.ForwardingBitsPerSecond != defaults.forwardingBitsPerSecond {
 		t.Fatal("omitted forwarding budget did not inherit the Go default")
 	}
 	if defaults.bandwidth != 1_000_000_000 || defaults.forwardingBitsPerSecond != 600_000_000 {
@@ -224,14 +227,14 @@ func TestConfigurationForwardingOverrideKeepsLinkDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.forwardingBitsPerSecond != 250_000_000 {
+	if prepared.resolved.LoadBalancer.ForwardingBitsPerSecond != 250_000_000 {
 		t.Fatal("explicit forwarding budget override ignored")
 	}
-	if runtime.bandwidth != defaults.bandwidth {
+	if prepared.resolved.NetworkDefaults.BandwidthBitsPerSecond != defaults.bandwidth {
 		t.Fatal("forwarding budget override changed the link bandwidth")
 	}
 }
@@ -259,7 +262,7 @@ func TestConfigurationRejectsNonpositiveForwardingBudget(t *testing.T) {
 			// Native configuration and explicit JSON overrides use the same validator.
 			cfg := legacyTestConfiguration()
 			cfg.forwardingBitsPerSecond = test.budget
-			if _, err := cfg.normalized(); err == nil {
+			if _, err := cfg.prepareScenario(); err == nil {
 				t.Fatal("nonpositive native forwarding budget accepted")
 			}
 
@@ -268,7 +271,7 @@ func TestConfigurationRejectsNonpositiveForwardingBudget(t *testing.T) {
 			if err := json.Unmarshal([]byte(test.input), &requested); err != nil {
 				t.Fatal(err)
 			}
-			_, err := configurationFromPublic(requested, defaults)
+			_, err := preparePublicScenario(requested, defaults)
 			if err == nil || !strings.Contains(err.Error(), "forwardingBitsPerSecond") {
 				t.Fatalf("expected forwarding budget validation error, got %v", err)
 			}
@@ -283,25 +286,125 @@ func TestConfigurationKeepsRawStreamDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.streamBytes != 5*model.SEGMENT_SIZE {
-		t.Fatalf("payload bytes = %d", runtime.streamBytes)
+	if prepared.resolved.DefaultStream.Bytes != 5*model.SEGMENT_SIZE {
+		t.Fatalf("payload bytes = %d", prepared.resolved.DefaultStream.Bytes)
 	}
-	if defaults.streamBytes != -1 || requested.Bytes != -1 {
+	if defaults.streamBytes != -1 || requested.Bytes != -1 || prepared.definition.Workload.Defaults.Bytes != -1 {
 		t.Fatal("normalization changed the unresolved UI/default configuration")
 	}
 
 	requested.Bytes = 17
 	requested.Packets = 8
-	runtime, err = configurationFromPublic(requested, defaults)
+	prepared, err = preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.streamBytes != 17 {
-		t.Fatalf("explicit payload bytes = %d", runtime.streamBytes)
+	if prepared.resolved.DefaultStream.Bytes != 17 || prepared.definition.Workload.Defaults.Bytes != 17 {
+		t.Fatalf("explicit payload bytes = %d", prepared.resolved.DefaultStream.Bytes)
+	}
+}
+
+func TestReadConfigurationPreparesRawAndResolvedScenario(t *testing.T) {
+	defaults, prepared, err := readPreparedTestConfiguration(t,
+		"-packets", "5",
+		"-duration", "15ns",
+		"-snapshot-interval", "7ns",
+		"-client-gap", "3ns",
+		"-packet-gap", "5ns",
+		"-packet-travel-time", "11ns",
+		"-lb-ingress-packet-travel-time", "13ns",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared == nil {
+		t.Fatal("CLI settings were not prepared")
+	}
+	if defaults.streamBytes != -1 || prepared.definition.Workload.Defaults.Bytes != -1 ||
+		prepared.definition.Workload.Defaults.Packets != 5 || prepared.resolved.DefaultStream.Bytes != 5*model.SEGMENT_SIZE {
+		t.Fatal("preparation lost the raw byte sentinel or resolved the wrong packet count")
+	}
+	for _, field := range []struct {
+		name       string
+		definition time.Duration
+		resolved   time.Duration
+		want       time.Duration
+	}{
+		{
+			name:       "duration",
+			definition: prepared.definition.Execution.Duration,
+			resolved:   prepared.resolved.Execution.Duration,
+			want:       15 * time.Nanosecond,
+		},
+		{
+			name:       "snapshot interval",
+			definition: prepared.definition.Execution.SnapshotInterval,
+			resolved:   prepared.resolved.Execution.SnapshotInterval,
+			want:       7 * time.Nanosecond,
+		},
+		{
+			name:       "client gap",
+			definition: prepared.definition.Workload.ClientGroups[0].ClientGap,
+			resolved:   prepared.resolved.ClientGroups[0].ClientGap,
+			want:       3 * time.Nanosecond,
+		},
+		{
+			name:       "packet gap",
+			definition: prepared.definition.Workload.Defaults.PacketGap,
+			resolved:   prepared.resolved.DefaultStream.PacketGap,
+			want:       5 * time.Nanosecond,
+		},
+		{
+			name:       "packet travel time",
+			definition: prepared.definition.Network.Defaults.PacketTravelTime,
+			resolved:   prepared.resolved.NetworkDefaults.PacketTravelTime,
+			want:       11 * time.Nanosecond,
+		},
+		{
+			name:       "ingress travel time",
+			definition: prepared.definition.Resources.LoadBalancer.Ingress.PacketTravelTime,
+			resolved:   prepared.resolved.LoadBalancer.Ingress.PacketTravelTime,
+			want:       13 * time.Nanosecond,
+		},
+	} {
+		if field.definition != field.want || field.resolved != field.want {
+			t.Errorf("%s: input=%s runtime=%s, want %s", field.name, field.definition, field.resolved, field.want)
+		}
+	}
+}
+
+func TestScenarioPreparationRejectsCountsBeforeBackendAllocation(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		clients int
+		servers int
+	}{
+		{"negative clients", -1, 2},
+		{"too many clients", scenario.MaxClients + 1, 2},
+		{"negative servers", 2, -1},
+		{"too many servers", 2, scenario.MaxBackends + 1},
+		{"huge server count", 2, math.MaxInt},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := legacyTestConfiguration()
+			cfg.clients, cfg.servers = test.clients, test.servers
+			if _, err := cfg.prepareScenario(); err == nil {
+				t.Fatal("invalid native count was accepted")
+			}
+			if _, err := preparePublicScenario(cfg.publicConfig(), legacyTestConfiguration()); err == nil {
+				t.Fatal("invalid public count was accepted")
+			}
+		})
+	}
+
+	// This count cannot be used to allocate a backend slice; parsing must return an error first.
+	_, prepared, err := readPreparedTestConfiguration(t, "-servers", strconv.Itoa(math.MaxInt))
+	if err == nil || prepared != nil {
+		t.Fatal("invalid CLI count retained a prepared scenario")
 	}
 }
 
@@ -314,11 +417,11 @@ func TestScenarioAdapterPreservesExactDurations(t *testing.T) {
 	cfg.packetTravelTime = 11 * time.Nanosecond
 	cfg.ingress.PacketTravelTime = 13 * time.Nanosecond
 
-	runtime, err := cfg.normalized()
+	prepared, err := cfg.prepareScenario()
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := runtime.scenarioDefinition()
+	definition := prepared.definition
 	if definition.Execution.Duration != cfg.duration {
 		t.Fatal("experiment duration lost nanosecond precision")
 	}
@@ -347,14 +450,16 @@ func TestConfigurationAcceptsExplicitZeros(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.clients != 0 || runtime.servers != 0 || runtime.streamBytes != 0 {
+	resolved := prepared.resolved
+	if resolved.TotalClients != 0 || len(resolved.Backends) != 0 || resolved.DefaultStream.Bytes != 0 {
 		t.Fatal("zero counts or stream size inherited a default")
 	}
-	if runtime.duration != 0 || runtime.queue != 0 || runtime.packetTravelTime != 0 || runtime.speed != 0 {
+	if resolved.Execution.Duration != 0 || resolved.NetworkDefaults.QueueCapacity != 0 ||
+		resolved.NetworkDefaults.PacketTravelTime != 0 || resolved.Execution.Speed != 0 {
 		t.Fatal("zero resource settings inherited a default")
 	}
 }
@@ -364,7 +469,7 @@ func TestHeadlessConfigurationValidatesSpeedBeforeDisablingPacing(t *testing.T) 
 		cfg := legacyTestConfiguration()
 		cfg.headless = true
 		cfg.speed = speed
-		if _, err := cfg.normalized(); err == nil {
+		if _, err := cfg.prepareScenario(); err == nil {
 			t.Errorf("invalid headless speed accepted: %v", speed)
 		}
 	}
@@ -374,16 +479,16 @@ func TestHeadlessConfigurationValidatesSpeedBeforeDisablingPacing(t *testing.T) 
 	cfg.tracePath = "example.trace"
 	cfg.duration = time.Duration(math.MaxInt64)
 	cfg.speed = 1e-100
-	runtime, err := cfg.normalized()
+	prepared, err := cfg.prepareScenario()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.speed != 0 || !runtime.headless || runtime.tracePath != cfg.tracePath {
-		t.Fatal("normalization lost process options or left headless pacing enabled")
+	if prepared.resolved.Execution.Speed != 0 || cfg.speed != 1e-100 || !cfg.headless || cfg.tracePath != "example.trace" {
+		t.Fatal("preparation mutated process options or left headless pacing enabled")
 	}
 
 	cfg.headless = false
-	if _, err := cfg.normalized(); err == nil {
+	if _, err := cfg.prepareScenario(); err == nil {
 		t.Fatal("paced duration overflow accepted")
 	}
 }
@@ -396,17 +501,17 @@ func TestConfigurationPreservesLegacyIntegerLimits(t *testing.T) {
 	cfg.maxEvents = math.MaxUint64
 	cfg.bandwidth = math.MaxInt64
 	cfg.forwardingBitsPerSecond = math.MaxInt64
-	if _, err := cfg.normalized(); err != nil {
+	if _, err := cfg.prepareScenario(); err != nil {
 		t.Fatal(err)
 	}
 
 	cfg.clients++
-	if _, err := cfg.normalized(); err == nil {
+	if _, err := cfg.prepareScenario(); err == nil {
 		t.Fatal("client address range overflow accepted")
 	}
 	cfg.clients = 0
 	cfg.servers = 10001
-	if _, err := cfg.normalized(); err == nil {
+	if _, err := cfg.prepareScenario(); err == nil {
 		t.Fatal("backend limit exceeded")
 	}
 }
@@ -423,24 +528,24 @@ func TestConfigurationKeepsLogicalTransportLimits(t *testing.T) {
 		uint64(math.MaxUint32)*uint64(model.SEGMENT_SIZE) + 1,
 	} {
 		cfg.streamBytes = int(bytes)
-		if _, err := cfg.normalized(); err != nil {
+		if _, err := cfg.prepareScenario(); err != nil {
 			t.Fatalf("logical transport rejected %d bytes: %v", bytes, err)
 		}
 	}
 
 	// Native integer arithmetic still bounds accepted stream sizes.
 	cfg.streamBytes = math.MaxInt - 40
-	if _, err := cfg.normalized(); err != nil {
+	if _, err := cfg.prepareScenario(); err != nil {
 		t.Fatal(err)
 	}
 	cfg.streamBytes = math.MaxInt - 39
-	if _, err := cfg.normalized(); err == nil {
+	if _, err := cfg.prepareScenario(); err == nil {
 		t.Fatal("stream beyond native byte range accepted")
 	}
 
 	cfg.streamBytes = 17
 	cfg.packets = -1
-	if _, err := cfg.normalized(); err == nil {
+	if _, err := cfg.prepareScenario(); err == nil {
 		t.Fatal("negative packet count accepted with explicit payload size")
 	}
 }
@@ -475,18 +580,19 @@ func TestConfigurationIngressRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := configurationFromPublic(restored, legacyTestConfiguration())
+	prepared, err := preparePublicScenario(restored, legacyTestConfiguration())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.ingress != cfg.ingress {
-		t.Fatalf("shared ingress changed during the browser round trip: %+v", runtime.ingress)
+	if prepared.resolved.LoadBalancer.Ingress != cfg.ingress {
+		t.Fatalf("shared ingress changed during the browser round trip: %+v", prepared.resolved.LoadBalancer.Ingress)
 	}
-	definition := runtime.scenarioDefinition()
+	definition := prepared.definition
 	if definition.Resources.LoadBalancer.Ingress != cfg.ingress {
 		t.Fatal("scenario adapter lost the shared ingress settings")
 	}
-	if runtime.bandwidth != cfg.bandwidth || runtime.forwardingBitsPerSecond != cfg.forwardingBitsPerSecond {
+	if prepared.resolved.NetworkDefaults.BandwidthBitsPerSecond != cfg.bandwidth ||
+		prepared.resolved.LoadBalancer.ForwardingBitsPerSecond != cfg.forwardingBitsPerSecond {
 		t.Fatal("shared ingress mixed endpoint and forwarding bandwidth")
 	}
 }
@@ -505,11 +611,11 @@ func TestConfigurationOmittedIngressFieldsKeepDefaults(t *testing.T) {
 	if err := json.Unmarshal([]byte(input), &requested); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.ingress != defaults.ingress {
+	if prepared.resolved.LoadBalancer.Ingress != defaults.ingress {
 		t.Fatal("omitted ingress settings inherited an endpoint or forwarding limit")
 	}
 
@@ -524,15 +630,16 @@ func TestConfigurationOmittedIngressFieldsKeepDefaults(t *testing.T) {
 	if err := json.Unmarshal([]byte(input), &requested); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = configurationFromPublic(requested, defaults)
+	prepared, err = preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantIngress := scenario.LinkConfig{BandwidthBitsPerSecond: 250_000_000}
-	if runtime.ingress != wantIngress {
-		t.Fatalf("explicit ingress zeros were replaced by defaults: %+v", runtime.ingress)
+	if prepared.resolved.LoadBalancer.Ingress != wantIngress {
+		t.Fatalf("explicit ingress zeros were replaced by defaults: %+v", prepared.resolved.LoadBalancer.Ingress)
 	}
-	if runtime.bandwidth != defaults.bandwidth || runtime.forwardingBitsPerSecond != defaults.forwardingBitsPerSecond {
+	if prepared.resolved.NetworkDefaults.BandwidthBitsPerSecond != defaults.bandwidth ||
+		prepared.resolved.LoadBalancer.ForwardingBitsPerSecond != defaults.forwardingBitsPerSecond {
 		t.Fatal("ingress override changed other bandwidth limits")
 	}
 	if defaults.ingress.QueueCapacity != 7 || defaults.ingress.PacketTravelTime != 2*time.Millisecond {
@@ -559,7 +666,7 @@ func TestConfigurationRejectsInvalidIngress(t *testing.T) {
 			if err := json.Unmarshal([]byte(test.input), &requested); err != nil {
 				t.Fatal(err)
 			}
-			_, err := configurationFromPublic(requested, defaults)
+			_, err := preparePublicScenario(requested, defaults)
 			path := "resources.loadBalancer.ingress." + test.field
 			if err == nil || !strings.Contains(err.Error(), path) {
 				t.Fatalf("expected validation error for %s, got %v", path, err)
@@ -576,7 +683,7 @@ func TestConfigurationIngressTimeChecksBeforeConversion(t *testing.T) {
 		defaults := legacyTestConfiguration()
 		requested := defaults.publicConfig()
 		requested.IngressPacketTravelTimeMs = value
-		_, err := configurationFromPublic(requested, defaults)
+		_, err := preparePublicScenario(requested, defaults)
 		if err == nil || !strings.Contains(err.Error(), "ingressPacketTravelTimeMs") {
 			t.Errorf("unsafe ingress duration %v accepted or misidentified: %v", value, err)
 		}
@@ -619,6 +726,12 @@ func TestIngressCLIFlagsKeepIndependentDefaults(t *testing.T) {
 
 // readTestConfiguration isolates process-global flags for these sequential tests.
 func readTestConfiguration(t *testing.T, args ...string) (configuration, error) {
+	t.Helper()
+	config, _, err := readPreparedTestConfiguration(t, args...)
+	return config, err
+}
+
+func readPreparedTestConfiguration(t *testing.T, args ...string) (configuration, *preparedScenario, error) {
 	t.Helper()
 	previousFlags, previousArgs := flag.CommandLine, os.Args
 	defer func() {

@@ -3,8 +3,6 @@ package main
 import (
 	"testing"
 	"time"
-
-	"load-balancer/scenario"
 )
 
 func TestBackendTimeoutConfigurationRoundTrip(t *testing.T) {
@@ -20,19 +18,18 @@ func TestBackendTimeoutConfigurationRoundTrip(t *testing.T) {
 	requested.Bytes = 64
 	requested.BackendHalfOpenIdleTimeoutMs = 0
 	requested.BackendEstablishedIdleTimeoutMs = 12.345678
-	runtime, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.publicConfig() != requested || defaults.backendHalfOpenIdleTimeout != nil ||
+	if *prepared.definition.TCP.BackendHalfOpenIdleTimeout != 0 ||
+		*prepared.definition.TCP.BackendEstablishedIdleTimeout != 12345678*time.Nanosecond ||
+		defaults.backendHalfOpenIdleTimeout != nil ||
 		defaults.backendEstablishedIdleTimeout != nil {
-		t.Fatalf("backend timer conversion changed values or defaults:\n got %+v\nwant %+v", runtime.publicConfig(), requested)
+		t.Fatal("backend timer conversion changed values or defaults")
 	}
 
-	resolved, err := scenario.Normalize(runtime.scenarioDefinition())
-	if err != nil {
-		t.Fatal(err)
-	}
+	resolved := prepared.resolved
 	if resolved.TCP.BackendHalfOpenIdleTimeout != 0 ||
 		resolved.TCP.BackendEstablishedIdleTimeout != 12345678*time.Nanosecond {
 		t.Fatalf("native backend timers = %+v", resolved.TCP)

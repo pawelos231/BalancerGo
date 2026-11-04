@@ -149,17 +149,20 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 	}
 }
 
-// configurationFromPublic overlays experiment fields while retaining process
-// options. Callers can decode omitted JSON fields into base.publicConfig().
-func configurationFromPublic(c contract.SimulationConfig, base configuration) (configuration, error) {
+// preparePublicScenario overlays form settings and prepares the scenario once.
+// Callers decode omitted JSON fields into base.publicConfig() before this step.
+func preparePublicScenario(
+	c contract.SimulationConfig,
+	base configuration,
+) (preparedScenario, error) {
 	if c.ReceiveBufferBytes < 1 || c.ReceiveBufferBytes > math.MaxUint16 {
-		return configuration{}, errors.New("receiveBufferBytes must be in 1..65535")
+		return preparedScenario{}, errors.New("receiveBufferBytes must be in 1..65535")
 	}
 	if c.RTOMode != string(model.RTOFixed) && c.RTOMode != string(model.RTOAdaptive) {
-		return configuration{}, errors.New("rtoMode must be fixed or adaptive")
+		return preparedScenario{}, errors.New("rtoMode must be fixed or adaptive")
 	}
 	if !model.CongestionMode(c.CongestionControl).Valid() {
-		return configuration{}, errors.New(
+		return preparedScenario{}, errors.New(
 			"congestionControl must be none, reno, newReno, tahoe or cubic",
 		)
 	}
@@ -240,11 +243,11 @@ func configurationFromPublic(c contract.SimulationConfig, base configuration) (c
 	} {
 		duration, err := configDuration(field.name, field.value, field.unit)
 		if err != nil {
-			return configuration{}, err
+			return preparedScenario{}, err
 		}
 		*field.out = duration
 	}
-	return base.normalized()
+	return base.prepareScenario()
 }
 
 // Convert only after checking the floating-point input and scaled value.

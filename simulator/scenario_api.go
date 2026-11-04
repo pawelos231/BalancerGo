@@ -95,18 +95,16 @@ func prepareStart(request startRequest, defaults configuration) (preparedStart, 
 		requested.FastRetransmit = false
 	}
 
-	cfg, err := configurationFromPublic(requested, defaults)
+	prepared, err := preparePublicScenario(requested, defaults)
 	if err != nil {
 		return preparedStart{}, err
 	}
-	input := cfg.scenarioDefinition()
-	input.Workload.Defaults.Bytes = requested.Bytes
-	resolved, err := scenario.Normalize(input)
-	if err != nil {
-		return preparedStart{}, err
-	}
-	document, err := scenario.EncodeDocument(input)
-	return preparedStart{scenario: resolved, config: requested, document: document}, err
+	document, err := scenario.EncodeDocument(prepared.definition)
+	return preparedStart{
+		scenario: prepared.resolved,
+		config:   requested,
+		document: document,
+	}, err
 }
 
 // scenarioSummary adapts shared defaults for the old form during the HTTP migration.
