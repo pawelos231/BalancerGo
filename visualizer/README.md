@@ -80,7 +80,7 @@ packets; it does not simulate backend health detection or failover.
 the unfiltered library. It schedules 50,000 clients and 100 backends: client
 links are 10 TB/s, backend links 100 TB/s, and both shared LB limits are 10 PB/s.
 The latter are exact decimal strings (`"80000000000000000"` bit/s). It uses
-speed 0, zero travel/loss/gaps, a 1-ms virtual horizon and snapshot interval,
+speed 0, zero travel/loss/gaps, a 1-ms virtual horizon and snapshots every 100 ms of real time,
 1 GiB per client, a 20-million-event cap, 4096-slot endpoint queues and
 131072-slot LB input queues. Sparse snapshots limit telemetry work at this scale.
 Created clients may remain in handshake because backend half-open capacity is
@@ -90,9 +90,12 @@ remain part of the experiment.
 The separate **Simulator throughput** preset uses 50 clients and 5 backends with
 10 TB/s client links, 100 TB/s backend links and shared LB limits of 1 PB/s. It
 removes travel delays, sender pauses and random loss, and runs without pacing
-for 5 virtual milliseconds. Snapshots are spaced by 50 virtual microseconds;
+for 5 virtual milliseconds. Snapshots target an interval of 100 real milliseconds;
 the event limit is 50 million and queues have 4096 slots. Each client's 1 GiB
 stream remains unfinished when the benchmark reaches its time horizon.
+
+The snapshot interval controls real time between UI updates at any playback
+speed. The final state is published immediately when a run ends.
 
 `SimulationPerformance.tsx` appears on both pages when the backend supplies
 `simulation.performance`. It shows cumulative LB packets and DES events per real

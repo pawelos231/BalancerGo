@@ -301,7 +301,7 @@ func newMappingFixture(t *testing.T, config *TimeoutConfig) *mappingFixture {
 	t.Helper()
 	fixture := &mappingFixture{engine: engine.New(200 * time.Second)}
 	fixture.lb = NewLoadBalancer(fixture.engine, model.LBModeNAT, &algorithms.RoundRobin{},
-		100*time.Millisecond, rand.New(rand.NewSource(1)))
+		rand.New(rand.NewSource(1)))
 	t.Cleanup(fixture.lb.Shutdown)
 	if config != nil {
 		fixture.lb.SetMappingTimeouts(*config)

@@ -3,7 +3,7 @@
 These UTF-8 JSON files are native version-1 scenarios accepted by the backend.
 Twenty-six match the UI preset factories; one extra file demonstrates nested
 overrides. The library supports search, category filters and six cards per page.
-Ordinary presets use seed 1, a 50-million-event limit, 100 ms snapshots,
+Ordinary presets use seed 1, a 50-million-event limit, 100 real ms snapshots,
 1 ms endpoint travel time, 1024 waiting slots and zero random loss unless their
 experiment changes that property. Each file records its own settings; later CLI
 overrides or changes to Go defaults do not alter it.
@@ -41,19 +41,23 @@ RTT calculation and current measurement limits.
 Ordinary catalog presets run for 180 virtual seconds at speed 1 with 1 GiB per
 client, except deliberate short/empty stream overrides. They may finish with
 incomplete streams or clients scheduled beyond the horizon. The throughput example uses speed 0,
-a 5 ms virtual horizon, 50 microsecond snapshots and 4096-slot queues. Its client
+a 5 ms virtual horizon, 100 real ms snapshots and 4096-slot queues. Its client
 links are 10 TB/s, backend links 100 TB/s, and both shared LB limits 1 PB/s
 (decimal byte rates; the JSON stores bit/s). Transmission reaches the engine's
 1 ns floor. This measures simulator execution speed, rather than Linux LB capacity.
 
 **Absolute simulator limits** is pinned first in the UI. It uses a 1-ms virtual
-horizon and snapshot interval, speed 0, 1 GiB per client, a 20-million-event cap,
+horizon, a 100 real ms snapshot interval, speed 0, 1 GiB per client, a 20-million-event cap,
 4096-slot endpoint queues and 131072 slots per LB input FIFO. Travel times,
 random loss and client/segment pauses are zero. Its LB limits are exact strings
 `"80000000000000000"` bit/s, beyond JavaScript's safe integer range. Model setup,
 large telemetry frames and rendering are part of this scale experiment. The
 existing 100 half-open slots per backend remain in effect: not all scheduled
 clients must establish a connection before the horizon.
+
+Snapshot intervals use real time, independently of playback speed and virtual
+duration. Every run publishes its final state, including runs shorter than the
+snapshot interval.
 
 The original four topology presets inherit fetched backend defaults; the other
 network and reference factories use an explicit baseline so unrelated CLI overrides do not change

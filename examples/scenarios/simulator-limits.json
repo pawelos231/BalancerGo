@@ -2,7 +2,7 @@
   "version": 1,
   "execution": {
     "durationNanoseconds": 1000000,
-    "snapshotIntervalNanoseconds": 1000000,
+    "snapshotIntervalNanoseconds": 100000000,
     "seed": 1,
     "speed": 0,
     "maxEvents": 20000000

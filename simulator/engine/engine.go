@@ -51,6 +51,14 @@ func (e *Engine) Pending() int {
 	return len(e.queue)
 }
 
+// NextEventTime reads the next timestamp without removing or executing its event.
+func (e *Engine) NextEventTime() (time.Duration, bool) {
+	if len(e.queue) == 0 {
+		return 0, false
+	}
+	return e.queue[0].at, true
+}
+
 func (e *Engine) EventsExecuted() uint64 {
 	return e.executed
 }

@@ -42,7 +42,7 @@ function throughputExperiment(defaults: Scenario): Scenario {
   const scenario = smallExperiment(defaults);
   scenario.execution = {
     durationNanoseconds: 5_000_000,
-    snapshotIntervalNanoseconds: 50_000,
+    snapshotIntervalNanoseconds: 100_000_000,
     seed: 1,
     speed: 0,
     maxEvents: 50_000_000,

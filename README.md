@@ -207,8 +207,9 @@ the work completed so far. Cancellation saves the partial result with
 `status: cancelled` and returns nonzero. `finished` means the runner reached the
 virtual end time; individual transfers may still have failed or be incomplete.
 
-The runner keeps the document's sampling interval and samples virtual traffic
-without building frontend snapshots. As in the original headless mode,
+The headless runner samples virtual traffic at completion without building
+frontend snapshots; the real-time UI refresh interval does not control its steps.
+As in the original headless mode,
 `result.WallTime` measures execution after world construction and before report
 assembly/encoding. It excludes loading, validation and world setup; it is not
 the same measurement boundary as the interactive UI run.
@@ -275,7 +276,7 @@ parameters (see `go run . -help` for all options):
 | `-lb-ingress-queue`, `-lb-ingress-loss` | `1024`, `0`          | Waiting slots in each input FIFO (clients and backends), and the shared receiver's loss probability. |
 | `-link-queue`, `-loss`                  | `1024`, `0`          | Waiting slots and independent loss on each access or outgoing LB link.                               |
 | `-algorithm`                            | `roundRobin`         | `roundRobin` or seeded `random`.                                                                     |
-| `-snapshot-interval`, `-speed`          | `100ms`, `1`         | Virtual snapshot interval and virtual seconds per real second; speed `0` is unpaced.                 |
+| `-snapshot-interval`, `-speed`          | `100ms`, `1`         | Real-time UI refresh interval and virtual seconds per real second; speed `0` is unpaced.             |
 | `-max-events`                           | `50000000`           | Execution limit, including equal-time events, to stop runaway scenarios.                             |
 
 For example, to prefill a shorter experiment in the frontend (then click Start):
@@ -299,7 +300,7 @@ published port.
 
 | Part        | Contents                                                           |
 | ----------- | ------------------------------------------------------------------ |
-| `execution` | Virtual duration, snapshot interval, seed, pacing and event limit. |
+| `execution` | Virtual duration, real-time UI refresh interval, seed, pacing and event limit. |
 | `network`   | Link defaults and named profiles.                                  |
 | `resources` | Load balancer settings and individually configured backends.       |
 | `workload`  | Stream defaults, compact client groups and individual overrides.   |
@@ -404,7 +405,7 @@ The **Simulator throughput** preset measures the simulator's real execution rate
 50 clients, 5 backends, 10 TB/s client links, 100 TB/s backend links and 1 PB/s
 shared LB ingress and forwarding limits (decimal bytes per second; the JSON uses
 bits/s). Travel times, sender pauses and random loss are zero. It runs unpaced
-(`speed: 0`) for 5 virtual milliseconds, with 50-microsecond snapshots, 1 GiB of
+(`speed: 0`) for 5 virtual milliseconds, with snapshots every 100 real ms, 1 GiB of
 demand per client and a 50-million-event safety limit. Its queues have 4096 slots;
 the current sliding-window workload can enqueue several segments per client
 before acknowledgements return. The time horizon ends the benchmark while
@@ -415,7 +416,7 @@ their recorded model version and are not directly comparable to this profile.
 50,000 clients and 100 backends with 10 TB/s client links, 100 TB/s backend links
 and shared LB ingress/forwarding limits of 10 PB/s. The LB's 80,000,000,000,000,000
 bit/s settings are decimal strings to retain every digit. This unpaced run lasts
-1 virtual millisecond, with one 1-ms snapshot window, 1 GiB per client and a
+1 virtual millisecond, with snapshots every 100 real ms, 1 GiB per client and a
 20-million-event limit. Endpoint queues have 4096 slots; each LB input FIFO has
 131072 slots to accommodate the initial burst. Travel, loss and sender gaps are zero.
 This stresses endpoint construction, DES, telemetry and UI together. The backend's
@@ -526,8 +527,9 @@ measurement excludes framing and compression and does not measure simulation spe
   or channel per client, connection or backend.
 - `internal/simulation/world.go` builds the normalized runtime and connects
   endpoints. `internal/simulation/clients.go` creates clients lazily from
-  compact groups. The application `runner.go` advances virtual steps and applies
-  runtime commands at their boundaries; `internal/presentation` builds snapshots.
+  compact groups. The application `runner.go` executes bounded event batches,
+  applies runtime commands between batches and publishes at real-time intervals;
+  `internal/presentation` builds snapshots.
   Client access links and backend return links reach their respective input
   FIFOs, followed by one shared physical input link into the LB.
   Link IDs and random sources follow resource identities instead of creation
@@ -1078,8 +1080,11 @@ models and snapshot projections. See [the visualizer guide](visualizer/README.md
 for the frontend extension points.
 
 Node rectangles show **measured TX/RX** in B/s, kB/s or MB/s. Rates use the
-wire-byte counter increase over the latest virtual-time sampling window
-(`snapshotInterval`, 100 ms by default). TX counts completed link transmission,
+wire-byte counter increase over the virtual time elapsed between observations.
+Snapshots target one update every 100 real ms by default, independently of playback
+speed. Rates remain bytes per virtual second; the virtual sampling window varies
+with progress. Equal-time event batches are sampled after their timestamp completes.
+Headless runs sample at completion. TX counts completed link transmission,
 including packets subsequently lost; RX counts delivered bytes. Waiting packets
 and queue drops do not count as transmitted. Headers, ACKs and retries are included.
 The LB's RX uses the common receiver once; its TX sums outgoing links. Client

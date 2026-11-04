@@ -26,10 +26,10 @@ func baseScenario() scenario.Scenario {
 	}
 }
 
-// runWorld advances complete measurement boundaries without application I/O.
+// runWorld uses fixed virtual measurement windows for model tests, without UI I/O.
 func runWorld(ctx context.Context, world *World) error {
 	for {
-		until := min(world.Now()+world.Info().SnapshotInterval, world.EndTime())
+		until := min(world.Now()+100*time.Millisecond, world.EndTime())
 		err := world.Advance(ctx, until)
 		world.SampleTraffic()
 		if err != nil {

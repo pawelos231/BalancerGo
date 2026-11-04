@@ -77,7 +77,7 @@ func readConfiguration() (configuration, error) {
 		&c.snapshotInterval,
 		"snapshot-interval",
 		100*time.Millisecond,
-		"virtual snapshot and runner step interval",
+		"real-time interval between UI snapshots (independent of playback speed)",
 	)
 	flag.Int64Var(&c.bandwidth, "bandwidth", 1_000_000_000, "bandwidth of each directed link in bits/s")
 	flag.Int64Var(

@@ -19,7 +19,7 @@ func runnerTrafficWorld(t *testing.T, bandwidth int64, travel time.Duration, max
 	definition := scenario.Scenario{
 		Version: scenario.Version,
 		Execution: scenario.ExecutionConfig{
-			Duration: 150 * time.Millisecond, SnapshotInterval: 100 * time.Millisecond,
+			Duration: 150 * time.Millisecond, SnapshotInterval: time.Hour,
 			Seed: 1, MaxEvents: maxEvents,
 		},
 		Network: scenario.NetworkConfig{Defaults: link},
@@ -39,9 +39,9 @@ func runnerTrafficWorld(t *testing.T, bandwidth int64, travel time.Duration, max
 	return simulationworld.New(resolved)
 }
 
-// Completion must be sampled after every same-time callback across advance
-// batches, and the last publication must use the shorter final window.
-func TestRunnerTrafficIncludesBoundaryCompletionAndFinalPartialWindow(t *testing.T) {
+// A 150 ms virtual run finishes before its one-hour real refresh interval.
+// Its final snapshot must still include every transmission and arrival.
+func TestRunnerTrafficFinalSnapshotIncludesAllBatches(t *testing.T) {
 	world := runnerTrafficWorld(t, 3_200, 20*time.Millisecond, 100_000)
 	for index := 0; index < 5000; index++ {
 		world.ScheduleAt(100*time.Millisecond, func() {})
@@ -57,16 +57,41 @@ func TestRunnerTrafficIncludesBoundaryCompletionAndFinalPartialWindow(t *testing
 	if err := runWorld(context.Background(), world, nil, publish, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(frames) != 2 {
-		t.Fatalf("published %d boundaries, want 2", len(frames))
-	}
-	first := frames[100*time.Millisecond]
-	if first.client.TransmitBytesPerSecond != 400 || first.client.SampleWindow != 100*time.Millisecond || first.balancer.ReceiveBytesPerSecond != 0 {
-		t.Fatalf("100 ms boundary = %+v", first)
+	if len(frames) != 1 {
+		t.Fatalf("published %d snapshots, want the final state only", len(frames))
 	}
 	last := frames[150*time.Millisecond]
-	if last.client.TransmitBytesPerSecond != 0 || last.client.SampleWindow != 50*time.Millisecond || last.balancer.ReceiveBytesPerSecond != 800 || last.balancer.SampleWindow != 50*time.Millisecond {
-		t.Fatalf("final partial boundary = %+v", last)
+	wantRate := 40 / (150 * time.Millisecond).Seconds()
+	if last.client.TransmitBytesPerSecond != wantRate || last.client.SampleWindow != 150*time.Millisecond ||
+		last.balancer.ReceiveBytesPerSecond != wantRate || last.balancer.SampleWindow != 150*time.Millisecond {
+		t.Fatalf("final traffic window = %+v", last)
+	}
+}
+
+// The first batch stops before the SYN's transmission at the same timestamp.
+// Sampling must wait so that the completed 100 ms window includes its 40 bytes.
+func TestRunnerTrafficWaitsForCompleteTimestamp(t *testing.T) {
+	world := runnerTrafficWorld(t, 3_200, 20*time.Millisecond, 100_000)
+	for index := 0; index < 5000; index++ {
+		world.ScheduleAt(100*time.Millisecond, func() {})
+	}
+
+	reached, err := world.AdvanceBatch(context.Background(), 100*time.Millisecond)
+	if err != nil || reached {
+		t.Fatalf("first batch reached=%v err=%v, want more work", reached, err)
+	}
+	world.SampleTraffic()
+	if traffic, _ := world.NodeTraffic("client/traffic/0"); traffic.SampleWindow != 0 {
+		t.Fatalf("sampled an unfinished timestamp: %+v", traffic)
+	}
+
+	if err := world.Advance(context.Background(), 100*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	world.SampleTraffic()
+	traffic, known := world.NodeTraffic("client/traffic/0")
+	if !known || traffic.TransmitBytesPerSecond != 400 || traffic.SampleWindow != 100*time.Millisecond {
+		t.Fatalf("completed timestamp = %+v (known=%v)", traffic, known)
 	}
 }
 

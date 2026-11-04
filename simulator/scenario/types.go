@@ -62,11 +62,11 @@ type RTOConfig struct {
 	MaximumTimeout     *time.Duration `json:"maximumTimeoutNanoseconds,omitempty"`
 }
 
-// ExecutionConfig controls virtual run length, pacing, sampling and randomness.
+// ExecutionConfig controls virtual run length, real-time UI refreshes and randomness.
 // It tells the runner when to stop and how fast to advance virtual time.
 type ExecutionConfig struct {
 	Duration         time.Duration `json:"durationNanoseconds"`
-	SnapshotInterval time.Duration `json:"snapshotIntervalNanoseconds"`
+	SnapshotInterval time.Duration `json:"snapshotIntervalNanoseconds"` // Real time between UI snapshots.
 
 	// Seed makes random routing and loss reproducible. Future models may use it
 	// for traffic generation, network/CPU timing, chaos and telemetry.

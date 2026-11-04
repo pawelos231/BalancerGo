@@ -86,7 +86,7 @@ test('throughput preset keeps demand bounded, reproducible and independent of ne
   assert.equal(preset.title, 'Simulator throughput');
   const scenario = preset.build(defaults);
   assert.equal(scenario.execution.durationNanoseconds, 5_000_000);
-  assert.equal(scenario.execution.snapshotIntervalNanoseconds, 50_000);
+  assert.equal(scenario.execution.snapshotIntervalNanoseconds, 100_000_000);
   assert.equal(scenario.execution.speed, 0);
   assert.equal(scenario.execution.seed, 1);
   assert.equal(scenario.execution.maxEvents, 50_000_000);
@@ -156,7 +156,7 @@ test('limits benchmark configures independent endpoints and bounded zero-delay p
   assert.equal(scenarioPresets[0].title, 'Absolute simulator limits');
   assert.deepEqual(scenario.execution, {
     durationNanoseconds: 1_000_000,
-    snapshotIntervalNanoseconds: 1_000_000,
+    snapshotIntervalNanoseconds: 100_000_000,
     seed: 1,
     speed: 0,
     maxEvents: 20_000_000,

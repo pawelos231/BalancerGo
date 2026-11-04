@@ -30,33 +30,32 @@ type healthCheck struct {
 }
 
 type LoadBalancer struct {
-	engine          *engine.Engine
-	Mode            model.LBMode
-	RefreshInterval time.Duration
-	algo            algorithms.Algorithm
-	rng             *rand.Rand
-	servers         []*server.Server
-	clients         map[model.ClientKey]*client.Client
-	clientOrder     []*client.Client
-	connTable       map[*server.Server][]*client.Client
-	byKey           map[model.ClientKey]*server.Server
-	connections     map[model.ClientKey]*connectionState
-	clientTx        map[model.ClientKey]Sender
-	toServer        map[*server.Server]Sender
-	health          map[*server.Server]*healthCheck
-	chaos           model.ChaosConfig
-	cleanup         engine.EventID
-	closed          bool
+	engine      *engine.Engine
+	Mode        model.LBMode
+	algo        algorithms.Algorithm
+	rng         *rand.Rand
+	servers     []*server.Server
+	clients     map[model.ClientKey]*client.Client
+	clientOrder []*client.Client
+	connTable   map[*server.Server][]*client.Client
+	byKey       map[model.ClientKey]*server.Server
+	connections map[model.ClientKey]*connectionState
+	clientTx    map[model.ClientKey]Sender
+	toServer    map[*server.Server]Sender
+	health      map[*server.Server]*healthCheck
+	chaos       model.ChaosConfig
+	cleanup     engine.EventID
+	closed      bool
 
 	timeouts TimeoutConfig
 }
 
-func NewLoadBalancer(e *engine.Engine, mode model.LBMode, algo algorithms.Algorithm, refreshInterval time.Duration, rng *rand.Rand) *LoadBalancer {
-	if e == nil || algo == nil || rng == nil || refreshInterval <= 0 {
-		panic("balancer: engine, algorithm, RNG and positive refresh interval are required")
+func NewLoadBalancer(e *engine.Engine, mode model.LBMode, algo algorithms.Algorithm, rng *rand.Rand) *LoadBalancer {
+	if e == nil || algo == nil || rng == nil {
+		panic("balancer: engine, algorithm and RNG are required")
 	}
 	lb := &LoadBalancer{
-		engine: e, Mode: mode, algo: algo, RefreshInterval: refreshInterval, rng: rng,
+		engine: e, Mode: mode, algo: algo, rng: rng,
 		clients:     make(map[model.ClientKey]*client.Client),
 		connTable:   make(map[*server.Server][]*client.Client),
 		byKey:       make(map[model.ClientKey]*server.Server),

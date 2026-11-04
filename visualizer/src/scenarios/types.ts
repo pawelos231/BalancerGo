@@ -75,6 +75,7 @@ export interface Scenario {
   version: ExactInteger;
   execution: {
     durationNanoseconds: ExactInteger;
+    // Real time between UI snapshots; independent of the virtual clock.
     snapshotIntervalNanoseconds: ExactInteger;
     seed: ExactInteger;
     speed: number;

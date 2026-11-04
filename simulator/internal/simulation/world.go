@@ -87,7 +87,6 @@ func New(resolved scenario.Normalized) *World {
 		e,
 		model.LBModeNAT,
 		algorithm,
-		execution.SnapshotInterval,
 		s.resourceRNG("balancer"),
 	)
 	s.lb.SetMappingTimeouts(balancer.TimeoutConfig{
@@ -109,30 +108,39 @@ func New(resolved scenario.Normalized) *World {
 	return s
 }
 
-// Advance polls application cancellation between bounded batches of callbacks,
-// including when millions share a timestamp. RunUntil retains its queue on an
-// event-limit error, so resuming does not alter virtual ordering or event times.
+// Advance executes events through until, checking cancellation between batches.
 func (s *World) Advance(ctx context.Context, until time.Duration) error {
-	if s.stopped {
-		return nil
+	for {
+		reached, err := s.AdvanceBatch(ctx, until)
+		if err != nil || reached {
+			return err
+		}
 	}
+}
+
+// AdvanceBatch executes up to 4096 events, then gives control back to the caller.
+// A false result means more events remain before until, including at the same time.
+func (s *World) AdvanceBatch(ctx context.Context, until time.Duration) (bool, error) {
+	if s.stopped {
+		return true, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+
 	const batchSize uint64 = 4096
 	limit := s.engine.MaxEvents
 	defer func() { s.engine.MaxEvents = limit }()
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		s.engine.MaxEvents = limit
-		if limit-s.engine.EventsExecuted() > batchSize {
-			s.engine.MaxEvents = s.engine.EventsExecuted() + batchSize
-		}
-		err := s.engine.RunUntil(until)
-		if errors.Is(err, engine.ErrEventLimit) && s.engine.EventsExecuted() < limit {
-			continue
-		}
-		return err
+	executed := s.engine.EventsExecuted()
+	if executed < limit && limit-executed > batchSize {
+		s.engine.MaxEvents = executed + batchSize
 	}
+
+	err := s.engine.RunUntil(until)
+	if errors.Is(err, engine.ErrEventLimit) && s.engine.EventsExecuted() < limit {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // resourceRNG gives each resource its own repeatable random sequence.

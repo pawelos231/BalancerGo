@@ -15,7 +15,7 @@ export const performancePresets: readonly ScenarioPreset[] = [
 
       scenario.execution = {
         durationNanoseconds: 1_000_000,
-        snapshotIntervalNanoseconds: 1_000_000,
+        snapshotIntervalNanoseconds: 100_000_000,
         seed: 1,
         speed: 0,
         maxEvents: 20_000_000,

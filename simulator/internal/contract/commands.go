@@ -70,7 +70,7 @@ type SimulationConfig struct {
 	DurationSeconds                 float64 `json:"durationSeconds"`
 	ClientGapMs                     float64 `json:"clientGapMs"`
 	PacketGapMs                     float64 `json:"packetGapMs"`
-	SnapshotIntervalMs              float64 `json:"snapshotIntervalMs"`
+	SnapshotIntervalMs              float64 `json:"snapshotIntervalMs"` // Real milliseconds between UI snapshots.
 	BandwidthBitsPerSecond          int64   `json:"bandwidthBitsPerSecond"`
 	ForwardingBitsPerSecond         int64   `json:"forwardingBitsPerSecond"`
 	PacketTravelTimeMs              float64 `json:"packetTravelTimeMs"`

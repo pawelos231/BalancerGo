@@ -19,58 +19,85 @@ func runWorld(
 ) error {
 	wallStart := time.Now()
 	execution := world.Info()
+	nextSnapshot := wallStart.Add(execution.SnapshotInterval)
+
+	// Commands join the DES at its current time, independently of UI refreshes.
+	scheduleCommand := func(command runtimeCommand) {
+		world.ScheduleAfter(0, func() {
+			err := applyRuntimeCommand(world, command)
+			if err != nil {
+				log.Printf("command at %s: %v", world.Now(), err)
+			} else {
+				log.Printf("command at %s: %s %s", world.Now(), commandName(command.kind), command.Payload)
+			}
+			if handled != nil {
+				handled(err)
+			}
+		})
+	}
+
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		next := world.Now()
-		remaining := world.EndTime() - next
-		if remaining > execution.SnapshotInterval {
-			remaining = execution.SnapshotInterval
-		}
-		next += remaining
+
+		// Unpaced runs can reach the end immediately. Playback only allows
+		// virtual time already covered by elapsed real time and the chosen speed.
+		until := world.EndTime()
 		if execution.Speed > 0 {
-			pacedTime := time.Duration(float64(next) / execution.Speed)
-			deadline := wallStart.Add(pacedTime)
-			if delay := time.Until(deadline); delay > 0 {
-				timer := time.NewTimer(delay)
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					return ctx.Err()
-				case <-timer.C:
-				}
+			allowed := float64(time.Since(wallStart)) * execution.Speed
+			if allowed < float64(until) {
+				until = time.Duration(allowed)
 			}
 		}
 
-		// Preserve admission order and decode inside each zero-delay DES callback.
-		// A command's publication remains separate from the end-of-step publication.
 		for n := len(commands); n > 0; n-- {
-			command := <-commands
-			world.ScheduleAfter(0, func() {
-				err := applyRuntimeCommand(world, command)
-				if err != nil {
-					log.Printf("command at %s: %v", world.Now(), err)
-				} else {
-					log.Printf("command at %s: %s %s", world.Now(), commandName(command.kind), command.Payload)
-				}
-				if handled != nil {
-					handled(err)
-				}
-			})
+			scheduleCommand(<-commands)
 		}
-		err := world.Advance(ctx, next)
-		world.SampleTraffic()
+
+		reached, err := world.AdvanceBatch(ctx, until)
 		if err != nil {
+			world.SampleTraffic()
 			return err
 		}
-		if publish != nil {
+		finished := reached && until == world.EndTime()
+		snapshotDue := publish != nil && !time.Now().Before(nextSnapshot)
+		if finished || snapshotDue {
+			world.SampleTraffic()
+		}
+		if publish != nil && (finished || snapshotDue) {
 			if err := publish(); err != nil {
 				return err
 			}
+			// Slow publication does not build a backlog of missed refreshes.
+			nextSnapshot = time.Now().Add(execution.SnapshotInterval)
 		}
-		if next == world.EndTime() {
+		if finished {
 			return nil
+		}
+		if !reached || execution.Speed == 0 {
+			continue
+		}
+
+		// Playback waits at most 10 real ms before checking progress again.
+		// A command or Stop wakes it sooner, even with a very long UI interval.
+		delay := 10 * time.Millisecond
+		remaining := float64(world.EndTime()-world.Now()) / execution.Speed
+		if remaining < float64(delay) {
+			delay = time.Duration(remaining)
+		}
+		if publish != nil {
+			delay = min(delay, time.Until(nextSnapshot))
+		}
+		timer := time.NewTimer(max(0, delay))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case command := <-commands:
+			timer.Stop()
+			scheduleCommand(command)
+		case <-timer.C:
 		}
 	}
 }

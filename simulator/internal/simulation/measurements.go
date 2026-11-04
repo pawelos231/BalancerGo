@@ -64,6 +64,15 @@ func (sampler *trafficSampler) sample(at time.Duration, counters map[string]traf
 // SampleTraffic runs after the whole virtual-time boundary has been processed.
 // Incoming access hops stop before LB reception, so RX comes from shared ingress.
 func (s *World) SampleTraffic() {
+	// A batch can stop halfway through one timestamp. Include its remaining
+	// packets in the same window; a terminal event limit keeps the partial work.
+	nextEventAt, pending := s.engine.NextEventTime()
+	moreAtCurrentTime := pending && nextEventAt == s.engine.Now()
+	canContinue := s.engine.EventsExecuted() < s.engine.MaxEvents
+	if s.traffic.initialized && moreAtCurrentTime && canContinue {
+		return
+	}
+
 	counters := map[string]trafficCounters{LoadBalancerNodeID: {}}
 	for _, link := range s.links {
 		stats := link.Stats()

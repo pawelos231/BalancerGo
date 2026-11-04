@@ -274,14 +274,13 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
   },
   snapshotIntervalMs: {
     name: 'snapshotIntervalMs',
-    label: 'Snapshot interval (virtual ms)',
+    label: 'Snapshot interval (real ms)',
     min: 0,
     exclusiveMin: true,
     help:
-      'Virtual time between state updates: 100 ms gives about 10 updates per real second at speed 1, ' +
-      'or 20 at speed 2. Fast runs may skip intermediate updates. ' +
-      'This also sets how often commands from the page are applied; ' +
-      'simulated events still happen at their exact times.',
+      'Real time between UI updates: 100 ms targets about 10 updates per second, ' +
+      'independently of playback speed. Busy runs may update later. ' +
+      'The final state is always published, even when a run finishes before the next update.',
   },
   bandwidthBitsPerSecond: {
     name: 'bandwidthBitsPerSecond',
@@ -583,8 +582,8 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
   },
   {
     id: 'repeatability',
-    title: 'Sampling and repeatability',
-    description: 'Set snapshot frequency, the random seed and the event execution limit.',
+    title: 'UI updates and repeatability',
+    description: 'Set the real-time snapshot interval, random seed and event execution limit.',
     fields: ['snapshotIntervalMs', 'seed', 'maxEvents'],
     defaultExpanded: false,
   },
