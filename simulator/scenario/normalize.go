@@ -212,6 +212,18 @@ func validateLink(config LinkConfig, path string) error {
 		return fmt.Errorf("%s.lossRate: must be finite and in 0..1", path)
 	}
 
+	if config.QueuePolicy != "" && config.QueuePolicy != "tailDrop" && config.QueuePolicy != "threshold" {
+		return fmt.Errorf("%s.queuePolicy: must be tailDrop or threshold", path)
+	}
+	if math.IsNaN(config.CongestionThresholdPercent) || math.IsInf(config.CongestionThresholdPercent, 0) ||
+		config.CongestionThresholdPercent < 0 || config.CongestionThresholdPercent > 100 {
+		return fmt.Errorf("%s.congestionThresholdPercent: must be finite and in 0..100", path)
+	}
+	if math.IsNaN(config.CongestionSignalProbability) || math.IsInf(config.CongestionSignalProbability, 0) ||
+		config.CongestionSignalProbability < 0 || config.CongestionSignalProbability > 1 {
+		return fmt.Errorf("%s.congestionSignalProbability: must be finite and in 0..1", path)
+	}
+
 	return nil
 }
 
@@ -284,6 +296,15 @@ func resolveNetwork(
 // applyLinkPatch copies provided settings onto an existing link configuration.
 // Nil fields leave inherited values in place.
 func applyLinkPatch(config LinkConfig, patch LinkPatch) LinkConfig {
+	if patch.QueuePolicy != nil {
+		config.QueuePolicy = *patch.QueuePolicy
+	}
+	if patch.CongestionThresholdPercent != nil {
+		config.CongestionThresholdPercent = *patch.CongestionThresholdPercent
+	}
+	if patch.CongestionSignalProbability != nil {
+		config.CongestionSignalProbability = *patch.CongestionSignalProbability
+	}
 	if patch.BandwidthBitsPerSecond != nil {
 		config.BandwidthBitsPerSecond = *patch.BandwidthBitsPerSecond
 	}

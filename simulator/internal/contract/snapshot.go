@@ -167,26 +167,33 @@ type TopologyLink struct {
 }
 
 type TopologyLinkConfig struct {
-	BandwidthBitsPerSecond int64   `json:"bandwidthBitsPerSecond"`
-	PacketTravelTimeMs     float64 `json:"packetTravelTimeMs"`
-	QueueCapacity          int     `json:"queueCapacity"`
-	LossRate               float64 `json:"lossRate"`
+	BandwidthBitsPerSecond      int64   `json:"bandwidthBitsPerSecond"`
+	PacketTravelTimeMs          float64 `json:"packetTravelTimeMs"`
+	QueueCapacity               int     `json:"queueCapacity"`
+	LossRate                    float64 `json:"lossRate"`
+	QueuePolicy                 string  `json:"queuePolicy,omitempty"`
+	CongestionThresholdPercent  float64 `json:"congestionThresholdPercent,omitempty"`
+	CongestionSignalProbability float64 `json:"congestionSignalProbability,omitempty"`
 }
 
 type TopologyLinkStats struct {
-	QueuedPackets       int    `json:"queuedPackets"`
-	Transmitting        bool   `json:"transmitting"`
-	TravellingPackets   int    `json:"travellingPackets"`
-	OfferedPackets      uint64 `json:"offeredPackets"`
-	OfferedBytes        uint64 `json:"offeredBytes"`
-	AcceptedPackets     uint64 `json:"acceptedPackets"`
-	AcceptedBytes       uint64 `json:"acceptedBytes"`
-	DeliveredPackets    uint64 `json:"deliveredPackets"`
-	QueueDroppedPackets uint64 `json:"queueDroppedPackets"`
-	QueueDroppedBytes   uint64 `json:"queueDroppedBytes"`
-	LostPackets         uint64 `json:"lostPackets"`
-	LostBytes           uint64 `json:"lostBytes"`
-	DeliveredBytes      uint64 `json:"deliveredBytes"`
+	QueuedPackets            int    `json:"queuedPackets"`
+	Transmitting             bool   `json:"transmitting"`
+	TravellingPackets        int    `json:"travellingPackets"`
+	OfferedPackets           uint64 `json:"offeredPackets"`
+	OfferedBytes             uint64 `json:"offeredBytes"`
+	AcceptedPackets          uint64 `json:"acceptedPackets"`
+	AcceptedBytes            uint64 `json:"acceptedBytes"`
+	DeliveredPackets         uint64 `json:"deliveredPackets"`
+	QueueDroppedPackets      uint64 `json:"queueDroppedPackets"`
+	QueueDroppedBytes        uint64 `json:"queueDroppedBytes"`
+	ECNMarkedPackets         uint64 `json:"ecnMarkedPackets,omitempty"`
+	ECNMarkedBytes           uint64 `json:"ecnMarkedBytes,omitempty"`
+	CongestionDroppedPackets uint64 `json:"congestionDroppedPackets,omitempty"`
+	CongestionDroppedBytes   uint64 `json:"congestionDroppedBytes,omitempty"`
+	LostPackets              uint64 `json:"lostPackets"`
+	LostBytes                uint64 `json:"lostBytes"`
+	DeliveredBytes           uint64 `json:"deliveredBytes"`
 }
 
 // TopologyDocument defines the resources used by one run and topology revision.

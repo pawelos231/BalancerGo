@@ -23,6 +23,14 @@ func (s *Server) SetSACKEnabled(enabled bool) {
 	s.transport.SetSACKEnabled(enabled)
 }
 
+func (s *Server) SetECNEnabled(enabled bool) {
+	s.transport.SetECNEnabled(enabled)
+}
+
+func (s *Server) GetECNState() model.ECNState {
+	return s.transport.GetECNState()
+}
+
 func (s *Server) SetCloseConfig(config model.CloseConfig) {
 	s.transport.SetCloseConfig(config)
 }

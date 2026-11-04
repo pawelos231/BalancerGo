@@ -40,6 +40,7 @@ func (c *Sender) HandlePacket(pkt model.Packet) {
 	if !validSequence && !duplicateFIN {
 		return
 	}
+	c.observeECNFeedback(pkt)
 	ackBeforePacket := c.oldestUnackedSeq
 	newSACKInformation := false
 	// A repeated FIN can carry a newer ACK or SACK report without consuming FIN twice.
@@ -68,7 +69,7 @@ func (c *Sender) HandlePacket(pkt model.Packet) {
 // A repeated SYN-ACK only repeats our ACK; it cannot reset a live data stream.
 func (c *Sender) handleSynAck(pkt model.Packet, end uint64) {
 	expectedFlags := model.FlagSYN | model.FlagACK
-	if !c.handshakeStarted || pkt.Flag != expectedFlags || pkt.Size != 0 || pkt.Ack != 1 {
+	if !c.handshakeStarted || pkt.Flag & ^(model.FlagECE|model.FlagCWR) != expectedFlags || pkt.Size != 0 || pkt.Ack != 1 {
 		return
 	}
 	if c.handshakeCompleted {
@@ -90,6 +91,8 @@ func (c *Sender) handleSynAck(pkt model.Packet, end uint64) {
 		c.peerWindowEnd = receiveWindowEnd(pkt.Ack, pkt.ReceiveWindowBytes)
 		c.peerReceiveWindow = pkt.ReceiveWindowBytes
 		c.sack.negotiated = c.sack.enabled && pkt.SACKPermitted
+		c.ecn.state.Negotiated = c.ecn.state.Enabled && pkt.Flag&model.FlagECE != 0 && pkt.Flag&model.FlagCWR == 0
+		c.congestion.ecnNegotiated = c.ecn.state.Negotiated
 		c.handshakeCompleted = true
 		if c.source != nil {
 			c.source.Start(c.engine.Now())
@@ -138,6 +141,7 @@ func (c *Sender) handleDataAck(pkt model.Packet) (newSACKInformation bool) {
 			retryOldest := c.congestion.duplicateACK(
 				c.bytesInFlight(), pendingCount,
 				c.nextSendSeq, c.oldestUnackedSeq, c.engine.Now(),
+				c.ecn.state.Negotiated && pkt.Flag&model.FlagECE != 0,
 			)
 			if retryOldest {
 				c.fastRetransmitOldest(true)
@@ -160,6 +164,7 @@ func (c *Sender) handleDataAck(pkt model.Packet) (newSACKInformation bool) {
 	c.acknowledgedPayloadBytes += uint64(acknowledgedBytes)
 
 	c.pendingSegments.acknowledge(pkt.Ack)
+	c.forgetECNRetries(pkt.Ack)
 	c.observeSender()
 	sackRecovery := c.sack.active
 	completedSACKRecovery := sackRecovery && pkt.Ack >= c.sack.recoveryEndSeq
@@ -174,6 +179,7 @@ func (c *Sender) handleDataAck(pkt model.Packet) (newSACKInformation bool) {
 		SmoothedRTT:     c.rto.state.SmoothedRTT,
 		SACKRecovery:    sackRecovery,
 		EndSACKRecovery: completedSACKRecovery,
+		ECN:             c.ecn.state.Negotiated && pkt.Flag&model.FlagECE != 0,
 	})
 	c.oldestSegmentRetransmissions = 0
 

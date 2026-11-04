@@ -22,6 +22,7 @@ func (control *congestionControl) duplicateACK(
 	pendingCount int,
 	nextSendSeq, oldestUnackedSeq uint64,
 	now time.Duration,
+	ecnFeedback bool,
 ) bool {
 	if !control.config.FastRetransmit || flight == 0 {
 		return false
@@ -29,11 +30,14 @@ func (control *congestionControl) duplicateACK(
 
 	control.loss.duplicateACKs++
 	// Reno can inflate its active recovery window; Tahoe ignores this notification.
-	control.policy.OnDuplicateACK()
+	if !ecnFeedback {
+		control.policy.OnDuplicateACK()
+	}
 	if control.loss.untilSeq != 0 || control.loss.duplicateACKs != 3 {
 		return false
 	}
 
+	alreadyReduced := control.ecnNegotiated && oldestUnackedSeq < control.reductionEndSeq
 	response := control.policy.OnLoss(congestioncontrol.Loss{
 		At:              now,
 		Kind:            congestioncontrol.FastRetransmitLoss,
@@ -41,6 +45,7 @@ func (control *congestionControl) duplicateACK(
 		CumulativeACK:   oldestUnackedSeq,
 		NextSendSeq:     nextSendSeq,
 		PendingSegments: pendingCount,
+		AlreadyReduced:  alreadyReduced,
 	})
 	if response.SuppressFastRetransmit {
 		return false
@@ -48,5 +53,8 @@ func (control *congestionControl) duplicateACK(
 
 	// Protect this flight even after a partial ACK, so late duplicates cannot cut it again.
 	control.loss.untilSeq = nextSendSeq
+	if !alreadyReduced {
+		control.recordReduction(nextSendSeq)
+	}
 	return true
 }

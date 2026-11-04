@@ -711,10 +711,12 @@ func TestIngressCLIFlagsKeepIndependentDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantIngress := scenario.LinkConfig{
-		BandwidthBitsPerSecond: 300_000_000,
-		PacketTravelTime:       13 * time.Nanosecond,
-		QueueCapacity:          9,
-		LossRate:               0.25,
+		BandwidthBitsPerSecond:      300_000_000,
+		PacketTravelTime:            13 * time.Nanosecond,
+		QueueCapacity:               9,
+		LossRate:                    0.25,
+		CongestionThresholdPercent:  80,
+		CongestionSignalProbability: 1,
 	}
 	if cfg.ingress != wantIngress || cfg.bandwidth != 125_000_000 || cfg.forwardingBitsPerSecond != 750_000_000 {
 		t.Fatalf("CLI flags mixed shared ingress and output settings: %+v", cfg)

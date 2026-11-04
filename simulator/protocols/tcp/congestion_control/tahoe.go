@@ -12,9 +12,11 @@ type tahoePolicy struct {
 func (policy *tahoePolicy) OnLoss(loss Loss) LossResponse {
 	switch loss.Kind {
 	case FastRetransmitLoss:
-		policy.restartAfterLoss(loss.FlightBytes, false)
+		if !loss.AlreadyReduced {
+			policy.restartAfterLoss(loss.FlightBytes, false)
+		}
 	case TimeoutLoss:
-		policy.restartAfterLoss(loss.FlightBytes, loss.AlreadyTimedOut)
+		policy.restartAfterLoss(loss.FlightBytes, loss.AlreadyTimedOut || loss.AlreadyReduced)
 	case HandshakeLoss:
 		policy.restartAfterHandshakeLoss()
 	}

@@ -13,6 +13,7 @@ func (c *Client) SetSender(send func(model.Packet)) { c.transport.SetSender(send
 
 func (c *Client) SetReceiveBufferBytes(bytes int)         { c.transport.SetReceiveBufferBytes(bytes) }
 func (c *Client) SetSACKEnabled(enabled bool)             { c.transport.SetSACKEnabled(enabled) }
+func (c *Client) SetECNEnabled(enabled bool)              { c.transport.SetECNEnabled(enabled) }
 func (c *Client) SetRTOConfig(config model.RTOConfig)     { c.transport.SetRTOConfig(config) }
 func (c *Client) SetCloseConfig(config model.CloseConfig) { c.transport.SetCloseConfig(config) }
 func (c *Client) SetIdleTimeout(timeout time.Duration)    { c.transport.SetIdleTimeout(timeout) }
@@ -30,6 +31,7 @@ func (c *Client) GetState() model.ClientState           { return c.transport.Get
 func (c *Client) GetConnectionState() model.CloseState  { return c.transport.GetConnectionState() }
 func (c *Client) GetTransferState() model.TransferState { return c.transport.GetTransferState() }
 func (c *Client) GetRTOState() model.RTOState           { return c.transport.GetRTOState() }
+func (c *Client) GetECNState() model.ECNState           { return c.transport.GetECNState() }
 
 func (c *Client) GetCongestionState() model.CongestionState {
 	return c.transport.GetCongestionState()

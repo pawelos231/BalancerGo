@@ -20,6 +20,11 @@ type congestionControl struct {
 	// A partial ACK can trim a retry without changing the original segment's end.
 	// Only RTO sets this marker; fast retransmit must not consume the first RTO reduction.
 	timedOutSegmentEnd uint64
+
+	// ECN shares window reductions with loss, while loss keeps its own repair guard.
+	ecnNegotiated   bool
+	reductionEndSeq uint64
+	cwrPending      bool
 }
 
 // newCongestionControl chooses one policy before any segment is sent.
@@ -114,6 +119,7 @@ func (control *congestionControl) onDataTimeout(
 	packet model.Packet,
 	flight, nextSendSeq uint64,
 	now time.Duration,
+	retryingRetransmission bool,
 ) {
 	control.loss.duplicateACKs = 0
 	control.loss.untilSeq = nextSendSeq
@@ -128,7 +134,18 @@ func (control *congestionControl) onDataTimeout(
 		CumulativeACK:   packet.Seq,
 		NextSendSeq:     nextSendSeq,
 		AlreadyTimedOut: alreadyTimedOut,
+		// Keep this flight's previous ECN threshold reduction. The real timeout
+		// still collapses cwnd, retransmits, and backs off its timer normally.
+		AlreadyReduced: !retryingRetransmission && control.ecnNegotiated && packet.Seq < control.reductionEndSeq,
 	})
+	control.recordReduction(nextSendSeq)
+}
+
+func (control *congestionControl) recordReduction(nextSendSeq uint64) {
+	if control.ecnNegotiated {
+		control.reductionEndSeq = nextSendSeq
+		control.cwrPending = true
+	}
 }
 
 // afterSYNRetry reports handshake loss without changing the shared SYN/RTO machinery.
@@ -139,7 +156,11 @@ func (control *congestionControl) afterSYNRetry(now time.Duration) {
 // restartAfterIdle notifies the policy only when a send is due after more than one RTO.
 func (control *congestionControl) restartAfterIdle(now, currentRTO time.Duration) {
 	if control.hasSentData && now-control.lastDataSentAt > currentRTO {
+		before := control.policy.State().WindowBytes
 		control.policy.OnIdle()
+		if control.ecnNegotiated && control.policy.State().WindowBytes < before {
+			control.cwrPending = true
+		}
 	}
 }
 

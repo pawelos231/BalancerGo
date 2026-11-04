@@ -28,6 +28,9 @@ func newClassicWindow(config model.CongestionConfig) classicWindow {
 // A cumulative 4096-byte ACK increases slow start by one MSS, not four.
 // https://www.rfc-editor.org/rfc/rfc5681.html#section-3.1
 func (window *classicWindow) OnACK(ack ACK) ACKResponse {
+	if ack.ECN {
+		return ACKResponse{}
+	}
 	newBytes := ack.NewBytes
 	if window.congestionWindowBytes < window.slowStartThresholdBytes {
 		increase := min(newBytes, uint64(model.SEGMENT_SIZE))
@@ -41,6 +44,15 @@ func (window *classicWindow) OnACK(ack ACK) ACKResponse {
 		window.congestionWindowBytes = addCongestionBytes(window.congestionWindowBytes, model.SEGMENT_SIZE)
 	}
 	return ACKResponse{}
+}
+
+// ECN halves the usable window without inventing a missing packet or fast recovery.
+// A small window can reach one MSS; TCP then applies RFC 3168's timer backoff.
+// https://www.rfc-editor.org/rfc/rfc3168.html#section-6.1.2
+func (window *classicWindow) OnECN(ecn ECN) {
+	window.slowStartThresholdBytes = max(ecn.FlightBytes/2, 2*model.SEGMENT_SIZE)
+	window.congestionWindowBytes = max(window.congestionWindowBytes/2, model.SEGMENT_SIZE)
+	window.avoidanceAcknowledgedBytes = 0
 }
 
 // restartAfterLoss starts at one MSS and halves flight only for a new loss indication.

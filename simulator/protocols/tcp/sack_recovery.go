@@ -74,6 +74,7 @@ func (c *Sender) observeSACKFeedback(newInformation, advancingACK bool) {
 		return
 	}
 
+	alreadyReduced := c.congestion.ecnNegotiated && c.oldestUnackedSeq < c.congestion.reductionEndSeq
 	response := c.congestion.policy.OnLoss(congestioncontrol.Loss{
 		At:              c.engine.Now(),
 		Kind:            congestioncontrol.FastRetransmitLoss,
@@ -82,6 +83,7 @@ func (c *Sender) observeSACKFeedback(newInformation, advancingACK bool) {
 		NextSendSeq:     c.nextSendSeq,
 		PendingSegments: len(c.pendingSegments.segments) - c.pendingSegments.firstPendingIndex,
 		SACKRecovery:    true,
+		AlreadyReduced:  alreadyReduced,
 	})
 	if response.SuppressFastRetransmit {
 		return
@@ -93,6 +95,9 @@ func (c *Sender) observeSACKFeedback(newInformation, advancingACK bool) {
 	c.sack.retransmittedEnd = c.oldestUnackedSeq
 	c.sack.pipeBytes = c.sack.board.Pipe(c.oldestUnackedSeq, c.nextSendSeq, c.oldestUnackedSeq)
 	c.congestion.loss.untilSeq = c.nextSendSeq
+	if !alreadyReduced {
+		c.congestion.recordReduction(c.nextSendSeq)
+	}
 	firstHole, found := c.sack.board.NextHole(c.oldestUnackedSeq, c.nextSendSeq, false)
 	if found {
 		c.sack.rescueAfterSeq = firstHole.End
@@ -173,6 +178,7 @@ func (c *Sender) retransmitSACKHole(hole model.SACKBlock, rescue bool) {
 		c.key, model.FlagPSH|model.FlagACK,
 		int(hole.End-hole.Start), hole.Start, c.nextReceiveSeq,
 	)
+	c.recordECNRetry(packet)
 	c.emit(packet)
 }
 

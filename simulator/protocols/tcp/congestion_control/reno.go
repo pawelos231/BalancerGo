@@ -8,6 +8,7 @@ type renoPolicy struct {
 	classicWindow
 	activeRecovery      bool   // Classic Reno waits for ACK progress; SACK waits for the old flight.
 	remainingInflations uint64 // How many further duplicate ACKs may add one MSS to cwnd.
+	recoveryWindowBytes uint64 // Uninflated window retained through a loss after ECN.
 }
 
 // OnACK exits classic recovery on its first advancing ACK; SACK waits for the full flight.
@@ -19,7 +20,7 @@ func (policy *renoPolicy) OnACK(ack ACK) ACKResponse {
 			return ACKResponse{}
 		}
 		policy.StopRecovery()
-		policy.congestionWindowBytes = policy.slowStartThresholdBytes
+		policy.congestionWindowBytes = policy.recoveryWindowBytes
 		policy.avoidanceAcknowledgedBytes = 0
 		return ACKResponse{}
 	}
@@ -40,24 +41,36 @@ func (policy *renoPolicy) OnDuplicateACK() {
 func (policy *renoPolicy) OnLoss(loss Loss) LossResponse {
 	switch loss.Kind {
 	case FastRetransmitLoss:
-		policy.slowStartThresholdBytes = max(loss.FlightBytes/2, 2*model.SEGMENT_SIZE)
-		policy.congestionWindowBytes = policy.slowStartThresholdBytes
+		if !loss.AlreadyReduced {
+			policy.slowStartThresholdBytes = max(loss.FlightBytes/2, 2*model.SEGMENT_SIZE)
+			policy.recoveryWindowBytes = policy.slowStartThresholdBytes
+		} else {
+			policy.recoveryWindowBytes = policy.congestionWindowBytes
+		}
+		policy.congestionWindowBytes = policy.recoveryWindowBytes
 		policy.avoidanceAcknowledgedBytes = 0
 		policy.activeRecovery = true
 		policy.remainingInflations = 0
 
 		// Classic Reno uses inflated cwnd; RFC 6675 uses the reduced window and Pipe.
 		if !loss.SACKRecovery {
-			policy.congestionWindowBytes = addCongestionBytes(policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE)
+			policy.congestionWindowBytes = addCongestionBytes(policy.recoveryWindowBytes, 3*model.SEGMENT_SIZE)
 			policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
 		}
 	case TimeoutLoss:
 		policy.StopRecovery()
-		policy.restartAfterLoss(loss.FlightBytes, loss.AlreadyTimedOut)
+		policy.restartAfterLoss(loss.FlightBytes, loss.AlreadyTimedOut || loss.AlreadyReduced)
 	case HandshakeLoss:
 		policy.restartAfterHandshakeLoss()
 	}
 	return LossResponse{}
+}
+
+func (policy *renoPolicy) OnECN(ecn ECN) {
+	policy.classicWindow.OnECN(ecn)
+	if policy.activeRecovery {
+		policy.recoveryWindowBytes = policy.congestionWindowBytes
+	}
 }
 
 func (policy *renoPolicy) StopRecovery() {

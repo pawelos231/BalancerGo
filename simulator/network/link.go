@@ -14,20 +14,27 @@ import (
 
 // Config describes a directed link's transmission, travel and buffering limits.
 type Config struct {
-	BandwidthBitsPerSecond int64
-	PacketTravelTime       time.Duration // Virtual travel time after transmission.
-	QueueCapacity          int
-	LossRate               float64
+	BandwidthBitsPerSecond      int64
+	PacketTravelTime            time.Duration // Virtual travel time after transmission.
+	QueueCapacity               int
+	LossRate                    float64
+	QueuePolicy                 string // Empty or tailDrop preserves ordinary FIFO tail drop.
+	CongestionThresholdPercent  float64
+	CongestionSignalProbability float64
 }
 
 // Stats holds packet and byte counters, plus the current state of the link.
 type Stats struct {
-	OfferedPackets      uint64
-	OfferedBytes        uint64
-	AcceptedPackets     uint64
-	AcceptedBytes       uint64
-	QueueDroppedPackets uint64
-	QueueDroppedBytes   uint64
+	OfferedPackets           uint64
+	OfferedBytes             uint64
+	AcceptedPackets          uint64
+	AcceptedBytes            uint64
+	QueueDroppedPackets      uint64
+	QueueDroppedBytes        uint64
+	ECNMarkedPackets         uint64
+	ECNMarkedBytes           uint64
+	CongestionDroppedPackets uint64 // Early drops, also included in QueueDroppedPackets.
+	CongestionDroppedBytes   uint64
 	// Completed serialization includes packets later lost or still travelling.
 	TransmittedBytes uint64
 	// Randomly lost packets still consumed link bandwidth.
@@ -43,15 +50,16 @@ type Stats struct {
 // Link models a one-way network path, e.g. client -> balancer or balancer -> server.
 // Multiple TCP connections share its bandwidth and packet queue.
 type Link struct {
-	engine       *engine.Engine
-	config       Config
-	rng          *rand.Rand
-	queue        []transmission
-	queueHead    int
-	transmitting bool
-	travelling   int
-	stats        Stats
-	onReady      func()
+	engine        *engine.Engine
+	config        Config
+	rng           *rand.Rand
+	congestionRNG *rand.Rand
+	queue         []transmission
+	queueHead     int
+	transmitting  bool
+	travelling    int
+	stats         Stats
+	onReady       func()
 }
 
 // NewLink creates an idle link and panics on invalid configuration.
@@ -79,6 +87,7 @@ func NewLink(e *engine.Engine, config Config, rng *rand.Rand) *Link {
 	if config.LossRate > 0 && config.LossRate < 1 && rng == nil {
 		panic("network: probabilistic loss requires a link-owned random source")
 	}
+	validateCongestionConfig(config)
 
 	return &Link{engine: e, config: config, rng: rng}
 }
@@ -89,6 +98,15 @@ func NewLink(e *engine.Engine, config Config, rng *rand.Rand) *Link {
 // freezing any packet state captured by onArrival at the moment of transmission.
 // Even zero-byte, zero-delay packets are delivered through queued engine events.
 func (l *Link) Transmit(sizeBytes int, onArrival func()) bool {
+	if onArrival == nil {
+		panic("network: arrival callback must not be nil")
+	}
+	return l.TransmitECN(sizeBytes, NotCapable, func(bool) { onArrival() })
+}
+
+// TransmitECN applies congestion signaling once, when a packet must wait.
+// The callback reports its final CE state, including a mark received earlier.
+func (l *Link) TransmitECN(sizeBytes int, state ECNState, onArrival func(marked bool)) bool {
 	if l.onReady != nil {
 		panic("network: managed link must be started through its external queue")
 	}
@@ -98,19 +116,31 @@ func (l *Link) Transmit(sizeBytes int, onArrival func()) bool {
 	if onArrival == nil {
 		panic("network: arrival callback must not be nil")
 	}
+	validateECNState(state)
 
 	packet := transmission{
 		sizeBytes: sizeBytes,
 		duration:  serializationDuration(sizeBytes, l.config.BandwidthBitsPerSecond),
-		onArrival: onArrival,
 	}
+	queueFull := l.transmitting && l.queued() >= l.config.QueueCapacity
+	selected := !queueFull && l.transmitting && l.shouldSignalCongestion(l.queued()+1)
+	marked := state == AlreadyMarked || (selected && state == Capable)
+	packet.onArrival = func() { onArrival(marked) }
 	l.stats.OfferedPackets++
 	l.stats.OfferedBytes += uint64(sizeBytes)
 
-	if l.transmitting && l.queued() >= l.config.QueueCapacity {
+	if queueFull || (selected && state == NotCapable) {
 		l.stats.QueueDroppedPackets++
 		l.stats.QueueDroppedBytes += uint64(sizeBytes)
+		if !queueFull {
+			l.stats.CongestionDroppedPackets++
+			l.stats.CongestionDroppedBytes += uint64(sizeBytes)
+		}
 		return false
+	}
+	if selected && state == Capable {
+		l.stats.ECNMarkedPackets++
+		l.stats.ECNMarkedBytes += uint64(sizeBytes)
 	}
 
 	l.stats.AcceptedPackets++

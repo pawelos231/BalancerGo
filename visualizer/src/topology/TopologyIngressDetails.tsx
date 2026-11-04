@@ -1,6 +1,6 @@
 import { Box, Divider, LinearProgress, Stack, Typography } from '@mui/material';
 import { formatBandwidth, formatBytes, formatNumber } from './format';
-import { Fact } from './TopologyFacts';
+import { Fact, QueuePolicyFacts } from './TopologyFacts';
 import type { TopologyIngress } from './types';
 
 // The shared receiver is one resource; its two waiting queues keep their own slots.
@@ -14,6 +14,7 @@ function TopologyIngressDetails({ ingress }: { ingress: TopologyIngress }) {
   return (
     <Stack spacing={1.25}>
       <Stack component="dl" spacing={1} sx={{ m: 0 }}>
+        <QueuePolicyFacts config={config} />
         <Fact label="Common RX limit" value={formatBandwidth(config.bandwidthBitsPerSecond)} />
         <Fact
           label="Travel after RX transmission"
@@ -41,7 +42,9 @@ function TopologyIngressDetails({ ingress }: { ingress: TopologyIngress }) {
             <Typography variant="subtitle2" sx={{ mb: 0.5 }}>{side}</Typography>
             <Stack component="dl" spacing={0.5} sx={{ m: 0 }}>
               <Fact label="Waiting / queue capacity" value={queued} />
-              <Fact label="Tail drops total" value={drops} />
+              <Fact label="Queue drops (all)" value={drops} />
+              <Fact label="Early congestion drops" value={`${formatNumber(queue.stats.congestionDroppedPackets ?? 0)} packets · ${formatBytes(queue.stats.congestionDroppedBytes ?? 0)}`} />
+              <Fact label="ECN marks" value={`${formatNumber(queue.stats.ecnMarkedPackets ?? 0)} packets · ${formatBytes(queue.stats.ecnMarkedBytes ?? 0)}`} />
             </Stack>
             {queue.capacity > 0 && (
               <LinearProgress

@@ -34,6 +34,7 @@ type Receiver struct {
 	receivedPayloadBytes uint64
 	receiveBufferBytes   uint16
 	sackEnabled          bool
+	ecnState             model.ECNState
 
 	halfOpenIdleTimeout    time.Duration
 	establishedIdleTimeout time.Duration

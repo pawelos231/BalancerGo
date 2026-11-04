@@ -1,7 +1,7 @@
 # Scenario files
 
 These UTF-8 JSON files are native version-1 scenarios accepted by the backend.
-Twenty-six match the UI preset factories; one extra file demonstrates nested
+Twenty-seven match the UI preset factories; one extra file demonstrates nested
 overrides. The library supports search, category filters and six cards per page.
 Ordinary presets use seed 1, a 50-million-event limit, 100 real ms snapshots,
 1 ms endpoint travel time, 1024 waiting slots and zero random loss unless their
@@ -23,6 +23,7 @@ overrides or changes to Go defaults do not alter it.
 | [blackholed-backend.json](blackholed-backend.json) | 16 / 2 | One LB-to-backend link loses every packet; the other remains reachable. |
 | [tiny-queues.json](tiny-queues.json) | 64 / 2 | Simultaneous arrivals, 1 Mbit/s LB input and two waiting slots per side. |
 | [unbuffered-ingress.json](unbuffered-ingress.json) | 64 / 2 | Same input bottleneck with zero waiting slots: start immediately or drop. |
+| [ecn-congestion.json](ecn-congestion.json) | 16 / 2 | Reno with ECN; 10 Mbit/s forward bottlenecks mark above 25% occupancy, while ACK paths remain fast. |
 | [staggered-arrivals.json](staggered-arrivals.json) | 4 × 4 / 2 | Groups start at 0, 5, 20 and 200 s, with 250 ms between clients; the last group is beyond the horizon. |
 | [mixed-streams.json](mixed-streams.json) | 8 + 8 / 2 | Short streams with 0, 1, 1024 and 1025-byte overrides alongside 1 GiB streams. |
 | [seeded-random.json](seeded-random.json) | 16 / 4 | Random routing with exact seed `"9007199254740993"` for repeatable assignments. |
@@ -71,6 +72,51 @@ simultaneous SYN burst and bounded ingress admission. They are not inferred
 from the sum of configured client bitrates. For quicker E2E automation, use an
 independent copy with `speed: 0`, a bounded horizon and smaller stream sizes;
 keep delayed start times and the behavior being tested in mind.
+
+## ECN and threshold signaling
+
+The **ECN at a forward bottleneck** preset runs for 180 virtual seconds at speed 1
+with 1 GiB per client. Only the two LB-to-backend links use threshold signaling:
+each has 64 waiting slots, a 25% threshold and signal probability 1. Client links,
+LB ingress and ACK return links remain at 1 Gbit/s with zero random loss. This
+isolates congestion feedback from a slow return path. Inspect client TCP metrics
+for negotiation, ECE/CWR and congestion responses; inspect the forward links for
+ECN marks, queue drops and early congestion drops. Large streams can remain
+unfinished at the horizon.
+
+Native TCP settings use the exact field `tcp.ECNenabled`. It defaults to false
+and requires Reno, NewReno, Tahoe or CUBIC. Queue settings are independent:
+`queuePolicy` is `tailDrop` (also the behavior of an omitted/empty policy) or
+`threshold`; `congestionThresholdPercent` ranges from 0 to 100, and
+`congestionSignalProbability` ranges from 0 to 1. They can appear in link defaults,
+profiles, directional patches and shared LB ingress. Existing presets keep ECN
+and threshold signaling disabled.
+
+Threshold signaling considers waiting occupancy including the arriving packet,
+excluding the active transmission and packets already travelling. At or above
+the threshold, selected ECN-capable data
+gets a CE mark; selected packets without ECN are dropped early. Probability 1
+selects every eligible arrival, and 0 disables early signaling. Full queues always
+drop arriving packets. Early congestion drops are included in total queue drops,
+while ECN marks are counted separately. This fixed occupancy rule is not RED or
+CoDel and does not use time spent waiting.
+
+Omitted threshold/probability scalars in imported documents mean zero. Validation
+writes these effective values explicitly so saving and reloading preserves zero.
+Selecting threshold signaling in a native draft initializes genuinely absent
+values to 80% and probability 1; explicit zero values stay zero. Fresh UI and CLI
+defaults use those 80%/1 parameters with tail drop selected.
+Run this command from the `simulator` directory:
+
+```sh
+go run . -ecn-enabled -queue-policy threshold \
+  -queue-threshold-percent 80 -queue-signal-probability 1
+```
+
+The independent ingress flags are `-lb-ingress-queue-policy`,
+`-lb-ingress-queue-threshold-percent` and `-lb-ingress-queue-signal-probability`.
+They also default to tail drop with inactive 80%/1 parameters. Choosing threshold
+enables signaling; an explicit probability of zero disables early signals.
 
 ## Import, inspect and export
 

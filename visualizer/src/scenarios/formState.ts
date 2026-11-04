@@ -11,7 +11,7 @@ export interface ScenarioFormState {
 }
 
 const recoveryFields: readonly ScenarioField[] = [
-  'sackEnabled', 'fastRetransmit', 'congestionControl',
+  'sackEnabled', 'ECNenabled', 'fastRetransmit', 'congestionControl',
 ];
 
 // Keep rejected input visible, then retry it when a related setting changes.
@@ -34,6 +34,15 @@ export function editScenarioForm(
       // Mode none disables fast retransmit; preserve an explicitly pending edit.
       if (name === 'congestionControl' && !('fastRetransmit' in errors)) {
         values.fastRetransmit = scenarioFormValues(scenario).fastRetransmit;
+      }
+      if (name === 'queuePolicy' || name === 'ingressQueuePolicy') {
+        const projected = scenarioFormValues(scenario);
+        const dependents = name === 'queuePolicy'
+          ? ['congestionThresholdPercent', 'congestionSignalProbability'] as const
+          : ['ingressCongestionThresholdPercent', 'ingressCongestionSignalProbability'] as const;
+        for (const dependent of dependents) {
+          if (!(dependent in errors)) values[dependent] = projected[dependent];
+        }
       }
       return true;
     } catch (failure) {

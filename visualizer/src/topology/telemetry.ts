@@ -124,6 +124,10 @@ export function totalLinks(links: readonly TopologyLink[]): LinkTotals {
     acceptedBytes: 0,
     queueDroppedPackets: 0,
     queueDroppedBytes: 0,
+    ecnMarkedPackets: 0,
+    ecnMarkedBytes: 0,
+    congestionDroppedPackets: 0,
+    congestionDroppedBytes: 0,
     lostPackets: 0,
     lostBytes: 0,
     deliveredPackets: 0,
@@ -148,6 +152,10 @@ export function totalLinks(links: readonly TopologyLink[]): LinkTotals {
     totals.acceptedBytes += stats.acceptedBytes;
     totals.queueDroppedPackets += stats.queueDroppedPackets;
     totals.queueDroppedBytes += stats.queueDroppedBytes;
+    totals.ecnMarkedPackets! += stats.ecnMarkedPackets ?? 0;
+    totals.ecnMarkedBytes! += stats.ecnMarkedBytes ?? 0;
+    totals.congestionDroppedPackets! += stats.congestionDroppedPackets ?? 0;
+    totals.congestionDroppedBytes! += stats.congestionDroppedBytes ?? 0;
     totals.lostPackets += stats.lostPackets;
     totals.lostBytes += stats.lostBytes;
     totals.deliveredPackets += stats.deliveredPackets;

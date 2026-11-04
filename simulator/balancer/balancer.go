@@ -131,7 +131,8 @@ func (lb *LoadBalancer) HandleClientPacket(pkt model.Packet) {
 		return
 	}
 	srv := lb.byKey[pkt.Key]
-	if srv == nil && pkt.Flag == model.FlagSYN && supportedMappingPacket(pkt, false) {
+	baseFlags := pkt.Flag &^ (model.FlagECE | model.FlagCWR)
+	if srv == nil && baseFlags == model.FlagSYN && supportedMappingPacket(pkt, false) {
 		var err error
 		srv, err = lb.Route(cl)
 		if err != nil {

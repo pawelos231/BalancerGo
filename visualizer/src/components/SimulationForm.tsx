@@ -156,6 +156,12 @@ function SimulationForm({
                               name === 'fastRetransmit' && values.congestionControl === 'none'
                             ) || (
                               name === 'cubicFastConvergence' && values.congestionControl !== 'cubic'
+                            ) || (
+                              (name === 'congestionThresholdPercent' || name === 'congestionSignalProbability')
+                              && values.queuePolicy !== 'threshold'
+                            ) || (
+                              (name === 'ingressCongestionThresholdPercent' || name === 'ingressCongestionSignalProbability')
+                              && values.ingressQueuePolicy !== 'threshold'
                             )}
                             onChange={onChange}
                             onFocus={onFocus}

@@ -60,7 +60,8 @@ function ScenarioFieldInput({
 
   const isSelectField = name === 'algorithm' || name === 'rtoMode'
     || name === 'congestionControl' || name === 'fastRetransmit'
-    || name === 'cubicFastConvergence' || name === 'sackEnabled';
+    || name === 'cubicFastConvergence' || name === 'sackEnabled'
+    || name === 'ECNenabled' || name === 'queuePolicy' || name === 'ingressQueuePolicy';
   if (isSelectField) {
     const { label, help, options } = scenarioSelectFields[name];
     const labelID = `start-${name}-label`;

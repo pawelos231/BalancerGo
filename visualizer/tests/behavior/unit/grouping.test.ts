@@ -117,6 +117,9 @@ for (const config of [
   { packetTravelTimeMs: 2 },
   { queueCapacity: 0 },
   { lossRate: 0.1 },
+  { queuePolicy: 'threshold' as const },
+  { congestionThresholdPercent: 80 },
+  { congestionSignalProbability: 1 },
 ]) {
   test(`keeps heterogeneous ${Object.keys(config)[0]} in separate bundles`, () => {
     const input = fixture();
@@ -145,6 +148,10 @@ test('sums every counter while preserving each physical link capacity', () => {
     acceptedBytes: 800,
     queueDroppedPackets: 2,
     queueDroppedBytes: 200,
+    congestionDroppedPackets: 1,
+    congestionDroppedBytes: 100,
+    ecnMarkedPackets: 2,
+    ecnMarkedBytes: 200,
     lostPackets: 1,
     lostBytes: 100,
     deliveredPackets: 3,
@@ -179,6 +186,10 @@ test('sums every counter while preserving each physical link capacity', () => {
     acceptedBytes: 1300,
     queueDroppedPackets: 3,
     queueDroppedBytes: 300,
+    congestionDroppedPackets: 1,
+    congestionDroppedBytes: 100,
+    ecnMarkedPackets: 2,
+    ecnMarkedBytes: 200,
     lostPackets: 2,
     lostBytes: 200,
     deliveredPackets: 5,

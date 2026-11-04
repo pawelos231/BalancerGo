@@ -56,12 +56,21 @@ func (ingress *Ingress) Config() Config {
 // Transmit admits a packet or drops it when this input's waiting FIFO is full.
 // The callback may run later or remain pending when the experiment ends.
 func (input *Input) Transmit(sizeBytes int, onArrival func()) bool {
+	if onArrival == nil {
+		panic("network: arrival callback must not be nil")
+	}
+	return input.TransmitECN(sizeBytes, NotCapable, func(bool) { onArrival() })
+}
+
+// TransmitECN signals congestion at this input's own waiting FIFO.
+func (input *Input) TransmitECN(sizeBytes int, state ECNState, onArrival func(marked bool)) bool {
 	if sizeBytes < 0 {
 		panic("network: packet size must not be negative")
 	}
 	if onArrival == nil {
 		panic("network: arrival callback must not be nil")
 	}
+	validateECNState(state)
 
 	ingress := input.ingress
 	// Validate transmission duration before changing counters or accepting the packet.
@@ -72,17 +81,32 @@ func (input *Input) Transmit(sizeBytes int, onArrival func()) bool {
 	if accepted && ingress.nextSequence == ^uint64(0) {
 		panic("network: ingress enqueue sequence overflow")
 	}
+	selected := accepted && !canStartNow && ingress.link.shouldSignalCongestion(input.queued()+1)
+	earlyDrop := selected && state == NotCapable
+	marked := state == AlreadyMarked || (selected && state == Capable)
 
 	input.stats.OfferedPackets++
 	input.stats.OfferedBytes += uint64(sizeBytes)
 	ingress.stats.OfferedPackets++
 	ingress.stats.OfferedBytes += uint64(sizeBytes)
-	if !accepted {
+	if !accepted || earlyDrop {
 		input.stats.QueueDroppedPackets++
 		input.stats.QueueDroppedBytes += uint64(sizeBytes)
 		ingress.stats.QueueDroppedPackets++
 		ingress.stats.QueueDroppedBytes += uint64(sizeBytes)
+		if earlyDrop {
+			input.stats.CongestionDroppedPackets++
+			input.stats.CongestionDroppedBytes += uint64(sizeBytes)
+			ingress.stats.CongestionDroppedPackets++
+			ingress.stats.CongestionDroppedBytes += uint64(sizeBytes)
+		}
 		return false
+	}
+	if selected && state == Capable {
+		input.stats.ECNMarkedPackets++
+		input.stats.ECNMarkedBytes += uint64(sizeBytes)
+		ingress.stats.ECNMarkedPackets++
+		ingress.stats.ECNMarkedBytes += uint64(sizeBytes)
 	}
 
 	input.stats.AcceptedPackets++
@@ -93,7 +117,7 @@ func (input *Input) Transmit(sizeBytes int, onArrival func()) bool {
 	ingress.nextSequence++
 	input.queue = append(input.queue, ingressPacket{
 		sizeBytes: sizeBytes,
-		onArrival: onArrival,
+		onArrival: func() { onArrival(marked) },
 		sequence:  ingress.nextSequence,
 	})
 
@@ -111,6 +135,10 @@ func (ingress *Ingress) Stats() Stats {
 	stats.AcceptedBytes = ingress.stats.AcceptedBytes
 	stats.QueueDroppedPackets = ingress.stats.QueueDroppedPackets
 	stats.QueueDroppedBytes = ingress.stats.QueueDroppedBytes
+	stats.ECNMarkedPackets = ingress.stats.ECNMarkedPackets
+	stats.ECNMarkedBytes = ingress.stats.ECNMarkedBytes
+	stats.CongestionDroppedPackets = ingress.stats.CongestionDroppedPackets
+	stats.CongestionDroppedBytes = ingress.stats.CongestionDroppedBytes
 	stats.QueuedPackets = ingress.stats.QueuedPackets
 	return stats
 }

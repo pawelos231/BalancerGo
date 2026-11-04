@@ -47,6 +47,7 @@ type SimulationConfig struct {
 	Bytes                           int     `json:"bytes"`
 	ReceiveBufferBytes              int     `json:"receiveBufferBytes"`
 	SACKEnabled                     bool    `json:"sackEnabled"`
+	ECNEnabled                      bool    `json:"ECNenabled"`
 	CongestionControl               string  `json:"congestionControl"`
 	FastRetransmit                  bool    `json:"fastRetransmit"`
 	CubicFastConvergence            bool    `json:"cubicFastConvergence"`
@@ -76,11 +77,17 @@ type SimulationConfig struct {
 	PacketTravelTimeMs              float64 `json:"packetTravelTimeMs"`
 	LinkQueue                       int     `json:"linkQueue"`
 	Loss                            float64 `json:"loss"`
+	QueuePolicy                     string  `json:"queuePolicy"`
+	CongestionThresholdPercent      float64 `json:"congestionThresholdPercent"`
+	CongestionSignalProbability     float64 `json:"congestionSignalProbability"`
 
-	IngressBandwidthBitsPerSecond int64   `json:"ingressBandwidthBitsPerSecond"`
-	IngressPacketTravelTimeMs     float64 `json:"ingressPacketTravelTimeMs"`
-	IngressQueueCapacity          int     `json:"ingressQueueCapacity"`
-	IngressLoss                   float64 `json:"ingressLoss"`
+	IngressBandwidthBitsPerSecond      int64   `json:"ingressBandwidthBitsPerSecond"`
+	IngressPacketTravelTimeMs          float64 `json:"ingressPacketTravelTimeMs"`
+	IngressQueueCapacity               int     `json:"ingressQueueCapacity"`
+	IngressLoss                        float64 `json:"ingressLoss"`
+	IngressQueuePolicy                 string  `json:"ingressQueuePolicy"`
+	IngressCongestionThresholdPercent  float64 `json:"ingressCongestionThresholdPercent"`
+	IngressCongestionSignalProbability float64 `json:"ingressCongestionSignalProbability"`
 
 	Seed      int64   `json:"seed"`
 	Algorithm string  `json:"algorithm"`

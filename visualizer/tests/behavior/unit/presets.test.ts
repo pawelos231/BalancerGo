@@ -240,7 +240,7 @@ test('limits benchmark preserves unsafe integer rates through form projection an
 });
 
 test('catalog pins the limits benchmark and keeps unique categories and original relative order', () => {
-  assert.equal(scenarioPresets.length, 26);
+  assert.equal(scenarioPresets.length, 27);
   assert.equal(scenarioPresets[0].id, 'simulator-limits');
   assert.equal(scenarioPresets[0].category, 'performance');
   assert.equal(new Set(scenarioPresets.map((preset) => preset.id)).size, scenarioPresets.length);
@@ -368,7 +368,7 @@ test('new network experiments reset unrelated loss, timing and execution default
   const experiments = scenarioPresets.filter((preset) => (
     !inheritedOrPerformanceIds.has(preset.id) && preset.category !== 'reference'
   ));
-  assert.equal(experiments.length, 12);
+  assert.equal(experiments.length, 13);
 
   for (const preset of experiments) {
     const scenario = preset.build(scenarioFixture());

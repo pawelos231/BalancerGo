@@ -8,5 +8,8 @@ func DefaultIngressConfig() LinkConfig {
 		PacketTravelTime:       0,
 		QueueCapacity:          1024,
 		LossRate:               0,
+		// These values take effect only after choosing the threshold queue policy.
+		CongestionThresholdPercent:  80,
+		CongestionSignalProbability: 1,
 	}
 }

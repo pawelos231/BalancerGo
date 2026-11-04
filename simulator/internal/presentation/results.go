@@ -44,6 +44,7 @@ func clientState(state model.ClientState) contract.ClientState {
 		AcknowledgedPayloadBytes: state.AcknowledgedPayloadBytes,
 		Transfer:                 transferState(state.Transfer),
 		Connection:               closeState(state.Connection),
+		ECN:                      ecnState(state.ECN),
 	}
 }
 
@@ -51,6 +52,21 @@ func closeState(state model.CloseState) contract.CloseState {
 	return contract.CloseState{
 		State: string(state.State), Outcome: string(state.Outcome),
 		FINRetransmissions: state.FINRetransmissions, Elapsed: state.Elapsed,
+	}
+}
+
+func ecnState(state model.ECNState) *contract.ECNState {
+	if !state.Enabled {
+		return nil
+	}
+	return &contract.ECNState{
+		Enabled:               state.Enabled,
+		Negotiated:            state.Negotiated,
+		ReceivedCEPacketCount: state.ReceivedCEPacketCount,
+		SentECECount:          state.SentECECount,
+		ReceivedECECount:      state.ReceivedECECount,
+		SentCWRCount:          state.SentCWRCount,
+		ECNResponseCount:      state.ECNResponseCount,
 	}
 }
 
@@ -92,6 +108,7 @@ func serverState(state model.ServerState) contract.ServerState {
 		NumberOfHandledPackets: state.NumberOfHandledPackets,
 		ReceivedPayloadBytes:   state.ReceivedPayloadBytes,
 		CpuUsage:               float32(state.CpuUsage) / float32(legacyCPUScale),
+		ECN:                    ecnState(state.ECN),
 	}
 }
 
@@ -167,42 +184,53 @@ func MeasurePerformance(elapsed time.Duration, events, packets uint64) *contract
 
 func reportConfig(config network.Config) contract.LinkConfig {
 	return contract.LinkConfig{
-		BandwidthBitsPerSecond: config.BandwidthBitsPerSecond,
-		PacketTravelTime:       config.PacketTravelTime,
-		QueueCapacity:          config.QueueCapacity,
-		LossRate:               config.LossRate,
+		BandwidthBitsPerSecond:      config.BandwidthBitsPerSecond,
+		PacketTravelTime:            config.PacketTravelTime,
+		QueueCapacity:               config.QueueCapacity,
+		LossRate:                    config.LossRate,
+		QueuePolicy:                 config.QueuePolicy,
+		CongestionThresholdPercent:  config.CongestionThresholdPercent,
+		CongestionSignalProbability: config.CongestionSignalProbability,
 	}
 }
 
 func reportStats(stats network.Stats) contract.LinkStats {
 	return contract.LinkStats{
-		OfferedPackets:      stats.OfferedPackets,
-		OfferedBytes:        stats.OfferedBytes,
-		AcceptedPackets:     stats.AcceptedPackets,
-		AcceptedBytes:       stats.AcceptedBytes,
-		QueueDroppedPackets: stats.QueueDroppedPackets,
-		QueueDroppedBytes:   stats.QueueDroppedBytes,
-		TransmittedBytes:    stats.TransmittedBytes,
-		LostPackets:         stats.LostPackets,
-		LostBytes:           stats.LostBytes,
-		DeliveredPackets:    stats.DeliveredPackets,
-		DeliveredBytes:      stats.DeliveredBytes,
-		QueuedPackets:       stats.QueuedPackets,
-		Transmitting:        stats.Transmitting,
-		TravellingPackets:   stats.TravellingPackets,
+		OfferedPackets:           stats.OfferedPackets,
+		OfferedBytes:             stats.OfferedBytes,
+		AcceptedPackets:          stats.AcceptedPackets,
+		AcceptedBytes:            stats.AcceptedBytes,
+		QueueDroppedPackets:      stats.QueueDroppedPackets,
+		QueueDroppedBytes:        stats.QueueDroppedBytes,
+		ECNMarkedPackets:         stats.ECNMarkedPackets,
+		ECNMarkedBytes:           stats.ECNMarkedBytes,
+		CongestionDroppedPackets: stats.CongestionDroppedPackets,
+		CongestionDroppedBytes:   stats.CongestionDroppedBytes,
+		TransmittedBytes:         stats.TransmittedBytes,
+		LostPackets:              stats.LostPackets,
+		LostBytes:                stats.LostBytes,
+		DeliveredPackets:         stats.DeliveredPackets,
+		DeliveredBytes:           stats.DeliveredBytes,
+		QueuedPackets:            stats.QueuedPackets,
+		Transmitting:             stats.Transmitting,
+		TravellingPackets:        stats.TravellingPackets,
 	}
 }
 
 func reportForwarding(stats network.ForwardingStats) contract.ForwardingStats {
 	return contract.ForwardingStats{
-		ForwardingBitsPerSecond: stats.ForwardingBitsPerSecond,
-		ForwardedPackets:        stats.ForwardedPackets,
-		ForwardedBytes:          stats.ForwardedBytes,
-		QueuedPackets:           stats.QueuedPackets,
-		QueueDroppedPackets:     stats.QueueDroppedPackets,
-		QueueDroppedBytes:       stats.QueueDroppedBytes,
-		BudgetWait:              stats.BudgetWait,
-		BudgetBlocked:           stats.BudgetBlocked,
+		ForwardingBitsPerSecond:  stats.ForwardingBitsPerSecond,
+		ForwardedPackets:         stats.ForwardedPackets,
+		ForwardedBytes:           stats.ForwardedBytes,
+		QueuedPackets:            stats.QueuedPackets,
+		QueueDroppedPackets:      stats.QueueDroppedPackets,
+		QueueDroppedBytes:        stats.QueueDroppedBytes,
+		ECNMarkedPackets:         stats.ECNMarkedPackets,
+		ECNMarkedBytes:           stats.ECNMarkedBytes,
+		CongestionDroppedPackets: stats.CongestionDroppedPackets,
+		CongestionDroppedBytes:   stats.CongestionDroppedBytes,
+		BudgetWait:               stats.BudgetWait,
+		BudgetBlocked:            stats.BudgetBlocked,
 	}
 }
 
@@ -221,6 +249,7 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 		TCP: contract.TCPConfig{
 			ReceiveBufferBytes: info.ReceiveBufferBytes,
 			SACKEnabled:        info.SACKEnabled,
+			ECNEnabled:         info.ECNEnabled,
 			CongestionControl: contract.CongestionConfig{
 				Mode:                           string(info.CongestionControl.Mode),
 				FastRetransmit:                 info.CongestionControl.FastRetransmit,
@@ -302,6 +331,9 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 		result.State.Servers[server].Clients = append(result.State.Servers[server].Clients, contract.ClientState{})
 	})
 	world.VisitClients(func(client simulation.ClientObservation) {
+		if state := ecnState(client.State.ECN); state != nil {
+			result.ClientECN = append(result.ClientECN, contract.ClientECN{ClientID: client.ID, State: *state})
+		}
 		addTransfer(&result.Transfers, client.State.Transfer)
 
 		// Retain completed and unrouted clients as well as current LB routes.

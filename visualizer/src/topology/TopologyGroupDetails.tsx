@@ -1,6 +1,6 @@
 import { Box, Button, Divider, LinearProgress, Stack, Typography } from '@mui/material';
 import { formatBandwidth, formatBytes, formatNumber } from './format';
-import { Fact, TrafficTotals } from './TopologyFacts';
+import { Fact, QueuePolicyFacts, TrafficTotals } from './TopologyFacts';
 import { describeLink, linkRole, linkValueRange, roleDetails, totalLinks } from './telemetry';
 import type { TopologyBundle, TopologyGroup } from './grouping';
 import { sumAcknowledgedPayloadBytes } from './grouping';
@@ -153,6 +153,7 @@ export function BundleDetails({ bundle, nodeById, nodeLabels, onSelect }: Bundle
         <Fact label="Travel time per link" value={travel} />
         <Fact label="Capacity per queue" value={capacity} />
         <Fact label="Loss probability per link" value={loss} />
+        <QueuePolicyFacts config={bundle.links[0].config} />
       </Stack>
       <Divider />
       <Typography variant="subtitle2">Activity across member links</Typography>
@@ -177,7 +178,8 @@ export function BundleDetails({ bundle, nodeById, nodeLabels, onSelect }: Bundle
       <Typography variant="subtitle2">Totals across these physical links</Typography>
       <TrafficTotals stats={totals} />
       <Typography variant="caption" color="text.secondary">
-        Tail drops happen before transmission; random losses happen after serialization.
+        Queue drops include early congestion drops and full-queue rejection before transmission;
+        random losses happen after serialization.
         Byte totals include modeled headers. Per-link maxima describe configured limits.
       </Typography>
       <Divider />

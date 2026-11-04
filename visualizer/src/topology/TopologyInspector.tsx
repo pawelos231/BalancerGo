@@ -19,7 +19,7 @@ import {
   closeOutcomeLabel,
 } from './format';
 import { describeLink } from './telemetry';
-import { Fact, TrafficTotals } from './TopologyFacts';
+import { Fact, QueuePolicyFacts, TrafficTotals } from './TopologyFacts';
 import { BundleDetails, GroupDetails } from './TopologyGroupDetails';
 import TopologyIngressDetails from './TopologyIngressDetails';
 import type { TopologyBundle, TopologyGroup } from './grouping';
@@ -163,6 +163,7 @@ function LinkDetails({ link, nodeLabels, nodeById, running }: LinkDetailsProps) 
 
       <Typography variant="subtitle2">Link settings</Typography>
       <Stack component="dl" spacing={1.25} sx={{ m: 0 }}>
+        <QueuePolicyFacts config={config} />
         <Fact
           label="Bandwidth"
           value={formatBandwidth(config.bandwidthBitsPerSecond)}
@@ -217,7 +218,8 @@ function LinkDetails({ link, nodeLabels, nodeById, running }: LinkDetailsProps) 
       <Typography variant="subtitle2">Totals for this run</Typography>
       <TrafficTotals stats={stats} />
       <Typography variant="caption" color="text.secondary">
-        Tail drops reject new packets when the waiting queue is full. Random
+        Queue drops include full-queue rejection and early congestion drops.
+        Selected ECN-capable data receives a CE mark instead of an early drop. Random
         losses happen after serialization and consume link bandwidth.
         Accepted packets may still be waiting, transmitting or travelling;
         delivered packets reached this link’s receiver. Byte totals include modeled headers.

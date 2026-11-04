@@ -107,6 +107,7 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		Bytes:                           c.streamBytes,
 		ReceiveBufferBytes:              receiveBufferBytes,
 		SACKEnabled:                     c.sackEnabled,
+		ECNEnabled:                      c.ecnEnabled,
 		CongestionControl:               string(congestion.Mode),
 		FastRetransmit:                  congestion.FastRetransmit,
 		CubicFastConvergence:            congestion.CubicFastConvergence,
@@ -136,11 +137,17 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		PacketTravelTimeMs:              float64(c.packetTravelTime) / float64(time.Millisecond),
 		LinkQueue:                       c.queue,
 		Loss:                            c.loss,
+		QueuePolicy:                     c.queuePolicy,
+		CongestionThresholdPercent:      c.congestionThresholdPercent,
+		CongestionSignalProbability:     c.congestionSignalProbability,
 
-		IngressBandwidthBitsPerSecond: c.ingress.BandwidthBitsPerSecond,
-		IngressPacketTravelTimeMs:     float64(c.ingress.PacketTravelTime) / float64(time.Millisecond),
-		IngressQueueCapacity:          c.ingress.QueueCapacity,
-		IngressLoss:                   c.ingress.LossRate,
+		IngressBandwidthBitsPerSecond:      c.ingress.BandwidthBitsPerSecond,
+		IngressPacketTravelTimeMs:          float64(c.ingress.PacketTravelTime) / float64(time.Millisecond),
+		IngressQueueCapacity:               c.ingress.QueueCapacity,
+		IngressLoss:                        c.ingress.LossRate,
+		IngressQueuePolicy:                 c.ingress.QueuePolicy,
+		IngressCongestionThresholdPercent:  c.ingress.CongestionThresholdPercent,
+		IngressCongestionSignalProbability: c.ingress.CongestionSignalProbability,
 
 		Seed:      c.seed,
 		Algorithm: c.algorithm,
@@ -194,6 +201,10 @@ func preparePublicScenario(
 	base.packets, base.streamBytes = c.Packets, c.Bytes
 	base.receiveBufferBytes = c.ReceiveBufferBytes
 	base.sackEnabled = c.SACKEnabled
+	base.ecnEnabled = c.ECNEnabled
+	base.queuePolicy = c.QueuePolicy
+	base.congestionThresholdPercent = c.CongestionThresholdPercent
+	base.congestionSignalProbability = c.CongestionSignalProbability
 	base.bandwidth, base.queue = c.BandwidthBitsPerSecond, c.LinkQueue
 	base.forwardingBitsPerSecond = c.ForwardingBitsPerSecond
 	base.loss, base.seed = c.Loss, c.Seed
@@ -201,6 +212,9 @@ func preparePublicScenario(
 	base.ingress.BandwidthBitsPerSecond = c.IngressBandwidthBitsPerSecond
 	base.ingress.QueueCapacity = c.IngressQueueCapacity
 	base.ingress.LossRate = c.IngressLoss
+	base.ingress.QueuePolicy = c.IngressQueuePolicy
+	base.ingress.CongestionThresholdPercent = c.IngressCongestionThresholdPercent
+	base.ingress.CongestionSignalProbability = c.IngressCongestionSignalProbability
 	for _, field := range []struct {
 		name  string
 		value float64

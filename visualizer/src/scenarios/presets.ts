@@ -1,4 +1,5 @@
 import { baselinePresets } from './presets/baseline.ts';
+import { ecnPresets } from './presets/ecn.ts';
 import { linkPresets } from './presets/links.ts';
 import { lossPresets } from './presets/loss.ts';
 import { performancePresets } from './presets/performance.ts';
@@ -17,6 +18,7 @@ export const scenarioPresets = [
   ...linkPresets,
   ...lossPresets,
   ...queuePresets,
+  ...ecnPresets,
   ...workloadPresets,
   ...routingPresets,
   ...referencePresets,

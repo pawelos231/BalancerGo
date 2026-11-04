@@ -26,6 +26,10 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 	if err != nil {
 		return NormalizedTCPConfig{}, err
 	}
+	ecnEnabled := config.ECNEnabled != nil && *config.ECNEnabled
+	if ecnEnabled && congestion.Mode == string(model.CongestionNone) {
+		return NormalizedTCPConfig{}, fmt.Errorf("tcp.ECNenabled: requires congestion control")
+	}
 
 	// SACK recovery replaces classic recovery only for the supported profiles.
 	sackEnabled := config.SACKEnabled != nil && *config.SACKEnabled
@@ -74,6 +78,7 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 	return NormalizedTCPConfig{
 		ReceiveBufferBytes:            capacity,
 		SACKEnabled:                   sackEnabled,
+		ECNEnabled:                    ecnEnabled,
 		RTO:                           rto,
 		Close:                         closeConfig,
 		CongestionControl:             congestion,

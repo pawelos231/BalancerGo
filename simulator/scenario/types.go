@@ -26,6 +26,7 @@ type Scenario struct {
 type TCPConfig struct {
 	ReceiveBufferBytes            *int             `json:"receiveBufferBytes,omitempty"`
 	SACKEnabled                   *bool            `json:"sackEnabled,omitempty"`
+	ECNEnabled                    *bool            `json:"ECNenabled,omitempty"`
 	RTO                           RTOConfig        `json:"rto"`
 	Close                         CloseConfig      `json:"close"`
 	CongestionControl             CongestionConfig `json:"congestionControl"`
@@ -85,19 +86,25 @@ type NetworkConfig struct {
 // LinkConfig describes one-way link speed, travel time, buffering and loss.
 // For links leaving the LB, QueueCapacity sizes the FIFO owned by Egress.
 type LinkConfig struct {
-	BandwidthBitsPerSecond int64         `json:"bandwidthBitsPerSecond"`
-	PacketTravelTime       time.Duration `json:"packetTravelTimeNanoseconds"`
-	QueueCapacity          int           `json:"queueCapacity"`
-	LossRate               float64       `json:"lossRate"`
+	BandwidthBitsPerSecond      int64         `json:"bandwidthBitsPerSecond"`
+	PacketTravelTime            time.Duration `json:"packetTravelTimeNanoseconds"`
+	QueueCapacity               int           `json:"queueCapacity"`
+	LossRate                    float64       `json:"lossRate"`
+	QueuePolicy                 string        `json:"queuePolicy,omitempty"`
+	CongestionThresholdPercent  float64       `json:"congestionThresholdPercent"`
+	CongestionSignalProbability float64       `json:"congestionSignalProbability"`
 }
 
 // LinkPatch changes selected link settings inherited from defaults or a profile.
 // Nil keeps the inherited value; a pointer to zero explicitly sets zero.
 type LinkPatch struct {
-	BandwidthBitsPerSecond *int64         `json:"bandwidthBitsPerSecond,omitempty"`
-	PacketTravelTime       *time.Duration `json:"packetTravelTimeNanoseconds,omitempty"`
-	QueueCapacity          *int           `json:"queueCapacity,omitempty"`
-	LossRate               *float64       `json:"lossRate,omitempty"`
+	BandwidthBitsPerSecond      *int64         `json:"bandwidthBitsPerSecond,omitempty"`
+	PacketTravelTime            *time.Duration `json:"packetTravelTimeNanoseconds,omitempty"`
+	QueueCapacity               *int           `json:"queueCapacity,omitempty"`
+	LossRate                    *float64       `json:"lossRate,omitempty"`
+	QueuePolicy                 *string        `json:"queuePolicy,omitempty"`
+	CongestionThresholdPercent  *float64       `json:"congestionThresholdPercent,omitempty"`
+	CongestionSignalProbability *float64       `json:"congestionSignalProbability,omitempty"`
 }
 
 // LinkProfile names reusable link overrides, such as "slow-client".

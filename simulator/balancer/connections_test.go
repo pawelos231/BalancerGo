@@ -21,6 +21,21 @@ func TestMappingObservesPacketShapesAndDirection(t *testing.T) {
 		want       connectionPhase
 	}{
 		{"client SYN", stateHalfOpen, false, model.Packet{Flag: model.FlagSYN}, stateHalfOpen},
+		{
+			name: "client ECN SYN", start: stateHalfOpen,
+			packet: model.Packet{Flag: model.FlagSYN | model.FlagECE | model.FlagCWR},
+			want:   stateHalfOpen,
+		},
+		{
+			name: "backend ECN SYN ACK", start: stateHalfOpen, fromServer: true,
+			packet: model.Packet{Flag: model.FlagSYN | model.FlagACK | model.FlagECE},
+			want:   stateHalfOpen,
+		},
+		{
+			name: "client CWR completes handshake", start: stateHalfOpen,
+			packet: model.Packet{Flag: model.FlagACK | model.FlagCWR},
+			want:   stateEstablished,
+		},
 		{"backend SYN ACK", stateHalfOpen, true, model.Packet{Flag: model.FlagSYN | model.FlagACK}, stateHalfOpen},
 		{"backend ACK cannot complete handshake", stateHalfOpen, true, model.Packet{Flag: model.FlagACK}, stateHalfOpen},
 		{"client ACK completes handshake", stateHalfOpen, false, model.Packet{Flag: model.FlagACK}, stateEstablished},
@@ -76,7 +91,7 @@ func TestMappingIgnoresUnsupportedPacketShapes(t *testing.T) {
 		{"bare payload", false, model.Packet{Size: 1}},
 		{"bare PSH", true, model.Packet{Flag: model.FlagPSH, Size: 1}},
 		{"negative payload", false, model.Packet{Flag: model.FlagACK, Size: -1}},
-		{"unknown flag", true, model.Packet{Flag: model.FlagACK | model.Flag(1<<7)}},
+		{"unsupported urgent flag", true, model.Packet{Flag: model.FlagACK | model.FlagURG}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			test.packet.Key.Protocol = model.TCP

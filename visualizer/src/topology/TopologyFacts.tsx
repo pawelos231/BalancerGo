@@ -1,6 +1,6 @@
 import { Stack, Typography } from '@mui/material';
 import { formatBytes, formatNumber } from './format';
-import type { TopologyLinkStats } from './types';
+import type { TopologyLinkConfig, TopologyLinkStats } from './types';
 
 // FactProps names one value in a description list.
 export interface FactProps {
@@ -36,6 +36,21 @@ export function Fact({ label, value }: FactProps) {
   );
 }
 
+// Older snapshots omit the policy and retain tail-drop behavior.
+export function QueuePolicyFacts({ config }: { config: TopologyLinkConfig }) {
+  return (
+    <>
+      <Fact label="Queue policy" value={config.queuePolicy === 'threshold' ? 'Threshold signaling' : 'Tail drop'} />
+      {config.queuePolicy === 'threshold' && (
+        <>
+          <Fact label="Waiting occupancy threshold" value={`${formatNumber(config.congestionThresholdPercent ?? 0, 4)}%`} />
+          <Fact label="Signal probability at threshold" value={`${formatNumber((config.congestionSignalProbability ?? 0) * 100, 4)}%`} />
+        </>
+      )}
+    </>
+  );
+}
+
 // TrafficCounters contains totals shared by physical links and bundles.
 export type TrafficCounters = Omit<
   TopologyLinkStats,
@@ -50,8 +65,12 @@ export function TrafficTotals({ stats }: { stats: TrafficCounters }) {
       <Fact label="Offered bytes" value={formatBytes(stats.offeredBytes)} />
       <Fact label="Accepted packets" value={formatNumber(stats.acceptedPackets)} />
       <Fact label="Accepted bytes" value={formatBytes(stats.acceptedBytes)} />
-      <Fact label="Tail drops" value={formatNumber(stats.queueDroppedPackets)} />
+      <Fact label="Queue drops (all)" value={formatNumber(stats.queueDroppedPackets)} />
       <Fact label="Queue-dropped bytes" value={formatBytes(stats.queueDroppedBytes)} />
+      <Fact label="Early congestion drops" value={formatNumber(stats.congestionDroppedPackets ?? 0)} />
+      <Fact label="Early congestion-dropped bytes" value={formatBytes(stats.congestionDroppedBytes ?? 0)} />
+      <Fact label="ECN-marked packets" value={formatNumber(stats.ecnMarkedPackets ?? 0)} />
+      <Fact label="ECN-marked bytes" value={formatBytes(stats.ecnMarkedBytes ?? 0)} />
       <Fact label="Random losses" value={formatNumber(stats.lostPackets)} />
       <Fact label="Lost bytes" value={formatBytes(stats.lostBytes)} />
       <Fact label="Delivered packets" value={formatNumber(stats.deliveredPackets)} />

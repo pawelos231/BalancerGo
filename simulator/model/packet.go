@@ -15,6 +15,7 @@ type Packet struct {
 	Size int    // Payload bytes, excluding headers and SYN/FIN sequence positions.
 	Seq  uint64 // Logical byte position.
 	Ack  uint64 // Next byte position expected from the peer.
+	ECN  ECN    // The two IP ECN bits; separate from TCP's ECE and CWR flags.
 
 	// How many bytes this endpoint is willing to receive starting at Ack.
 	ReceiveWindowBytes uint16

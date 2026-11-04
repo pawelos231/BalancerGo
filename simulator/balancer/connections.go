@@ -78,7 +78,9 @@ func supportedMappingPacket(pkt model.Packet, fromServer bool) bool {
 	if pkt.Key.Protocol != model.TCP || pkt.Size < 0 {
 		return false
 	}
-	switch pkt.Flag {
+	// ECE/CWR are endpoint signaling; they do not change this mapping's phase.
+	baseFlags := pkt.Flag &^ (model.FlagECE | model.FlagCWR)
+	switch baseFlags {
 	case model.FlagSYN:
 		return !fromServer && pkt.Size == 0
 	case model.FlagSYN | model.FlagACK:

@@ -155,12 +155,21 @@ func (s *World) resourceRNG(id string) *rand.Rand {
 	return rand.New(rand.NewSource(int64(hash.Sum64())))
 }
 
+// Only probabilistic signaling needs another random source; tail drop adds none.
+func (s *World) configureCongestionRNG(link *network.Link, id string, config scenario.LinkConfig) {
+	probability := config.CongestionSignalProbability
+	if config.QueuePolicy == "threshold" && probability > 0 && probability < 1 {
+		link.SetCongestionRNG(s.resourceRNG(id + "/congestion"))
+	}
+}
+
 // addLink creates one directed path with its own settings, FIFO and RNG.
 func (s *World) addLink(
 	id, source, target string,
 	config scenario.LinkConfig,
 ) *network.Link {
 	link := network.NewLink(s.engine, configuredLink(config), s.resourceRNG(id))
+	s.configureCongestionRNG(link, id, config)
 
 	s.links = append(s.links, namedLink{
 		ID:     id,
@@ -188,10 +197,13 @@ func configuredClose(config scenario.NormalizedCloseConfig) model.CloseConfig {
 // configuredLink copies the scenario's link settings into the network model.
 func configuredLink(config scenario.LinkConfig) network.Config {
 	return network.Config{
-		BandwidthBitsPerSecond: config.BandwidthBitsPerSecond,
-		PacketTravelTime:       config.PacketTravelTime,
-		QueueCapacity:          config.QueueCapacity,
-		LossRate:               config.LossRate,
+		BandwidthBitsPerSecond:      config.BandwidthBitsPerSecond,
+		PacketTravelTime:            config.PacketTravelTime,
+		QueueCapacity:               config.QueueCapacity,
+		LossRate:                    config.LossRate,
+		QueuePolicy:                 config.QueuePolicy,
+		CongestionThresholdPercent:  config.CongestionThresholdPercent,
+		CongestionSignalProbability: config.CongestionSignalProbability,
 	}
 }
 
@@ -202,6 +214,7 @@ func (s *World) connectIngress(config scenario.LinkConfig) {
 		configuredLink(config),
 		s.resourceRNG("link/infrastructure/ingress"),
 	)
+	s.configureCongestionRNG(link, "link/infrastructure/ingress", config)
 	s.ingress = network.NewIngress(link)
 	s.clientIngress = s.ingress.AddInput()
 	s.backendIngress = s.ingress.AddInput()
@@ -233,6 +246,7 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 	)
 	srv.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
 	srv.SetSACKEnabled(s.scenario.TCP.SACKEnabled)
+	srv.SetECNEnabled(s.scenario.TCP.ECNEnabled)
 	srv.SetRTOConfig(configuredRTO(s.scenario.TCP.RTO))
 	srv.SetCloseConfig(configuredClose(s.scenario.TCP.Close))
 	srv.SetIdleTimeouts(
@@ -261,8 +275,8 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 	// A backend reply crosses its return link and then the common LB input.
 	srv.SetSender(func(pkt model.Packet) {
 		originalClient := s.lb.GetClient(pkt.Key)
-		toInput.Transmit(pkt.WireSize(), func() {
-			s.backendIngress.Transmit(pkt.WireSize(), func() {
+		transmitPacket(toInput, pkt, func(pkt model.Packet) {
+			transmitPacket(s.backendIngress, pkt, func(pkt model.Packet) {
 				if s.lb.HasClient(originalClient) {
 					s.lb.HandleServerPacket(srv, pkt)
 				}
@@ -273,7 +287,7 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 	// Keep the original client identity while the packet waits or travels.
 	err := s.lb.AddServer(srv, func(pkt model.Packet) {
 		originalClient := s.lb.GetClient(pkt.Key)
-		toBackend.Transmit(pkt.WireSize(), func() {
+		transmitPacket(toBackend, pkt, func(pkt model.Packet) {
 			if s.lb.HasClient(originalClient) {
 				srv.HandlePacket(pkt)
 			}

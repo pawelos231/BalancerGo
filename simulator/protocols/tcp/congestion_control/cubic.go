@@ -27,6 +27,7 @@ type cubicPolicy struct {
 
 	activeRecovery      bool
 	remainingInflations uint64
+	recoveryWindowBytes uint64
 }
 
 func newCubicPolicy(config model.CongestionConfig) *cubicPolicy {
@@ -50,7 +51,10 @@ func (policy *cubicPolicy) OnACK(ack ACK) ACKResponse {
 			return ACKResponse{}
 		}
 		policy.StopRecovery()
-		policy.setWindowBytes(policy.slowStartThresholdBytes)
+		policy.setWindowBytes(policy.recoveryWindowBytes)
+		return ACKResponse{}
+	}
+	if ack.ECN {
 		return ACKResponse{}
 	}
 	if policy.clock.limited {
@@ -84,22 +88,27 @@ func (policy *cubicPolicy) OnDuplicateACK() {
 func (policy *cubicPolicy) OnLoss(loss Loss) LossResponse {
 	switch loss.Kind {
 	case FastRetransmitLoss:
-		policy.rememberCongestionWindow()
-		policy.slowStartThresholdBytes = cubicLossThreshold(loss.FlightBytes)
-		policy.setWindowBytes(policy.slowStartThresholdBytes)
+		if !loss.AlreadyReduced {
+			policy.rememberCongestionWindow()
+			policy.slowStartThresholdBytes = cubicLossThreshold(loss.FlightBytes)
+			policy.recoveryWindowBytes = policy.slowStartThresholdBytes
+		} else {
+			policy.recoveryWindowBytes = policy.congestionWindowBytes
+		}
+		policy.setWindowBytes(policy.recoveryWindowBytes)
 		policy.activeRecovery = true
 		policy.remainingInflations = 0
 
 		// Keep CUBIC's 70% reduction; SACK recovery uses Pipe without Reno inflation.
 		if !loss.SACKRecovery {
-			policy.setWindowBytes(addCongestionBytes(policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE))
+			policy.setWindowBytes(addCongestionBytes(policy.recoveryWindowBytes, 3*model.SEGMENT_SIZE))
 			policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
 		}
 		policy.epochStarted = false
 		policy.resetMaximumAtEpoch = false
 	case TimeoutLoss:
 		policy.StopRecovery()
-		if !loss.AlreadyTimedOut {
+		if !loss.AlreadyTimedOut && !loss.AlreadyReduced {
 			policy.rememberCongestionWindow()
 			policy.slowStartThresholdBytes = cubicLossThreshold(loss.FlightBytes)
 		}
@@ -114,6 +123,21 @@ func (policy *cubicPolicy) OnLoss(loss Loss) LossResponse {
 		policy.resetMaximumAtEpoch = true
 	}
 	return LossResponse{}
+}
+
+// ECE is a congestion event with CUBIC's beta=0.7, without loss recovery.
+// Remember W_max and restart the curve just as for fast loss; ECN can reduce cwnd
+// below the two-MSS ssthresh floor, down to one MSS under persistent congestion.
+// https://www.rfc-editor.org/rfc/rfc9438.html#section-4.6
+func (policy *cubicPolicy) OnECN(ecn ECN) {
+	policy.rememberCongestionWindow()
+	policy.slowStartThresholdBytes = cubicLossThreshold(ecn.FlightBytes)
+	policy.setWindowBytes(max(cubicRetainedBytes(policy.congestionWindowBytes), model.SEGMENT_SIZE))
+	if policy.activeRecovery {
+		policy.recoveryWindowBytes = policy.congestionWindowBytes
+	}
+	policy.epochStarted = false
+	policy.resetMaximumAtEpoch = false
 }
 
 // rememberCongestionWindow applies optional fast convergence before reducing the window.

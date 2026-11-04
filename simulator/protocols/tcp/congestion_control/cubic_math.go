@@ -83,6 +83,9 @@ func (policy *cubicPolicy) storeFractionalWindow() {
 }
 
 func cubicLossThreshold(flight uint64) uint64 {
-	retainedBytes := (flight/10)*7 + (flight%10)*7/10
-	return max(retainedBytes, 2*model.SEGMENT_SIZE)
+	return max(cubicRetainedBytes(flight), 2*model.SEGMENT_SIZE)
+}
+
+func cubicRetainedBytes(bytes uint64) uint64 {
+	return (bytes/10)*7 + (bytes%10)*7/10
 }

@@ -9,4 +9,6 @@ const (
 	FlagACK                  // 8
 	FlagPSH                  // 16
 	FlagURG                  // 32
+	FlagECE                  // 64: TCP echoes congestion observed in the IP ECN field.
+	FlagCWR                  // 128: the sender has reduced its congestion window.
 )

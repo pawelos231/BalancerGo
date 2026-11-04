@@ -96,6 +96,7 @@ func (r *Receiver) handleFIN(pkt model.Packet, conn *receiveConnection) {
 		if pkt.Seq != conn.peerFINSeq || !r.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
 			return
 		}
+		r.observeECN(conn, pkt)
 		if conn.state == model.TCPTimeWait {
 			r.enterTimeWait(pkt.Key, conn)
 		}
@@ -125,6 +126,7 @@ func (r *Receiver) handleFIN(pkt model.Packet, conn *receiveConnection) {
 	if !r.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
 		return
 	}
+	r.observeECN(conn, pkt)
 	r.recordConnectionActivity(pkt.Key, conn)
 	if pkt.Seq != conn.receiver.nextExpectedSeq {
 		conn.pendingFIN = true
@@ -207,7 +209,7 @@ func (r *Receiver) startFIN(key model.ClientKey, conn *receiveConnection, state 
 func (r *Receiver) emitFIN(key model.ClientKey, conn *receiveConnection) {
 	r.emit(model.Packet{
 		Key:                key,
-		Flag:               model.FlagFIN | model.FlagACK,
+		Flag:               r.ackFlags(conn, model.FlagFIN|model.FlagACK),
 		Seq:                conn.finSeq,
 		Ack:                conn.receiver.nextExpectedSeq,
 		ReceiveWindowBytes: conn.receiver.windowBytes(),

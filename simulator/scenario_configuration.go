@@ -37,6 +37,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 		TCP: scenario.TCPConfig{
 			ReceiveBufferBytes: &receiveBufferBytes,
 			SACKEnabled:        &c.sackEnabled,
+			ECNEnabled:         &c.ecnEnabled,
 			Close: scenario.CloseConfig{
 				MSL: &closeConfig.MSL, FinWaitTimeout: &closeConfig.FinWaitTimeout,
 				MaxFINRetries: &closeConfig.MaxFINRetries,
@@ -68,10 +69,13 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 		},
 		Network: scenario.NetworkConfig{
 			Defaults: scenario.LinkConfig{
-				BandwidthBitsPerSecond: c.bandwidth,
-				PacketTravelTime:       c.packetTravelTime,
-				QueueCapacity:          c.queue,
-				LossRate:               c.loss,
+				BandwidthBitsPerSecond:      c.bandwidth,
+				PacketTravelTime:            c.packetTravelTime,
+				QueueCapacity:               c.queue,
+				LossRate:                    c.loss,
+				QueuePolicy:                 c.queuePolicy,
+				CongestionThresholdPercent:  c.congestionThresholdPercent,
+				CongestionSignalProbability: c.congestionSignalProbability,
 			},
 		},
 		Resources: scenario.ResourcesConfig{

@@ -106,6 +106,7 @@ export interface SimulationConfig {
   bytes: number;
   receiveBufferBytes: number;
   sackEnabled: boolean;
+  ECNenabled: boolean;
   congestionControl: CongestionMode;
   fastRetransmit: boolean;
   cubicFastConvergence: boolean;
@@ -136,9 +137,15 @@ export interface SimulationConfig {
   ingressPacketTravelTimeMs: number;
   ingressQueueCapacity: number;
   ingressLoss: number;
+  ingressQueuePolicy: '' | 'tailDrop' | 'threshold';
+  ingressCongestionThresholdPercent: number;
+  ingressCongestionSignalProbability: number;
   packetTravelTimeMs: number;
   linkQueue: number;
   loss: number;
+  queuePolicy: '' | 'tailDrop' | 'threshold';
+  congestionThresholdPercent: number;
+  congestionSignalProbability: number;
   seed: number;
   algorithm: AlgorithmName;
   speed: number;

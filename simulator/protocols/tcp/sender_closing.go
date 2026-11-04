@@ -100,6 +100,7 @@ func (c *Sender) startFINWhenDrained() {
 	c.cancelEvent(&c.readTimer)
 	c.cancelEvent(&c.dataTimer)
 	c.cancelEvent(&c.sendEvent)
+	c.cancelEvent(&c.ecn.holdEvent)
 	c.congestion.clearLossTracking()
 
 	// Schedule FIN at the current virtual time.

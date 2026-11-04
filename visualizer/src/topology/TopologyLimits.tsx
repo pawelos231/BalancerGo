@@ -80,8 +80,16 @@ function Scope({ title, description, links, loadBalancers }: ScopeProps) {
           value={`${formatNumber(totals.deliveredPackets)} packets · ${formatBytes(totals.deliveredBytes)}`}
         />
         <Counter
-          label="Tail drops total"
+          label="Queue drops (all)"
           value={`${formatNumber(totals.queueDroppedPackets)} packets · ${formatBytes(totals.queueDroppedBytes)}`}
+        />
+        <Counter
+          label="Early congestion drops"
+          value={`${formatNumber(totals.congestionDroppedPackets ?? 0)} packets · ${formatBytes(totals.congestionDroppedBytes ?? 0)}`}
+        />
+        <Counter
+          label="ECN marks"
+          value={`${formatNumber(totals.ecnMarkedPackets ?? 0)} packets · ${formatBytes(totals.ecnMarkedBytes ?? 0)}`}
         />
         <Counter
           label="Random losses total"
@@ -156,9 +164,9 @@ function TopologyLimits({ topology }: TopologyLimitsProps) {
         stages, so their delivery totals count hop traversals. Waiting slots stay separate.
       </Typography>
       <Typography variant="caption" color="text.secondary">
-        Model: sliding-window TCP limited by the receive window, with fixed retry timers.
-        Congestion control and kernel RX processing are not modeled; these queue drops
-        do not predict real TCP behavior.
+        TCP uses the configured receive window, congestion control and retransmission timers.
+        Optional ECN and threshold signaling model congestion feedback; kernel RX processing
+        and waiting-time queue policies are outside this model.
       </Typography>
     </Stack>
   );

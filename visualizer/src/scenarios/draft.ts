@@ -23,6 +23,7 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   bytes: ['workload', 'defaults', 'bytes'],
   receiveBufferBytes: ['tcp', 'receiveBufferBytes'],
   sackEnabled: ['tcp', 'sackEnabled'],
+  ECNenabled: ['tcp', 'ECNenabled'],
   congestionControl: ['tcp', 'congestionControl', 'mode'],
   fastRetransmit: ['tcp', 'congestionControl', 'fastRetransmit'],
   cubicFastConvergence: ['tcp', 'congestionControl', 'cubicFastConvergence'],
@@ -48,11 +49,17 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   packetTravelTimeMs: ['network', 'defaults', 'packetTravelTimeNanoseconds'],
   linkQueue: ['network', 'defaults', 'queueCapacity'],
   loss: ['network', 'defaults', 'lossRate'],
+  queuePolicy: ['network', 'defaults', 'queuePolicy'],
+  congestionThresholdPercent: ['network', 'defaults', 'congestionThresholdPercent'],
+  congestionSignalProbability: ['network', 'defaults', 'congestionSignalProbability'],
   forwardingBitsPerSecond: ['resources', 'loadBalancer', 'forwardingBitsPerSecond'],
   ingressBandwidthBitsPerSecond: ['resources', 'loadBalancer', 'ingress', 'bandwidthBitsPerSecond'],
   ingressPacketTravelTimeMs: ['resources', 'loadBalancer', 'ingress', 'packetTravelTimeNanoseconds'],
   ingressQueueCapacity: ['resources', 'loadBalancer', 'ingress', 'queueCapacity'],
   ingressLoss: ['resources', 'loadBalancer', 'ingress', 'lossRate'],
+  ingressQueuePolicy: ['resources', 'loadBalancer', 'ingress', 'queuePolicy'],
+  ingressCongestionThresholdPercent: ['resources', 'loadBalancer', 'ingress', 'congestionThresholdPercent'],
+  ingressCongestionSignalProbability: ['resources', 'loadBalancer', 'ingress', 'congestionSignalProbability'],
 };
 
 const timeDecimals: Partial<Record<ScenarioField, number>> = {
@@ -76,7 +83,13 @@ const timeDecimals: Partial<Record<ScenarioField, number>> = {
   lbResetIdleTimeoutMs: 6,
 };
 
-const floatFields = new Set<ScenarioField>(['speed', 'loss', 'ingressLoss']);
+const thresholdFields = new Set<ScenarioField>([
+  'congestionThresholdPercent', 'ingressCongestionThresholdPercent',
+]);
+const floatFields = new Set<ScenarioField>([
+  'speed', 'loss', 'ingressLoss', ...thresholdFields,
+  'congestionSignalProbability', 'ingressCongestionSignalProbability',
+]);
 const positiveFields = new Set<ScenarioField>([
   'snapshotIntervalMs', 'maxEvents', 'bandwidthBitsPerSecond',
   'forwardingBitsPerSecond', 'ingressBandwidthBitsPerSecond',
@@ -90,6 +103,13 @@ const positiveFields = new Set<ScenarioField>([
 const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>> = {
   receiveBufferBytes: 65535,
   sackEnabled: false,
+  ECNenabled: false,
+  queuePolicy: 'tailDrop',
+  congestionThresholdPercent: 0,
+  congestionSignalProbability: 0,
+  ingressQueuePolicy: 'tailDrop',
+  ingressCongestionThresholdPercent: 0,
+  ingressCongestionSignalProbability: 0,
   congestionControl: 'reno',
   cubicFastConvergence: true,
   initialCongestionWindowSegments: 4,
@@ -165,6 +185,13 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   if (field === 'sackEnabled') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether selective ACKs are enabled.';
   }
+  if (field === 'ECNenabled') {
+    return text === 'true' || text === 'false' ? undefined : 'Choose whether ECN is enabled.';
+  }
+  if (field === 'queuePolicy' || field === 'ingressQueuePolicy') {
+    return text === '' || text === 'tailDrop' || text === 'threshold'
+      ? undefined : 'Choose tail drop or threshold signaling.';
+  }
   if (field === 'cubicFastConvergence') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether CUBIC fast convergence is enabled.';
   }
@@ -173,8 +200,9 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
     if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(text) || !Number.isFinite(value)) {
       return 'Enter a finite number.';
     }
-    if (value < 0 || (field !== 'speed' && value > 1)) {
-      return field === 'speed' ? 'Value must be at least 0.' : 'Value must be between 0 and 1.';
+    const maximum = thresholdFields.has(field) ? 100 : 1;
+    if (value < 0 || (field !== 'speed' && value > maximum)) {
+      return field === 'speed' ? 'Value must be at least 0.' : `Value must be between 0 and ${maximum}.`;
     }
     return;
   }
@@ -222,7 +250,8 @@ export function scenarioFormValues(scenario: Scenario): ScenarioDraft {
     const inherited = field === 'fastRetransmit'
       ? (scenario.tcp?.congestionControl?.mode ?? 'reno') !== 'none'
       : optionalDefaults[field];
-    const value = requested ?? inherited;
+    const value = (field === 'queuePolicy' || field === 'ingressQueuePolicy') && requested === ''
+      ? 'tailDrop' : requested ?? inherited;
     const decimals = timeDecimals[field];
     values[field] = decimals === undefined
       ? String(value)
@@ -262,11 +291,13 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
       target = Reflect.get(target, key) as object;
     }
     let value: ExactInteger | boolean;
-    if (field === 'algorithm' || field === 'rtoMode' || field === 'congestionControl') {
+    if (field === 'algorithm' || field === 'rtoMode' || field === 'congestionControl'
+      || field === 'queuePolicy' || field === 'ingressQueuePolicy') {
       value = raw.trim();
     } else if (
       field === 'rtoBackoff' || field === 'fastRetransmit'
       || field === 'cubicFastConvergence' || field === 'sackEnabled'
+      || field === 'ECNenabled'
     ) {
       value = raw.trim() === 'true';
     } else if (floatFields.has(field)) value = Number(raw);
@@ -275,7 +306,29 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
       const parsed = decimals === undefined ? BigInt(raw) : duration(raw, decimals);
       value = documentInteger(parsed);
     }
+    // Active threshold documents with omitted scalars already mean zero. Keep that
+    // behavior when turning the policy off and back on, including reloaded runs.
+    if ((field === 'queuePolicy' || field === 'ingressQueuePolicy')
+      && Reflect.get(target, 'queuePolicy') === 'threshold') {
+      if (Reflect.get(target, 'congestionThresholdPercent') === undefined) {
+        Reflect.set(target, 'congestionThresholdPercent', 0);
+      }
+      if (Reflect.get(target, 'congestionSignalProbability') === undefined) {
+        Reflect.set(target, 'congestionSignalProbability', 0);
+      }
+    }
     Reflect.set(target, path[path.length - 1], value);
+
+    // Activating threshold signaling supplies useful settings only when omitted.
+    // Explicit zeroes in imported scenarios remain meaningful and unchanged.
+    if ((field === 'queuePolicy' || field === 'ingressQueuePolicy') && value === 'threshold') {
+      if (Reflect.get(target, 'congestionThresholdPercent') === undefined) {
+        Reflect.set(target, 'congestionThresholdPercent', 80);
+      }
+      if (Reflect.get(target, 'congestionSignalProbability') === undefined) {
+        Reflect.set(target, 'congestionSignalProbability', 1);
+      }
+    }
 
     // The rwnd-only baseline disables early loss detection, without changing links.
     if (field === 'congestionControl' && value === 'none') {
@@ -295,6 +348,10 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     if (congestion?.fastRetransmit === false) {
       throw new Error('SACK requires fast retransmit to be enabled.');
     }
+  }
+
+  if (updated.tcp?.ECNenabled && updated.tcp.congestionControl?.mode === 'none') {
+    throw new Error('ECN requires Reno, NewReno, Tahoe or CUBIC congestion control.');
   }
   return updated;
 }

@@ -12,4 +12,5 @@ type ServerState struct {
 	NumberOfHandledPackets uint32
 	ReceivedPayloadBytes   uint64
 	CpuUsage               uint32 // Packets received in the last statistics window.
+	ECN                    ECNState
 }

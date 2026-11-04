@@ -10,6 +10,7 @@ type newRenoPolicy struct {
 	recoveryEndSeq      uint64 // Exclusive boundary; retained after recovery and RTO.
 	remainingInflations uint64
 	partialACKSeen      bool
+	recoveryWindowBytes uint64
 }
 
 func newNewRenoPolicy(config model.CongestionConfig) *newRenoPolicy {
@@ -29,7 +30,7 @@ func (policy *newRenoPolicy) OnACK(ack ACK) ACKResponse {
 	if ack.SACKRecovery {
 		if ack.EndSACKRecovery {
 			policy.StopRecovery()
-			policy.congestionWindowBytes = policy.slowStartThresholdBytes
+			policy.congestionWindowBytes = policy.recoveryWindowBytes
 			policy.avoidanceAcknowledgedBytes = 0
 		}
 		return ACKResponse{}
@@ -38,7 +39,7 @@ func (policy *newRenoPolicy) OnACK(ack ACK) ACKResponse {
 		policy.StopRecovery()
 		remainingFlight := max(ack.FlightBytes, uint64(model.SEGMENT_SIZE))
 		flightWindow := addCongestionBytes(remainingFlight, model.SEGMENT_SIZE)
-		policy.congestionWindowBytes = min(policy.slowStartThresholdBytes, flightWindow)
+		policy.congestionWindowBytes = min(policy.recoveryWindowBytes, flightWindow)
 		policy.avoidanceAcknowledgedBytes = 0
 		return ACKResponse{}
 	}
@@ -74,13 +75,18 @@ func (policy *newRenoPolicy) OnLoss(loss Loss) LossResponse {
 	switch loss.Kind {
 	case FastRetransmitLoss:
 		// The SACK sender owns its recovery boundary, including a loss of the first byte.
-		oldNewRenoFlight := !loss.SACKRecovery && loss.CumulativeACK <= policy.recoveryEndSeq
+		oldNewRenoFlight := !loss.SACKRecovery && !loss.AlreadyReduced && loss.CumulativeACK <= policy.recoveryEndSeq
 		if policy.activeRecovery || oldNewRenoFlight {
 			return LossResponse{SuppressFastRetransmit: true}
 		}
 		policy.recoveryEndSeq = loss.NextSendSeq
-		policy.slowStartThresholdBytes = max(loss.FlightBytes/2, 2*model.SEGMENT_SIZE)
-		policy.congestionWindowBytes = policy.slowStartThresholdBytes
+		if !loss.AlreadyReduced {
+			policy.slowStartThresholdBytes = max(loss.FlightBytes/2, 2*model.SEGMENT_SIZE)
+			policy.recoveryWindowBytes = policy.slowStartThresholdBytes
+		} else {
+			policy.recoveryWindowBytes = policy.congestionWindowBytes
+		}
+		policy.congestionWindowBytes = policy.recoveryWindowBytes
 		policy.avoidanceAcknowledgedBytes = 0
 		policy.activeRecovery = true
 		policy.remainingInflations = 0
@@ -89,19 +95,26 @@ func (policy *newRenoPolicy) OnLoss(loss Loss) LossResponse {
 		// RFC 6675 accounts for data still in transit with Pipe rather than inflation.
 		if !loss.SACKRecovery {
 			policy.congestionWindowBytes = addCongestionBytes(
-				policy.slowStartThresholdBytes, 3*model.SEGMENT_SIZE,
+				policy.recoveryWindowBytes, 3*model.SEGMENT_SIZE,
 			)
 			policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
 		}
 	case TimeoutLoss:
 		policy.StopRecovery()
 		policy.recoveryEndSeq = loss.NextSendSeq
-		policy.restartAfterLoss(loss.FlightBytes, loss.AlreadyTimedOut)
+		policy.restartAfterLoss(loss.FlightBytes, loss.AlreadyTimedOut || loss.AlreadyReduced)
 	case HandshakeLoss:
 		policy.StopRecovery()
 		policy.restartAfterHandshakeLoss()
 	}
 	return LossResponse{}
+}
+
+func (policy *newRenoPolicy) OnECN(ecn ECN) {
+	policy.classicWindow.OnECN(ecn)
+	if policy.activeRecovery {
+		policy.recoveryWindowBytes = policy.congestionWindowBytes
+	}
 }
 
 func (policy *newRenoPolicy) StopRecovery() {

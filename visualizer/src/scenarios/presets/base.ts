@@ -26,6 +26,7 @@ export function presetClientGroup(id: string, count: number): ScenarioClientGrou
 // New experiments reset inherited settings so only their stated variable changes.
 export function isolatedExperiment(defaults: Scenario): Scenario {
   const scenario = structuredClone(defaults);
+  if (scenario.tcp) delete scenario.tcp.ECNenabled;
 
   scenario.version = 1;
   scenario.execution = {

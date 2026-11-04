@@ -881,8 +881,10 @@ func TestNativeJSONRoundTripRetainsNanosecondsAndFullWidthIntegers(t *testing.T)
 // TestDefaultIngressConfigReturnsIndependentValues fixes the shared Go defaults.
 func TestDefaultIngressConfigReturnsIndependentValues(t *testing.T) {
 	want := scenario.LinkConfig{
-		BandwidthBitsPerSecond: 1_000_000_000,
-		QueueCapacity:          1024,
+		BandwidthBitsPerSecond:      1_000_000_000,
+		QueueCapacity:               1024,
+		CongestionThresholdPercent:  80,
+		CongestionSignalProbability: 1,
 	}
 	first := scenario.DefaultIngressConfig()
 	if first != want {

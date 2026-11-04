@@ -5,6 +5,7 @@ export type NumericScenarioField = Exclude<
   ScenarioField,
   'algorithm' | 'rtoMode' | 'rtoBackoff' | 'congestionControl'
   | 'fastRetransmit' | 'cubicFastConvergence' | 'sackEnabled'
+  | 'ECNenabled' | 'queuePolicy' | 'ingressQueuePolicy'
 >;
 
 // Inputs keep their existing draft paths; these definitions only organize the form.
@@ -22,6 +23,48 @@ export interface NumericFieldDefinition {
 
 // The backend supplies defaults; each field keeps its own units and limits.
 export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDefinition> = {
+  congestionThresholdPercent: {
+    name: 'congestionThresholdPercent',
+    label: 'Default congestion threshold (%)',
+    min: 0,
+    max: 100,
+    hint: 'Used by threshold signaling only.',
+    help: 'Waiting occupancy that triggers threshold signaling, including the arriving packet. ' +
+      '0% makes every packet that must wait eligible; 100% makes the arrival that fills the last waiting slot eligible. ' +
+      'Later arrivals find a full queue and are dropped. ' +
+      'Active transmissions and travelling packets do not count. This is an occupancy rule, not a queue-delay rule.',
+  },
+  congestionSignalProbability: {
+    name: 'congestionSignalProbability',
+    label: 'Default signal probability (0–1)',
+    min: 0,
+    max: 1,
+    hint: '1 selects every eligible packet at or above the threshold.',
+    help: 'Chance of selecting an arriving packet at or above the threshold. Selected ECN-capable packets ' +
+      'receive a CE mark; selected packets without ECN are dropped early. 0 disables early signals. ' +
+      'A full queue always drops the arriving packet, regardless of ECN or this probability.',
+  },
+  ingressCongestionThresholdPercent: {
+    name: 'ingressCongestionThresholdPercent',
+    label: 'LB ingress congestion threshold (%)',
+    min: 0,
+    max: 100,
+    hint: 'Used by threshold signaling only.',
+    help: 'Waiting occupancy threshold applied separately to each LB input queue, including the arriving packet. ' +
+      '0% makes every packet that must wait eligible; 100% makes the arrival that fills the last waiting slot eligible. ' +
+      'Later arrivals find a full queue and are dropped. ' +
+      'Transmissions and packets already travelling do not occupy waiting slots.',
+  },
+  ingressCongestionSignalProbability: {
+    name: 'ingressCongestionSignalProbability',
+    label: 'LB ingress signal probability (0–1)',
+    min: 0,
+    max: 1,
+    hint: '1 selects every eligible packet at or above the threshold.',
+    help: 'At or above the threshold, selected ECN-capable packets receive CE marks and packets without ECN ' +
+      'are dropped early. 0 disables early signals; 1 selects every eligible arrival. ' +
+      'Full queues always drop. The same rule applies independently to the frontside and backside queues.',
+  },
   clients: {
     name: 'clients',
     label: 'TCP clients (total)',
@@ -436,6 +479,36 @@ export const rtoBackoffHelp =
 
 // Select inputs share rendering while keeping each transport policy's explanation close by.
 export const scenarioSelectFields = {
+  ECNenabled: {
+    label: 'Explicit congestion notification (ECN)',
+    help: 'Negotiate ECN during the TCP handshake. A threshold queue can mark ECN-capable data ' +
+      'instead of dropping it; the receiver echoes congestion and the sender reduces its congestion window. ' +
+      'Requires Reno, NewReno, Tahoe or CUBIC. ECN is disabled by default and full queues still drop packets.',
+    options: [
+      { value: 'true', label: 'Enabled' },
+      { value: 'false', label: 'Disabled' },
+    ],
+  },
+  queuePolicy: {
+    label: 'Default link queue policy',
+    help: 'Tail drop admits packets until waiting slots are full. Threshold signaling can mark ECN data ' +
+      'or drop packets without ECN before the queue fills. It uses waiting occupancy and a fixed probability; ' +
+      'it is not RED or CoDel and does not measure waiting time.',
+    options: [
+      { value: 'tailDrop', label: 'Tail drop (default)' },
+      { value: 'threshold', label: 'Threshold signaling' },
+    ],
+  },
+  ingressQueuePolicy: {
+    label: 'LB ingress queue policy',
+    help: 'Apply tail drop or threshold signaling separately to both LB input queues. ' +
+      'Threshold signaling marks selected ECN-capable data and drops selected packets without ECN. ' +
+      'Full queues always drop, and both queues still share the same receiver bandwidth.',
+    options: [
+      { value: 'tailDrop', label: 'Tail drop (default)' },
+      { value: 'threshold', label: 'Threshold signaling' },
+    ],
+  },
   sackEnabled: {
     label: 'Selective acknowledgements (SACK)',
     help:
@@ -531,7 +604,7 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
     title: 'TCP congestion control',
     description: 'Limit data in flight and adjust the sender window as acknowledgements and timeouts arrive.',
     fields: [
-      'congestionControl', 'fastRetransmit', 'cubicFastConvergence',
+      'congestionControl', 'ECNenabled', 'fastRetransmit', 'cubicFastConvergence',
       'initialCongestionWindowSegments', 'initialSlowStartThresholdBytes',
     ],
     defaultExpanded: false,
@@ -566,6 +639,9 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
       'ingressPacketTravelTimeMs',
       'ingressQueueCapacity',
       'ingressLoss',
+      'ingressQueuePolicy',
+      'ingressCongestionThresholdPercent',
+      'ingressCongestionSignalProbability',
       'lbHalfOpenIdleTimeoutMs',
       'lbEstablishedIdleTimeoutMs',
       'lbClosingIdleTimeoutMs',
@@ -577,7 +653,8 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
     id: 'links',
     title: 'Endpoint link defaults',
     description: 'Set default client and backend link properties. Profiles and directional overrides remain in place.',
-    fields: ['bandwidthBitsPerSecond', 'packetTravelTimeMs', 'linkQueue', 'loss'],
+    fields: ['bandwidthBitsPerSecond', 'packetTravelTimeMs', 'linkQueue', 'loss',
+      'queuePolicy', 'congestionThresholdPercent', 'congestionSignalProbability'],
     defaultExpanded: false,
   },
   {

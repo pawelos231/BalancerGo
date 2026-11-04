@@ -34,6 +34,9 @@ export interface TopologyLinkConfig {
   packetTravelTimeMs: number;
   queueCapacity: number;
   lossRate: number;
+  queuePolicy?: '' | 'tailDrop' | 'threshold';
+  congestionThresholdPercent?: number;
+  congestionSignalProbability?: number;
 }
 
 export interface TopologyLinkStats {
@@ -46,6 +49,10 @@ export interface TopologyLinkStats {
   acceptedBytes: number;
   queueDroppedPackets: number;
   queueDroppedBytes: number;
+  ecnMarkedPackets?: number;
+  ecnMarkedBytes?: number;
+  congestionDroppedPackets?: number;
+  congestionDroppedBytes?: number;
   lostPackets: number;
   lostBytes: number;
   deliveredPackets: number;

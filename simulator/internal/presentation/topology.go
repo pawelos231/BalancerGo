@@ -63,12 +63,13 @@ func loadBalancerMetrics(info simulation.Info, ingress simulation.IngressObserva
 }
 
 func backendMetrics(server model.ServerState) []nodeMetric {
-	return []nodeMetric{
+	metrics := []nodeMetric{
 		{"activeConnections", "Active connections", "connections", float64(server.ActiveConnections), false},
 		{"halfOpenConnections", "Half-open connections", "connections", float64(server.HalfOpenConnections), false},
 		{"receivedPackets", "Packets received", "packets", float64(server.NumberOfHandledPackets), false},
 		{"receivedPayloadBytes", "Unique payload received", "bytes", float64(server.ReceivedPayloadBytes), false},
 	}
+	return appendECNMetrics(metrics, server.ECN)
 }
 
 func clientMetrics(client simulation.ClientObservation) []nodeMetric {
@@ -105,7 +106,26 @@ func clientMetrics(client simulation.ClientObservation) []nodeMetric {
 			},
 		)
 	}
-	return metrics
+	return appendECNMetrics(metrics, state.ECN)
+}
+
+// appendECNMetrics keeps disabled profiles uncluttered while retaining feedback totals.
+func appendECNMetrics(metrics []nodeMetric, state model.ECNState) []nodeMetric {
+	if !state.Enabled {
+		return metrics
+	}
+	negotiated := 0.0
+	if state.Negotiated {
+		negotiated = 1
+	}
+	return append(metrics,
+		nodeMetric{"ecnNegotiated", "ECN negotiated (1 = yes)", "", negotiated, false},
+		nodeMetric{"ecnReceivedCEPacketCount", "CE-marked packets received", "packets", float64(state.ReceivedCEPacketCount), false},
+		nodeMetric{"ecnSentECECount", "ECE feedback sent", "ACKs", float64(state.SentECECount), false},
+		nodeMetric{"ecnReceivedECECount", "ECE feedback received", "ACKs", float64(state.ReceivedECECount), false},
+		nodeMetric{"ecnSentCWRCount", "CWR signals sent", "packets", float64(state.SentCWRCount), false},
+		nodeMetric{"ecnResponseCount", "ECN responses", "responses", float64(state.ECNResponseCount), false},
+	)
 }
 
 func metricDefinitions(metrics []nodeMetric) []contract.TopologyMetricDefinition {
@@ -176,6 +196,9 @@ func topologyConfig(config network.Config) contract.TopologyLinkConfig {
 		BandwidthBitsPerSecond: config.BandwidthBitsPerSecond,
 		PacketTravelTimeMs:     float64(config.PacketTravelTime) / float64(time.Millisecond),
 		QueueCapacity:          config.QueueCapacity, LossRate: config.LossRate,
+		QueuePolicy:                 config.QueuePolicy,
+		CongestionThresholdPercent:  config.CongestionThresholdPercent,
+		CongestionSignalProbability: config.CongestionSignalProbability,
 	}
 }
 
@@ -187,6 +210,9 @@ func topologyStats(stats network.Stats) contract.TopologyLinkStats {
 		AcceptedBytes: stats.AcceptedBytes, DeliveredPackets: stats.DeliveredPackets,
 		DeliveredBytes: stats.DeliveredBytes, QueueDroppedPackets: stats.QueueDroppedPackets,
 		QueueDroppedBytes: stats.QueueDroppedBytes, LostPackets: stats.LostPackets, LostBytes: stats.LostBytes,
+		ECNMarkedPackets: stats.ECNMarkedPackets, ECNMarkedBytes: stats.ECNMarkedBytes,
+		CongestionDroppedPackets: stats.CongestionDroppedPackets,
+		CongestionDroppedBytes:   stats.CongestionDroppedBytes,
 	}
 }
 

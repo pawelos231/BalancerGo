@@ -263,5 +263,6 @@ func (s *Server) GetState() model.ServerState {
 		CpuUsage:               s.CpuUsage,
 		NumberOfHandledPackets: s.NumberOfHandledPackets,
 		ReceivedPayloadBytes:   s.transport.ReceivedPayloadBytes(),
+		ECN:                    s.transport.GetECNState(),
 	}
 }

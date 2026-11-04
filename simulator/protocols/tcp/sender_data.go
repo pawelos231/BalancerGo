@@ -35,6 +35,9 @@ func (c *Sender) queueSegment() {
 		c.finishStream()
 		return
 	}
+	if c.ecn.holdBeyondRun {
+		return
+	}
 	nextPayloadAt, withinRun := c.source.NextSendAt()
 	if !withinRun {
 		return
@@ -46,7 +49,7 @@ func (c *Sender) queueSegment() {
 
 	// Pacing constrains new data only; zero preserves Reno/Tahoe's existing event order.
 	policyDeadline := c.congestion.policy.State().NextSendAt
-	nextSendAt := max(c.engine.Now(), nextPayloadAt, policyDeadline)
+	nextSendAt := max(c.engine.Now(), nextPayloadAt, policyDeadline, c.ecn.holdUntil)
 	if c.sendEvent != 0 {
 		// Keep an existing slot unless an ACK now permits an earlier paced send.
 		if nextSendAt >= c.sendEventAt {
@@ -65,7 +68,7 @@ func (c *Sender) queueSegment() {
 		// Requeue instead of sending early, without restarting the workload's gap.
 		policyDeadline := c.congestion.policy.State().NextSendAt
 		nextPayloadAt, _ := c.source.NextSendAt()
-		if max(nextPayloadAt, policyDeadline) > c.engine.Now() {
+		if max(nextPayloadAt, policyDeadline, c.ecn.holdUntil) > c.engine.Now() {
 			c.queueSegment()
 			return
 		}
@@ -100,6 +103,7 @@ func (c *Sender) queueSegment() {
 			c.armDataTimer()
 		}
 		c.congestion.recordDataSent(c.engine.Now(), packet.Size)
+		c.decorateNewPayload(&packet)
 
 		// All sender state is ready before a synchronous reply can arrive.
 		c.emit(packet)

@@ -9,4 +9,5 @@ type ClientState struct {
 	Transfer                 TransferState
 	RTO                      RTOState
 	Congestion               CongestionState
+	ECN                      ECNState
 }

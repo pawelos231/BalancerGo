@@ -7,28 +7,35 @@ import (
 
 // LinkConfig preserves the CLI's PascalCase fields and nanosecond duration.
 type LinkConfig struct {
-	BandwidthBitsPerSecond int64
-	PacketTravelTime       time.Duration
-	QueueCapacity          int
-	LossRate               float64
+	BandwidthBitsPerSecond      int64
+	PacketTravelTime            time.Duration
+	QueueCapacity               int
+	LossRate                    float64
+	QueuePolicy                 string  `json:",omitempty"`
+	CongestionThresholdPercent  float64 `json:",omitempty"`
+	CongestionSignalProbability float64 `json:",omitempty"`
 }
 
 // LinkStats preserves the CLI's complete physical and queue counters.
 type LinkStats struct {
-	OfferedPackets      uint64
-	OfferedBytes        uint64
-	AcceptedPackets     uint64
-	AcceptedBytes       uint64
-	QueueDroppedPackets uint64
-	QueueDroppedBytes   uint64
-	TransmittedBytes    uint64
-	LostPackets         uint64
-	LostBytes           uint64
-	DeliveredPackets    uint64
-	DeliveredBytes      uint64
-	QueuedPackets       int
-	Transmitting        bool
-	TravellingPackets   int
+	OfferedPackets           uint64
+	OfferedBytes             uint64
+	AcceptedPackets          uint64
+	AcceptedBytes            uint64
+	QueueDroppedPackets      uint64
+	QueueDroppedBytes        uint64
+	ECNMarkedPackets         uint64 `json:",omitempty"`
+	ECNMarkedBytes           uint64 `json:",omitempty"`
+	CongestionDroppedPackets uint64 `json:",omitempty"`
+	CongestionDroppedBytes   uint64 `json:",omitempty"`
+	TransmittedBytes         uint64
+	LostPackets              uint64
+	LostBytes                uint64
+	DeliveredPackets         uint64
+	DeliveredBytes           uint64
+	QueuedPackets            int
+	Transmitting             bool
+	TravellingPackets        int
 }
 
 type LinkResult struct {
@@ -45,14 +52,18 @@ type IngressQueueResult struct {
 }
 
 type ForwardingStats struct {
-	ForwardingBitsPerSecond int64
-	ForwardedPackets        uint64
-	ForwardedBytes          uint64
-	QueuedPackets           int
-	QueueDroppedPackets     uint64
-	QueueDroppedBytes       uint64
-	BudgetWait              time.Duration
-	BudgetBlocked           bool
+	ForwardingBitsPerSecond  int64
+	ForwardedPackets         uint64
+	ForwardedBytes           uint64
+	QueuedPackets            int
+	QueueDroppedPackets      uint64
+	QueueDroppedBytes        uint64
+	ECNMarkedPackets         uint64 `json:",omitempty"`
+	ECNMarkedBytes           uint64 `json:",omitempty"`
+	CongestionDroppedPackets uint64 `json:",omitempty"`
+	CongestionDroppedBytes   uint64 `json:",omitempty"`
+	BudgetWait               time.Duration
+	BudgetBlocked            bool
 }
 
 type LoadBalancerState struct {
@@ -78,6 +89,7 @@ type ServerState struct {
 	NumberOfHandledPackets uint32
 	ReceivedPayloadBytes   uint64
 	CpuUsage               float32
+	ECN                    *ECNState `json:",omitempty"`
 }
 
 type ClientState struct {
@@ -87,6 +99,23 @@ type ClientState struct {
 	AcknowledgedPayloadBytes uint64
 	Transfer                 TransferState
 	Connection               CloseState
+	ECN                      *ECNState `json:",omitempty"`
+}
+
+// ECNState separates queue feedback and sender reactions from packet-loss counters.
+type ECNState struct {
+	Enabled               bool
+	Negotiated            bool
+	ReceivedCEPacketCount uint64
+	SentECECount          uint64
+	ReceivedECECount      uint64
+	SentCWRCount          uint64
+	ECNResponseCount      uint64
+}
+
+type ClientECN struct {
+	ClientID string
+	State    ECNState
 }
 
 // CloseConfig records shutdown limits in virtual nanoseconds.
@@ -160,6 +189,7 @@ type RTOConfig struct {
 type TCPConfig struct {
 	ReceiveBufferBytes                   int
 	SACKEnabled                          bool
+	ECNEnabled                           bool `json:"ECNenabled,omitempty"`
 	CongestionControl                    CongestionConfig
 	RTO                                  RTOConfig
 	ClientIdleTimeoutSeconds             float64
@@ -186,6 +216,7 @@ type SimulationResult struct {
 	LBIdleTimeouts   LBIdleTimeoutConfig
 	ClientTimings    []ClientTiming
 	ClientCongestion []ClientCongestion
+	ClientECN        []ClientECN        `json:",omitempty"`
 	EffectiveClose   CloseConfig        `json:"effectiveClose"`
 	ClientConnection []ClientConnection `json:"clientConnection"`
 

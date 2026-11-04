@@ -113,6 +113,31 @@ test('validation retains native data and a separate exact resolved preview', asy
   await assert.rejects(invalid.validate(scenario), /unexpected response/);
 });
 
+test('validation and Start retain authoritative zero queue scalars for legacy and explicit inputs', async () => {
+  const requested = scenarioFixture();
+  requested.network.defaults.congestionThresholdPercent = 0;
+  requested.network.defaults.congestionSignalProbability = 0;
+  requested.resources.loadBalancer.ingress.congestionThresholdPercent = 0;
+  requested.resources.loadBalancer.ingress.congestionSignalProbability = 0;
+  const canonical = structuredClone(requested);
+  const summary = { totalClients: 0, backendCount: 0, clientGroupCount: 0 };
+  let startedScenario;
+  const api = new ScenarioApi('http://backend.test', async (url, options) => {
+    if (String(url).endsWith('/validate')) return Response.json({ scenario: canonical, summary });
+    startedScenario = JSON.parse(options?.body as string);
+    return Response.json({ runId: 'run-zero', status: 'accepted' }, { status: 202 });
+  });
+  const validated = await api.validateDocument(JSON.stringify(requested));
+  assert.deepEqual(validated.scenario, requested);
+  await api.start(validated.scenario);
+  assert.deepEqual(startedScenario, canonical);
+
+  const legacy = await api.validateDocument(JSON.stringify(scenarioFixture()));
+  assert.deepEqual(legacy.scenario, canonical);
+  assert.equal(legacy.scenario.network.defaults.congestionThresholdPercent, 0);
+  assert.equal(legacy.scenario.resources.loadBalancer.ingress.congestionSignalProbability, 0);
+});
+
 test('topology definitions use their separate endpoint and retain the revision token', async () => {
   let requestedUrl = '';
   const definition = topologyDefinition('9007199254740993');

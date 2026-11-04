@@ -29,14 +29,18 @@ type Egress struct {
 // ForwardingStats counts packets when transmission starts, including later losses.
 // BudgetWait is virtual time with ready traffic held back by the shared limit.
 type ForwardingStats struct {
-	ForwardingBitsPerSecond int64
-	ForwardedPackets        uint64
-	ForwardedBytes          uint64
-	QueuedPackets           int
-	QueueDroppedPackets     uint64
-	QueueDroppedBytes       uint64
-	BudgetWait              time.Duration
-	BudgetBlocked           bool
+	ForwardingBitsPerSecond  int64
+	ForwardedPackets         uint64
+	ForwardedBytes           uint64
+	QueuedPackets            int
+	QueueDroppedPackets      uint64
+	QueueDroppedBytes        uint64
+	ECNMarkedPackets         uint64
+	ECNMarkedBytes           uint64
+	CongestionDroppedPackets uint64
+	CongestionDroppedBytes   uint64
+	BudgetWait               time.Duration
+	BudgetBlocked            bool
 }
 
 // egressPacket keeps one waiting packet and its stable admission order.
@@ -104,6 +108,14 @@ func (e *Egress) AddOutput(link *Link) *Output {
 // Transmit admits a packet or drops it when this output's waiting queue is full.
 // Admission does not promise delivery before the experiment's end time.
 func (output *Output) Transmit(sizeBytes int, onArrival func()) bool {
+	if onArrival == nil {
+		panic("network: arrival callback must not be nil")
+	}
+	return output.TransmitECN(sizeBytes, NotCapable, func(bool) { onArrival() })
+}
+
+// TransmitECN signals congestion when this output must wait for its link or budget.
+func (output *Output) TransmitECN(sizeBytes int, state ECNState, onArrival func(marked bool)) bool {
 	// Validate before changing counters, including the serialization range.
 	if sizeBytes < 0 {
 		panic("network: packet size must not be negative")
@@ -111,6 +123,7 @@ func (output *Output) Transmit(sizeBytes int, onArrival func()) bool {
 	if onArrival == nil {
 		panic("network: arrival callback must not be nil")
 	}
+	validateECNState(state)
 	serializationDuration(sizeBytes, output.link.config.BandwidthBitsPerSecond)
 	forwardingCost := serializationDuration(sizeBytes, output.egress.forwardingBitsPerSecond)
 
@@ -124,15 +137,30 @@ func (output *Output) Transmit(sizeBytes int, onArrival func()) bool {
 	if accepted && output.egress.nextSequence == ^uint64(0) {
 		panic("network: egress enqueue sequence overflow")
 	}
+	selected := accepted && !canStartNow && output.link.shouldSignalCongestion(output.queued()+1)
+	earlyDrop := selected && state == NotCapable
+	marked := state == AlreadyMarked || (selected && state == Capable)
 
 	output.stats.OfferedPackets++
 	output.stats.OfferedBytes += uint64(sizeBytes)
-	if !accepted {
+	if !accepted || earlyDrop {
 		output.stats.QueueDroppedPackets++
 		output.stats.QueueDroppedBytes += uint64(sizeBytes)
 		output.egress.stats.QueueDroppedPackets++
 		output.egress.stats.QueueDroppedBytes += uint64(sizeBytes)
+		if earlyDrop {
+			output.stats.CongestionDroppedPackets++
+			output.stats.CongestionDroppedBytes += uint64(sizeBytes)
+			output.egress.stats.CongestionDroppedPackets++
+			output.egress.stats.CongestionDroppedBytes += uint64(sizeBytes)
+		}
 		return false
+	}
+	if selected && state == Capable {
+		output.stats.ECNMarkedPackets++
+		output.stats.ECNMarkedBytes += uint64(sizeBytes)
+		output.egress.stats.ECNMarkedPackets++
+		output.egress.stats.ECNMarkedBytes += uint64(sizeBytes)
 	}
 
 	output.stats.AcceptedPackets++
@@ -141,7 +169,7 @@ func (output *Output) Transmit(sizeBytes int, onArrival func()) bool {
 	output.egress.stats.QueuedPackets++
 	output.queue = append(output.queue, egressPacket{
 		sizeBytes:      sizeBytes,
-		onArrival:      onArrival,
+		onArrival:      func() { onArrival(marked) },
 		forwardingCost: forwardingCost,
 		queuedAt:       output.egress.engine.Now(),
 		sequence:       output.egress.nextSequence,
@@ -181,6 +209,10 @@ func (output *Output) Stats() Stats {
 	stats.AcceptedBytes = output.stats.AcceptedBytes
 	stats.QueueDroppedPackets = output.stats.QueueDroppedPackets
 	stats.QueueDroppedBytes = output.stats.QueueDroppedBytes
+	stats.ECNMarkedPackets = output.stats.ECNMarkedPackets
+	stats.ECNMarkedBytes = output.stats.ECNMarkedBytes
+	stats.CongestionDroppedPackets = output.stats.CongestionDroppedPackets
+	stats.CongestionDroppedBytes = output.stats.CongestionDroppedBytes
 	stats.QueuedPackets = output.queued()
 	return stats
 }

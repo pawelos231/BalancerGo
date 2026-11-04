@@ -6,6 +6,9 @@ export interface ScenarioLinkConfig {
   packetTravelTimeNanoseconds: ExactInteger;
   queueCapacity: ExactInteger;
   lossRate: number;
+  queuePolicy?: '' | 'tailDrop' | 'threshold';
+  congestionThresholdPercent?: number;
+  congestionSignalProbability?: number;
 }
 
 export type ScenarioLinkPatch = Partial<ScenarioLinkConfig>;
@@ -84,6 +87,7 @@ export interface Scenario {
   tcp?: {
     receiveBufferBytes?: ExactInteger;
     sackEnabled?: boolean;
+    ECNenabled?: boolean;
     congestionControl?: Partial<ScenarioCongestionConfig>;
     rto?: Partial<ScenarioRTOConfig>;
     close?: Partial<ScenarioCloseConfig>;
@@ -140,6 +144,7 @@ export interface ResolvedScenario {
   tcp: {
     receiveBufferBytes: number;
     sackEnabled: boolean;
+    ECNenabled: boolean;
     congestionControl: ScenarioCongestionConfig;
     rto: ScenarioRTOConfig;
     close: ScenarioCloseConfig;

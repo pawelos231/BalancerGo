@@ -31,6 +31,7 @@ type Sender struct {
 	idleTimeout time.Duration
 	congestion  congestionControl
 	sack        sackSender
+	ecn         senderECN
 
 	nextSendSeq      uint64
 	oldestUnackedSeq uint64
@@ -127,6 +128,7 @@ func (c *Sender) EstablishConnection() {
 		return
 	}
 	c.validateSACKProfile()
+	c.validateECNProfile()
 	c.handshakeStarted = true
 	c.connection.state = model.TCPSynSent
 	// This profile starts at SEQ 0; SYN reserves the first position.
@@ -159,7 +161,8 @@ func (c *Sender) CloseRequested() bool { return c.connection.requested }
 // SendSYNProbe emits one SYN without creating handshake state or retry timers.
 // A workload can repeat this to generate the existing single-flow SYN flood.
 func (c *Sender) SendSYNProbe() {
-	c.emit(GeneratePacket(c.key, model.FlagSYN, 0, 0, 0))
+	c.validateECNProfile()
+	c.emit(GeneratePacket(c.key, c.synFlags(), 0, 0, 0))
 }
 
 func (c *Sender) Close() {
@@ -202,9 +205,11 @@ func (c *Sender) ShutdownWithReason(reason model.TransferFailureReason) {
 	c.cancelEvent(&c.dataTimer)
 	c.cancelEvent(&c.readTimer)
 	c.cancelEvent(&c.sendEvent)
+	c.cancelEvent(&c.ecn.holdEvent)
 	c.pendingSegments.reset()
 	c.sack.board.Reset()
 	c.sack.active = false
+	c.ecn.retryRanges = nil
 	c.oldestSegmentRetransmissions = 0
 	c.rttProbe = roundTripProbe{}
 	c.congestion.clearLossTracking()
@@ -237,5 +242,6 @@ func (c *Sender) GetState() model.ClientState {
 		Transfer:                 c.GetTransferState(),
 		RTO:                      c.GetRTOState(),
 		Congestion:               c.GetCongestionState(),
+		ECN:                      c.GetECNState(),
 	}
 }

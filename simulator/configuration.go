@@ -20,6 +20,7 @@ type configuration struct {
 	streamBytes                   int
 	receiveBufferBytes            int
 	sackEnabled                   bool
+	ecnEnabled                    bool
 	rto                           model.RTOConfig
 	closeConfig                   *model.CloseConfig
 	congestion                    model.CongestionConfig
@@ -37,11 +38,14 @@ type configuration struct {
 	snapshotInterval time.Duration
 	packetTravelTime time.Duration
 
-	bandwidth               int64
-	forwardingBitsPerSecond int64
-	queue                   int
-	loss                    float64
-	ingress                 scenario.LinkConfig
+	bandwidth                   int64
+	forwardingBitsPerSecond     int64
+	queue                       int
+	loss                        float64
+	queuePolicy                 string
+	congestionThresholdPercent  float64
+	congestionSignalProbability float64
+	ingress                     scenario.LinkConfig
 
 	speed     float64
 	seed      int64
@@ -94,6 +98,12 @@ func readConfiguration() (configuration, *preparedScenario, error) {
 	)
 	flag.IntVar(&c.queue, "link-queue", 1024, "waiting packets per link, excluding its active transmission")
 	flag.Float64Var(&c.loss, "loss", 0, "independent packet loss probability on each link")
+	flag.StringVar(&c.queuePolicy, "queue-policy", "tailDrop", "queue policy: tailDrop or threshold")
+	flag.Float64Var(&c.congestionThresholdPercent, "queue-threshold-percent", 80, "waiting queue occupancy percent above which threshold signaling applies (0..100)")
+	flag.Float64Var(&c.congestionSignalProbability, "queue-signal-probability", 1, "probability of marking an ECN-capable packet or dropping a non-ECN packet above threshold (0..1)")
+	flag.StringVar(&c.ingress.QueuePolicy, "lb-ingress-queue-policy", ingressDefaults.QueuePolicy, "shared ingress queue policy: tailDrop or threshold")
+	flag.Float64Var(&c.ingress.CongestionThresholdPercent, "lb-ingress-queue-threshold-percent", ingressDefaults.CongestionThresholdPercent, "shared ingress waiting occupancy threshold percent (0..100)")
+	flag.Float64Var(&c.ingress.CongestionSignalProbability, "lb-ingress-queue-signal-probability", ingressDefaults.CongestionSignalProbability, "shared ingress congestion signal probability above threshold (0..1)")
 	flag.Int64Var(
 		&c.ingress.BandwidthBitsPerSecond,
 		"lb-ingress-bandwidth",

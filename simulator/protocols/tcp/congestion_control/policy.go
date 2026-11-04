@@ -23,6 +23,10 @@ type Policy interface {
 	// Example: an RTO makes Reno set cwnd to one MSS; TCP retransmits separately.
 	OnLoss(Loss) LossResponse
 
+	// Congestion was reported by ECE, without evidence that a segment was lost.
+	// TCP suppresses repeated reductions from the same flight before calling this.
+	OnECN(ECN)
+
 	// Data is about to be sent or retried; use its virtual send time and size if needed.
 	// Example: Reno does nothing; a future BBR policy could plan its next send time.
 	OnSent(now time.Duration, payloadBytes int)
@@ -57,6 +61,7 @@ type ACK struct {
 	CumulativeACK uint64
 	FlightBytes   uint64 // Bytes still outstanding after this ACK.
 	SmoothedRTT   time.Duration
+	ECN           bool // An ECE ACK confirms bytes but must not grow cwnd (RFC 3168 section 6.1.2).
 
 	// TCP uses SACK recovery to repair several holes without NewReno retry requests.
 	SACKRecovery bool
@@ -99,9 +104,16 @@ type Loss struct {
 	NextSendSeq     uint64 // Exclusive end of all data sent so far.
 	PendingSegments int
 	AlreadyTimedOut bool
+	AlreadyReduced  bool // This flight already reduced cwnd for ECN; loss still requires repair.
 
 	// TCP will limit retransmissions with Pipe, so cwnd needs no duplicate-ACK inflation.
 	SACKRecovery bool
+}
+
+// ECN is a congestion indication, independent of TCP's loss and retry machinery.
+type ECN struct {
+	At          time.Duration
+	FlightBytes uint64 // Outstanding bytes before the ECE ACK is applied.
 }
 
 // LossResponse can reject a duplicate-ACK loss indication from an old flight.
@@ -117,6 +129,7 @@ func (unlimitedPolicy) OnACK(ACK) ACKResponse     { return ACKResponse{} }
 func (unlimitedPolicy) OnSenderState(SenderState) {}
 func (unlimitedPolicy) OnDuplicateACK()           {}
 func (unlimitedPolicy) OnLoss(Loss) LossResponse  { return LossResponse{} }
+func (unlimitedPolicy) OnECN(ECN)                 {}
 func (unlimitedPolicy) OnSent(time.Duration, int) {}
 func (unlimitedPolicy) OnIdle()                   {}
 func (unlimitedPolicy) StopRecovery()             {}

@@ -133,6 +133,7 @@ func (s *World) startClient(
 		InitialSlowStartThresholdBytes: congestion.InitialSlowStartThresholdBytes,
 	})
 	cl.SetSACKEnabled(s.scenario.TCP.SACKEnabled)
+	cl.SetECNEnabled(s.scenario.TCP.ECNEnabled)
 
 	// Each connection estimates its own RTT using the scenario's timer policy.
 	cl.SetRTOConfig(configuredRTO(s.scenario.TCP.RTO))
@@ -154,8 +155,8 @@ func (s *World) startClient(
 
 	// Every SYN, data packet and retry crosses both access and shared ingress.
 	cl.SetSender(func(pkt model.Packet) {
-		toInput.Transmit(pkt.WireSize(), func() {
-			s.clientIngress.Transmit(pkt.WireSize(), func() {
+		transmitPacket(toInput, pkt, func(pkt model.Packet) {
+			transmitPacket(s.clientIngress, pkt, func(pkt model.Packet) {
 				if s.lb.HasClient(cl) {
 					s.lb.HandleClientPacket(pkt)
 				}
@@ -172,7 +173,7 @@ func (s *World) startClient(
 	cl.OnClose = func() { s.closedClients++ }
 
 	err := s.lb.AddClient(cl, func(pkt model.Packet) {
-		toClient.Transmit(pkt.WireSize(), func() {
+		transmitPacket(toClient, pkt, func(pkt model.Packet) {
 			if s.lb.HasClient(cl) {
 				cl.HandlePacket(pkt)
 			}

@@ -135,6 +135,10 @@ function addStats(total: TopologyLinkStats, stats: TopologyLinkStats) {
   total.acceptedBytes += stats.acceptedBytes;
   total.queueDroppedPackets += stats.queueDroppedPackets;
   total.queueDroppedBytes += stats.queueDroppedBytes;
+  total.ecnMarkedPackets = (total.ecnMarkedPackets ?? 0) + (stats.ecnMarkedPackets ?? 0);
+  total.ecnMarkedBytes = (total.ecnMarkedBytes ?? 0) + (stats.ecnMarkedBytes ?? 0);
+  total.congestionDroppedPackets = (total.congestionDroppedPackets ?? 0) + (stats.congestionDroppedPackets ?? 0);
+  total.congestionDroppedBytes = (total.congestionDroppedBytes ?? 0) + (stats.congestionDroppedBytes ?? 0);
   total.lostPackets += stats.lostPackets;
   total.lostBytes += stats.lostBytes;
   total.deliveredPackets += stats.deliveredPackets;
@@ -256,6 +260,9 @@ export function groupTopology(
       config.packetTravelTimeMs,
       config.queueCapacity,
       config.lossRate,
+      config.queuePolicy || 'tailDrop',
+      config.congestionThresholdPercent ?? 0,
+      config.congestionSignalProbability ?? 0,
     ]);
     const existing = projections.get(key);
 

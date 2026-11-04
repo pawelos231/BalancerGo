@@ -88,7 +88,7 @@ func (c *Sender) invalidateRTTProbe() {
 
 // sendSyn starts the SYN timer before emitting, so an immediate reply can cancel it.
 func (c *Sender) sendSyn() {
-	packet := GeneratePacket(c.key, model.FlagSYN, 0, 0, 0)
+	packet := GeneratePacket(c.key, c.synFlags(), 0, 0, 0)
 	packet.SACKPermitted = c.sack.enabled
 	if c.retrySyn == 0 {
 		c.startRTTProbe(packet)
@@ -128,6 +128,7 @@ func (c *Sender) armDataTimer() {
 // For an initial 1 s RTO, losses cause retransmissions at 1 s, 3 s and 7 s.
 func (c *Sender) retransmitData() {
 	c.dataTimer = 0
+	retryingRetransmission := c.oldestSegmentRetransmissions != 0 || c.wasECNRetransmitted(c.oldestUnackedSeq)
 	packet, retry := c.prepareDataRetry()
 	if !retry {
 		return
@@ -135,7 +136,7 @@ func (c *Sender) retransmitData() {
 	if c.sack.negotiated {
 		c.resetSACKAfterTimeout()
 	}
-	c.congestion.onDataTimeout(packet, c.bytesInFlight(), c.nextSendSeq, c.engine.Now())
+	c.congestion.onDataTimeout(packet, c.bytesInFlight(), c.nextSendSeq, c.engine.Now(), retryingRetransmission)
 	c.rto.backOff()
 	c.armDataTimer()
 	c.emit(packet)
@@ -167,6 +168,7 @@ func (c *Sender) prepareDataRetry() (model.Packet, bool) {
 	}
 
 	packet := c.pendingSegments.oldest()
+	c.recordECNRetry(packet)
 	c.oldestSegmentRetransmissions++
 	c.transfer.dataRetransmissions++
 	c.invalidateRTTProbe()

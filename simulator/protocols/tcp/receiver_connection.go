@@ -22,6 +22,8 @@ type receiveConnection struct {
 	sackPermitted   bool
 	sackRecent      [model.MaxSACKBlocks]model.SACKBlock
 	sackRecentCount int
+	ecnNegotiated   bool
+	ecnEcho         bool // Repeat ECE until a valid CWR arrives, even after an ACK is lost.
 
 	closeStarted   bool
 	closeStartedAt time.Duration
@@ -81,6 +83,7 @@ func (r *Receiver) HandlePacket(pkt model.Packet) {
 	if pkt.Size == 0 {
 		if pkt.Seq == conn.receiver.nextExpectedSeq {
 			if r.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
+				r.observeECN(conn, pkt)
 				r.recordConnectionActivity(pkt.Key, conn)
 			}
 		}
@@ -93,6 +96,7 @@ func (r *Receiver) HandlePacket(pkt model.Packet) {
 		if !r.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
 			return
 		}
+		r.observeECN(conn, pkt)
 		r.recordConnectionActivity(pkt.Key, conn)
 	}
 	if conn.pendingFIN {
@@ -127,7 +131,7 @@ func (conn *receiveConnection) validACK(ack uint64) bool {
 func (r *Receiver) acknowledge(key model.ClientKey, conn *receiveConnection) {
 	r.emit(model.Packet{
 		Key:                key,
-		Flag:               model.FlagACK,
+		Flag:               r.ackFlags(conn, model.FlagACK),
 		Seq:                conn.sendNextSeq,
 		Ack:                conn.receiver.nextExpectedSeq,
 		ReceiveWindowBytes: conn.receiver.windowBytes(),
@@ -153,6 +157,7 @@ func (r *Receiver) handleSYN(pkt model.Packet, conn *receiveConnection, sequence
 			peerInitialSeq: pkt.Seq,
 			sendNextSeq:    1, // Fixed backend ISN zero; SYN occupies one position.
 			sackPermitted:  r.sackEnabled && pkt.SACKPermitted,
+			ecnNegotiated:  r.ecnState.Enabled && pkt.Flag&(model.FlagECE|model.FlagCWR) == model.FlagECE|model.FlagCWR,
 			receiver: receiveBuffer{
 				nextExpectedSeq: sequenceEnd,
 				capacity:        r.receiveBufferBytes,
@@ -175,7 +180,7 @@ func (r *Receiver) handleSYN(pkt model.Packet, conn *receiveConnection, sequence
 	}
 	r.emit(model.Packet{
 		Key:                pkt.Key,
-		Flag:               model.FlagSYN | model.FlagACK,
+		Flag:               synAckFlags(conn),
 		Seq:                0,
 		Ack:                conn.peerInitialSeq + 1,
 		ReceiveWindowBytes: conn.receiver.windowBytes(),

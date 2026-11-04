@@ -12,6 +12,8 @@ import (
 func (c *configuration) registerTCPFlags() {
 	flag.BoolVar(&c.sackEnabled, "sack-enabled", false,
 		"negotiate selective ACKs; requires Reno, NewReno or CUBIC and fast retransmit")
+	flag.BoolVar(&c.ecnEnabled, "ecn-enabled", false,
+		"negotiate ECN congestion signaling; requires congestion control other than none")
 	c.rto = model.DefaultRTOConfig()
 	c.congestion = model.DefaultCongestionConfig()
 	closeConfig := model.DefaultCloseConfig()

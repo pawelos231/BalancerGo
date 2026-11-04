@@ -21,6 +21,7 @@ type Normalized struct {
 type NormalizedTCPConfig struct {
 	ReceiveBufferBytes            int                        `json:"receiveBufferBytes"`
 	SACKEnabled                   bool                       `json:"sackEnabled"`
+	ECNEnabled                    bool                       `json:"ECNenabled"`
 	RTO                           NormalizedRTOConfig        `json:"rto"`
 	Close                         NormalizedCloseConfig      `json:"close"`
 	CongestionControl             NormalizedCongestionConfig `json:"congestionControl"`
