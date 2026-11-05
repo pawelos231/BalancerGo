@@ -31,6 +31,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 			Name:    fmt.Sprintf("backend-%02d", i),
 			Address: fmt.Sprintf("10.0.%d.%d", i/254, i%254+1),
 			Port:    80,
+			Host:    *hostInput(effectiveHostConfig(c.backendHost)),
 		}
 	}
 
@@ -91,6 +92,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 			LoadBalancer: scenario.LoadBalancerConfig{
 				ID:                      "lb",
 				Algorithm:               c.algorithm,
+				Host:                    *hostInput(effectiveHostConfig(c.lbHost)),
 				Ingress:                 c.ingress,
 				ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
 				HalfOpenIdleTimeout:     &halfOpenIdle,

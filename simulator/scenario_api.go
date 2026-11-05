@@ -114,6 +114,12 @@ func scenarioSummary(resolved scenario.Normalized) contract.SimulationConfig {
 	links := resolved.NetworkDefaults
 	stream := resolved.DefaultStream
 	ingress := resolved.LoadBalancer.Ingress
+	lbHost := resolved.LoadBalancer.Host
+	backendHost := scenario.DefaultHostConfig()
+	if len(resolved.Backends) > 0 {
+		// Native scenarios retain all overrides; the old form summarizes the first backend.
+		backendHost = resolved.Backends[0].Host
+	}
 	return contract.SimulationConfig{
 		Clients:                            resolved.TotalClients,
 		Servers:                            len(resolved.Backends),
@@ -147,6 +153,12 @@ func scenarioSummary(resolved scenario.Normalized) contract.SimulationConfig {
 		LBEstablishedIdleTimeoutMs:         float64(resolved.LoadBalancer.EstablishedIdleTimeout) / float64(time.Millisecond),
 		LBClosingIdleTimeoutMs:             float64(resolved.LoadBalancer.ClosingIdleTimeout) / float64(time.Millisecond),
 		LBResetIdleTimeoutMs:               float64(resolved.LoadBalancer.ResetIdleTimeout) / float64(time.Millisecond),
+		LBHostCores:                        lbHost.Cores,
+		LBPacketProcessingTimeUs:           float64(lbHost.PacketProcessingTime) / float64(time.Microsecond),
+		LBCPUQueueCapacity:                 lbHost.QueueCapacity,
+		BackendHostCores:                   backendHost.Cores,
+		BackendPacketProcessingTimeUs:      float64(backendHost.PacketProcessingTime) / float64(time.Microsecond),
+		BackendCPUQueueCapacity:            backendHost.QueueCapacity,
 		DurationSeconds:                    execution.Duration.Seconds(),
 		SnapshotIntervalMs:                 float64(execution.SnapshotInterval) / float64(time.Millisecond),
 		PacketGapMs:                        float64(stream.PacketGap) / float64(time.Millisecond),

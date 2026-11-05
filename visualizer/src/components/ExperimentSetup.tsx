@@ -4,6 +4,8 @@ import { scenarioFormValues } from '../scenarios/draft';
 import type { ScenarioDraft, ScenarioField } from '../scenarios/draft';
 import { editScenarioForm } from '../scenarios/formState';
 import type { FieldErrors } from '../scenarios/formState';
+import { applyHostToAllBackends, editHostField, emptyHostEdits, retainHostEdits } from '../scenarios/host';
+import type { HostEdits, HostField, HostTarget, HostValues } from '../scenarios/host';
 import { readScenarioFile, serializeScenario } from '../scenarios/files';
 import { scenarioPresets } from '../scenarios/presets';
 import { scenarioApi } from '../scenarios/runtimeApi';
@@ -45,6 +47,8 @@ function ExperimentSetup({
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [values, setValues] = useState<ScenarioDraft | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [hostEdits, setHostEdits] = useState<HostEdits>(emptyHostEdits);
+  const [hostRevision, setHostRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   const [candidate, setCandidate] = useState<PresetCandidate | null>(null);
@@ -57,6 +61,7 @@ function ExperimentSetup({
   const scenarioRef = useRef<Scenario | null>(null);
   const valuesRef = useRef<ScenarioDraft | null>(null);
   const errorsRef = useRef<FieldErrors>({});
+  const hostEditsRef = useRef<HostEdits>(emptyHostEdits());
   const countEditRef = useRef<CountEdit | null>(null);
 
   const setNativeScenario = useCallback((definition: Scenario) => {
@@ -123,6 +128,10 @@ function ExperimentSetup({
       setFormValues(nextValues);
       errorsRef.current = {};
       setFieldErrors({});
+      hostEditsRef.current = emptyHostEdits();
+      setHostEdits(hostEditsRef.current);
+      // Remount only after document replacement, clearing staged Apply-to-all inputs.
+      setHostRevision(revision => revision + 1);
       setValidation(result);
       onApplied(result);
     } catch (failure) {
@@ -173,7 +182,7 @@ function ExperimentSetup({
 
   function validateDraft() {
     const current = scenarioRef.current;
-    if (!current || Object.keys(errorsRef.current).length > 0) return;
+    if (!current || hasInvalidSettings()) return;
     void validateAndApply(
       (signal) => scenarioApi.validate(current, signal),
       () => setFileNotice({
@@ -185,7 +194,7 @@ function ExperimentSetup({
 
   function exportScenario() {
     const current = scenarioRef.current;
-    if (!current || Object.keys(errorsRef.current).length > 0) return;
+    if (!current || hasInvalidSettings()) return;
 
     // Reuse an unchanged validated draft; edited settings are checked before saving.
     void validateAndApply(
@@ -233,6 +242,43 @@ function ExperimentSetup({
     setFormValues(next.values);
     errorsRef.current = next.errors;
     setFieldErrors(next.errors);
+    if (name === 'servers') {
+      hostEditsRef.current = retainHostEdits(next.scenario, hostEditsRef.current);
+      setHostEdits(hostEditsRef.current);
+    }
+  }
+
+  function hasInvalidSettings() {
+    return Object.keys(errorsRef.current).length > 0 || Object.keys(hostEditsRef.current.errors).length > 0;
+  }
+
+  // Host edits use the same native document while preserving unrelated rejected input.
+  function updateHosts(next: Scenario, edits: HostEdits) {
+    countEditRef.current = null;
+    setValidation(null);
+    setFileNotice(null);
+    setApplied(previous => previous ? { ...previous, pristine: false } : null);
+    setNativeScenario(next);
+    hostEditsRef.current = edits;
+    setHostEdits(edits);
+    const projected = scenarioFormValues(next);
+    for (const name of Object.keys(errorsRef.current) as ScenarioField[]) {
+      projected[name] = valuesRef.current?.[name] ?? projected[name];
+    }
+    setFormValues(projected);
+  }
+
+  function changeHostField(target: HostTarget, field: HostField, raw: string) {
+    const current = scenarioRef.current;
+    if (!current || validationRef.current || pending) return;
+    const next = editHostField(current, hostEditsRef.current, target, field, raw);
+    updateHosts(next.scenario, next.edits);
+  }
+
+  function applyHostToAll(values: HostValues) {
+    const current = scenarioRef.current;
+    if (!current || validationRef.current || pending) return;
+    updateHosts(applyHostToAllBackends(current, values), retainHostEdits(current, hostEditsRef.current, true));
   }
 
   // Intermediate count digits must not erase group proportions or custom backends.
@@ -249,7 +295,7 @@ function ExperimentSetup({
 
   function startSimulation() {
     const current = scenarioRef.current;
-    const invalid = Object.keys(errorsRef.current).length > 0;
+    const invalid = hasInvalidSettings();
     if (!current || validationRef.current || pending || invalid) return;
     void onStart(current);
   }
@@ -280,7 +326,7 @@ function ExperimentSetup({
         validation={validation}
         busy={loading || pending || validating}
         checking={validating}
-        invalid={Object.keys(fieldErrors).length > 0}
+        invalid={Object.keys(fieldErrors).length > 0 || Object.keys(hostEdits.errors).length > 0}
         notice={fileNotice}
         onImport={importScenario}
         onExport={exportScenario}
@@ -300,6 +346,10 @@ function ExperimentSetup({
           onFocus={focusField}
           onBlur={blurField}
           onStart={startSimulation}
+          hostEdits={hostEdits}
+          hostRevision={hostRevision}
+          onHostChange={changeHostField}
+          onApplyHostToAll={applyHostToAll}
         />
       ) : (
         <Alert severity="info">Waiting for complete scenario defaults from the server…</Alert>

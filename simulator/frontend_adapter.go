@@ -12,6 +12,7 @@ import (
 	"load-balancer/internal/contract"
 	"load-balancer/internal/simulation"
 	"load-balancer/model"
+	"load-balancer/scenario"
 )
 
 // submitFrontendCommand translates a wire action without decoding its runtime
@@ -100,6 +101,8 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
 	closingIdle, resetIdle := c.effectiveLBFinalIdleTimeouts()
 	backendHalfOpen, backendEstablished := c.effectiveBackendIdleTimeouts()
+	lbHost := effectiveHostConfig(c.lbHost)
+	backendHost := effectiveHostConfig(c.backendHost)
 
 	return contract.SimulationConfig{
 		Clients:                         c.clients,
@@ -134,6 +137,12 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		LBEstablishedIdleTimeoutMs:      float64(establishedIdle) / float64(time.Millisecond),
 		LBClosingIdleTimeoutMs:          float64(closingIdle) / float64(time.Millisecond),
 		LBResetIdleTimeoutMs:            float64(resetIdle) / float64(time.Millisecond),
+		LBHostCores:                     lbHost.Cores,
+		LBPacketProcessingTimeUs:        float64(lbHost.PacketProcessingTime) / float64(time.Microsecond),
+		LBCPUQueueCapacity:              lbHost.QueueCapacity,
+		BackendHostCores:                backendHost.Cores,
+		BackendPacketProcessingTimeUs:   float64(backendHost.PacketProcessingTime) / float64(time.Microsecond),
+		BackendCPUQueueCapacity:         backendHost.QueueCapacity,
 		DurationSeconds:                 float64(c.duration) / float64(time.Second),
 		ClientGapMs:                     float64(c.clientGap) / float64(time.Millisecond),
 		PacketGapMs:                     float64(c.packetGap) / float64(time.Millisecond),
@@ -210,6 +219,14 @@ func preparePublicScenario(
 	base.lbEstablishedIdleTimeout = &establishedIdle
 	base.lbClosingIdleTimeout = &closingIdle
 	base.lbResetIdleTimeout = &resetIdle
+	lbHost := scenario.NormalizedHostConfig{
+		Cores:         c.LBHostCores,
+		QueueCapacity: c.LBCPUQueueCapacity,
+	}
+	backendHost := scenario.NormalizedHostConfig{
+		Cores:         c.BackendHostCores,
+		QueueCapacity: c.BackendCPUQueueCapacity,
+	}
 
 	base.clients, base.servers = c.Clients, c.Servers
 	base.packets, base.streamBytes = c.Packets, c.Bytes
@@ -264,6 +281,8 @@ func preparePublicScenario(
 		{"lbEstablishedIdleTimeoutMs", c.LBEstablishedIdleTimeoutMs, time.Millisecond, &establishedIdle},
 		{"lbClosingIdleTimeoutMs", c.LBClosingIdleTimeoutMs, time.Millisecond, &closingIdle},
 		{"lbResetIdleTimeoutMs", c.LBResetIdleTimeoutMs, time.Millisecond, &resetIdle},
+		{"lbPacketProcessingTimeUs", c.LBPacketProcessingTimeUs, time.Microsecond, &lbHost.PacketProcessingTime},
+		{"backendPacketProcessingTimeUs", c.BackendPacketProcessingTimeUs, time.Microsecond, &backendHost.PacketProcessingTime},
 		{
 			name:  "ingressPacketTravelTimeMs",
 			value: c.IngressPacketTravelTimeMs,
@@ -275,8 +294,15 @@ func preparePublicScenario(
 		if err != nil {
 			return preparedScenario{}, err
 		}
+		isCPUTime := field.name == "lbPacketProcessingTimeUs" ||
+			field.name == "backendPacketProcessingTimeUs"
+		if isCPUTime && field.value > 0 && duration == 0 {
+			return preparedScenario{}, fmt.Errorf("%s must be zero or at least 0.001 microseconds", field.name)
+		}
 		*field.out = duration
 	}
+	base.lbHost = hostInput(lbHost)
+	base.backendHost = hostInput(backendHost)
 	return base.prepareScenario()
 }
 

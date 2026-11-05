@@ -73,6 +73,12 @@ type SimulationConfig struct {
 	LBEstablishedIdleTimeoutMs      float64 `json:"lbEstablishedIdleTimeoutMs"`
 	LBClosingIdleTimeoutMs          float64 `json:"lbClosingIdleTimeoutMs"`
 	LBResetIdleTimeoutMs            float64 `json:"lbResetIdleTimeoutMs"`
+	LBHostCores                     int     `json:"lbHostCores"`
+	LBPacketProcessingTimeUs        float64 `json:"lbPacketProcessingTimeUs"`
+	LBCPUQueueCapacity              int     `json:"lbCPUQueueCapacity"`
+	BackendHostCores                int     `json:"backendHostCores"`
+	BackendPacketProcessingTimeUs   float64 `json:"backendPacketProcessingTimeUs"`
+	BackendCPUQueueCapacity         int     `json:"backendCPUQueueCapacity"`
 	DurationSeconds                 float64 `json:"durationSeconds"`
 	ClientGapMs                     float64 `json:"clientGapMs"`
 	PacketGapMs                     float64 `json:"packetGapMs"`

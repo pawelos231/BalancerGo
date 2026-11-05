@@ -8,7 +8,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import type { ServerStateWithClients } from '../types';
+import type { HostState, ServerStateWithClients } from '../types';
 import { formatBytes, formatNumber } from '../topology/format';
 import HelpTooltip from './HelpTooltip';
 
@@ -41,7 +41,7 @@ function BackendMetric({ label, value, unit, children }: BackendMetricProps) {
   );
 }
 
-function BackendCard({ server, clients }: ServerStateWithClients) {
+function BackendCard({ server, clients, host }: ServerStateWithClients & { host?: HostState }) {
   const active = server.Active;
 
   return (
@@ -86,10 +86,10 @@ function BackendCard({ server, clients }: ServerStateWithClients) {
             Zero can mean there are no samples yet.
           </BackendMetric>
 
-          <BackendMetric label="Packets received" value={server.NumberOfHandledPackets}>
-            All incoming TCP packets reaching this active server during the run,
-            including handshake, data, closing packets and retransmissions.
-            Includes packets the server later rejects.
+          <BackendMetric label="Packets processed" value={server.NumberOfHandledPackets}>
+            TCP packets delivered after backend CPU processing, including packets TCP later rejects.
+            Packets still waiting for CPU or dropped by its queue are excluded.
+            Network RX counters separately count bytes delivered to the host.
           </BackendMetric>
 
           <BackendMetric label="Payload received" value={server.ReceivedPayloadBytes} unit="bytes">
@@ -97,6 +97,24 @@ function BackendCard({ server, clients }: ServerStateWithClients) {
             Excludes retransmissions, headers and control packets.
             Remains counted after connections close, until reset.
           </BackendMetric>
+
+          {host && (
+            <Stack spacing={0.5}>
+              <Typography variant="subtitle2">Host processing</Typography>
+              {host.enabled ? (
+                <>
+                  <Typography variant="body2">
+                    Busy cores: {host.busyCores} / {host.cores}
+                    {' · '}Run mean CPU: {formatNumber(host.utilization * 100)}%
+                  </Typography>
+                  <Typography variant="body2">
+                    CPU queue: {host.queuedPackets} / {host.queueCapacity}
+                    {' · '}Drops: {formatNumber(host.queueDroppedPackets, 0)}
+                  </Typography>
+                </>
+              ) : <Typography variant="body2" color="text.secondary">CPU model disabled</Typography>}
+            </Stack>
+          )}
 
           <Divider />
 

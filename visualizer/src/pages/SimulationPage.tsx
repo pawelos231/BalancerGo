@@ -13,6 +13,8 @@ import HelpTooltip from '../components/HelpTooltip';
 import PayloadProgress from '../components/PayloadProgress';
 import TransferResults from '../components/TransferResults';
 import type { LoadBalancerState } from '../types';
+import { nodeHostState } from '../topology/telemetry';
+import { formatNumber } from '../topology/format';
 
 interface SimulationPageProps {
   data: LoadBalancerState | null;
@@ -28,6 +30,11 @@ function SimulationPage({ data }: SimulationPageProps) {
       </Paper>
     );
   }
+
+  const backendHosts = new Map(data.topology?.nodes
+    .filter(node => node.kind === 'backend')
+    .map(node => [node.resourceId, nodeHostState(node)]));
+  const lbHost = nodeHostState(data.topology?.nodes.find(node => node.kind === 'loadBalancer'));
 
   return (
     <Stack spacing={3} sx={{ mt: 3 }}>
@@ -71,6 +78,18 @@ function SimulationPage({ data }: SimulationPageProps) {
               Established connections keep their assigned backend.
             </HelpTooltip>
           </Stack>
+          {lbHost && (
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              {lbHost.enabled ? (
+                <>
+                  CPU: {lbHost.busyCores}/{lbHost.cores} cores busy
+                  {' · '}Run mean: {formatNumber(lbHost.utilization * 100)}%
+                  {' · '}Queue: {lbHost.queuedPackets}/{lbHost.queueCapacity}
+                  {' · '}CPU drops: {formatNumber(lbHost.queueDroppedPackets, 0)}
+                </>
+              ) : 'CPU model disabled'}
+            </Typography>
+          )}
         </CardContent>
       </Card>
 
@@ -85,7 +104,7 @@ function SimulationPage({ data }: SimulationPageProps) {
                 key={server.ID}
                 sx={{ display: 'flex' }}
               >
-                <BackendCard server={server} clients={clients} />
+                <BackendCard server={server} clients={clients} host={backendHosts.get(server.ID)} />
               </Grid>
             ))}
           </Grid>

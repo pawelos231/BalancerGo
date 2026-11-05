@@ -18,6 +18,8 @@ import type { ScenarioDraft, ScenarioField } from '../scenarios/draft';
 import { scenarioFieldSections } from '../scenarios/formFields';
 import type { Scenario } from '../scenarios/types';
 import ScenarioFieldInput from './ScenarioFieldInput';
+import HostProcessingEditor from './HostProcessingEditor';
+import type { HostEdits, HostField, HostTarget, HostValues } from '../scenarios/host';
 
 interface SimulationFormProps {
   scenario: Scenario;
@@ -31,6 +33,10 @@ interface SimulationFormProps {
   onFocus: (name: ScenarioField) => void;
   onBlur: (name: ScenarioField) => void;
   onStart: () => void;
+  hostEdits: HostEdits;
+  hostRevision: number;
+  onHostChange: (target: HostTarget, field: HostField, raw: string) => void;
+  onApplyHostToAll: (values: HostValues) => void;
 }
 
 // Sections share one scenario draft and one Start action.
@@ -46,8 +52,12 @@ function SimulationForm({
   onFocus,
   onBlur,
   onStart,
+  hostEdits,
+  hostRevision,
+  onHostChange,
+  onApplyHostToAll,
 }: SimulationFormProps) {
-  const hasErrors = Object.keys(errors).length > 0;
+  const hasErrors = Object.keys(errors).length > 0 || Object.keys(hostEdits.errors).length > 0;
   const canStart = connected && !running && !pending && !validating && !hasErrors;
   const fieldsDisabled = !connected || pending || validating;
   const groups = scenario.workload.clientGroups;
@@ -182,6 +192,15 @@ function SimulationForm({
               Sections with invalid settings show an error badge, including when collapsed.
             </Alert>
           )}
+
+          <HostProcessingEditor
+            key={hostRevision}
+            scenario={scenario}
+            edits={hostEdits}
+            disabled={fieldsDisabled}
+            onChange={onHostChange}
+            onApplyAll={onApplyHostToAll}
+          />
 
           <Stack
             direction={{ xs: 'column', sm: 'row' }}

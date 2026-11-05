@@ -24,6 +24,7 @@ function smallExperiment(defaults: Scenario): Scenario {
   scenario.network.profiles = [];
   scenario.resources.loadBalancer.ingress.bandwidthBitsPerSecond = fastBitsPerSecond;
   scenario.resources.loadBalancer.forwardingBitsPerSecond = fastBitsPerSecond;
+  delete scenario.resources.loadBalancer.host;
   scenario.resources.backends = [1, 2].map((index) => ({
     id: `backend-${index}`,
     name: `Backend ${index}`,

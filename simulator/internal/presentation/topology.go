@@ -34,7 +34,7 @@ func ingressLabel(side string) string { return "From " + side }
 
 func loadBalancerMetrics(info simulation.Info, ingress simulation.IngressObservation, backends, routed int, transfers contract.TransferSummary) []nodeMetric {
 	forwarding := info.Forwarding
-	return []nodeMetric{
+	metrics := []nodeMetric{
 		{"ingressBitsPerSecond", "Shared physical input bandwidth", "bit/s", float64(ingress.Config.BandwidthBitsPerSecond), true},
 		{"ingressDeliveredPackets", "Packets delivered to LB", "packets", float64(ingress.Stats.DeliveredPackets), false},
 		{"ingressDeliveredBytes", "Wire bytes delivered to LB", "bytes", float64(ingress.Stats.DeliveredBytes), false},
@@ -60,17 +60,19 @@ func loadBalancerMetrics(info simulation.Info, ingress simulation.IngressObserva
 		{"synRetransmissions", "Cumulative SYN retransmissions", "packets", float64(transfers.SynRetransmissions), false},
 		{"dataRetransmissions", "Cumulative data retransmissions", "packets", float64(transfers.DataRetransmissions), false},
 	}
+	return appendHostMetrics(metrics, info.LoadBalancerHost)
 }
 
 func backendMetrics(server model.ServerState) []nodeMetric {
 	metrics := []nodeMetric{
 		{"activeConnections", "Active connections", "connections", float64(server.ActiveConnections), false},
 		{"halfOpenConnections", "Half-open connections", "connections", float64(server.HalfOpenConnections), false},
-		{"receivedPackets", "Packets received", "packets", float64(server.NumberOfHandledPackets), false},
+		{"receivedPackets", "Packets delivered to backend TCP", "packets", float64(server.NumberOfHandledPackets), false},
 		{"receivedPayloadBytes", "Unique payload received", "bytes", float64(server.ReceivedPayloadBytes), false},
 		{"sentACKCount", "Standalone ACKs sent", "ACKs", float64(server.ACK.SentACKCount), false},
 		{"timerTriggeredACKCount", "ACKs sent when the delay timer expired", "ACKs", float64(server.ACK.TimerTriggeredACKCount), false},
 	}
+	metrics = appendHostMetrics(metrics, server.Host)
 	return appendECNMetrics(metrics, server.ECN)
 }
 

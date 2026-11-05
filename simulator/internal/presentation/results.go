@@ -9,10 +9,6 @@ import (
 	"load-balancer/network"
 )
 
-// The existing CPU gauge is packets per 100 ms divided by this scale.
-// It does not measure CPU utilization or model backend capacity.
-const legacyCPUScale = 10_000
-
 func clientKey(key model.ClientKey) contract.ClientKey {
 	return contract.ClientKey{
 		SrcIP:    key.SrcIP,
@@ -119,7 +115,8 @@ func serverState(state model.ServerState) contract.ServerState {
 		LatencyP95Milli:        state.LatencyP95Milli,
 		NumberOfHandledPackets: state.NumberOfHandledPackets,
 		ReceivedPayloadBytes:   state.ReceivedPayloadBytes,
-		CpuUsage:               float32(state.CpuUsage) / float32(legacyCPUScale),
+		CpuUsage:               float32(state.CpuUsage),
+		Host:                   hostState(state.Host),
 		ECN:                    ecnState(state.ECN),
 		ACK:                    ackState(state.ACK),
 	}
@@ -253,9 +250,10 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 	info := world.Info()
 	ingress := world.Ingress()
 	result := contract.SimulationResult{
-		VirtualTime: info.Now.String(),
-		WallTime:    elapsed.String(),
-		Seed:        info.Seed,
+		LoadBalancerHost: hostState(info.LoadBalancerHost),
+		VirtualTime:      info.Now.String(),
+		WallTime:         elapsed.String(),
+		Seed:             info.Seed,
 		EffectiveClose: contract.CloseConfig{
 			MSL: info.Close.MSL, FinWaitTimeout: info.Close.FinWaitTimeout, MaxFINRetries: info.Close.MaxFINRetries,
 		},

@@ -70,14 +70,15 @@ type NormalizedRTOConfig struct {
 // NormalizedLoadBalancerConfig includes concrete idle limits for tracked connections.
 // Zero keeps the corresponding connection state until another close condition occurs.
 type NormalizedLoadBalancerConfig struct {
-	ID                      string        `json:"id"`
-	Algorithm               string        `json:"algorithm"`
-	Ingress                 LinkConfig    `json:"ingress"`
-	ForwardingBitsPerSecond int64         `json:"forwardingBitsPerSecond"`
-	HalfOpenIdleTimeout     time.Duration `json:"halfOpenIdleTimeoutNanoseconds"`
-	EstablishedIdleTimeout  time.Duration `json:"establishedIdleTimeoutNanoseconds"`
-	ClosingIdleTimeout      time.Duration `json:"closingIdleTimeoutNanoseconds"`
-	ResetIdleTimeout        time.Duration `json:"resetIdleTimeoutNanoseconds"`
+	ID                      string               `json:"id"`
+	Algorithm               string               `json:"algorithm"`
+	Host                    NormalizedHostConfig `json:"host"`
+	Ingress                 LinkConfig           `json:"ingress"`
+	ForwardingBitsPerSecond int64                `json:"forwardingBitsPerSecond"`
+	HalfOpenIdleTimeout     time.Duration        `json:"halfOpenIdleTimeoutNanoseconds"`
+	EstablishedIdleTimeout  time.Duration        `json:"establishedIdleTimeoutNanoseconds"`
+	ClosingIdleTimeout      time.Duration        `json:"closingIdleTimeoutNanoseconds"`
+	ResetIdleTimeout        time.Duration        `json:"resetIdleTimeoutNanoseconds"`
 }
 
 // DirectionalLinks holds the final settings for an endpoint's two link directions.
@@ -90,11 +91,20 @@ type DirectionalLinks struct {
 // NormalizedBackend is produced from BackendConfig after validation.
 // Its settings already include defaults, the selected profile and overrides.
 type NormalizedBackend struct {
-	ID      string           `json:"id"`
-	Name    string           `json:"name"`
-	Address string           `json:"address"`
-	Port    uint16           `json:"port"`
-	Network DirectionalLinks `json:"network"`
+	ID      string               `json:"id"`
+	Name    string               `json:"name"`
+	Address string               `json:"address"`
+	Port    uint16               `json:"port"`
+	Network DirectionalLinks     `json:"network"`
+	Host    NormalizedHostConfig `json:"host"`
+}
+
+// NormalizedHostConfig holds concrete CPU limits after omitted fields are resolved.
+// QueueCapacity counts waiting packets; active packets occupy virtual cores.
+type NormalizedHostConfig struct {
+	Cores                int           `json:"cores"`
+	PacketProcessingTime time.Duration `json:"packetProcessingTimeNanoseconds"`
+	QueueCapacity        int           `json:"queueCapacity"`
 }
 
 // NormalizedClientGroup holds shared settings and resolved client exceptions.

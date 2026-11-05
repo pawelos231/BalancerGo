@@ -1,5 +1,7 @@
 package model
 
+import "load-balancer/host"
+
 type ServerState struct {
 	ID                     string
 	Name                   string
@@ -11,7 +13,8 @@ type ServerState struct {
 	LatencyP95Milli        uint32
 	NumberOfHandledPackets uint32
 	ReceivedPayloadBytes   uint64
-	CpuUsage               uint32 // Packets received in the last statistics window.
+	CpuUsage               float64 // Mean modeled core utilization in virtual time, in 0..1.
+	Host                   host.Stats
 	ECN                    ECNState
 	ACK                    ACKState
 }

@@ -187,8 +187,12 @@ func normalizeIdleTimeout(
 }
 
 // normalizeLoadBalancer resolves an independent idle limit for each mapping phase.
-func normalizeLoadBalancer(config LoadBalancerConfig) (NormalizedLoadBalancerConfig, error) {
+func normalizeLoadBalancer(config LoadBalancerConfig, duration time.Duration) (NormalizedLoadBalancerConfig, error) {
 	if err := validateLoadBalancer(config); err != nil {
+		return NormalizedLoadBalancerConfig{}, err
+	}
+	host, err := normalizeHost(config.Host, duration, "resources.loadBalancer.host")
+	if err != nil {
 		return NormalizedLoadBalancerConfig{}, err
 	}
 	halfOpen, err := normalizeIdleTimeout(
@@ -226,6 +230,7 @@ func normalizeLoadBalancer(config LoadBalancerConfig) (NormalizedLoadBalancerCon
 	return NormalizedLoadBalancerConfig{
 		ID:                      config.ID,
 		Algorithm:               config.Algorithm,
+		Host:                    host,
 		Ingress:                 config.Ingress,
 		ForwardingBitsPerSecond: config.ForwardingBitsPerSecond,
 		HalfOpenIdleTimeout:     halfOpen,

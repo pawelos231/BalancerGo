@@ -145,6 +145,7 @@ type ResourcesConfig struct {
 type LoadBalancerConfig struct {
 	ID                      string         `json:"id"`
 	Algorithm               string         `json:"algorithm"`
+	Host                    HostConfig     `json:"host,omitempty"`
 	Ingress                 LinkConfig     `json:"ingress"`
 	ForwardingBitsPerSecond int64          `json:"forwardingBitsPerSecond"`
 	HalfOpenIdleTimeout     *time.Duration `json:"halfOpenIdleTimeoutNanoseconds,omitempty"`
@@ -161,6 +162,15 @@ type BackendConfig struct {
 	Address string                `json:"address"`
 	Port    uint16                `json:"port"`
 	Network EndpointNetworkConfig `json:"network"`
+	Host    HostConfig            `json:"host,omitempty"`
+}
+
+// HostConfig limits packet processing separately from links and TCP buffering.
+// Zero processing time disables the CPU model; omitted values use safe defaults.
+type HostConfig struct {
+	Cores                *int           `json:"cores,omitempty"`
+	PacketProcessingTime *time.Duration `json:"packetProcessingTimeNanoseconds,omitempty"`
+	QueueCapacity        *int           `json:"queueCapacity,omitempty"`
 }
 
 // WorkloadConfig describes how much data clients send and how they are grouped.

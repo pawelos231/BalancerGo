@@ -11,6 +11,7 @@ import { formatMetric, formatNumber, kindLabel } from './format';
 import { nodeHeight, NODE_WIDTH } from './layout';
 import TopologyTrafficRates from './TopologyTrafficRates';
 import type { TopologyIngress, TopologyNode } from './types';
+import { nodeHostState } from './telemetry';
 
 export type FlowTopologyNode = Node<{
   node: TopologyNode;
@@ -44,6 +45,29 @@ function LoadBalancerInputs({ ingress }: { ingress: TopologyIngress }) {
       })}
       <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
         Both queues use the shared RX limit.
+      </Typography>
+    </Stack>
+  );
+}
+
+// Current occupancy and run-mean utilization describe the simulated host CPU.
+function HostProcessing({ node }: { node: TopologyNode }) {
+  const host = nodeHostState(node);
+  if (!host) return null;
+  if (!host.enabled) {
+    return <Typography variant="caption" color="text.secondary">CPU model disabled</Typography>;
+  }
+  return (
+    <Stack spacing={0.25} sx={{ mt: 1, pt: 0.75, borderTop: '1px solid', borderColor: 'divider' }}>
+      <Typography variant="caption" fontWeight={600}>
+        CPU: {formatNumber(host.busyCores)} / {formatNumber(host.cores)} cores busy
+      </Typography>
+      <Typography variant="caption" title="Utilization averages virtual core time over this run, including idle time.">
+        Run mean: {formatNumber(host.utilization * 100)}%
+        {' · '}Queue: {formatNumber(host.queuedPackets)} / {formatNumber(host.queueCapacity)}
+      </Typography>
+      <Typography variant="caption" color="text.secondary">
+        CPU queue drops: {formatNumber(host.queueDroppedPackets, 0)}
       </Typography>
     </Stack>
   );
@@ -204,6 +228,7 @@ function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
         ))}
       </Stack>
       <TopologyTrafficRates traffic={node.traffic} grouped={node.kind === 'clientGroup'} />
+      <HostProcessing node={node} />
       {isLoadBalancer && data.ingress && <LoadBalancerInputs ingress={data.ingress} />}
     </Box>
   );

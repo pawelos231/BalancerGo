@@ -42,7 +42,7 @@ func Normalize(input Scenario) (Normalized, error) {
 		return Normalized{}, err
 	}
 
-	loadBalancer, err := normalizeLoadBalancer(input.Resources.LoadBalancer)
+	loadBalancer, err := normalizeLoadBalancer(input.Resources.LoadBalancer, input.Execution.Duration)
 	if err != nil {
 		return Normalized{}, err
 	}
@@ -95,6 +95,10 @@ func Normalize(input Scenario) (Normalized, error) {
 		if err != nil {
 			return Normalized{}, err
 		}
+		host, err := normalizeHost(backend.Host, input.Execution.Duration, path+".host")
+		if err != nil {
+			return Normalized{}, err
+		}
 
 		result.Backends = append(result.Backends, NormalizedBackend{
 			ID:      backend.ID,
@@ -102,6 +106,7 @@ func Normalize(input Scenario) (Normalized, error) {
 			Address: backend.Address,
 			Port:    backend.Port,
 			Network: links,
+			Host:    host,
 		})
 	}
 

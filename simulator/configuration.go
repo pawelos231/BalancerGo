@@ -33,6 +33,8 @@ type configuration struct {
 	lbEstablishedIdleTimeout      *time.Duration
 	lbClosingIdleTimeout          *time.Duration
 	lbResetIdleTimeout            *time.Duration
+	lbHost                        *scenario.HostConfig
+	backendHost                   *scenario.HostConfig
 
 	clientGap        time.Duration
 	packetGap        time.Duration
@@ -66,6 +68,7 @@ func readConfiguration() (configuration, *preparedScenario, error) {
 	var c configuration
 	ingressDefaults := scenario.DefaultIngressConfig()
 	c.registerTCPFlags()
+	c.registerHostFlags()
 	flag.IntVar(&c.clients, "clients", 200, "number of simulated clients")
 	flag.IntVar(&c.servers, "servers", 10, "number of backend servers (zero simulates no backends)")
 	flag.IntVar(&c.packets, "packets", 10000, "1024-byte payload units per client when -bytes is -1")

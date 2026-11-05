@@ -69,6 +69,19 @@ export interface ServerState {
   ReceivedPayloadBytes?: number;
 }
 
+// Model utilization uses virtual core time, separate from the simulator's real CPU use.
+export interface HostState {
+  enabled: boolean;
+  cores: number;
+  busyCores: number;
+  queueCapacity: number;
+  queuedPackets: number;
+  maxQueuedPackets: number;
+  processedPackets: number;
+  queueDroppedPackets: number;
+  utilization: number;
+}
+
 export interface ServerStateWithClients {
   server: ServerState;
   clients: ClientState[];

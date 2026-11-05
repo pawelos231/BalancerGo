@@ -217,7 +217,12 @@ func TestTelemetryMatchesLegacyProjection(t *testing.T) {
 	if actual := restoreTelemetryTopology(t, first.Document, second.Topology); !reflect.DeepEqual(actual, presentation.BuildTopology(s)) {
 		t.Fatal("compact topology cannot reconstruct the previous full projection")
 	}
-	if actual := restoreTelemetryServers(t, first.Document, second.Servers); !reflect.DeepEqual(actual, before.State.Servers) {
+	// Detailed host counters travel as topology metrics, not repeated server frames.
+	expectedServers := append([]contract.ServerStateWithClients(nil), before.State.Servers...)
+	for i := range expectedServers {
+		expectedServers[i].Server.Host = nil
+	}
+	if actual := restoreTelemetryServers(t, first.Document, second.Servers); !reflect.DeepEqual(actual, expectedServers) {
 		t.Fatal("compact server values lost counters or routed-client details")
 	}
 	clients := 0

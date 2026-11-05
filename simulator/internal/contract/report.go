@@ -89,8 +89,32 @@ type ServerState struct {
 	NumberOfHandledPackets uint32
 	ReceivedPayloadBytes   uint64
 	CpuUsage               float32
-	ECN                    *ECNState `json:",omitempty"`
-	ACK                    *ACKState `json:",omitempty"`
+	Host                   *HostState `json:",omitempty"`
+	ECN                    *ECNState  `json:",omitempty"`
+	ACK                    *ACKState  `json:",omitempty"`
+}
+
+// HostState describes modeled CPU work in virtual time, not the Go process CPU.
+// Queue drops exclude work discarded by a stop or a host failure.
+type HostState struct {
+	Enabled                         bool          `json:"enabled"`
+	Cores                           int           `json:"cores"`
+	PacketProcessingTimeNanoseconds time.Duration `json:"packetProcessingTimeNanoseconds"`
+	QueueCapacity                   int           `json:"queueCapacity"`
+	BusyCores                       int           `json:"busyCores"`
+	QueuedPackets                   int           `json:"queuedPackets"`
+	MaxQueuedPackets                int           `json:"maxQueuedPackets"`
+	OfferedPackets                  uint64        `json:"offeredPackets"`
+	AcceptedPackets                 uint64        `json:"acceptedPackets"`
+	StartedPackets                  uint64        `json:"startedPackets"`
+	ProcessedPackets                uint64        `json:"processedPackets"`
+	QueueDroppedPackets             uint64        `json:"queueDroppedPackets"`
+	DiscardedPackets                uint64        `json:"discardedPackets"`
+	BusyTimeSeconds                 float64       `json:"busyTimeSeconds"`
+	ObservedTimeSeconds             float64       `json:"observedTimeSeconds"`
+	MeanQueueWaitSeconds            float64       `json:"meanQueueWaitSeconds"`
+	MaxQueueWaitSeconds             float64       `json:"maxQueueWaitSeconds"`
+	Utilization                     float64       `json:"utilization"`
 }
 
 type ClientState struct {
@@ -232,6 +256,7 @@ type SimulationResult struct {
 	Seed             int64
 	TCP              TCPConfig
 	LBIdleTimeouts   LBIdleTimeoutConfig
+	LoadBalancerHost *HostState `json:"loadBalancerHost,omitempty"`
 	ClientTimings    []ClientTiming
 	ClientCongestion []ClientCongestion
 	ClientECN        []ClientECN        `json:",omitempty"`

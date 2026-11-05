@@ -23,7 +23,7 @@ import (
 
 const (
 	experimentReportVersion = 1
-	experimentModel         = "tcp-manual-mss-v1"
+	experimentModel         = "host-cpu-v1"
 )
 
 // loadedScenario keeps the importable input beside its checked runtime settings.

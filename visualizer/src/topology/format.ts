@@ -65,6 +65,7 @@ export function formatBytesPerSecond(value: number | undefined): string {
 }
 
 export function formatMetric(metric: TopologyMetric): string {
+  if (metric.key === 'hostUtilization') return `${formatNumber(metric.value * 100)}%`;
   switch (metric.unit) {
     case 'bytes':
     case 'B':

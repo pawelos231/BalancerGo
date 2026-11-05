@@ -167,6 +167,7 @@ function TopologyLimits({ topology }: TopologyLimitsProps) {
         TCP uses the configured receive window, congestion control and retransmission timers.
         Optional ECN and threshold signaling model congestion feedback; kernel RX processing
         and waiting-time queue policies are outside this model.
+        Optional host CPU pools add their own waiting queues, processing times and overflow drops.
       </Typography>
     </Stack>
   );

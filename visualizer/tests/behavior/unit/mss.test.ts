@@ -65,6 +65,7 @@ test('scenario library starts from the default MSS after a custom configuration'
   const defaults = scenarioFixture();
   defaults.tcp = { mssBytes: 8960 };
   for (const preset of scenarioPresets) {
-    assert.equal(scenarioFormValues(preset.build(defaults)).mssBytes, '1024', preset.id);
+    const expected = preset.category === 'host-cpu' ? '1460' : '1024';
+    assert.equal(scenarioFormValues(preset.build(defaults)).mssBytes, expected, preset.id);
   }
 });

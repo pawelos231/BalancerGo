@@ -3,6 +3,7 @@ package simulation
 import (
 	"time"
 
+	"load-balancer/host"
 	"load-balancer/model"
 	"load-balancer/network"
 	"load-balancer/scenario"
@@ -48,6 +49,7 @@ type Info struct {
 	CompletedPayloadBytes         uint64
 	Payload                       PayloadProgress
 	Forwarding                    network.ForwardingStats
+	LoadBalancerHost              host.Stats
 }
 
 type ClientObservation struct {
@@ -115,7 +117,8 @@ func (s *World) Info() Info {
 		ScheduledClients: s.scheduledClients, CreatedClients: s.createdClients,
 		CompletedStreams: s.completedStreams, ClosedClients: s.closedClients,
 		CompletedPayloadBytes: s.completedPayloadBytes, Payload: s.payload,
-		Forwarding: s.egress.Stats(),
+		Forwarding:       s.egress.Stats(),
+		LoadBalancerHost: s.lb.HostStats(),
 	}
 }
 

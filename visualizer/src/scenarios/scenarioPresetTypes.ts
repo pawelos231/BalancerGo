@@ -5,6 +5,7 @@ export const presetCategories = [
   { id: 'transport', label: 'TCP transport' },
   { id: 'links', label: 'Links and latency' },
   { id: 'queues', label: 'Queues and shared limits' },
+  { id: 'host-cpu', label: 'Host CPU processing' },
   { id: 'loss', label: 'Packet loss' },
   { id: 'workload', label: 'Workload and arrivals' },
   { id: 'routing', label: 'Routing' },

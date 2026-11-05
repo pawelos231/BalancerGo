@@ -25,6 +25,12 @@ overrides or changes to Go defaults do not alter it.
 | [unbuffered-ingress.json](unbuffered-ingress.json) | 64 / 2 | Same input bottleneck with zero waiting slots: start immediately or drop. |
 | [ecn-congestion.json](ecn-congestion.json) | 16 / 2 | Reno with ECN; 10 Mbit/s forward bottlenecks mark above 25% occupancy, while ACK paths remain fast. |
 | [delayed-ack-small-window.json](delayed-ack-small-window.json) | 16 / 2 | Reno capped at one segment, with delayed ACK enabled and a 40 ms virtual timer. |
+| [host-cpu-disabled.json](host-cpu-disabled.json) | 64 / 2 | Fast-link reference with ideal CPU processing on every host. |
+| [lb-cpu-bottleneck.json](lb-cpu-bottleneck.json) | 64 / 2 | One LB core, 10 µs per packet and 128 CPU waiting slots. |
+| [backend-cpu-bottleneck.json](backend-cpu-bottleneck.json) | 64 / 2 | Each backend has one core, 10 µs per packet and 128 CPU waiting slots. |
+| [heterogeneous-backend-cpus.json](heterogeneous-backend-cpus.json) | 64 / 2 | Equal links with a slow one-core backend and a faster four-core backend. |
+| [small-backend-cpu-queue.json](small-backend-cpu-queue.json) | 64 / 2 | Backend CPU processing with only eight waiting slots. |
+| [lb-cpu-four-cores.json](lb-cpu-four-cores.json) | 64 / 2 | Four LB cores at 10 µs per packet, paired with the one-core LB preset. |
 | [staggered-arrivals.json](staggered-arrivals.json) | 4 × 4 / 2 | Groups start at 0, 5, 20 and 200 s, with 250 ms between clients; the last group is beyond the horizon. |
 | [mixed-streams.json](mixed-streams.json) | 8 + 8 / 2 | Short streams with 0, 1, 1024 and 1025-byte overrides alongside 1 GiB streams. |
 | [seeded-random.json](seeded-random.json) | 16 / 4 | Random routing with exact seed `"9007199254740993"` for repeatable assignments. |
@@ -32,6 +38,9 @@ overrides or changes to Go defaults do not alter it.
 | [idle-network.json](idle-network.json) | 0 / 2 | Infrastructure without client traffic; scheduled maintenance events still execute. |
 | [advanced-overrides.json](advanced-overrides.json) | 4 / 2 | Profile, directional settings and one explicit client override. |
 | [Reference matrix](REFERENCE_EXPERIMENTS.md) | 16 / 2 | Eight cases crossing backend 2's travel RTT, return-link bandwidth and stream size. |
+
+Host CPU presets use NewReno with SACK to sustain traffic when CPU queues overflow.
+Their processing times are assumed experiment parameters, not measured hardware profiles.
 
 The **Reference experiments** category adds a fixed 2 x 2 x 2 matrix: backend 2
 has a 4 or 40 ms base travel RTT and a 1 Gbit/s or 64 kbit/s return link;
@@ -220,5 +229,5 @@ The current transport uses sliding windows, cumulative ACKs, configurable
 congestion control and fixed or adaptive retransmission timers. SACK, ECN and
 delayed ACK are optional. Reverse ACK paths also share LB resources. Configured
 client bitrates are limits, so windows, ACK timing and losses can keep throughput
-below them. These results describe this TCP profile; finite host CPU service
-and kernel RX processing are not modeled yet.
+below them. Optional host profiles add finite virtual CPU service and its own
+waiting queue. Detailed kernel RX processing is outside the current model.

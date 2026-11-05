@@ -8,6 +8,7 @@ import (
 	"load-balancer/algorithms"
 	"load-balancer/client"
 	"load-balancer/engine"
+	"load-balancer/host"
 	"load-balancer/model"
 	"load-balancer/server"
 	"math/rand"
@@ -31,6 +32,7 @@ type healthCheck struct {
 
 type LoadBalancer struct {
 	engine      *engine.Engine
+	processor   *host.Host
 	Mode        model.LBMode
 	algo        algorithms.Algorithm
 	rng         *rand.Rand
@@ -56,6 +58,7 @@ func NewLoadBalancer(e *engine.Engine, mode model.LBMode, algo algorithms.Algori
 	}
 	lb := &LoadBalancer{
 		engine: e, Mode: mode, algo: algo, rng: rng,
+		processor:   host.New(e, host.DefaultConfig()),
 		clients:     make(map[model.ClientKey]*client.Client),
 		connTable:   make(map[*server.Server][]*client.Client),
 		byKey:       make(map[model.ClientKey]*server.Server),
@@ -126,6 +129,21 @@ func (lb *LoadBalancer) AddServer(srv *server.Server, send Sender) error {
 }
 
 func (lb *LoadBalancer) HandleClientPacket(pkt model.Packet) {
+	if lb.closed {
+		return
+	}
+	cl := lb.clients[pkt.Key]
+	connection := lb.connections[pkt.Key]
+	lb.processor.Submit(func() {
+		if !lb.HasClient(cl) || (connection != nil && lb.connections[pkt.Key] != connection) {
+			return
+		}
+		lb.processClientPacket(pkt)
+	})
+}
+
+// processClientPacket changes routing state only after the host has finished its work.
+func (lb *LoadBalancer) processClientPacket(pkt model.Packet) {
 	cl := lb.clients[pkt.Key]
 	if cl == nil || !lb.HasClient(cl) {
 		return
@@ -151,6 +169,20 @@ func (lb *LoadBalancer) HandleClientPacket(pkt model.Packet) {
 }
 
 func (lb *LoadBalancer) HandleServerPacket(srv *server.Server, pkt model.Packet) {
+	if lb.closed {
+		return
+	}
+	cl := lb.clients[pkt.Key]
+	connection := lb.connections[pkt.Key]
+	lb.processor.Submit(func() {
+		if !lb.HasClient(cl) || lb.connections[pkt.Key] != connection {
+			return
+		}
+		lb.processServerPacket(srv, pkt)
+	})
+}
+
+func (lb *LoadBalancer) processServerPacket(srv *server.Server, pkt model.Packet) {
 	cl := lb.clients[pkt.Key]
 	if cl == nil || !lb.HasClient(cl) || lb.byKey[pkt.Key] != srv {
 		return
@@ -334,6 +366,7 @@ func (lb *LoadBalancer) Shutdown() {
 		return
 	}
 	lb.closed = true
+	lb.processor.Stop()
 	lb.engine.Cancel(lb.cleanup)
 	lb.ClearConnectionTable()
 	for _, check := range lb.health {

@@ -13,6 +13,13 @@ export interface ScenarioLinkConfig {
 
 export type ScenarioLinkPatch = Partial<ScenarioLinkConfig>;
 
+// Zero processing time keeps the ideal host; positive time occupies virtual cores.
+export interface ScenarioHostConfig {
+  cores?: ExactInteger;
+  packetProcessingTimeNanoseconds?: ExactInteger;
+  queueCapacity?: ExactInteger;
+}
+
 export const congestionModeOptions = [
   { value: 'reno', label: 'Reno' },
   { value: 'newReno', label: 'NewReno' },
@@ -119,6 +126,7 @@ export interface Scenario {
       establishedIdleTimeoutNanoseconds?: ExactInteger;
       closingIdleTimeoutNanoseconds?: ExactInteger;
       resetIdleTimeoutNanoseconds?: ExactInteger;
+      host?: ScenarioHostConfig;
     };
     backends: {
       id: string;
@@ -126,6 +134,7 @@ export interface Scenario {
       address: string;
       port: ExactInteger;
       network: ScenarioEndpointNetwork;
+      host?: ScenarioHostConfig;
     }[];
   };
   workload: {
@@ -179,6 +188,7 @@ export interface ResolvedScenario {
     address: string;
     port: ExactInteger;
     network: ResolvedLinks;
+    host?: ScenarioHostConfig;
   }[];
   clientGroups: {
     id: string;

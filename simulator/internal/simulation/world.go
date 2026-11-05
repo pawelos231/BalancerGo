@@ -12,6 +12,7 @@ import (
 	"load-balancer/algorithms"
 	"load-balancer/balancer"
 	"load-balancer/engine"
+	"load-balancer/host"
 	"load-balancer/model"
 	"load-balancer/network"
 	"load-balancer/scenario"
@@ -95,6 +96,7 @@ func New(resolved scenario.Normalized) *World {
 		Closing:     resolved.LoadBalancer.ClosingIdleTimeout,
 		Reset:       resolved.LoadBalancer.ResetIdleTimeout,
 	})
+	s.lb.SetHostConfig(configuredHost(resolved.LoadBalancer.Host))
 	s.egress = network.NewEgress(e, resolved.LoadBalancer.ForwardingBitsPerSecond)
 
 	// Two input queues share one physical receiver before LB processing.
@@ -180,6 +182,18 @@ func (s *World) addLink(
 	return link
 }
 
+func configuredHost(config scenario.NormalizedHostConfig) host.Config {
+	// Older direct AddBackend callers leave the newly added host field empty.
+	if config.Cores == 0 && config.PacketProcessingTime == 0 && config.QueueCapacity == 0 {
+		return host.DefaultConfig()
+	}
+	return host.Config{
+		Cores:                config.Cores,
+		PacketProcessingTime: config.PacketProcessingTime,
+		QueueCapacity:        config.QueueCapacity,
+	}
+}
+
 func configuredDelayedACK(config scenario.NormalizedDelayedACKConfig) model.DelayedACKConfig {
 	return model.DelayedACKConfig{
 		Enabled:        config.Enabled,
@@ -252,6 +266,7 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 		1,   // Initial weight.
 		100, // Half-open connection limit.
 	)
+	srv.SetHostConfig(configuredHost(config.Host))
 	srv.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
 	srv.SetSACKEnabled(s.scenario.TCP.SACKEnabled)
 	srv.SetECNEnabled(s.scenario.TCP.ECNEnabled)
@@ -298,7 +313,9 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 		originalClient := s.lb.GetClient(pkt.Key)
 		transmitPacket(toBackend, pkt, func(pkt model.Packet) {
 			if s.lb.HasClient(originalClient) {
-				srv.HandlePacket(pkt)
+				srv.HandlePacketIf(pkt, func() bool {
+					return s.lb.HasClient(originalClient)
+				})
 			}
 		})
 	})

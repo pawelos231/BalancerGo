@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"load-balancer/engine"
+	"load-balancer/host"
 	"load-balancer/model"
 	"load-balancer/protocols/tcp"
 )
-
-const statisticsInterval = 100 * time.Millisecond
 
 // Server owns backend availability, admission limits and host observations.
 // Its TCP receiver owns connection state, byte ranges and protocol timers.
@@ -28,7 +27,6 @@ type Server struct {
 	Draining        bool
 	HealthTCP       bool
 	LatencyP95Milli uint32
-	CpuUsage        uint32
 
 	MaxConnections      uint32
 	ActiveConnections   uint32
@@ -46,16 +44,15 @@ type Server struct {
 	// Called only for new payload accepted by a connection, before its ACK is sent.
 	OnPayloadReceived func(int)
 
-	transport           *tcp.Receiver
-	engine              *engine.Engine
-	sender              func(model.Packet)
-	started             bool
-	statisticsEvent     engine.EventID
-	previousPacketCount uint32
-	probeEvents         map[engine.EventID]struct{}
-	latencySamples      [100]int64
-	latencyCount        int
-	latencyPosition     int
+	transport       *tcp.Receiver
+	processor       *host.Host
+	engine          *engine.Engine
+	sender          func(model.Packet)
+	started         bool
+	probeEvents     map[engine.EventID]struct{}
+	latencySamples  [100]int64
+	latencyCount    int
+	latencyPosition int
 }
 
 func NewServer(
@@ -75,6 +72,7 @@ func NewServer(
 		Tags: []string{}, Metadata: make(map[string]string),
 		DrainTimeout: 120 * time.Second, LastUpdated: e.Now(),
 		engine:      e,
+		processor:   host.New(e, host.DefaultConfig()),
 		probeEvents: make(map[engine.EventID]struct{}),
 	}
 	s.transport = tcp.NewReceiver(e, tcp.ReceiverCallbacks{
@@ -103,26 +101,12 @@ func NewServer(
 
 func (s *Server) SetSender(sender func(model.Packet)) { s.sender = sender }
 
-// Start schedules the old periodic packet-count proxy, once per server.
+// Start finishes backend configuration; CPU work is scheduled only on arrival.
 func (s *Server) Start() {
 	if s.started || s.Killed {
 		return
 	}
 	s.started = true
-	s.previousPacketCount = s.NumberOfHandledPackets
-	s.scheduleStatistics()
-}
-
-func (s *Server) scheduleStatistics() {
-	s.statisticsEvent = s.engine.ScheduleAfter(statisticsInterval, func() {
-		s.statisticsEvent = 0
-		if s.Killed {
-			return
-		}
-		s.CpuUsage = s.NumberOfHandledPackets - s.previousPacketCount
-		s.previousPacketCount = s.NumberOfHandledPackets
-		s.scheduleStatistics()
-	})
 }
 
 func (s *Server) Shutdown() {
@@ -132,9 +116,7 @@ func (s *Server) Shutdown() {
 	s.Killed = true
 	s.Active = false
 	s.HealthTCP = false
-	s.CpuUsage = 0
-	s.engine.Cancel(s.statisticsEvent)
-	s.statisticsEvent = 0
+	s.processor.Stop()
 	for event := range s.probeEvents {
 		s.engine.Cancel(event)
 	}
@@ -151,6 +133,7 @@ func (s *Server) MarkFailed() {
 	if s.Killed {
 		return
 	}
+	s.processor.DiscardPending()
 	s.Active = false
 	s.HealthTCP = false
 	s.LatencyP95Milli = math.MaxUint32
@@ -256,11 +239,13 @@ func (s *Server) Score() float64 {
 }
 
 func (s *Server) GetState() model.ServerState {
+	processing := s.processor.Stats()
 	return model.ServerState{
 		ID: s.ID, Name: s.Name, Address: s.Address, Port: s.Port,
 		Active: s.Active, ActiveConnections: s.ActiveConnections,
 		HalfOpenConnections: s.HalfOpenConnections, LatencyP95Milli: s.LatencyP95Milli,
-		CpuUsage:               s.CpuUsage,
+		CpuUsage:               processing.Utilization(),
+		Host:                   processing,
 		NumberOfHandledPackets: s.NumberOfHandledPackets,
 		ReceivedPayloadBytes:   s.transport.ReceivedPayloadBytes(),
 		ECN:                    s.transport.GetECNState(),

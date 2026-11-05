@@ -3,7 +3,7 @@ import type { TopologyGraph, TopologySelection } from './types';
 
 export const NODE_WIDTH = 240;
 export const NODE_HEIGHT = 200;
-export const LOAD_BALANCER_HEIGHT = 336;
+export const LOAD_BALANCER_HEIGHT = 400;
 export const MAX_VISIBLE_NODES = 200;
 export const MAX_VISIBLE_LINKS = 500;
 
@@ -42,7 +42,8 @@ export interface TopologyLayout {
 
 // All nodes reserve room for measured traffic; the LB also shows limits and queues.
 export function nodeHeight(kind: string): number {
-  return kind === 'loadBalancer' ? LOAD_BALANCER_HEIGHT : NODE_HEIGHT;
+  if (kind === 'loadBalancer') return LOAD_BALANCER_HEIGHT;
+  return kind === 'backend' ? 264 : NODE_HEIGHT;
 }
 
 // Bound layout and rendering while keeping selected elements reachable.

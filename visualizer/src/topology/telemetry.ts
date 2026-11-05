@@ -1,4 +1,22 @@
 import type { TopologyGraph, TopologyLink, TopologyLinkStats, TopologyNode } from './types';
+import type { HostState } from '../types';
+
+// Host cards reuse the graph counters rather than adding a second snapshot payload.
+export function nodeHostState(node?: TopologyNode): HostState | undefined {
+  if (!node?.metrics.some(metric => metric.key === 'hostCPUEnabled')) return undefined;
+  const value = (key: string) => node.metrics.find(metric => metric.key === key)?.value ?? 0;
+  return {
+    enabled: value('hostCPUEnabled') !== 0,
+    cores: value('hostCores'),
+    busyCores: value('hostBusyCores'),
+    queueCapacity: value('hostQueueCapacity'),
+    queuedPackets: value('hostQueuedPackets'),
+    maxQueuedPackets: value('hostMaxQueuedPackets'),
+    processedPackets: value('hostProcessedPackets'),
+    queueDroppedPackets: value('hostQueueDroppedPackets'),
+    utilization: value('hostUtilization'),
+  };
+}
 
 // LinkRole separates the resource that owns each waiting queue.
 export type LinkRole = 'access' | 'ingress' | 'egress' | 'other';

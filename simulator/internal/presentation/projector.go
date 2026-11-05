@@ -113,7 +113,7 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 			ActiveConnections: server.ActiveConnections, HalfOpenConnections: server.HalfOpenConnections,
 			LatencyP95Milli: server.LatencyP95Milli, NumberOfHandledPackets: server.NumberOfHandledPackets,
 			ReceivedPayloadBytes: server.ReceivedPayloadBytes,
-			CpuUsage:             float32(server.CpuUsage) / float32(legacyCPUScale),
+			CpuUsage:             float32(server.CpuUsage),
 			Clients:              make([]contract.TelemetryClient, 0),
 		})
 		metrics := backendMetrics(server)
