@@ -36,7 +36,7 @@ type CongestionConfig struct {
 	InitialSlowStartThresholdBytes uint64
 }
 
-// DefaultCongestionConfig starts with four 1024-byte segments and a high threshold.
+// DefaultCongestionConfig starts with four MSS-sized segments and a high threshold.
 // RFC 5681, section 3.1: https://www.rfc-editor.org/rfc/rfc5681.html#section-3.1
 func DefaultCongestionConfig() CongestionConfig {
 	return CongestionConfig{

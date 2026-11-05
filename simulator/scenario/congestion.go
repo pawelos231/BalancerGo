@@ -8,7 +8,7 @@ import (
 )
 
 // normalizeCongestion fills omitted fields and keeps byte-window arithmetic in range.
-func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, error) {
+func normalizeCongestion(config CongestionConfig, mssBytes int) (NormalizedCongestionConfig, error) {
 	defaults := model.DefaultCongestionConfig()
 	resolved := NormalizedCongestionConfig{
 		Mode:                           string(defaults.Mode),
@@ -50,8 +50,8 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 		)
 	}
 
-	// Multiplying the segment count by 1,024 must still fit the sender's byte counters.
-	maximumSegments := math.MaxInt64 / model.SEGMENT_SIZE
+	// A segment count multiplied by this MSS must fit the sender's byte counters.
+	maximumSegments := math.MaxInt64 / mssBytes
 	if resolved.MaximumWindowSegments < 0 || resolved.MaximumWindowSegments > maximumSegments {
 		return NormalizedCongestionConfig{}, fmt.Errorf(
 			"tcp.congestionControl.maximumWindowSegments: must be in 0..%d; zero disables the cap",
@@ -69,11 +69,12 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 			maximumSegments,
 		)
 	}
-	if resolved.InitialSlowStartThresholdBytes < 2*model.SEGMENT_SIZE ||
+	minimumThresholdBytes := uint64(2 * mssBytes)
+	if resolved.InitialSlowStartThresholdBytes < minimumThresholdBytes ||
 		resolved.InitialSlowStartThresholdBytes > math.MaxInt64 {
 		return NormalizedCongestionConfig{}, fmt.Errorf(
 			"tcp.congestionControl.initialSlowStartThresholdBytes: must be in %d..%d",
-			2*model.SEGMENT_SIZE,
+			minimumThresholdBytes,
 			int64(math.MaxInt64),
 		)
 	}

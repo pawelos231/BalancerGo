@@ -151,7 +151,8 @@ func TestCubicWindowConversionStaysWithinByteLimit(t *testing.T) {
 	if policy.congestionWindowBytes != model.MaxCongestionWindowBytes {
 		t.Fatalf("large floating-point window wrapped to %d", policy.congestionWindowBytes)
 	}
-	if cubicLossThreshold(model.MaxCongestionWindowBytes) > model.MaxCongestionWindowBytes {
+	threshold := cubicLossThreshold(model.MaxCongestionWindowBytes, model.DefaultMSSBytes)
+	if threshold > model.MaxCongestionWindowBytes {
 		t.Fatal("loss threshold overflowed")
 	}
 }
@@ -160,7 +161,7 @@ func cubicTestPolicy(initialSegments int) *cubicPolicy {
 	config := model.DefaultCongestionConfig()
 	config.InitialWindowSegments = initialSegments
 	config.InitialSlowStartThresholdBytes = 2 * model.SEGMENT_SIZE
-	return newCubicPolicy(config)
+	return newCubicPolicy(config, model.DefaultMSSBytes)
 }
 
 func cubicTestACK(at time.Duration, bytes uint64) ACK {

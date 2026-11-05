@@ -30,9 +30,9 @@ type cubicPolicy struct {
 	recoveryWindowBytes uint64
 }
 
-func newCubicPolicy(config model.CongestionConfig) *cubicPolicy {
-	window := newClassicWindow(config)
-	initialSegments := float64(window.congestionWindowBytes) / model.SEGMENT_SIZE
+func newCubicPolicy(config model.CongestionConfig, mssBytes int) *cubicPolicy {
+	window := newClassicWindow(config, mssBytes)
+	initialSegments := float64(window.congestionWindowBytes) / float64(window.mssBytes)
 	return &cubicPolicy{
 		classicWindow:       window,
 		windowSegments:      initialSegments,
@@ -64,7 +64,7 @@ func (policy *cubicPolicy) OnACK(ack ACK) ACKResponse {
 	// This profile selects Reno slow start rather than the separate HyStart++ mechanism.
 	// RFC 9438 section 4.10 includes equality with ssthresh in slow start.
 	if policy.congestionWindowBytes <= policy.slowStartThresholdBytes {
-		increase := min(ack.NewBytes, uint64(model.SEGMENT_SIZE))
+		increase := min(ack.NewBytes, policy.mssBytes)
 		policy.setWindowBytes(addCongestionBytes(policy.congestionWindowBytes, increase))
 		if !policy.hasCongestionEvent {
 			policy.priorWindowSegments = policy.windowSegments
@@ -79,7 +79,7 @@ func (policy *cubicPolicy) OnACK(ack ACK) ACKResponse {
 func (policy *cubicPolicy) OnDuplicateACK() {
 	if policy.activeRecovery && policy.remainingInflations > 0 {
 		policy.remainingInflations--
-		policy.setWindowBytes(addCongestionBytes(policy.congestionWindowBytes, model.SEGMENT_SIZE))
+		policy.setWindowBytes(addCongestionBytes(policy.congestionWindowBytes, policy.mssBytes))
 	}
 }
 
@@ -90,7 +90,7 @@ func (policy *cubicPolicy) OnLoss(loss Loss) LossResponse {
 	case FastRetransmitLoss:
 		if !loss.AlreadyReduced {
 			policy.rememberCongestionWindow()
-			policy.slowStartThresholdBytes = cubicLossThreshold(loss.FlightBytes)
+			policy.slowStartThresholdBytes = cubicLossThreshold(loss.FlightBytes, policy.mssBytes)
 			policy.recoveryWindowBytes = policy.slowStartThresholdBytes
 		} else {
 			policy.recoveryWindowBytes = policy.congestionWindowBytes
@@ -101,7 +101,7 @@ func (policy *cubicPolicy) OnLoss(loss Loss) LossResponse {
 
 		// Keep CUBIC's 70% reduction; SACK recovery uses Pipe without Reno inflation.
 		if !loss.SACKRecovery {
-			policy.setWindowBytes(addCongestionBytes(policy.recoveryWindowBytes, 3*model.SEGMENT_SIZE))
+			policy.setWindowBytes(addCongestionBytes(policy.recoveryWindowBytes, 3*policy.mssBytes))
 			policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
 		}
 		policy.epochStarted = false
@@ -110,9 +110,9 @@ func (policy *cubicPolicy) OnLoss(loss Loss) LossResponse {
 		policy.StopRecovery()
 		if !loss.AlreadyTimedOut && !loss.AlreadyReduced {
 			policy.rememberCongestionWindow()
-			policy.slowStartThresholdBytes = cubicLossThreshold(loss.FlightBytes)
+			policy.slowStartThresholdBytes = cubicLossThreshold(loss.FlightBytes, policy.mssBytes)
 		}
-		policy.setWindowBytes(model.SEGMENT_SIZE)
+		policy.setWindowBytes(policy.mssBytes)
 		policy.epochStarted = false
 		// RFC 9438 section 4.8: the next CA stage starts with W_max=cwnd_epoch and K=0.
 		policy.resetMaximumAtEpoch = true
@@ -131,8 +131,8 @@ func (policy *cubicPolicy) OnLoss(loss Loss) LossResponse {
 // https://www.rfc-editor.org/rfc/rfc9438.html#section-4.6
 func (policy *cubicPolicy) OnECN(ecn ECN) {
 	policy.rememberCongestionWindow()
-	policy.slowStartThresholdBytes = cubicLossThreshold(ecn.FlightBytes)
-	policy.setWindowBytes(max(cubicRetainedBytes(policy.congestionWindowBytes), model.SEGMENT_SIZE))
+	policy.slowStartThresholdBytes = cubicLossThreshold(ecn.FlightBytes, policy.mssBytes)
+	policy.setWindowBytes(max(cubicRetainedBytes(policy.congestionWindowBytes), policy.mssBytes))
 	if policy.activeRecovery {
 		policy.recoveryWindowBytes = policy.congestionWindowBytes
 	}
@@ -179,6 +179,6 @@ func (policy *cubicPolicy) State() State {
 // setWindowBytes synchronizes an exact loss/startup window with fractional CA storage.
 func (policy *cubicPolicy) setWindowBytes(bytes uint64) {
 	policy.classicWindow.setWindowBytes(bytes)
-	policy.windowSegments = float64(policy.congestionWindowBytes) / model.SEGMENT_SIZE
+	policy.windowSegments = float64(policy.congestionWindowBytes) / float64(policy.mssBytes)
 	policy.avoidanceAcknowledgedBytes = 0
 }

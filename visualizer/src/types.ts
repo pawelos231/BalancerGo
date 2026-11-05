@@ -104,6 +104,7 @@ export interface SimulationConfig {
   servers: number;
   packets: number;
   bytes: number;
+  mssBytes: number;
   receiveBufferBytes: number;
   sackEnabled: boolean;
   ECNenabled: boolean;

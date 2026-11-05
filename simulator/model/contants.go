@@ -21,5 +21,5 @@ const (
 	SEGMENT_TIMEOUT    = 1000 * time.Millisecond  // max wait for DATA-ACK
 	MAX_RETRANSMISIONS = 30                       // how many times to retransmit a segment
 	READ_DEADLINE      = DefaultClientIdleTimeout // read deadline for receiving packets
-	SEGMENT_SIZE       = 1024                     // bytes per PSH segment
+	SEGMENT_SIZE       = DefaultMSSBytes          // Legacy name for the default MSS, used by older callers/tests.
 )

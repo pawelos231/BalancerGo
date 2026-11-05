@@ -5,11 +5,22 @@ import "load-balancer/model"
 // New selects one congestion-control algorithm before a connection starts.
 // Invalid settings panic before a transport connection starts.
 func New(config model.CongestionConfig) Policy {
+	return NewWithMSS(config, model.DefaultMSSBytes)
+}
+
+// NewWithMSS uses the connection's payload limit for window growth and recovery.
+// For example, four segments at MSS=1460 start with a 5840-byte window.
+func NewWithMSS(config model.CongestionConfig, mssBytes int) Policy {
+	if !model.ValidMSSBytes(mssBytes) {
+		panic("tcp: MSS is outside the supported IPv4 payload range")
+	}
+	segmentBytes := uint64(mssBytes)
+
 	// Accept only the supported congestion-control modes.
 	validMode := config.Mode.Valid()
 
 	// Start with at least one segment, without exceeding the byte limit.
-	maximumInitialSegments := model.MaxCongestionWindowBytes / model.SEGMENT_SIZE
+	maximumInitialSegments := model.MaxCongestionWindowBytes / segmentBytes
 	validInitialWindow := config.InitialWindowSegments >= 1 &&
 		uint64(config.InitialWindowSegments) <= maximumInitialSegments
 
@@ -21,7 +32,7 @@ func New(config model.CongestionConfig) Policy {
 	}
 
 	// Keep the slow-start threshold between two segments and the byte limit.
-	minimumThresholdBytes := uint64(2 * model.SEGMENT_SIZE)
+	minimumThresholdBytes := 2 * segmentBytes
 	validThreshold := config.InitialSlowStartThresholdBytes >= minimumThresholdBytes &&
 		config.InitialSlowStartThresholdBytes <= model.MaxCongestionWindowBytes
 
@@ -35,13 +46,13 @@ func New(config model.CongestionConfig) Policy {
 
 	switch config.Mode {
 	case model.CongestionReno:
-		return &renoPolicy{classicWindow: newClassicWindow(config)}
+		return &renoPolicy{classicWindow: newClassicWindow(config, mssBytes)}
 	case model.CongestionNewReno:
-		return newNewRenoPolicy(config)
+		return newNewRenoPolicy(config, mssBytes)
 	case model.CongestionTahoe:
-		return &tahoePolicy{classicWindow: newClassicWindow(config)}
+		return &tahoePolicy{classicWindow: newClassicWindow(config, mssBytes)}
 	case model.CongestionCubic:
-		return newCubicPolicy(config)
+		return newCubicPolicy(config, mssBytes)
 	default:
 		return unlimitedPolicy{}
 	}

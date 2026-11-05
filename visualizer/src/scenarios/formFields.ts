@@ -23,6 +23,18 @@ export interface NumericFieldDefinition {
 
 // The backend supplies defaults; each field keeps its own units and limits.
 export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDefinition> = {
+  mssBytes: {
+    name: 'mssBytes',
+    label: 'Manual MSS (payload bytes)',
+    min: 1,
+    max: 65495,
+    integer: true,
+    help: 'Maximum payload bytes in one TCP data segment, configured for this entire run. ' +
+      'Choose a suggestion or enter a whole number. Labels show IPv4 sizes derived from MTU; ' +
+      'this setting does not model those link technologies or negotiate MSS in the handshake. ' +
+      'Smaller windows and the final payload remainder can produce shorter segments. ' +
+      'A fixed pause between segments sends more bytes per second when MSS is larger.',
+  },
   delayedAckSegments: {
     name: 'delayedAckSegments',
     label: 'Segments per ACK',
@@ -50,7 +62,7 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     integer: true,
     hint: '0 leaves the window uncapped.',
     help: 'Optional ceiling for cwnd, including recovery. It differs from the initial window, ' +
-      'which can grow as ACKs arrive. A cap of one holds cwnd to one 1,024-byte segment. ' +
+      'which can grow as ACKs arrive. A cap of one holds cwnd to one segment of the configured MSS. ' +
       'A capped window can expose delayed-ACK waiting. Requires congestion control other than none.',
   },
   congestionThresholdPercent: {
@@ -125,7 +137,7 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     hint: 'Used when default payload bytes per client = -1.',
     help:
       'Sets total payload to this count multiplied by 1,024 bytes when payload bytes per client is -1. ' +
-      'Actual segments can be smaller when the receive window is below 1,024 bytes. ' +
+      'MSS and the available windows determine actual segment sizes, independently of these units. ' +
       'Explicit stream overrides on groups and clients stay unchanged. ' +
       'A client can send several segments before acknowledgements return, within the advertised receive window.',
   },
@@ -134,11 +146,11 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     label: 'Default payload bytes per client',
     integer: true,
     min: -1,
-    hint: '-1 uses the segment count; 0 or more sets the exact payload size.',
+    hint: '-1 uses the 1,024-byte unit count; 0 or more sets the exact payload size.',
     help:
-      'Set -1 to use the segment count multiplied by 1,024 payload bytes per client. ' +
+      'Set -1 to use the unit count multiplied by 1,024 payload bytes per client. ' +
       'Any nonnegative value overrides that count with an exact payload size; 0 sends no data. ' +
-      'The final segment can be shorter than 1,024 bytes. Group and client overrides stay unchanged.',
+      'The final segment can be shorter than MSS. Group and client overrides stay unchanged.',
   },
   receiveBufferBytes: {
     name: 'receiveBufferBytes',
@@ -162,7 +174,7 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     help:
       'Initial limit on sent payload awaiting acknowledgements ' +
       'with Reno, NewReno, Tahoe or CUBIC. ' +
-      'The default of four 1,024-byte segments allows 4,096 bytes in flight before ACKs return. ' +
+      'Four segments with MSS 1,460 allow 5,840 bytes in flight before ACKs return. ' +
       'Values above four are experimental and exceed the selected RFC 5681 initial-window limit. ' +
       'The receiver window can impose a smaller limit. Mode none ignores this setting.',
   },
@@ -170,11 +182,11 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
     name: 'initialSlowStartThresholdBytes',
     label: 'Initial slow-start threshold (bytes)',
     integer: true,
-    min: 2048,
+    min: 2,
     help:
       'Congestion-window threshold for switching from faster slow-start growth ' +
       'to slower congestion avoidance. A retransmission timeout can lower this threshold. ' +
-      'Must be at least two 1,024-byte segments. Mode none ignores this setting.',
+      'Must be at least twice the configured MSS. Mode none ignores this setting.',
   },
   rtoInitialMs: {
     name: 'rtoInitialMs',
@@ -635,7 +647,7 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
     description: 'Set client arrivals, payload, receive buffering and pauses between segments.',
     fields: [
       'clients', 'clientGapMs', 'packets', 'bytes', 'packetGapMs',
-      'receiveBufferBytes', 'sackEnabled',
+      'mssBytes', 'receiveBufferBytes', 'sackEnabled',
     ],
     defaultExpanded: true,
   },

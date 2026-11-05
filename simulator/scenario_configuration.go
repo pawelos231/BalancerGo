@@ -9,6 +9,7 @@ import (
 // scenarioDefinition maps CLI and browser settings to the scenario model.
 // Shared ingress, endpoint links and forwarding keep their independent settings.
 func (c configuration) scenarioDefinition() scenario.Scenario {
+	mssBytes := c.effectiveMSSBytes()
 	receiveBufferBytes := c.receiveBufferBytes
 	if receiveBufferBytes == 0 {
 		receiveBufferBytes = model.DefaultReceiveBufferBytes
@@ -36,6 +37,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 	return scenario.Scenario{
 		Version: scenario.Version,
 		TCP: scenario.TCPConfig{
+			MSSBytes:           &mssBytes,
 			ReceiveBufferBytes: &receiveBufferBytes,
 			SACKEnabled:        &c.sackEnabled,
 			ECNEnabled:         &c.ecnEnabled,

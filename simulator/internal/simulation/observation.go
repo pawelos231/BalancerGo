@@ -25,6 +25,7 @@ type Info struct {
 	Speed                         float64
 	Seed                          int64
 	ReceiveBufferBytes            int
+	MSSBytes                      int
 	SACKEnabled                   bool
 	ECNEnabled                    bool
 	DelayedACK                    model.DelayedACKConfig
@@ -89,6 +90,7 @@ func (s *World) Info() Info {
 		SnapshotInterval: s.scenario.Execution.SnapshotInterval,
 		Speed:            s.scenario.Execution.Speed, Seed: s.scenario.Execution.Seed,
 		ReceiveBufferBytes: s.scenario.TCP.ReceiveBufferBytes,
+		MSSBytes:           s.scenario.TCP.MSSBytes,
 		SACKEnabled:        s.scenario.TCP.SACKEnabled,
 		ECNEnabled:         s.scenario.TCP.ECNEnabled,
 		DelayedACK:         configuredDelayedACK(s.scenario.TCP.DelayedACK),

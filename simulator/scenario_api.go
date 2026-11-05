@@ -119,6 +119,7 @@ func scenarioSummary(resolved scenario.Normalized) contract.SimulationConfig {
 		Servers:                            len(resolved.Backends),
 		Packets:                            stream.Packets,
 		Bytes:                              stream.Bytes,
+		MSSBytes:                           resolved.TCP.MSSBytes,
 		ReceiveBufferBytes:                 resolved.TCP.ReceiveBufferBytes,
 		SACKEnabled:                        resolved.TCP.SACKEnabled,
 		ECNEnabled:                         resolved.TCP.ECNEnabled,

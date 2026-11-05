@@ -21,6 +21,7 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   maxEvents: ['execution', 'maxEvents'],
   packets: ['workload', 'defaults', 'packets'],
   bytes: ['workload', 'defaults', 'bytes'],
+  mssBytes: ['tcp', 'mssBytes'],
   receiveBufferBytes: ['tcp', 'receiveBufferBytes'],
   sackEnabled: ['tcp', 'sackEnabled'],
   ECNenabled: ['tcp', 'ECNenabled'],
@@ -98,7 +99,7 @@ const floatFields = new Set<ScenarioField>([
 const positiveFields = new Set<ScenarioField>([
   'snapshotIntervalMs', 'maxEvents', 'bandwidthBitsPerSecond',
   'forwardingBitsPerSecond', 'ingressBandwidthBitsPerSecond',
-  'receiveBufferBytes',
+  'receiveBufferBytes', 'mssBytes',
   'delayedAckSegments', 'delayedAckMaxDelayMs',
   'initialCongestionWindowSegments',
   'rtoInitialMs', 'rtoMinimumMs', 'rtoMaximumMs',
@@ -107,6 +108,7 @@ const positiveFields = new Set<ScenarioField>([
 
 // Older documents keep their original shape while the form shows effective defaults.
 const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>> = {
+  mssBytes: 1024,
   receiveBufferBytes: 65535,
   sackEnabled: false,
   ECNenabled: false,
@@ -174,7 +176,11 @@ function durationText(value: ExactInteger, decimals: number): string {
 }
 
 // Local validation checks field syntax and Go ranges; HTTP checks the whole scenario.
-export function validateScenarioField(field: ScenarioField, raw: string): string | undefined {
+export function validateScenarioField(
+  field: ScenarioField,
+  raw: string,
+  mssBytes: ExactInteger = 1024,
+): string | undefined {
   const text = raw.trim();
   if (field === 'algorithm') {
     return text === 'roundRobin' || text === 'random' ? undefined : 'Choose a supported algorithm.';
@@ -241,11 +247,18 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   if (field === 'servers') maximum = 10_000n;
   if (field === 'maxEvents') maximum = maxUint64;
   if (field === 'receiveBufferBytes') maximum = 65535n;
+  if (field === 'mssBytes') maximum = 65495n;
   if (field === 'delayedAckSegments') maximum = 2n;
   if (field === 'delayedAckMaxDelayMs') maximum = 500_000_000n;
-  if (field === 'maximumCongestionWindowSegments') maximum = maxInt64 / 1024n;
-  if (field === 'initialCongestionWindowSegments') maximum = maxInt64 / 1024n;
-  if (field === 'initialSlowStartThresholdBytes') minimum = 2048n;
+  const windowField = field === 'maximumCongestionWindowSegments'
+    || field === 'initialCongestionWindowSegments'
+    || field === 'initialSlowStartThresholdBytes';
+  if (windowField) {
+    const mss = integer(mssBytes);
+    if (mss < 1n || mss > 65495n) return 'Choose an MSS between 1 and 65495 bytes first.';
+    if (field === 'initialSlowStartThresholdBytes') minimum = 2n * mss;
+    else maximum = maxInt64 / mss;
+  }
   if (field === 'tcpMSLMs') maximum = maxInt64 / 2n;
   if (field === 'tcpMaxFINRetries') maximum = 30n;
   if (value < minimum || value > maximum) {
@@ -283,7 +296,7 @@ export function scenarioFormValues(scenario: Scenario): ScenarioDraft {
 
 // Apply one explicit edit while keeping all unrelated native settings intact.
 export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw: string): Scenario {
-  const error = validateScenarioField(field, raw);
+  const error = validateScenarioField(field, raw, scenario.tcp?.mssBytes ?? 1024);
   if (error) throw new Error(error);
   const mode = scenario.tcp?.congestionControl?.mode ?? 'reno';
   if (field === 'fastRetransmit' && raw.trim() === 'true' && mode === 'none') {
@@ -371,6 +384,18 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     throw new Error('ECN requires Reno, NewReno, Tahoe or CUBIC congestion control.');
   }
   const congestion = updated.tcp?.congestionControl;
+  // Changing MSS also changes every window configured in segments.
+  const mss = integer(updated.tcp?.mssBytes ?? 1024);
+  const threshold = integer(congestion?.initialSlowStartThresholdBytes ?? 65535);
+  if (threshold < 2n * mss) {
+    throw new Error(`The slow-start threshold must be at least ${2n * mss} bytes for this MSS.`);
+  }
+  const maximumSegments = maxInt64 / mss;
+  const initialSegments = integer(congestion?.initialWindowSegments ?? 4);
+  const cappedSegments = integer(congestion?.maximumWindowSegments ?? 0);
+  if (initialSegments > maximumSegments || cappedSegments > maximumSegments) {
+    throw new Error(`Congestion windows cannot exceed ${maximumSegments} segments for this MSS.`);
+  }
   if (congestion?.mode === 'none' && integer(congestion.maximumWindowSegments ?? 0) !== 0n) {
     throw new Error('A maximum congestion window requires Reno, NewReno, Tahoe or CUBIC.');
   }

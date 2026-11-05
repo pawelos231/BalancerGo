@@ -93,6 +93,7 @@ export interface Scenario {
     maxEvents: ExactInteger;
   };
   tcp?: {
+    mssBytes?: ExactInteger;
     receiveBufferBytes?: ExactInteger;
     sackEnabled?: boolean;
     ECNenabled?: boolean;
@@ -151,6 +152,7 @@ export interface ResolvedScenario {
   version: ExactInteger;
   execution: Scenario['execution'];
   tcp: {
+    mssBytes: number;
     receiveBufferBytes: number;
     sackEnabled: boolean;
     ECNenabled: boolean;

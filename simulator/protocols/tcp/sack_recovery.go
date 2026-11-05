@@ -49,7 +49,9 @@ func (c *Sender) validateSACKProfile() {
 func (c *Sender) recordSACKReports(ack uint64, blocks []model.SACKBlock) bool {
 	changed := c.sack.board.Update(ack, c.nextSendSeq, blocks)
 	if c.sack.active {
-		c.sack.pipeBytes = c.sack.board.Pipe(ack, c.nextSendSeq, c.sack.retransmittedEnd)
+		c.sack.pipeBytes = c.sack.board.Pipe(
+			ack, c.nextSendSeq, c.sack.retransmittedEnd, uint64(c.mssBytes),
+		)
 	}
 	return changed
 }
@@ -69,7 +71,8 @@ func (c *Sender) observeSACKFeedback(newInformation, advancingACK bool) {
 	c.sack.duplicateACKs++
 	c.congestion.loss.duplicateACKs = c.sack.duplicateACKs
 	canRecover := c.oldestUnackedSeq >= c.sack.recoveryEndSeq
-	enoughEvidence := c.sack.duplicateACKs >= 3 || c.sack.board.IsLost(c.oldestUnackedSeq)
+	enoughEvidence := c.sack.duplicateACKs >= 3 ||
+		c.sack.board.IsLost(c.oldestUnackedSeq, uint64(c.mssBytes))
 	if !canRecover || !enoughEvidence {
 		return
 	}
@@ -93,12 +96,16 @@ func (c *Sender) observeSACKFeedback(newInformation, advancingACK bool) {
 	c.sack.active = true
 	c.sack.recoveryEndSeq = c.nextSendSeq
 	c.sack.retransmittedEnd = c.oldestUnackedSeq
-	c.sack.pipeBytes = c.sack.board.Pipe(c.oldestUnackedSeq, c.nextSendSeq, c.oldestUnackedSeq)
+	c.sack.pipeBytes = c.sack.board.Pipe(
+		c.oldestUnackedSeq, c.nextSendSeq, c.oldestUnackedSeq, uint64(c.mssBytes),
+	)
 	c.congestion.loss.untilSeq = c.nextSendSeq
 	if !alreadyReduced {
 		c.congestion.recordReduction(c.nextSendSeq)
 	}
-	firstHole, found := c.sack.board.NextHole(c.oldestUnackedSeq, c.nextSendSeq, false)
+	firstHole, found := c.sack.board.NextHole(
+		c.oldestUnackedSeq, c.nextSendSeq, false, uint64(c.mssBytes),
+	)
 	if found {
 		c.sack.rescueAfterSeq = firstHole.End
 		c.retransmitSACKHole(firstHole, false)
@@ -115,14 +122,14 @@ func (c *Sender) sendSACKRepairs() {
 	defer func() { c.sack.dispatching = false }()
 
 	for c.sack.active && !c.terminated && !c.connection.finSent {
-		if c.availableCongestionWindowBytes() < model.SEGMENT_SIZE {
+		if c.availableCongestionWindowBytes() < uint64(c.mssBytes) {
 			return
 		}
 		start := max(c.oldestUnackedSeq, c.sack.retransmittedEnd)
 		highestReported := max(c.oldestUnackedSeq, c.sack.board.HighestReportedEnd())
 
 		// Prefer a gap with evidence of loss over sending any more new bytes.
-		hole, found := c.sack.board.NextHole(start, highestReported, true)
+		hole, found := c.sack.board.NextHole(start, highestReported, true, uint64(c.mssBytes))
 		if found {
 			c.retransmitSACKHole(hole, false)
 			continue
@@ -133,7 +140,7 @@ func (c *Sender) sendSACKRepairs() {
 		}
 
 		// With no new data available, cautiously fill the next gap below a SACK block.
-		hole, found = c.sack.board.NextHole(start, highestReported, false)
+		hole, found = c.sack.board.NextHole(start, highestReported, false, uint64(c.mssBytes))
 		if found {
 			c.retransmitSACKHole(hole, false)
 			continue
@@ -141,7 +148,7 @@ func (c *Sender) sendSACKRepairs() {
 		if c.oldestUnackedSeq <= c.sack.rescueAfterSeq {
 			return
 		}
-		hole, found = c.sack.board.LastHole(c.oldestUnackedSeq, c.nextSendSeq)
+		hole, found = c.sack.board.LastHole(c.oldestUnackedSeq, c.nextSendSeq, uint64(c.mssBytes))
 		if !found {
 			return
 		}

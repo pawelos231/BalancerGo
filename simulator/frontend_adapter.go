@@ -106,6 +106,7 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		Servers:                         c.servers,
 		Packets:                         c.packets,
 		Bytes:                           c.streamBytes,
+		MSSBytes:                        c.effectiveMSSBytes(),
 		ReceiveBufferBytes:              receiveBufferBytes,
 		SACKEnabled:                     c.sackEnabled,
 		ECNEnabled:                      c.ecnEnabled,
@@ -167,6 +168,9 @@ func preparePublicScenario(
 	c contract.SimulationConfig,
 	base configuration,
 ) (preparedScenario, error) {
+	if !model.ValidMSSBytes(c.MSSBytes) {
+		return preparedScenario{}, fmt.Errorf("mssBytes must be in 1..%d", model.MaxMSSBytes)
+	}
 	if c.ReceiveBufferBytes < 1 || c.ReceiveBufferBytes > math.MaxUint16 {
 		return preparedScenario{}, errors.New("receiveBufferBytes must be in 1..65535")
 	}
@@ -210,6 +214,7 @@ func preparePublicScenario(
 	base.clients, base.servers = c.Clients, c.Servers
 	base.packets, base.streamBytes = c.Packets, c.Bytes
 	base.receiveBufferBytes = c.ReceiveBufferBytes
+	base.mssBytes = c.MSSBytes
 	base.sackEnabled = c.SACKEnabled
 	base.ecnEnabled = c.ECNEnabled
 	base.queuePolicy = c.QueuePolicy

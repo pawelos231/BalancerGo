@@ -10,6 +10,8 @@ import (
 
 // registerTCPFlags keeps congestion, retry timing and idle cleanup configurable.
 func (c *configuration) registerTCPFlags() {
+	flag.IntVar(&c.mssBytes, "tcp-mss", model.DefaultMSSBytes,
+		"manual maximum TCP payload bytes per data segment (1..65495)")
 	flag.BoolVar(&c.sackEnabled, "sack-enabled", false,
 		"negotiate selective ACKs; requires Reno, NewReno or CUBIC and fast retransmit")
 	flag.BoolVar(&c.ecnEnabled, "ecn-enabled", false,
@@ -60,13 +62,13 @@ func (c *configuration) registerTCPFlags() {
 		&c.congestion.InitialWindowSegments,
 		"tcp-initial-window",
 		c.congestion.InitialWindowSegments,
-		"initial TCP congestion window in 1024-byte segments",
+		"initial TCP congestion window in MSS-sized segments",
 	)
 	flag.IntVar(
 		&c.congestion.MaximumWindowSegments,
 		"tcp-maximum-window",
 		c.congestion.MaximumWindowSegments,
-		"maximum congestion window in 1024-byte segments; 0 leaves it uncapped",
+		"maximum congestion window in MSS-sized segments; 0 leaves it uncapped",
 	)
 	flag.BoolVar(
 		&c.congestion.FastRetransmit,
@@ -84,7 +86,7 @@ func (c *configuration) registerTCPFlags() {
 		&c.congestion.InitialSlowStartThresholdBytes,
 		"tcp-slow-start-threshold",
 		c.congestion.InitialSlowStartThresholdBytes,
-		"initial TCP slow-start threshold in bytes (at least 2048)",
+		"initial TCP slow-start threshold in bytes (at least twice the MSS)",
 	)
 
 	flag.Func(
@@ -164,6 +166,14 @@ func (c *configuration) registerTCPFlags() {
 		resetIdle,
 		"LB reset idle timeout; 0 disables cleanup",
 	)
+}
+
+// effectiveMSSBytes supplies the shared default for older internal configurations.
+func (c configuration) effectiveMSSBytes() int {
+	if c.mssBytes == 0 {
+		return model.DefaultMSSBytes
+	}
+	return c.mssBytes
 }
 
 // effectiveDelayedACKConfig keeps older configurations on immediate ACKs.

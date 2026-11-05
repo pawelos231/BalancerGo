@@ -261,6 +261,7 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 		},
 		TCP: contract.TCPConfig{
 			ReceiveBufferBytes: info.ReceiveBufferBytes,
+			MSSBytes:           info.MSSBytes,
 			SACKEnabled:        info.SACKEnabled,
 			ECNEnabled:         info.ECNEnabled,
 			DelayedACK: contract.DelayedACKConfig{

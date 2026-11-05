@@ -125,14 +125,14 @@ func (s *World) startClient(
 	)
 	cl.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
 	congestion := s.scenario.TCP.CongestionControl
-	cl.SetCongestionConfig(model.CongestionConfig{
+	cl.SetCongestionConfigWithMSS(model.CongestionConfig{
 		Mode:                           model.CongestionMode(congestion.Mode),
 		FastRetransmit:                 congestion.FastRetransmit,
 		CubicFastConvergence:           congestion.CubicFastConvergence,
 		InitialWindowSegments:          congestion.InitialWindowSegments,
 		MaximumWindowSegments:          congestion.MaximumWindowSegments,
 		InitialSlowStartThresholdBytes: congestion.InitialSlowStartThresholdBytes,
-	})
+	}, s.scenario.TCP.MSSBytes)
 	cl.SetSACKEnabled(s.scenario.TCP.SACKEnabled)
 	cl.SetECNEnabled(s.scenario.TCP.ECNEnabled)
 

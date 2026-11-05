@@ -340,12 +340,12 @@ func normalizeStream(config StreamConfig, path string) (StreamConfig, error) {
 
 	// Derive payload bytes only after all relevant overrides have been applied.
 	if config.Bytes == -1 {
-		maxPacketCount := math.MaxInt / model.SEGMENT_SIZE
+		maxPacketCount := math.MaxInt / model.PayloadUnitBytes
 		if config.Packets > maxPacketCount {
 			return StreamConfig{}, fmt.Errorf("%s.packets: stream size overflows int", path)
 		}
 
-		config.Bytes = config.Packets * model.SEGMENT_SIZE
+		config.Bytes = config.Packets * model.PayloadUnitBytes
 	}
 
 	// Logical uint64 byte positions no longer inherit the old segment counter cap.

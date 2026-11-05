@@ -19,6 +19,7 @@ type Normalized struct {
 // NormalizedTCPConfig holds the effective transport settings after validation.
 // Optional input settings have already been replaced by concrete defaults.
 type NormalizedTCPConfig struct {
+	MSSBytes                      int                        `json:"mssBytes"`
 	ReceiveBufferBytes            int                        `json:"receiveBufferBytes"`
 	SACKEnabled                   bool                       `json:"sackEnabled"`
 	ECNEnabled                    bool                       `json:"ECNenabled"`
@@ -46,7 +47,7 @@ type NormalizedCloseConfig struct {
 }
 
 // NormalizedCongestionConfig holds a checked starting window and growth policy.
-// For example, four 1,024-byte segments allow up to 4,096 bytes before ACKs return.
+// Segment counts become byte windows using TCP.MSSBytes.
 type NormalizedCongestionConfig struct {
 	Mode                           string `json:"mode"`
 	FastRetransmit                 bool   `json:"fastRetransmit"`

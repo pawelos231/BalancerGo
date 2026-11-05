@@ -18,6 +18,7 @@ type configuration struct {
 	servers                       int
 	packets                       int
 	streamBytes                   int
+	mssBytes                      int
 	receiveBufferBytes            int
 	sackEnabled                   bool
 	ecnEnabled                    bool
@@ -68,7 +69,7 @@ func readConfiguration() (configuration, *preparedScenario, error) {
 	flag.IntVar(&c.clients, "clients", 200, "number of simulated clients")
 	flag.IntVar(&c.servers, "servers", 10, "number of backend servers (zero simulates no backends)")
 	flag.IntVar(&c.packets, "packets", 10000, "1024-byte payload units per client when -bytes is -1")
-	flag.IntVar(&c.streamBytes, "bytes", -1, "payload bytes per client; -1 uses packets * segment size")
+	flag.IntVar(&c.streamBytes, "bytes", -1, "payload bytes per client; -1 uses packets * 1024")
 	flag.IntVar(
 		&c.receiveBufferBytes,
 		"tcp-receive-buffer",
@@ -181,6 +182,9 @@ func readConfiguration() (configuration, *preparedScenario, error) {
 	}
 	if c.receiveBufferBytes == 0 {
 		return c, nil, errors.New("tcp.receiveBufferBytes: must be in 1..65535")
+	}
+	if c.mssBytes == 0 {
+		return c, nil, fmt.Errorf("tcp.mssBytes: must be in 1..%d", model.MaxMSSBytes)
 	}
 	// Keep raw defaults for the form and retain the prepared CLI scenario.
 	// A later frontend request prepares its own settings independently.

@@ -9,6 +9,7 @@ import (
 // classicWindow holds the slow-start and congestion-avoidance rules shared by Reno variants.
 // Their loss policies decide when to use these rules and when recovery consumes an ACK.
 type classicWindow struct {
+	mssBytes                   uint64 // One segment's payload limit, fixed for this connection.
 	startupWindowBytes         uint64
 	congestionWindowBytes      uint64
 	maximumWindowBytes         uint64
@@ -16,13 +17,15 @@ type classicWindow struct {
 	avoidanceAcknowledgedBytes uint64
 }
 
-func newClassicWindow(config model.CongestionConfig) classicWindow {
+func newClassicWindow(config model.CongestionConfig, mssBytes int) classicWindow {
+	segmentBytes := uint64(mssBytes)
 	maximum := model.MaxCongestionWindowBytes
 	if config.MaximumWindowSegments > 0 {
-		maximum = uint64(config.MaximumWindowSegments) * model.SEGMENT_SIZE
+		maximum = uint64(config.MaximumWindowSegments) * segmentBytes
 	}
-	initial := min(uint64(config.InitialWindowSegments)*model.SEGMENT_SIZE, maximum)
+	initial := min(uint64(config.InitialWindowSegments)*segmentBytes, maximum)
 	return classicWindow{
+		mssBytes:                segmentBytes,
 		startupWindowBytes:      initial,
 		congestionWindowBytes:   initial,
 		maximumWindowBytes:      maximum,
@@ -39,7 +42,7 @@ func (window *classicWindow) OnACK(ack ACK) ACKResponse {
 	}
 	newBytes := ack.NewBytes
 	if window.congestionWindowBytes < window.slowStartThresholdBytes {
-		increase := min(newBytes, uint64(model.SEGMENT_SIZE))
+		increase := min(newBytes, window.mssBytes)
 		window.setWindowBytes(addCongestionBytes(window.congestionWindowBytes, increase))
 		return ACKResponse{}
 	}
@@ -47,7 +50,7 @@ func (window *classicWindow) OnACK(ack ACK) ACKResponse {
 	window.avoidanceAcknowledgedBytes = addCongestionBytes(window.avoidanceAcknowledgedBytes, newBytes)
 	if window.avoidanceAcknowledgedBytes >= window.congestionWindowBytes {
 		window.avoidanceAcknowledgedBytes -= window.congestionWindowBytes
-		window.setWindowBytes(addCongestionBytes(window.congestionWindowBytes, model.SEGMENT_SIZE))
+		window.setWindowBytes(addCongestionBytes(window.congestionWindowBytes, window.mssBytes))
 	}
 	return ACKResponse{}
 }
@@ -56,24 +59,24 @@ func (window *classicWindow) OnACK(ack ACK) ACKResponse {
 // A small window can reach one MSS; TCP then applies RFC 3168's timer backoff.
 // https://www.rfc-editor.org/rfc/rfc3168.html#section-6.1.2
 func (window *classicWindow) OnECN(ecn ECN) {
-	window.slowStartThresholdBytes = max(ecn.FlightBytes/2, 2*model.SEGMENT_SIZE)
-	window.setWindowBytes(max(window.congestionWindowBytes/2, model.SEGMENT_SIZE))
+	window.slowStartThresholdBytes = max(ecn.FlightBytes/2, 2*window.mssBytes)
+	window.setWindowBytes(max(window.congestionWindowBytes/2, window.mssBytes))
 	window.avoidanceAcknowledgedBytes = 0
 }
 
 // restartAfterLoss starts at one MSS and halves flight only for a new loss indication.
 func (window *classicWindow) restartAfterLoss(flight uint64, alreadyTimedOut bool) {
 	if !alreadyTimedOut {
-		window.slowStartThresholdBytes = max(flight/2, 2*model.SEGMENT_SIZE)
+		window.slowStartThresholdBytes = max(flight/2, 2*window.mssBytes)
 	}
-	window.setWindowBytes(model.SEGMENT_SIZE)
+	window.setWindowBytes(window.mssBytes)
 	window.avoidanceAcknowledgedBytes = 0
 }
 
 // restartAfterHandshakeLoss also reduces the window used by future idle restarts.
 func (window *classicWindow) restartAfterHandshakeLoss() {
-	window.startupWindowBytes = model.SEGMENT_SIZE
-	window.setWindowBytes(model.SEGMENT_SIZE)
+	window.startupWindowBytes = window.mssBytes
+	window.setWindowBytes(window.mssBytes)
 	window.avoidanceAcknowledgedBytes = 0
 }
 

@@ -24,6 +24,7 @@ type Scenario struct {
 // TCPConfig separates transport timers and receive buffering from network links.
 // Omitted settings inherit defaults; a zero idle timeout disables idle cleanup.
 type TCPConfig struct {
+	MSSBytes                      *int             `json:"mssBytes,omitempty"` // Maximum payload per data segment; no handshake negotiation.
 	ReceiveBufferBytes            *int             `json:"receiveBufferBytes,omitempty"`
 	SACKEnabled                   *bool            `json:"sackEnabled,omitempty"`
 	ECNEnabled                    *bool            `json:"ECNenabled,omitempty"`
@@ -170,7 +171,7 @@ type WorkloadConfig struct {
 }
 
 // StreamConfig describes a client's payload size and pause between data segments.
-// Bytes overrides Packets; -1 means Packets multiplied by the segment size.
+// Bytes overrides Packets; -1 means Packets multiplied by a fixed 1,024-byte unit.
 type StreamConfig struct {
 	Packets   int           `json:"packets"`
 	Bytes     int           `json:"bytes"`

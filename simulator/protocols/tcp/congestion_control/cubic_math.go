@@ -39,11 +39,11 @@ func (policy *cubicPolicy) growCongestionAvoidance(ack ACK) {
 	elapsed = max(elapsed, 0)
 	window := policy.windowSegments
 
-	// Fractional segments count: an ACK of 512 bytes contributes half a 1024-byte MSS.
+	// Fractional segments count: with MSS=1460, an ACK of 730 bytes contributes half.
 	if policy.renoWindowSegments >= policy.priorWindowSegments {
 		policy.renoAlpha = 1
 	}
-	segmentsACKed := float64(ack.NewBytes) / model.SEGMENT_SIZE
+	segmentsACKed := float64(ack.NewBytes) / float64(policy.mssBytes)
 	policy.renoWindowSegments += policy.renoAlpha * segmentsACKed / window
 	if policy.renoWindowSegments >= policy.priorWindowSegments {
 		policy.renoAlpha = 1
@@ -74,10 +74,10 @@ func (policy *cubicPolicy) storeFractionalWindow() {
 	if maximumBytes == 0 {
 		maximumBytes = model.MaxCongestionWindowBytes
 	}
-	maximum := float64(maximumBytes) / model.SEGMENT_SIZE
+	maximum := float64(maximumBytes) / float64(policy.mssBytes)
 	policy.windowSegments = max(1, min(policy.windowSegments, maximum))
 
-	bytes := policy.windowSegments * model.SEGMENT_SIZE
+	bytes := policy.windowSegments * float64(policy.mssBytes)
 	if bytes >= float64(maximumBytes) {
 		policy.congestionWindowBytes = maximumBytes
 		return
@@ -86,8 +86,8 @@ func (policy *cubicPolicy) storeFractionalWindow() {
 	policy.congestionWindowBytes = uint64(bytes)
 }
 
-func cubicLossThreshold(flight uint64) uint64 {
-	return max(cubicRetainedBytes(flight), 2*model.SEGMENT_SIZE)
+func cubicLossThreshold(flight, mssBytes uint64) uint64 {
+	return max(cubicRetainedBytes(flight), 2*mssBytes)
 }
 
 func cubicRetainedBytes(bytes uint64) uint64 {

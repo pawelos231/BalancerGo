@@ -12,6 +12,7 @@ func (c *Client) HandlePacket(packet model.Packet)  { c.transport.HandlePacket(p
 func (c *Client) SetSender(send func(model.Packet)) { c.transport.SetSender(send) }
 
 func (c *Client) SetReceiveBufferBytes(bytes int)         { c.transport.SetReceiveBufferBytes(bytes) }
+func (c *Client) SetMSSBytes(bytes int)                   { c.transport.SetMSSBytes(bytes) }
 func (c *Client) SetSACKEnabled(enabled bool)             { c.transport.SetSACKEnabled(enabled) }
 func (c *Client) SetECNEnabled(enabled bool)              { c.transport.SetECNEnabled(enabled) }
 func (c *Client) SetRTOConfig(config model.RTOConfig)     { c.transport.SetRTOConfig(config) }
@@ -20,6 +21,10 @@ func (c *Client) SetIdleTimeout(timeout time.Duration)    { c.transport.SetIdleT
 
 func (c *Client) SetCongestionConfig(config model.CongestionConfig) {
 	c.transport.SetCongestionConfig(config)
+}
+
+func (c *Client) SetCongestionConfigWithMSS(config model.CongestionConfig, mssBytes int) {
+	c.transport.SetCongestionConfigWithMSS(config, mssBytes)
 }
 
 func (c *Client) Key() model.ClientKey                  { return c.transport.Key() }

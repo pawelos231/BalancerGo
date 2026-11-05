@@ -10,6 +10,14 @@ import (
 
 // normalizeTCP fills omitted settings without treating explicit zero as a default.
 func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
+	mssBytes := model.DefaultMSSBytes
+	if config.MSSBytes != nil {
+		mssBytes = *config.MSSBytes
+	}
+	if !model.ValidMSSBytes(mssBytes) {
+		return NormalizedTCPConfig{}, fmt.Errorf("tcp.mssBytes: must be in 1..%d", model.MaxMSSBytes)
+	}
+
 	capacity := model.DefaultReceiveBufferBytes
 	if config.ReceiveBufferBytes != nil {
 		capacity = *config.ReceiveBufferBytes
@@ -22,7 +30,7 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 	if err != nil {
 		return NormalizedTCPConfig{}, err
 	}
-	congestion, err := normalizeCongestion(config.CongestionControl)
+	congestion, err := normalizeCongestion(config.CongestionControl, mssBytes)
 	if err != nil {
 		return NormalizedTCPConfig{}, err
 	}
@@ -80,6 +88,7 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 	}
 
 	return NormalizedTCPConfig{
+		MSSBytes:                      mssBytes,
 		ReceiveBufferBytes:            capacity,
 		SACKEnabled:                   sackEnabled,
 		ECNEnabled:                    ecnEnabled,

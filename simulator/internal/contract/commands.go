@@ -45,6 +45,7 @@ type SimulationConfig struct {
 	Servers                         int     `json:"servers"`
 	Packets                         int     `json:"packets"`
 	Bytes                           int     `json:"bytes"`
+	MSSBytes                        int     `json:"mssBytes"`
 	ReceiveBufferBytes              int     `json:"receiveBufferBytes"`
 	SACKEnabled                     bool    `json:"sackEnabled"`
 	ECNEnabled                      bool    `json:"ECNenabled"`

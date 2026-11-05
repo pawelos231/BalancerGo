@@ -16,6 +16,7 @@ import {
   scenarioSelectFields,
 } from '../scenarios/formFields';
 import HelpTooltip from './HelpTooltip';
+import MSSField from './MSSField';
 
 interface ScenarioFieldInputProps {
   name: ScenarioField;
@@ -37,6 +38,19 @@ function ScenarioFieldInput({
   onFocus,
   onBlur,
 }: ScenarioFieldInputProps) {
+  if (name === 'mssBytes') {
+    return (
+      <MSSField
+        value={value}
+        error={error}
+        disabled={disabled}
+        onChange={(raw) => onChange(name, raw)}
+        onFocus={() => onFocus(name)}
+        onBlur={() => onBlur(name)}
+      />
+    );
+  }
+
   if (name === 'rtoBackoff') {
     return (
       <FormControl disabled={disabled} error={Boolean(error)}>

@@ -59,7 +59,7 @@ func (c *Sender) observeECNFeedback(pkt model.Packet) {
 	}
 	c.ecn.state.ReceivedECECount++
 	control := &c.congestion
-	minimumWindow := control.policy.State().WindowBytes <= model.SEGMENT_SIZE
+	minimumWindow := control.policy.State().WindowBytes <= uint64(c.mssBytes)
 	// Even a drained flight can receive repeated ECE before the next source release.
 	refreshingHold := minimumWindow && c.unsentBytes() > 0
 	if !c.pendingSegments.hasPending() && !refreshingHold {

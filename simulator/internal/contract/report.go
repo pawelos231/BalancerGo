@@ -203,6 +203,7 @@ type RTOConfig struct {
 
 // TCPConfig records the effective transport settings, including input defaults.
 type TCPConfig struct {
+	MSSBytes                             int `json:"mssBytes"`
 	ReceiveBufferBytes                   int
 	SACKEnabled                          bool
 	ECNEnabled                           bool             `json:"ECNenabled,omitempty"`

@@ -76,7 +76,7 @@ func (board *Scoreboard) receivedBytes() uint64 {
 // IsLost needs three separate reports above a hole or more than two MSS of data.
 // One later segment can simply mean reordering; it is not enough evidence of loss.
 // RFC 6675 section 4: https://www.rfc-editor.org/rfc/rfc6675.html#section-4
-func (board *Scoreboard) IsLost(sequence uint64) bool {
+func (board *Scoreboard) IsLost(sequence, mssBytes uint64) bool {
 	blocksAbove := 0
 	var bytesAbove uint64
 	for _, block := range board.ranges {
@@ -89,7 +89,7 @@ func (board *Scoreboard) IsLost(sequence uint64) bool {
 		blocksAbove++
 		bytesAbove += block.End - block.Start
 	}
-	return blocksAbove >= 3 || bytesAbove > 2*model.SEGMENT_SIZE
+	return blocksAbove >= 3 || bytesAbove > 2*mssBytes
 }
 
 // holes visits missing ranges, without iterating over individual bytes.
@@ -114,10 +114,10 @@ func (board *Scoreboard) holes(start, end uint64, visit func(model.SACKBlock) bo
 
 // Pipe counts unsacked bytes still thought to be travelling, plus retransmitted copies.
 // A speculative retry can count twice: the original might still be on its way.
-func (board *Scoreboard) Pipe(start, end, retransmittedEnd uint64) uint64 {
+func (board *Scoreboard) Pipe(start, end, retransmittedEnd, mssBytes uint64) uint64 {
 	var total uint64
 	board.holes(start, end, func(hole model.SACKBlock) bool {
-		if !board.IsLost(hole.Start) {
+		if !board.IsLost(hole.Start, mssBytes) {
 			total += hole.End - hole.Start
 		}
 		if hole.Start < retransmittedEnd {
@@ -129,25 +129,29 @@ func (board *Scoreboard) Pipe(start, end, retransmittedEnd uint64) uint64 {
 }
 
 // NextHole picks the earliest eligible gap and limits its retry to one MSS.
-func (board *Scoreboard) NextHole(start, end uint64, requireLoss bool) (model.SACKBlock, bool) {
+func (board *Scoreboard) NextHole(
+	start, end uint64,
+	requireLoss bool,
+	mssBytes uint64,
+) (model.SACKBlock, bool) {
 	var selected model.SACKBlock
 	board.holes(start, end, func(hole model.SACKBlock) bool {
-		if requireLoss && !board.IsLost(hole.Start) {
+		if requireLoss && !board.IsLost(hole.Start, mssBytes) {
 			return true
 		}
 		selected = hole
-		selected.End = selected.Start + min(selected.End-selected.Start, uint64(model.SEGMENT_SIZE))
+		selected.End = selected.Start + min(selected.End-selected.Start, mssBytes)
 		return false
 	})
 	return selected, selected.Start < selected.End
 }
 
 // LastHole supplies a single rescue retry containing the highest missing byte.
-func (board *Scoreboard) LastHole(start, end uint64) (model.SACKBlock, bool) {
+func (board *Scoreboard) LastHole(start, end, mssBytes uint64) (model.SACKBlock, bool) {
 	var selected model.SACKBlock
 	board.holes(start, end, func(hole model.SACKBlock) bool {
 		selected = hole
-		selected.Start = selected.End - min(selected.End-selected.Start, uint64(model.SEGMENT_SIZE))
+		selected.Start = selected.End - min(selected.End-selected.Start, mssBytes)
 		return true
 	})
 	return selected, selected.Start < selected.End

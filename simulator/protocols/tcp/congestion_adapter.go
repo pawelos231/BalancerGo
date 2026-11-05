@@ -29,18 +29,30 @@ type congestionControl struct {
 
 // newCongestionControl chooses one policy before any segment is sent.
 func newCongestionControl(config model.CongestionConfig) congestionControl {
+	return newCongestionControlWithMSS(config, model.DefaultMSSBytes)
+}
+
+func newCongestionControlWithMSS(config model.CongestionConfig, mssBytes int) congestionControl {
 	return congestionControl{
 		config: config,
-		policy: congestioncontrol.New(config),
+		policy: congestioncontrol.NewWithMSS(config, mssBytes),
 	}
 }
 
 // SetCongestionConfig selects sender behavior before the connection starts.
 func (c *Sender) SetCongestionConfig(config model.CongestionConfig) {
+	c.SetCongestionConfigWithMSS(config, c.mssBytes)
+}
+
+// SetCongestionConfigWithMSS applies both settings together before traffic starts.
+// For MSS 536, a valid two-MSS threshold is 1072 bytes rather than 2048.
+func (c *Sender) SetCongestionConfigWithMSS(config model.CongestionConfig, mssBytes int) {
 	if c.handshakeStarted || c.terminated {
 		panic("tcp: congestion configuration must be set before the connection starts")
 	}
-	c.congestion = newCongestionControl(config)
+	control := newCongestionControlWithMSS(config, mssBytes)
+	c.mssBytes = mssBytes
+	c.congestion = control
 }
 
 // GetCongestionState combines algorithm state with TCP's current flight and counters.

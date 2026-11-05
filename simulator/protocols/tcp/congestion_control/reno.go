@@ -1,7 +1,5 @@
 package congestioncontrol
 
-import "load-balancer/model"
-
 // renoPolicy retains classic Reno's temporary inflation while a missing segment is repaired.
 // Shared TCP detects the third duplicate ACK and owns the retransmission itself.
 type renoPolicy struct {
@@ -32,7 +30,7 @@ func (policy *renoPolicy) OnACK(ack ACK) ACKResponse {
 func (policy *renoPolicy) OnDuplicateACK() {
 	if policy.activeRecovery && policy.remainingInflations > 0 {
 		policy.remainingInflations--
-		policy.setWindowBytes(addCongestionBytes(policy.congestionWindowBytes, model.SEGMENT_SIZE))
+		policy.setWindowBytes(addCongestionBytes(policy.congestionWindowBytes, policy.mssBytes))
 	}
 }
 
@@ -42,7 +40,7 @@ func (policy *renoPolicy) OnLoss(loss Loss) LossResponse {
 	switch loss.Kind {
 	case FastRetransmitLoss:
 		if !loss.AlreadyReduced {
-			policy.slowStartThresholdBytes = max(loss.FlightBytes/2, 2*model.SEGMENT_SIZE)
+			policy.slowStartThresholdBytes = max(loss.FlightBytes/2, 2*policy.mssBytes)
 			policy.recoveryWindowBytes = policy.slowStartThresholdBytes
 		} else {
 			policy.recoveryWindowBytes = policy.congestionWindowBytes
@@ -54,7 +52,7 @@ func (policy *renoPolicy) OnLoss(loss Loss) LossResponse {
 
 		// Classic Reno uses inflated cwnd; RFC 6675 uses the reduced window and Pipe.
 		if !loss.SACKRecovery {
-			policy.setWindowBytes(addCongestionBytes(policy.recoveryWindowBytes, 3*model.SEGMENT_SIZE))
+			policy.setWindowBytes(addCongestionBytes(policy.recoveryWindowBytes, 3*policy.mssBytes))
 			policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
 		}
 	case TimeoutLoss:

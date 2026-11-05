@@ -129,10 +129,10 @@ func (c *Sender) nextPayloadSize() int {
 	availableBytes := c.peerWindowEnd - c.nextSendSeq
 	congestionSpace := c.availableCongestionWindowBytes()
 	// RFC 6675 recovery waits for one MSS of cwnd space before choosing another send.
-	if c.sack.active && congestionSpace < model.SEGMENT_SIZE {
+	if c.sack.active && congestionSpace < uint64(c.mssBytes) {
 		return 0
 	}
 	availableBytes = min(availableBytes, congestionSpace)
-	payloadLimit := min(c.unsentBytes(), model.SEGMENT_SIZE)
+	payloadLimit := min(c.unsentBytes(), c.mssBytes)
 	return int(min(uint64(payloadLimit), availableBytes))
 }

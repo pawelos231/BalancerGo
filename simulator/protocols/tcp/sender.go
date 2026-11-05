@@ -46,6 +46,7 @@ type Sender struct {
 
 	// Advertised on our packets; this profile receives no backend payload.
 	receiveWindowBytes uint16
+	mssBytes           int // Maximum payload per segment; shared with congestion control and SACK.
 
 	streamCompleted                bool
 	remainingPayloadBytesToConfirm int
@@ -83,6 +84,7 @@ func NewSender(
 		engine:             e,
 		key:                key,
 		receiveWindowBytes: model.DefaultReceiveBufferBytes,
+		mssBytes:           model.DefaultMSSBytes,
 		rto:                newRTOEstimator(model.DefaultRTOConfig()),
 		idleTimeout:        model.READ_DEADLINE,
 		congestion:         newCongestionControl(model.DefaultCongestionConfig()),
@@ -101,6 +103,12 @@ func (c *Sender) SetReceiveBufferBytes(capacity int) {
 	}
 
 	c.receiveWindowBytes = uint16(capacity)
+}
+
+// SetMSSBytes selects a fixed payload limit before the connection starts.
+// For MSS 1460, sending 3000 bytes can produce 1460 + 1460 + 80 bytes.
+func (c *Sender) SetMSSBytes(bytes int) {
+	c.SetCongestionConfigWithMSS(c.congestion.config, bytes)
 }
 
 func (c *Sender) SetSender(sender func(model.Packet)) {

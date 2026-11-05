@@ -27,6 +27,7 @@ export function presetClientGroup(id: string, count: number): ScenarioClientGrou
 export function isolatedExperiment(defaults: Scenario): Scenario {
   const scenario = structuredClone(defaults);
   if (scenario.tcp) {
+    delete scenario.tcp.mssBytes;
     delete scenario.tcp.ECNenabled;
     delete scenario.tcp.delayedAck;
     if (scenario.tcp.congestionControl) delete scenario.tcp.congestionControl.maximumWindowSegments;

@@ -23,7 +23,7 @@ import (
 
 const (
 	experimentReportVersion = 1
-	experimentModel         = "tcp-delayed-ack-v1"
+	experimentModel         = "tcp-manual-mss-v1"
 )
 
 // loadedScenario keeps the importable input beside its checked runtime settings.
