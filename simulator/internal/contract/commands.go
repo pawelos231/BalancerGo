@@ -48,10 +48,14 @@ type SimulationConfig struct {
 	ReceiveBufferBytes              int     `json:"receiveBufferBytes"`
 	SACKEnabled                     bool    `json:"sackEnabled"`
 	ECNEnabled                      bool    `json:"ECNenabled"`
+	DelayedACKEnabled               bool    `json:"delayedAckEnabled"`
+	DelayedACKSegments              int     `json:"delayedAckSegments"`
+	DelayedACKMaxDelayMs            float64 `json:"delayedAckMaxDelayMs"`
 	CongestionControl               string  `json:"congestionControl"`
 	FastRetransmit                  bool    `json:"fastRetransmit"`
 	CubicFastConvergence            bool    `json:"cubicFastConvergence"`
 	InitialCongestionWindowSegments int     `json:"initialCongestionWindowSegments"`
+	MaximumCongestionWindowSegments int     `json:"maximumCongestionWindowSegments"`
 	InitialSlowStartThresholdBytes  uint64  `json:"initialSlowStartThresholdBytes"`
 	RTOMode                         string  `json:"rtoMode"`
 	RTOBackoff                      bool    `json:"rtoBackoff"`

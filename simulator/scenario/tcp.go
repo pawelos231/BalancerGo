@@ -26,6 +26,10 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 	if err != nil {
 		return NormalizedTCPConfig{}, err
 	}
+	delayedACK, err := normalizeDelayedACK(config.DelayedACK)
+	if err != nil {
+		return NormalizedTCPConfig{}, err
+	}
 	ecnEnabled := config.ECNEnabled != nil && *config.ECNEnabled
 	if ecnEnabled && congestion.Mode == string(model.CongestionNone) {
 		return NormalizedTCPConfig{}, fmt.Errorf("tcp.ECNenabled: requires congestion control")
@@ -79,6 +83,7 @@ func normalizeTCP(config TCPConfig) (NormalizedTCPConfig, error) {
 		ReceiveBufferBytes:            capacity,
 		SACKEnabled:                   sackEnabled,
 		ECNEnabled:                    ecnEnabled,
+		DelayedACK:                    delayedACK,
 		RTO:                           rto,
 		Close:                         closeConfig,
 		CongestionControl:             congestion,

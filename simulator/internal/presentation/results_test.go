@@ -97,6 +97,7 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 			name: "omitted defaults",
 			wantTCP: contract.TCPConfig{
 				ReceiveBufferBytes: 65535,
+				DelayedACK:         contract.DelayedACKConfig{SegmentsPerACK: 2, MaxDelay: 40 * time.Millisecond},
 				CongestionControl: contract.CongestionConfig{
 					Mode: "reno", FastRetransmit: true, CubicFastConvergence: true,
 					InitialWindowSegments: 4, InitialSlowStartThresholdBytes: 65535,
@@ -137,6 +138,7 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 			reset:       &disabledIdle,
 			wantTCP: contract.TCPConfig{
 				ReceiveBufferBytes: receiveBuffer,
+				DelayedACK:         contract.DelayedACKConfig{SegmentsPerACK: 2, MaxDelay: 40 * time.Millisecond},
 				CongestionControl: contract.CongestionConfig{
 					Mode: "reno", FastRetransmit: true, CubicFastConvergence: true,
 					InitialWindowSegments: 4, InitialSlowStartThresholdBytes: 65535,

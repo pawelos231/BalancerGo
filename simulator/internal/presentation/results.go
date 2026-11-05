@@ -70,6 +70,18 @@ func ecnState(state model.ECNState) *contract.ECNState {
 	}
 }
 
+// ackState retains counts for immediate and delayed ACK profiles alike.
+func ackState(state model.ACKState) *contract.ACKState {
+	if !state.Enabled && state.SentACKCount == 0 {
+		return nil
+	}
+	return &contract.ACKState{
+		Enabled:                state.Enabled,
+		SentACKCount:           state.SentACKCount,
+		TimerTriggeredACKCount: state.TimerTriggeredACKCount,
+	}
+}
+
 // rtoState makes time units explicit at the report boundary.
 func rtoState(state model.RTOState) contract.RTOState {
 	return contract.RTOState{
@@ -109,6 +121,7 @@ func serverState(state model.ServerState) contract.ServerState {
 		ReceivedPayloadBytes:   state.ReceivedPayloadBytes,
 		CpuUsage:               float32(state.CpuUsage) / float32(legacyCPUScale),
 		ECN:                    ecnState(state.ECN),
+		ACK:                    ackState(state.ACK),
 	}
 }
 
@@ -250,11 +263,17 @@ func BuildResult(world *simulation.World, elapsed time.Duration) contract.Simula
 			ReceiveBufferBytes: info.ReceiveBufferBytes,
 			SACKEnabled:        info.SACKEnabled,
 			ECNEnabled:         info.ECNEnabled,
+			DelayedACK: contract.DelayedACKConfig{
+				Enabled:        info.DelayedACK.Enabled,
+				SegmentsPerACK: info.DelayedACK.SegmentsPerACK,
+				MaxDelay:       info.DelayedACK.MaxDelay,
+			},
 			CongestionControl: contract.CongestionConfig{
 				Mode:                           string(info.CongestionControl.Mode),
 				FastRetransmit:                 info.CongestionControl.FastRetransmit,
 				CubicFastConvergence:           info.CongestionControl.CubicFastConvergence,
 				InitialWindowSegments:          info.CongestionControl.InitialWindowSegments,
+				MaximumWindowSegments:          info.CongestionControl.MaximumWindowSegments,
 				InitialSlowStartThresholdBytes: info.CongestionControl.InitialSlowStartThresholdBytes,
 			},
 			RTO: contract.RTOConfig{

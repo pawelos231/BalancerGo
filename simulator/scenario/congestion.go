@@ -25,6 +25,9 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 	if config.InitialWindowSegments != nil {
 		resolved.InitialWindowSegments = *config.InitialWindowSegments
 	}
+	if config.MaximumWindowSegments != nil {
+		resolved.MaximumWindowSegments = *config.MaximumWindowSegments
+	}
 	if config.InitialSlowStartThresholdBytes != nil {
 		resolved.InitialSlowStartThresholdBytes = *config.InitialSlowStartThresholdBytes
 	}
@@ -49,6 +52,17 @@ func normalizeCongestion(config CongestionConfig) (NormalizedCongestionConfig, e
 
 	// Multiplying the segment count by 1,024 must still fit the sender's byte counters.
 	maximumSegments := math.MaxInt64 / model.SEGMENT_SIZE
+	if resolved.MaximumWindowSegments < 0 || resolved.MaximumWindowSegments > maximumSegments {
+		return NormalizedCongestionConfig{}, fmt.Errorf(
+			"tcp.congestionControl.maximumWindowSegments: must be in 0..%d; zero disables the cap",
+			maximumSegments,
+		)
+	}
+	if resolved.MaximumWindowSegments != 0 && resolved.Mode == string(model.CongestionNone) {
+		return NormalizedCongestionConfig{}, fmt.Errorf(
+			"tcp.congestionControl.maximumWindowSegments: requires congestion control",
+		)
+	}
 	if resolved.InitialWindowSegments < 1 || resolved.InitialWindowSegments > maximumSegments {
 		return NormalizedCongestionConfig{}, fmt.Errorf(
 			"tcp.congestionControl.initialWindowSegments: must be in 1..%d",

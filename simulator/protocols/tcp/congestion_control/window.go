@@ -11,15 +11,21 @@ import (
 type classicWindow struct {
 	startupWindowBytes         uint64
 	congestionWindowBytes      uint64
+	maximumWindowBytes         uint64
 	slowStartThresholdBytes    uint64
 	avoidanceAcknowledgedBytes uint64
 }
 
 func newClassicWindow(config model.CongestionConfig) classicWindow {
-	initial := uint64(config.InitialWindowSegments) * model.SEGMENT_SIZE
+	maximum := model.MaxCongestionWindowBytes
+	if config.MaximumWindowSegments > 0 {
+		maximum = uint64(config.MaximumWindowSegments) * model.SEGMENT_SIZE
+	}
+	initial := min(uint64(config.InitialWindowSegments)*model.SEGMENT_SIZE, maximum)
 	return classicWindow{
 		startupWindowBytes:      initial,
 		congestionWindowBytes:   initial,
+		maximumWindowBytes:      maximum,
 		slowStartThresholdBytes: config.InitialSlowStartThresholdBytes,
 	}
 }
@@ -34,14 +40,14 @@ func (window *classicWindow) OnACK(ack ACK) ACKResponse {
 	newBytes := ack.NewBytes
 	if window.congestionWindowBytes < window.slowStartThresholdBytes {
 		increase := min(newBytes, uint64(model.SEGMENT_SIZE))
-		window.congestionWindowBytes = addCongestionBytes(window.congestionWindowBytes, increase)
+		window.setWindowBytes(addCongestionBytes(window.congestionWindowBytes, increase))
 		return ACKResponse{}
 	}
 
 	window.avoidanceAcknowledgedBytes = addCongestionBytes(window.avoidanceAcknowledgedBytes, newBytes)
 	if window.avoidanceAcknowledgedBytes >= window.congestionWindowBytes {
 		window.avoidanceAcknowledgedBytes -= window.congestionWindowBytes
-		window.congestionWindowBytes = addCongestionBytes(window.congestionWindowBytes, model.SEGMENT_SIZE)
+		window.setWindowBytes(addCongestionBytes(window.congestionWindowBytes, model.SEGMENT_SIZE))
 	}
 	return ACKResponse{}
 }
@@ -51,7 +57,7 @@ func (window *classicWindow) OnACK(ack ACK) ACKResponse {
 // https://www.rfc-editor.org/rfc/rfc3168.html#section-6.1.2
 func (window *classicWindow) OnECN(ecn ECN) {
 	window.slowStartThresholdBytes = max(ecn.FlightBytes/2, 2*model.SEGMENT_SIZE)
-	window.congestionWindowBytes = max(window.congestionWindowBytes/2, model.SEGMENT_SIZE)
+	window.setWindowBytes(max(window.congestionWindowBytes/2, model.SEGMENT_SIZE))
 	window.avoidanceAcknowledgedBytes = 0
 }
 
@@ -60,21 +66,31 @@ func (window *classicWindow) restartAfterLoss(flight uint64, alreadyTimedOut boo
 	if !alreadyTimedOut {
 		window.slowStartThresholdBytes = max(flight/2, 2*model.SEGMENT_SIZE)
 	}
-	window.congestionWindowBytes = model.SEGMENT_SIZE
+	window.setWindowBytes(model.SEGMENT_SIZE)
 	window.avoidanceAcknowledgedBytes = 0
 }
 
 // restartAfterHandshakeLoss also reduces the window used by future idle restarts.
 func (window *classicWindow) restartAfterHandshakeLoss() {
 	window.startupWindowBytes = model.SEGMENT_SIZE
-	window.congestionWindowBytes = model.SEGMENT_SIZE
+	window.setWindowBytes(model.SEGMENT_SIZE)
 	window.avoidanceAcknowledgedBytes = 0
 }
 
 // OnIdle uses the connection's effective initial window, including a prior SYN retry.
 func (window *classicWindow) OnIdle() {
-	window.congestionWindowBytes = min(window.congestionWindowBytes, window.startupWindowBytes)
+	window.setWindowBytes(min(window.congestionWindowBytes, window.startupWindowBytes))
 	window.avoidanceAcknowledgedBytes = 0
+}
+
+// setWindowBytes keeps the configured ceiling after growth, loss and recovery.
+// For example, a one-segment ceiling keeps cwnd=1024 after a successful ACK.
+func (window *classicWindow) setWindowBytes(bytes uint64) {
+	maximum := window.maximumWindowBytes
+	if maximum == 0 {
+		maximum = model.MaxCongestionWindowBytes
+	}
+	window.congestionWindowBytes = min(bytes, maximum)
 }
 
 func (window *classicWindow) State() State {

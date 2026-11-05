@@ -15,6 +15,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 	}
 	rto := c.effectiveRTOConfig()
 	closeConfig := c.effectiveCloseConfig()
+	delayedACK := c.effectiveDelayedACKConfig()
 	mode := string(rto.Mode)
 	congestion := c.effectiveCongestionConfig()
 	congestionMode := string(congestion.Mode)
@@ -38,6 +39,11 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 			ReceiveBufferBytes: &receiveBufferBytes,
 			SACKEnabled:        &c.sackEnabled,
 			ECNEnabled:         &c.ecnEnabled,
+			DelayedACK: scenario.DelayedACKConfig{
+				Enabled:        &delayedACK.Enabled,
+				SegmentsPerACK: &delayedACK.SegmentsPerACK,
+				MaxDelay:       &delayedACK.MaxDelay,
+			},
 			Close: scenario.CloseConfig{
 				MSL: &closeConfig.MSL, FinWaitTimeout: &closeConfig.FinWaitTimeout,
 				MaxFINRetries: &closeConfig.MaxFINRetries,
@@ -57,6 +63,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 				FastRetransmit:                 &congestion.FastRetransmit,
 				CubicFastConvergence:           &congestion.CubicFastConvergence,
 				InitialWindowSegments:          &congestion.InitialWindowSegments,
+				MaximumWindowSegments:          &congestion.MaximumWindowSegments,
 				InitialSlowStartThresholdBytes: &congestion.InitialSlowStartThresholdBytes,
 			},
 		},

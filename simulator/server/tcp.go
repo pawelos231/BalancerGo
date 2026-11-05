@@ -31,6 +31,14 @@ func (s *Server) GetECNState() model.ECNState {
 	return s.transport.GetECNState()
 }
 
+func (s *Server) SetDelayedACKConfig(config model.DelayedACKConfig) {
+	s.transport.SetDelayedACKConfig(config)
+}
+
+func (s *Server) GetACKState() model.ACKState {
+	return s.transport.GetACKState()
+}
+
 func (s *Server) SetCloseConfig(config model.CloseConfig) {
 	s.transport.SetCloseConfig(config)
 }

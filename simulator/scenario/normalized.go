@@ -22,12 +22,20 @@ type NormalizedTCPConfig struct {
 	ReceiveBufferBytes            int                        `json:"receiveBufferBytes"`
 	SACKEnabled                   bool                       `json:"sackEnabled"`
 	ECNEnabled                    bool                       `json:"ECNenabled"`
+	DelayedACK                    NormalizedDelayedACKConfig `json:"delayedAck"`
 	RTO                           NormalizedRTOConfig        `json:"rto"`
 	Close                         NormalizedCloseConfig      `json:"close"`
 	CongestionControl             NormalizedCongestionConfig `json:"congestionControl"`
 	ClientIdleTimeout             time.Duration              `json:"clientIdleTimeoutNanoseconds"`
 	BackendHalfOpenIdleTimeout    time.Duration              `json:"backendHalfOpenIdleTimeoutNanoseconds"`
 	BackendEstablishedIdleTimeout time.Duration              `json:"backendEstablishedIdleTimeoutNanoseconds"`
+}
+
+// NormalizedDelayedACKConfig contains the checked ACK grouping and virtual timer.
+type NormalizedDelayedACKConfig struct {
+	Enabled        bool          `json:"enabled"`
+	SegmentsPerACK int           `json:"segmentsPerACK"`
+	MaxDelay       time.Duration `json:"maxDelayNanoseconds"`
 }
 
 // NormalizedCloseConfig contains the effective shutdown limits.
@@ -44,6 +52,7 @@ type NormalizedCongestionConfig struct {
 	FastRetransmit                 bool   `json:"fastRetransmit"`
 	CubicFastConvergence           bool   `json:"cubicFastConvergence"`
 	InitialWindowSegments          int    `json:"initialWindowSegments"`
+	MaximumWindowSegments          int    `json:"maximumWindowSegments,omitempty"`
 	InitialSlowStartThresholdBytes uint64 `json:"initialSlowStartThresholdBytes"`
 }
 

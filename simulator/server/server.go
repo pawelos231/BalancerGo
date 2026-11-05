@@ -264,5 +264,6 @@ func (s *Server) GetState() model.ServerState {
 		NumberOfHandledPackets: s.NumberOfHandledPackets,
 		ReceivedPayloadBytes:   s.transport.ReceivedPayloadBytes(),
 		ECN:                    s.transport.GetECNState(),
+		ACK:                    s.transport.GetACKState(),
 	}
 }

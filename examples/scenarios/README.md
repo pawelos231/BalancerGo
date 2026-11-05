@@ -1,7 +1,7 @@
 # Scenario files
 
 These UTF-8 JSON files are native version-1 scenarios accepted by the backend.
-Twenty-seven match the UI preset factories; one extra file demonstrates nested
+Twenty-eight match the UI preset factories; one extra file demonstrates nested
 overrides. The library supports search, category filters and six cards per page.
 Ordinary presets use seed 1, a 50-million-event limit, 100 real ms snapshots,
 1 ms endpoint travel time, 1024 waiting slots and zero random loss unless their
@@ -24,6 +24,7 @@ overrides or changes to Go defaults do not alter it.
 | [tiny-queues.json](tiny-queues.json) | 64 / 2 | Simultaneous arrivals, 1 Mbit/s LB input and two waiting slots per side. |
 | [unbuffered-ingress.json](unbuffered-ingress.json) | 64 / 2 | Same input bottleneck with zero waiting slots: start immediately or drop. |
 | [ecn-congestion.json](ecn-congestion.json) | 16 / 2 | Reno with ECN; 10 Mbit/s forward bottlenecks mark above 25% occupancy, while ACK paths remain fast. |
+| [delayed-ack-small-window.json](delayed-ack-small-window.json) | 16 / 2 | Reno capped at one segment, with delayed ACK enabled and a 40 ms virtual timer. |
 | [staggered-arrivals.json](staggered-arrivals.json) | 4 × 4 / 2 | Groups start at 0, 5, 20 and 200 s, with 250 ms between clients; the last group is beyond the horizon. |
 | [mixed-streams.json](mixed-streams.json) | 8 + 8 / 2 | Short streams with 0, 1, 1024 and 1025-byte overrides alongside 1 GiB streams. |
 | [seeded-random.json](seeded-random.json) | 16 / 4 | Random routing with exact seed `"9007199254740993"` for repeatable assignments. |
@@ -72,6 +73,26 @@ simultaneous SYN burst and bounded ingress admission. They are not inferred
 from the sum of configured client bitrates. For quicker E2E automation, use an
 independent copy with `speed: 0`, a bounded horizon and smaller stream sizes;
 keep delayed start times and the behavior being tested in mind.
+
+## Delayed acknowledgements
+
+`tcp.delayedAck` contains `enabled` (default false), `segmentsPerACK` (1 or 2,
+default 2) and `maxDelayNanoseconds` (positive, at most 500 ms; default 40 ms).
+Ordinary data ACKs wait for that segment count or the timer from the first
+arrival. Gaps, duplicates, closing packets and fresh congestion feedback get
+prompt responses. The receiver never reads the client's remaining workload;
+a final solitary segment is acknowledged by the timer.
+
+The **Delayed ACK with a one-segment window** preset sets
+`tcp.congestionControl.maximumWindowSegments` to 1 and leaves the receive
+window at 65,535 B. This is an actual cwnd ceiling, not a small rwnd or merely
+an initial window. Zero removes the ceiling; a positive ceiling requires a
+congestion-control algorithm. Disable delayed ACK in the form to compare rates:
+with one segment in flight, a second segment cannot arrive to trigger the pair.
+Fewer ACKs can also slow a transfer, especially with a small window or sparse data.
+
+CLI options are `-tcp-delayed-ack`, `-tcp-delayed-ack-segments`,
+`-tcp-delayed-ack-max-delay` and `-tcp-maximum-window`.
 
 ## ECN and threshold signaling
 
@@ -195,8 +216,9 @@ and drop totals count physical-hop events, including retries, rather than unique
 application packets. Work still queued, transmitting or travelling at the horizon
 is unfinished work, rather than an extra recorded loss.
 
-The current transport sends one segment at a time and waits for its ACK, with
-fixed retry timers. Reverse ACK paths also share LB resources. Adding configured
-client bitrates therefore does not guarantee saturation or measured throughput.
-These queue/loss results describe this model; congestion control and kernel RX
-processing are not modeled.
+The current transport uses sliding windows, cumulative ACKs, configurable
+congestion control and fixed or adaptive retransmission timers. SACK, ECN and
+delayed ACK are optional. Reverse ACK paths also share LB resources. Configured
+client bitrates are limits, so windows, ACK timing and losses can keep throughput
+below them. These results describe this TCP profile; finite host CPU service
+and kernel RX processing are not modeled yet.

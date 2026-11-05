@@ -107,10 +107,14 @@ export interface SimulationConfig {
   receiveBufferBytes: number;
   sackEnabled: boolean;
   ECNenabled: boolean;
+  delayedAckEnabled: boolean;
+  delayedAckSegments: number;
+  delayedAckMaxDelayMs: number;
   congestionControl: CongestionMode;
   fastRetransmit: boolean;
   cubicFastConvergence: boolean;
   initialCongestionWindowSegments: number;
+  maximumCongestionWindowSegments: number;
   initialSlowStartThresholdBytes: number;
   rtoMode: 'fixed' | 'adaptive';
   rtoBackoff: boolean;

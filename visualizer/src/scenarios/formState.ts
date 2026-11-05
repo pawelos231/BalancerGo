@@ -12,6 +12,7 @@ export interface ScenarioFormState {
 
 const recoveryFields: readonly ScenarioField[] = [
   'sackEnabled', 'ECNenabled', 'fastRetransmit', 'congestionControl',
+  'maximumCongestionWindowSegments',
 ];
 
 // Keep rejected input visible, then retry it when a related setting changes.

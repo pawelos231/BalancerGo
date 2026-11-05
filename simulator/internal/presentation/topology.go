@@ -68,6 +68,8 @@ func backendMetrics(server model.ServerState) []nodeMetric {
 		{"halfOpenConnections", "Half-open connections", "connections", float64(server.HalfOpenConnections), false},
 		{"receivedPackets", "Packets received", "packets", float64(server.NumberOfHandledPackets), false},
 		{"receivedPayloadBytes", "Unique payload received", "bytes", float64(server.ReceivedPayloadBytes), false},
+		{"sentACKCount", "Standalone ACKs sent", "ACKs", float64(server.ACK.SentACKCount), false},
+		{"timerTriggeredACKCount", "ACKs sent when the delay timer expired", "ACKs", float64(server.ACK.TimerTriggeredACKCount), false},
 	}
 	return appendECNMetrics(metrics, server.ECN)
 }

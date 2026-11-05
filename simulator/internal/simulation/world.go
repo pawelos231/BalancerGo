@@ -180,6 +180,14 @@ func (s *World) addLink(
 	return link
 }
 
+func configuredDelayedACK(config scenario.NormalizedDelayedACKConfig) model.DelayedACKConfig {
+	return model.DelayedACKConfig{
+		Enabled:        config.Enabled,
+		SegmentsPerACK: config.SegmentsPerACK,
+		MaxDelay:       config.MaxDelay,
+	}
+}
+
 func configuredRTO(config scenario.NormalizedRTOConfig) model.RTOConfig {
 	return model.RTOConfig{
 		Mode: model.RTOMode(config.Mode), ExponentialBackoff: config.ExponentialBackoff,
@@ -247,6 +255,7 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 	srv.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
 	srv.SetSACKEnabled(s.scenario.TCP.SACKEnabled)
 	srv.SetECNEnabled(s.scenario.TCP.ECNEnabled)
+	srv.SetDelayedACKConfig(configuredDelayedACK(s.scenario.TCP.DelayedACK))
 	srv.SetRTOConfig(configuredRTO(s.scenario.TCP.RTO))
 	srv.SetCloseConfig(configuredClose(s.scenario.TCP.Close))
 	srv.SetIdleTimeouts(

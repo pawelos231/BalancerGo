@@ -24,10 +24,14 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   receiveBufferBytes: ['tcp', 'receiveBufferBytes'],
   sackEnabled: ['tcp', 'sackEnabled'],
   ECNenabled: ['tcp', 'ECNenabled'],
+  delayedAckEnabled: ['tcp', 'delayedAck', 'enabled'],
+  delayedAckSegments: ['tcp', 'delayedAck', 'segmentsPerACK'],
+  delayedAckMaxDelayMs: ['tcp', 'delayedAck', 'maxDelayNanoseconds'],
   congestionControl: ['tcp', 'congestionControl', 'mode'],
   fastRetransmit: ['tcp', 'congestionControl', 'fastRetransmit'],
   cubicFastConvergence: ['tcp', 'congestionControl', 'cubicFastConvergence'],
   initialCongestionWindowSegments: ['tcp', 'congestionControl', 'initialWindowSegments'],
+  maximumCongestionWindowSegments: ['tcp', 'congestionControl', 'maximumWindowSegments'],
   initialSlowStartThresholdBytes: ['tcp', 'congestionControl', 'initialSlowStartThresholdBytes'],
   rtoMode: ['tcp', 'rto', 'mode'],
   rtoBackoff: ['tcp', 'rto', 'exponentialBackoff'],
@@ -72,6 +76,7 @@ const timeDecimals: Partial<Record<ScenarioField, number>> = {
   rtoInitialMs: 6,
   rtoMinimumMs: 6,
   rtoMaximumMs: 6,
+  delayedAckMaxDelayMs: 6,
   tcpMSLMs: 6,
   tcpFinWaitTimeoutMs: 6,
   clientIdleTimeoutMs: 6,
@@ -94,6 +99,7 @@ const positiveFields = new Set<ScenarioField>([
   'snapshotIntervalMs', 'maxEvents', 'bandwidthBitsPerSecond',
   'forwardingBitsPerSecond', 'ingressBandwidthBitsPerSecond',
   'receiveBufferBytes',
+  'delayedAckSegments', 'delayedAckMaxDelayMs',
   'initialCongestionWindowSegments',
   'rtoInitialMs', 'rtoMinimumMs', 'rtoMaximumMs',
   'tcpMSLMs', 'tcpFinWaitTimeoutMs',
@@ -104,6 +110,9 @@ const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>
   receiveBufferBytes: 65535,
   sackEnabled: false,
   ECNenabled: false,
+  delayedAckEnabled: false,
+  delayedAckSegments: 2,
+  delayedAckMaxDelayMs: 40_000_000,
   queuePolicy: 'tailDrop',
   congestionThresholdPercent: 0,
   congestionSignalProbability: 0,
@@ -113,6 +122,7 @@ const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>
   congestionControl: 'reno',
   cubicFastConvergence: true,
   initialCongestionWindowSegments: 4,
+  maximumCongestionWindowSegments: 0,
   initialSlowStartThresholdBytes: 65535,
   rtoMode: 'adaptive',
   rtoBackoff: true,
@@ -188,6 +198,9 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   if (field === 'ECNenabled') {
     return text === 'true' || text === 'false' ? undefined : 'Choose whether ECN is enabled.';
   }
+  if (field === 'delayedAckEnabled') {
+    return text === 'true' || text === 'false' ? undefined : 'Choose whether delayed ACK is enabled.';
+  }
   if (field === 'queuePolicy' || field === 'ingressQueuePolicy') {
     return text === '' || text === 'tailDrop' || text === 'threshold'
       ? undefined : 'Choose tail drop or threshold signaling.';
@@ -228,6 +241,9 @@ export function validateScenarioField(field: ScenarioField, raw: string): string
   if (field === 'servers') maximum = 10_000n;
   if (field === 'maxEvents') maximum = maxUint64;
   if (field === 'receiveBufferBytes') maximum = 65535n;
+  if (field === 'delayedAckSegments') maximum = 2n;
+  if (field === 'delayedAckMaxDelayMs') maximum = 500_000_000n;
+  if (field === 'maximumCongestionWindowSegments') maximum = maxInt64 / 1024n;
   if (field === 'initialCongestionWindowSegments') maximum = maxInt64 / 1024n;
   if (field === 'initialSlowStartThresholdBytes') minimum = 2048n;
   if (field === 'tcpMSLMs') maximum = maxInt64 / 2n;
@@ -298,6 +314,7 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
       field === 'rtoBackoff' || field === 'fastRetransmit'
       || field === 'cubicFastConvergence' || field === 'sackEnabled'
       || field === 'ECNenabled'
+      || field === 'delayedAckEnabled'
     ) {
       value = raw.trim() === 'true';
     } else if (floatFields.has(field)) value = Number(raw);
@@ -352,6 +369,10 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
 
   if (updated.tcp?.ECNenabled && updated.tcp.congestionControl?.mode === 'none') {
     throw new Error('ECN requires Reno, NewReno, Tahoe or CUBIC congestion control.');
+  }
+  const congestion = updated.tcp?.congestionControl;
+  if (congestion?.mode === 'none' && integer(congestion.maximumWindowSegments ?? 0) !== 0n) {
+    throw new Error('A maximum congestion window requires Reno, NewReno, Tahoe or CUBIC.');
   }
   return updated;
 }

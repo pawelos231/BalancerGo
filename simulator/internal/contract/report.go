@@ -90,6 +90,7 @@ type ServerState struct {
 	ReceivedPayloadBytes   uint64
 	CpuUsage               float32
 	ECN                    *ECNState `json:",omitempty"`
+	ACK                    *ACKState `json:",omitempty"`
 }
 
 type ClientState struct {
@@ -111,6 +112,20 @@ type ECNState struct {
 	ReceivedECECount      uint64
 	SentCWRCount          uint64
 	ECNResponseCount      uint64
+}
+
+// ACKState counts standalone ACKs, including the subset sent by the delayed timer.
+type ACKState struct {
+	Enabled                bool
+	SentACKCount           uint64
+	TimerTriggeredACKCount uint64
+}
+
+// DelayedACKConfig records receiver ACK grouping and its virtual waiting limit.
+type DelayedACKConfig struct {
+	Enabled        bool          `json:"enabled"`
+	SegmentsPerACK int           `json:"segmentsPerACK"`
+	MaxDelay       time.Duration `json:"maxDelayNanoseconds"`
 }
 
 type ClientECN struct {
@@ -173,6 +188,7 @@ type CongestionConfig struct {
 	FastRetransmit                 bool
 	CubicFastConvergence           bool
 	InitialWindowSegments          int
+	MaximumWindowSegments          int `json:",omitempty"`
 	InitialSlowStartThresholdBytes uint64
 }
 
@@ -189,7 +205,8 @@ type RTOConfig struct {
 type TCPConfig struct {
 	ReceiveBufferBytes                   int
 	SACKEnabled                          bool
-	ECNEnabled                           bool `json:"ECNenabled,omitempty"`
+	ECNEnabled                           bool             `json:"ECNenabled,omitempty"`
+	DelayedACK                           DelayedACKConfig `json:"delayedAck"`
 	CongestionControl                    CongestionConfig
 	RTO                                  RTOConfig
 	ClientIdleTimeoutSeconds             float64

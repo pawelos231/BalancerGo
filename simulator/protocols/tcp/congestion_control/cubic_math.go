@@ -70,12 +70,16 @@ func (policy *cubicPolicy) curveWindow(elapsed float64) float64 {
 
 // storeFractionalWindow keeps sub-byte growth while publishing safe integer byte limits.
 func (policy *cubicPolicy) storeFractionalWindow() {
-	maximum := float64(model.MaxCongestionWindowBytes) / model.SEGMENT_SIZE
+	maximumBytes := policy.maximumWindowBytes
+	if maximumBytes == 0 {
+		maximumBytes = model.MaxCongestionWindowBytes
+	}
+	maximum := float64(maximumBytes) / model.SEGMENT_SIZE
 	policy.windowSegments = max(1, min(policy.windowSegments, maximum))
 
 	bytes := policy.windowSegments * model.SEGMENT_SIZE
-	if bytes >= float64(model.MaxCongestionWindowBytes) {
-		policy.congestionWindowBytes = model.MaxCongestionWindowBytes
+	if bytes >= float64(maximumBytes) {
+		policy.congestionWindowBytes = maximumBytes
 		return
 	}
 

@@ -20,7 +20,7 @@ func (policy *renoPolicy) OnACK(ack ACK) ACKResponse {
 			return ACKResponse{}
 		}
 		policy.StopRecovery()
-		policy.congestionWindowBytes = policy.recoveryWindowBytes
+		policy.setWindowBytes(policy.recoveryWindowBytes)
 		policy.avoidanceAcknowledgedBytes = 0
 		return ACKResponse{}
 	}
@@ -32,7 +32,7 @@ func (policy *renoPolicy) OnACK(ack ACK) ACKResponse {
 func (policy *renoPolicy) OnDuplicateACK() {
 	if policy.activeRecovery && policy.remainingInflations > 0 {
 		policy.remainingInflations--
-		policy.congestionWindowBytes = addCongestionBytes(policy.congestionWindowBytes, model.SEGMENT_SIZE)
+		policy.setWindowBytes(addCongestionBytes(policy.congestionWindowBytes, model.SEGMENT_SIZE))
 	}
 }
 
@@ -47,14 +47,14 @@ func (policy *renoPolicy) OnLoss(loss Loss) LossResponse {
 		} else {
 			policy.recoveryWindowBytes = policy.congestionWindowBytes
 		}
-		policy.congestionWindowBytes = policy.recoveryWindowBytes
+		policy.setWindowBytes(policy.recoveryWindowBytes)
 		policy.avoidanceAcknowledgedBytes = 0
 		policy.activeRecovery = true
 		policy.remainingInflations = 0
 
 		// Classic Reno uses inflated cwnd; RFC 6675 uses the reduced window and Pipe.
 		if !loss.SACKRecovery {
-			policy.congestionWindowBytes = addCongestionBytes(policy.recoveryWindowBytes, 3*model.SEGMENT_SIZE)
+			policy.setWindowBytes(addCongestionBytes(policy.recoveryWindowBytes, 3*model.SEGMENT_SIZE))
 			policy.remainingInflations = uint64(max(loss.PendingSegments-3, 0))
 		}
 	case TimeoutLoss:

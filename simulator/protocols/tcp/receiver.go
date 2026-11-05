@@ -35,6 +35,8 @@ type Receiver struct {
 	receiveBufferBytes   uint16
 	sackEnabled          bool
 	ecnState             model.ECNState
+	delayedACKConfig     model.DelayedACKConfig
+	ackState             model.ACKState
 
 	halfOpenIdleTimeout    time.Duration
 	establishedIdleTimeout time.Duration
@@ -53,6 +55,7 @@ func NewReceiver(e *engine.Engine, callbacks ReceiverCallbacks) *Receiver {
 		receiveBufferBytes:     model.DefaultReceiveBufferBytes,
 		closeConfig:            model.DefaultCloseConfig(),
 		rtoConfig:              model.DefaultRTOConfig(),
+		delayedACKConfig:       model.DefaultDelayedACKConfig(),
 		halfOpenIdleTimeout:    model.DefaultBackendHalfOpenIdleTimeout,
 		establishedIdleTimeout: model.DefaultBackendEstablishedIdleTimeout,
 	}

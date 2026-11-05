@@ -95,6 +95,7 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 	}
 	rto := c.effectiveRTOConfig()
 	closeConfig := c.effectiveCloseConfig()
+	delayedACK := c.effectiveDelayedACKConfig()
 	congestion := c.effectiveCongestionConfig()
 	clientIdle, halfOpenIdle, establishedIdle := c.effectiveIdleTimeouts()
 	closingIdle, resetIdle := c.effectiveLBFinalIdleTimeouts()
@@ -108,10 +109,14 @@ func (c configuration) publicConfig() contract.SimulationConfig {
 		ReceiveBufferBytes:              receiveBufferBytes,
 		SACKEnabled:                     c.sackEnabled,
 		ECNEnabled:                      c.ecnEnabled,
+		DelayedACKEnabled:               delayedACK.Enabled,
+		DelayedACKSegments:              delayedACK.SegmentsPerACK,
+		DelayedACKMaxDelayMs:            float64(delayedACK.MaxDelay) / float64(time.Millisecond),
 		CongestionControl:               string(congestion.Mode),
 		FastRetransmit:                  congestion.FastRetransmit,
 		CubicFastConvergence:            congestion.CubicFastConvergence,
 		InitialCongestionWindowSegments: congestion.InitialWindowSegments,
+		MaximumCongestionWindowSegments: congestion.MaximumWindowSegments,
 		InitialSlowStartThresholdBytes:  congestion.InitialSlowStartThresholdBytes,
 		RTOMode:                         string(rto.Mode),
 		RTOBackoff:                      rto.ExponentialBackoff,
@@ -178,12 +183,17 @@ func preparePublicScenario(
 		FastRetransmit:                 c.FastRetransmit,
 		CubicFastConvergence:           c.CubicFastConvergence,
 		InitialWindowSegments:          c.InitialCongestionWindowSegments,
+		MaximumWindowSegments:          c.MaximumCongestionWindowSegments,
 		InitialSlowStartThresholdBytes: c.InitialSlowStartThresholdBytes,
 	}
 	base.rto.Mode = model.RTOMode(c.RTOMode)
 	base.rto.ExponentialBackoff = c.RTOBackoff
 	// Allocate a new policy so a value-copy conversion cannot mutate CLI defaults.
 	base.closeConfig = &model.CloseConfig{MaxFINRetries: c.TCPMaxFINRetries}
+	base.delayedACKConfig = &model.DelayedACKConfig{
+		Enabled:        c.DelayedACKEnabled,
+		SegmentsPerACK: c.DelayedACKSegments,
+	}
 
 	// Keep explicit zero idle limits; zero disables cleanup rather than using defaults.
 	var clientIdle, halfOpenIdle, establishedIdle time.Duration
@@ -231,6 +241,7 @@ func preparePublicScenario(
 		{"rtoMaximumMs", c.RTOMaximumMs, time.Millisecond, &base.rto.MaximumTimeout},
 		{"tcpMSLMs", c.TCPMSLMs, time.Millisecond, &base.closeConfig.MSL},
 		{"tcpFinWaitTimeoutMs", c.TCPFinWaitTimeoutMs, time.Millisecond, &base.closeConfig.FinWaitTimeout},
+		{"delayedAckMaxDelayMs", c.DelayedACKMaxDelayMs, time.Millisecond, &base.delayedACKConfig.MaxDelay},
 		{"clientIdleTimeoutMs", c.ClientIdleTimeoutMs, time.Millisecond, &clientIdle},
 		{
 			name:  "backendHalfOpenIdleTimeoutMs",

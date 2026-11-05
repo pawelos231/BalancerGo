@@ -27,12 +27,21 @@ type TCPConfig struct {
 	ReceiveBufferBytes            *int             `json:"receiveBufferBytes,omitempty"`
 	SACKEnabled                   *bool            `json:"sackEnabled,omitempty"`
 	ECNEnabled                    *bool            `json:"ECNenabled,omitempty"`
+	DelayedACK                    DelayedACKConfig `json:"delayedAck"`
 	RTO                           RTOConfig        `json:"rto"`
 	Close                         CloseConfig      `json:"close"`
 	CongestionControl             CongestionConfig `json:"congestionControl"`
 	ClientIdleTimeout             *time.Duration   `json:"clientIdleTimeoutNanoseconds,omitempty"`
 	BackendHalfOpenIdleTimeout    *time.Duration   `json:"backendHalfOpenIdleTimeoutNanoseconds,omitempty"`
 	BackendEstablishedIdleTimeout *time.Duration   `json:"backendEstablishedIdleTimeoutNanoseconds,omitempty"`
+}
+
+// DelayedACKConfig groups ordinary data ACKs while keeping a bounded virtual wait.
+// Omitted fields use immediate ACKs, a two-segment threshold and a 40 ms timer.
+type DelayedACKConfig struct {
+	Enabled        *bool          `json:"enabled,omitempty"`
+	SegmentsPerACK *int           `json:"segmentsPerACK,omitempty"`
+	MaxDelay       *time.Duration `json:"maxDelayNanoseconds,omitempty"`
 }
 
 // CloseConfig bounds orderly shutdown while retaining duplicate-FIN protection.
@@ -50,6 +59,7 @@ type CongestionConfig struct {
 	FastRetransmit                 *bool   `json:"fastRetransmit,omitempty"`
 	CubicFastConvergence           *bool   `json:"cubicFastConvergence,omitempty"`
 	InitialWindowSegments          *int    `json:"initialWindowSegments,omitempty"`
+	MaximumWindowSegments          *int    `json:"maximumWindowSegments,omitempty"`
 	InitialSlowStartThresholdBytes *uint64 `json:"initialSlowStartThresholdBytes,omitempty"`
 }
 

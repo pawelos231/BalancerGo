@@ -65,6 +65,7 @@ func (r *Receiver) AbortConnection(key model.ClientKey) {
 		Ack:  conn.receiver.nextExpectedSeq,
 	}
 	r.cancelCloseTimers(conn)
+	r.cancelDelayedACK(conn)
 	conn.state = model.TCPClosed
 	conn.outcome = model.CloseAborted
 	r.emit(packet)
@@ -207,6 +208,8 @@ func (r *Receiver) startFIN(key model.ClientKey, conn *receiveConnection, state 
 }
 
 func (r *Receiver) emitFIN(key model.ClientKey, conn *receiveConnection) {
+	// FIN/ACK already confirms received data, so its old delayed ACK is unnecessary.
+	r.cancelDelayedACK(conn)
 	r.emit(model.Packet{
 		Key:                key,
 		Flag:               r.ackFlags(conn, model.FlagFIN|model.FlagACK),
@@ -245,6 +248,7 @@ func (r *Receiver) scheduleFIN(key model.ClientKey, conn *receiveConnection) {
 
 func (r *Receiver) enterTimeWait(key model.ClientKey, conn *receiveConnection) {
 	r.cancelCloseTimers(conn)
+	r.cancelDelayedACK(conn)
 	conn.state = model.TCPTimeWait
 	conn.waitEvent = r.engine.ScheduleAfter(2*r.closeConfig.MSL, func() {
 		conn.waitEvent = 0
@@ -265,6 +269,7 @@ func (r *Receiver) finishConnection(key model.ClientKey, conn *receiveConnection
 	}
 	r.cancelIdleTimer(conn)
 	r.cancelCloseTimers(conn)
+	r.cancelDelayedACK(conn)
 	conn.state = model.TCPClosed
 	conn.outcome = outcome
 	delete(r.connections, key)

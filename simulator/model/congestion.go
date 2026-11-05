@@ -32,6 +32,7 @@ type CongestionConfig struct {
 	FastRetransmit                 bool
 	CubicFastConvergence           bool // CUBIC can release capacity faster when competing flows arrive.
 	InitialWindowSegments          int
+	MaximumWindowSegments          int // Zero allows free growth; one holds cwnd at one MSS.
 	InitialSlowStartThresholdBytes uint64
 }
 

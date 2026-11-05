@@ -5,7 +5,7 @@ export type NumericScenarioField = Exclude<
   ScenarioField,
   'algorithm' | 'rtoMode' | 'rtoBackoff' | 'congestionControl'
   | 'fastRetransmit' | 'cubicFastConvergence' | 'sackEnabled'
-  | 'ECNenabled' | 'queuePolicy' | 'ingressQueuePolicy'
+  | 'ECNenabled' | 'delayedAckEnabled' | 'queuePolicy' | 'ingressQueuePolicy'
 >;
 
 // Inputs keep their existing draft paths; these definitions only organize the form.
@@ -23,6 +23,36 @@ export interface NumericFieldDefinition {
 
 // The backend supplies defaults; each field keeps its own units and limits.
 export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDefinition> = {
+  delayedAckSegments: {
+    name: 'delayedAckSegments',
+    label: 'Segments per ACK',
+    min: 1,
+    max: 2,
+    integer: true,
+    help: 'With delayed ACK enabled, acknowledge after this many new in-order segments. ' +
+      'Two groups a pair, including small segments; one sends immediately. ' +
+      'Gaps, duplicates, closing packets and fresh congestion feedback bypass the wait.',
+  },
+  delayedAckMaxDelayMs: {
+    name: 'delayedAckMaxDelayMs',
+    label: 'Maximum ACK wait (virtual ms)',
+    min: 0,
+    exclusiveMin: true,
+    max: 500,
+    help: 'Maximum virtual wait from the first segment, before TCP creates its ACK. ' +
+      'For example, the first segment at 10 ms with a 40 ms limit is acknowledged by 50 ms. ' +
+      'The ACK then crosses the normal network links. Later segments do not restart this timer.',
+  },
+  maximumCongestionWindowSegments: {
+    name: 'maximumCongestionWindowSegments',
+    label: 'Maximum congestion window (segments)',
+    min: 0,
+    integer: true,
+    hint: '0 leaves the window uncapped.',
+    help: 'Optional ceiling for cwnd, including recovery. It differs from the initial window, ' +
+      'which can grow as ACKs arrive. A cap of one holds cwnd to one 1,024-byte segment. ' +
+      'A capped window can expose delayed-ACK waiting. Requires congestion control other than none.',
+  },
   congestionThresholdPercent: {
     name: 'congestionThresholdPercent',
     label: 'Default congestion threshold (%)',
@@ -479,6 +509,16 @@ export const rtoBackoffHelp =
 
 // Select inputs share rendering while keeping each transport policy's explanation close by.
 export const scenarioSelectFields = {
+  delayedAckEnabled: {
+    label: 'Delayed acknowledgements',
+    help: 'Group ordinary data acknowledgements until the segment threshold or virtual timer. ' +
+      'Disabled sends ACKs immediately. A small send window or widely spaced packets may wait for ' +
+      'the timer without reducing the number of ACKs, which can slow the transfer.',
+    options: [
+      { value: 'true', label: 'Enabled' },
+      { value: 'false', label: 'Disabled (default)' },
+    ],
+  },
   ECNenabled: {
     label: 'Explicit congestion notification (ECN)',
     help: 'Negotiate ECN during the TCP handshake. A threshold queue can mark ECN-capable data ' +
@@ -606,6 +646,7 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
     fields: [
       'congestionControl', 'ECNenabled', 'fastRetransmit', 'cubicFastConvergence',
       'initialCongestionWindowSegments', 'initialSlowStartThresholdBytes',
+      'maximumCongestionWindowSegments',
     ],
     defaultExpanded: false,
   },
@@ -618,6 +659,13 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
       'clientIdleTimeoutMs',
       'backendHalfOpenIdleTimeoutMs', 'backendEstablishedIdleTimeoutMs',
     ],
+    defaultExpanded: false,
+  },
+  {
+    id: 'tcp-acknowledgements',
+    title: 'TCP acknowledgement timing',
+    description: 'Choose immediate ACKs or group ordinary data ACKs with a bounded virtual wait.',
+    fields: ['delayedAckEnabled', 'delayedAckSegments', 'delayedAckMaxDelayMs'],
     defaultExpanded: false,
   },
   {

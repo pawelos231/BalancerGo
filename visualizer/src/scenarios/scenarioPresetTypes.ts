@@ -2,6 +2,7 @@ import type { Scenario } from './types.ts';
 
 // Categories describe the main variable, rather than promising a measured outcome.
 export const presetCategories = [
+  { id: 'transport', label: 'TCP transport' },
   { id: 'links', label: 'Links and latency' },
   { id: 'queues', label: 'Queues and shared limits' },
   { id: 'loss', label: 'Packet loss' },

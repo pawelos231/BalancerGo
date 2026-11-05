@@ -7,7 +7,11 @@ const slowBitsPerSecond = 10_000_000;
 // Network presets share duration and payload; remaining settings start from Go defaults.
 function smallExperiment(defaults: Scenario): Scenario {
   const scenario = structuredClone(defaults);
-  if (scenario.tcp) delete scenario.tcp.ECNenabled;
+  if (scenario.tcp) {
+    delete scenario.tcp.ECNenabled;
+    delete scenario.tcp.delayedAck;
+    if (scenario.tcp.congestionControl) delete scenario.tcp.congestionControl.maximumWindowSegments;
+  }
   for (const link of [scenario.network.defaults, scenario.resources.loadBalancer.ingress]) {
     delete link.queuePolicy;
     delete link.congestionThresholdPercent;

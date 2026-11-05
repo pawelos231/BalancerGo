@@ -21,6 +21,7 @@ type configuration struct {
 	receiveBufferBytes            int
 	sackEnabled                   bool
 	ecnEnabled                    bool
+	delayedACKConfig              *model.DelayedACKConfig
 	rto                           model.RTOConfig
 	closeConfig                   *model.CloseConfig
 	congestion                    model.CongestionConfig

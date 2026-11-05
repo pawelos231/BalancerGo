@@ -130,6 +130,7 @@ func (s *World) startClient(
 		FastRetransmit:                 congestion.FastRetransmit,
 		CubicFastConvergence:           congestion.CubicFastConvergence,
 		InitialWindowSegments:          congestion.InitialWindowSegments,
+		MaximumWindowSegments:          congestion.MaximumWindowSegments,
 		InitialSlowStartThresholdBytes: congestion.InitialSlowStartThresholdBytes,
 	})
 	cl.SetSACKEnabled(s.scenario.TCP.SACKEnabled)

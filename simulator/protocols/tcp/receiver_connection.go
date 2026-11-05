@@ -18,6 +18,10 @@ type receiveConnection struct {
 	lastActivity   time.Duration
 	idleEvent      engine.EventID
 
+	// The first waiting segment starts one deadline; a second can cancel it.
+	pendingACKSegmentCount int
+	delayedACKEvent        engine.EventID
+
 	// Keep the first SYN's SACK agreement and recently reported blocks.
 	sackPermitted   bool
 	sackRecent      [model.MaxSACKBlocks]model.SACKBlock
@@ -92,6 +96,12 @@ func (r *Receiver) HandlePacket(pkt model.Packet) {
 	if conn.peerFIN {
 		return // The peer has already ended its byte stream.
 	}
+
+	// Only fresh data arriving in order can wait. Filling an old gap stays urgent.
+	windowBefore := conn.receiver.windowBytes()
+	mayDelayACK := pkt.Seq == conn.receiver.nextExpectedSeq && len(conn.receiver.ranges) == 0
+	newECNFeedback := conn.ecnNegotiated && pkt.ECN.Codepoint == model.CE &&
+		(!conn.ecnEcho || pkt.Flag&model.FlagCWR != 0)
 	if conn.receiver.overlapsWindow(pkt.Seq, sequenceEnd) {
 		if !r.acknowledgeFIN(pkt.Key, conn, pkt.Ack) {
 			return
@@ -118,25 +128,15 @@ func (r *Receiver) HandlePacket(pkt model.Packet) {
 		return
 	}
 
-	// Duplicates and data outside the window repeat the current missing position.
-	r.acknowledge(pkt.Key, conn)
+	// Partial/out-of-window copies, window changes and fresh CE feedback need an ACK now.
+	mayDelayACK = mayDelayACK && newBytes == pkt.Size &&
+		windowBefore == conn.receiver.windowBytes() && !newECNFeedback
+	r.acknowledgeData(pkt.Key, conn, mayDelayACK)
 }
 
 // validACK permits an old ACK while our FIN is still in flight.
 func (conn *receiveConnection) validACK(ack uint64) bool {
 	return ack >= 1 && ack <= conn.sendNextSeq
-}
-
-// acknowledge reports the first missing byte and the range we can still accept.
-func (r *Receiver) acknowledge(key model.ClientKey, conn *receiveConnection) {
-	r.emit(model.Packet{
-		Key:                key,
-		Flag:               r.ackFlags(conn, model.FlagACK),
-		Seq:                conn.sendNextSeq,
-		Ack:                conn.receiver.nextExpectedSeq,
-		ReceiveWindowBytes: conn.receiver.windowBytes(),
-		SACKBlocks:         conn.sackBlocks(),
-	})
 }
 
 // handleSYN reserves one flow; repeated SYNs keep its original byte positions.

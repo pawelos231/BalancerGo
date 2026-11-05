@@ -27,6 +27,7 @@ type Info struct {
 	ReceiveBufferBytes            int
 	SACKEnabled                   bool
 	ECNEnabled                    bool
+	DelayedACK                    model.DelayedACKConfig
 	RTO                           model.RTOConfig
 	Close                         model.CloseConfig
 	CongestionControl             model.CongestionConfig
@@ -90,11 +91,13 @@ func (s *World) Info() Info {
 		ReceiveBufferBytes: s.scenario.TCP.ReceiveBufferBytes,
 		SACKEnabled:        s.scenario.TCP.SACKEnabled,
 		ECNEnabled:         s.scenario.TCP.ECNEnabled,
+		DelayedACK:         configuredDelayedACK(s.scenario.TCP.DelayedACK),
 		CongestionControl: model.CongestionConfig{
 			Mode:                           model.CongestionMode(s.scenario.TCP.CongestionControl.Mode),
 			FastRetransmit:                 s.scenario.TCP.CongestionControl.FastRetransmit,
 			CubicFastConvergence:           s.scenario.TCP.CongestionControl.CubicFastConvergence,
 			InitialWindowSegments:          s.scenario.TCP.CongestionControl.InitialWindowSegments,
+			MaximumWindowSegments:          s.scenario.TCP.CongestionControl.MaximumWindowSegments,
 			InitialSlowStartThresholdBytes: s.scenario.TCP.CongestionControl.InitialSlowStartThresholdBytes,
 		},
 		RTO:                           configuredRTO(s.scenario.TCP.RTO),

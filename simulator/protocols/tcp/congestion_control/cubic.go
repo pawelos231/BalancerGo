@@ -178,7 +178,7 @@ func (policy *cubicPolicy) State() State {
 
 // setWindowBytes synchronizes an exact loss/startup window with fractional CA storage.
 func (policy *cubicPolicy) setWindowBytes(bytes uint64) {
-	policy.congestionWindowBytes = bytes
-	policy.windowSegments = float64(bytes) / model.SEGMENT_SIZE
+	policy.classicWindow.setWindowBytes(bytes)
+	policy.windowSegments = float64(policy.congestionWindowBytes) / model.SEGMENT_SIZE
 	policy.avoidanceAcknowledgedBytes = 0
 }

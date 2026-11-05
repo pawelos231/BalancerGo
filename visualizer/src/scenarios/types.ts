@@ -29,6 +29,7 @@ export interface ScenarioCongestionConfig {
   fastRetransmit: boolean;
   cubicFastConvergence: boolean;
   initialWindowSegments: ExactInteger;
+  maximumWindowSegments?: ExactInteger;
   initialSlowStartThresholdBytes: ExactInteger;
 }
 
@@ -45,6 +46,13 @@ export interface ScenarioCloseConfig {
   mslNanoseconds: ExactInteger;
   finWaitTimeoutNanoseconds: ExactInteger;
   maxFINRetries: ExactInteger;
+}
+
+// Ordinary data ACKs wait for this packet count or the virtual timer.
+export interface ScenarioDelayedACKConfig {
+  enabled: boolean;
+  segmentsPerACK: ExactInteger;
+  maxDelayNanoseconds: ExactInteger;
 }
 
 export interface ScenarioEndpointNetwork {
@@ -88,6 +96,7 @@ export interface Scenario {
     receiveBufferBytes?: ExactInteger;
     sackEnabled?: boolean;
     ECNenabled?: boolean;
+    delayedAck?: Partial<ScenarioDelayedACKConfig>;
     congestionControl?: Partial<ScenarioCongestionConfig>;
     rto?: Partial<ScenarioRTOConfig>;
     close?: Partial<ScenarioCloseConfig>;
@@ -145,6 +154,7 @@ export interface ResolvedScenario {
     receiveBufferBytes: number;
     sackEnabled: boolean;
     ECNenabled: boolean;
+    delayedAck: ScenarioDelayedACKConfig;
     congestionControl: ScenarioCongestionConfig;
     rto: ScenarioRTOConfig;
     close: ScenarioCloseConfig;

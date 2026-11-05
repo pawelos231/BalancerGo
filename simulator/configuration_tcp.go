@@ -14,6 +14,14 @@ func (c *configuration) registerTCPFlags() {
 		"negotiate selective ACKs; requires Reno, NewReno or CUBIC and fast retransmit")
 	flag.BoolVar(&c.ecnEnabled, "ecn-enabled", false,
 		"negotiate ECN congestion signaling; requires congestion control other than none")
+	delayedACK := model.DefaultDelayedACKConfig()
+	c.delayedACKConfig = &delayedACK
+	flag.BoolVar(&c.delayedACKConfig.Enabled, "tcp-delayed-ack", delayedACK.Enabled,
+		"group ordinary data ACKs until the segment threshold or virtual timer")
+	flag.IntVar(&c.delayedACKConfig.SegmentsPerACK, "tcp-delayed-ack-segments", delayedACK.SegmentsPerACK,
+		"new in-order segments per ACK (1..2)")
+	flag.DurationVar(&c.delayedACKConfig.MaxDelay, "tcp-delayed-ack-max-delay", delayedACK.MaxDelay,
+		"maximum virtual wait from the first unacknowledged arrival (positive, at most 500ms)")
 	c.rto = model.DefaultRTOConfig()
 	c.congestion = model.DefaultCongestionConfig()
 	closeConfig := model.DefaultCloseConfig()
@@ -53,6 +61,12 @@ func (c *configuration) registerTCPFlags() {
 		"tcp-initial-window",
 		c.congestion.InitialWindowSegments,
 		"initial TCP congestion window in 1024-byte segments",
+	)
+	flag.IntVar(
+		&c.congestion.MaximumWindowSegments,
+		"tcp-maximum-window",
+		c.congestion.MaximumWindowSegments,
+		"maximum congestion window in 1024-byte segments; 0 leaves it uncapped",
 	)
 	flag.BoolVar(
 		&c.congestion.FastRetransmit,
@@ -150,6 +164,14 @@ func (c *configuration) registerTCPFlags() {
 		resetIdle,
 		"LB reset idle timeout; 0 disables cleanup",
 	)
+}
+
+// effectiveDelayedACKConfig keeps older configurations on immediate ACKs.
+func (c configuration) effectiveDelayedACKConfig() model.DelayedACKConfig {
+	if c.delayedACKConfig == nil {
+		return model.DefaultDelayedACKConfig()
+	}
+	return *c.delayedACKConfig
 }
 
 // effectiveCloseConfig supplies shared defaults for older internal configurations.

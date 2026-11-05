@@ -7,6 +7,7 @@ import { queuePresets } from './presets/queues.ts';
 import { referencePresets } from './presets/reference.ts';
 import { routingPresets } from './presets/routing.ts';
 import { workloadPresets } from './presets/workload.ts';
+import { tcpPresets } from './presets/tcp.ts';
 
 export { presetCategories } from './scenarioPresetTypes.ts';
 export type { ScenarioPreset } from './scenarioPresetTypes.ts';
@@ -19,6 +20,7 @@ export const scenarioPresets = [
   ...lossPresets,
   ...queuePresets,
   ...ecnPresets,
+  ...tcpPresets,
   ...workloadPresets,
   ...routingPresets,
   ...referencePresets,
