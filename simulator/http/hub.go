@@ -35,11 +35,11 @@ type snapshotFrame struct {
 }
 
 type wsClient struct {
-	conn          *websocket.Conn
-	outgoing      chan []byte
-	commandErrors chan []byte
-	done          chan struct{}
-	stopOnce      sync.Once
+	conn           *websocket.Conn
+	outgoing       chan []byte
+	commandReplies chan []byte
+	done           chan struct{}
+	stopOnce       sync.Once
 }
 
 func (c *wsClient) stop() {
@@ -74,11 +74,31 @@ func (c *wsClient) queueLatest(frame []byte) {
 	}
 }
 
+// queueReply keeps command outcomes separate from replaceable measurements.
+// A full reply queue closes the connection instead of silently losing a result.
+func (c *wsClient) queueReply(message any) {
+	select {
+	case <-c.done:
+		return
+	default:
+	}
+	frame, _ := json.Marshal(message) // Reply types contain only strings.
+	select {
+	case c.commandReplies <- frame:
+	default:
+		c.stop()
+	}
+}
+
+func (c *wsClient) replyCommand(result contract.CommandResultFrame) {
+	c.queueReply(result)
+}
+
 // Hub handles real I/O only. submit must enqueue a command without blocking;
 // it must not read or mutate live simulation state. BroadcastState serializes a
 // detached snapshot and never waits for a WebSocket connection or its writer.
 type Hub struct {
-	submit     func(contract.Envelope) error
+	submit     func(contract.Envelope, func(contract.CommandResultFrame)) error
 	latest     atomic.Pointer[snapshotFrame]
 	wake       chan struct{}
 	register   chan *wsClient
@@ -87,7 +107,7 @@ type Hub struct {
 	runOnce    sync.Once
 }
 
-func NewHub(submit func(contract.Envelope) error) *Hub {
+func NewHub(submit func(contract.Envelope, func(contract.CommandResultFrame)) error) *Hub {
 	return &Hub{
 		submit:     submit,
 		wake:       make(chan struct{}, 1),
@@ -173,20 +193,22 @@ func (h *Hub) readCommands(c *wsClient) {
 		if h.submit == nil {
 			continue
 		}
-		if err := h.submit(envelope); err != nil {
+		if err := h.submit(envelope, c.replyCommand); err != nil {
 			log.Printf("UI command %q rejected: %v", envelope.Type, err)
-			// String-only fields cannot fail JSON encoding. Keep errors separate
-			// from replaceable snapshots, and use the same connection writer.
-			frame, _ := json.Marshal(contract.CommandErrorFrame{
+			if envelope.Type == contract.StopSimulation {
+				c.replyCommand(contract.CommandResultFrame{
+					Type:        "commandResult",
+					CommandType: envelope.Type,
+					RunID:       envelope.RunID,
+					CommandID:   envelope.CommandID,
+					Status:      contract.CommandRejected,
+					Error:       err.Error(),
+				})
+				continue
+			}
+			c.queueReply(contract.CommandErrorFrame{
 				Type: "commandError", CommandType: envelope.Type, Error: err.Error(),
 			})
-			select {
-			case c.commandErrors <- frame:
-			default:
-				// Disconnect rather than silently lose a command rejection.
-				c.stop()
-				return
-			}
 		}
 	}
 }
@@ -201,7 +223,7 @@ func (h *Hub) writeFrames(c *wsClient) {
 			return
 		case <-c.done:
 			return
-		case frame := <-c.commandErrors:
+		case frame := <-c.commandReplies:
 			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 				return
 			}
@@ -236,7 +258,7 @@ func (h *Hub) ServeWs(w http.ResponseWriter, r *http.Request) {
 	}
 	c := &wsClient{
 		conn: conn, outgoing: make(chan []byte, 1),
-		commandErrors: make(chan []byte, 8), done: make(chan struct{}),
+		commandReplies: make(chan []byte, 8), done: make(chan struct{}),
 	}
 	select {
 	case h.register <- c:

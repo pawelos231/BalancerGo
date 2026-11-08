@@ -84,11 +84,17 @@ func runInteractive(
 		experiment = nil
 		started, elapsed = time.Time{}, 0
 		status, lastError, runID = "idle", "", ""
-		control.forgetRun()
-		control.finishRun()
-		err := control.acknowledgeStop(publish)
+		err := publish()
 		log.Print("Simulation stopped and cleared; waiting for another start")
 		return err
+	}
+	stopCancelledRun := func() error {
+		select {
+		case request := <-control.stops:
+			return control.applyStop(request, clear)
+		case <-ctx.Done():
+			return nil
+		}
 	}
 
 	for {
@@ -96,8 +102,8 @@ func runInteractive(
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-control.stops:
-			if err := clear(); err != nil {
+		case stop := <-control.stops:
+			if err := control.applyStop(stop, clear); err != nil {
 				return err
 			}
 			continue
@@ -105,7 +111,7 @@ func runInteractive(
 		}
 		runCtx := control.contextForRun()
 		if runCtx.Err() != nil {
-			if err := clear(); err != nil {
+			if err := stopCancelledRun(); err != nil {
 				return err
 			}
 			continue
@@ -120,7 +126,7 @@ func runInteractive(
 			continue
 		}
 		if runCtx.Err() != nil {
-			if err := clear(); err != nil {
+			if err := stopCancelledRun(); err != nil {
 				return err
 			}
 			continue
@@ -162,7 +168,7 @@ func runInteractive(
 			return nil
 		}
 		if runCtx.Err() != nil {
-			if err := clear(); err != nil {
+			if err := stopCancelledRun(); err != nil {
 				return err
 			}
 			continue

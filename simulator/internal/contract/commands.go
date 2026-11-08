@@ -16,8 +16,10 @@ const (
 
 // Envelope carries a command; the simulation owner decodes its payload.
 type Envelope struct {
-	Type    CommandType     `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Type      CommandType     `json:"type"`
+	Payload   json.RawMessage `json:"payload"`
+	RunID     string          `json:"runId,omitempty"`
+	CommandID string          `json:"commandId,omitempty"`
 }
 
 // CommandErrorFrame reports admission failure on the submitting WebSocket.

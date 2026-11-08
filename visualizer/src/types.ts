@@ -224,3 +224,12 @@ export interface CommandError {
   commandType: CommandType;
   error: string;
 }
+
+export interface StopCommandResult {
+  type: 'commandResult';
+	commandType: CommandType.StopSimulation;
+  runId: string;
+  commandId: string;
+  status: 'applied' | 'rejected';
+  error?: string;
+}

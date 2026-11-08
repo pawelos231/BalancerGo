@@ -25,8 +25,11 @@ const (
 // runtimeCommand keeps decoding at the existing virtual boundary. Only the
 // input adapter interprets Payload; World receives a typed operation.
 type runtimeCommand struct {
-	kind    commandKind
-	Payload []byte
+	kind      commandKind
+	Payload   []byte
+	runID     string
+	commandID string
+	reply     func(contract.CommandResultFrame)
 }
 
 type runReceipt struct{ RunID, Status string }
@@ -53,22 +56,23 @@ type startRequest struct {
 
 // runController coordinates I/O requests without accessing live models.
 type runController struct {
-	mu         sync.Mutex
-	commands   chan runtimeCommand
-	starts     chan startRequest
-	stops      chan struct{}
-	serviceCtx context.Context
-	current    *runRecord
-	runCtx     context.Context
-	cancelRun  context.CancelFunc
-	stopping   bool
+	mu            sync.Mutex
+	commands      chan runtimeCommand
+	starts        chan startRequest
+	stops         chan *stopRequest
+	serviceCtx    context.Context
+	current       *runRecord
+	runCtx        context.Context
+	cancelRun     context.CancelFunc
+	reservedRunID string // Includes accepted starts whose model has not been created yet.
+	pendingStop   *stopRequest
 }
 
 func newRunController(ctx context.Context) *runController {
 	return &runController{
 		commands:   make(chan runtimeCommand, 64),
 		starts:     make(chan startRequest, 1),
-		stops:      make(chan struct{}, 1),
+		stops:      make(chan *stopRequest, 1),
 		serviceCtx: ctx,
 	}
 }
@@ -81,23 +85,18 @@ func (c *runController) submit(ctx context.Context, command runtimeCommand) erro
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if c.serviceCtx.Err() != nil {
+		return errServiceClosed
+	}
 
 	switch command.kind {
 	case stopCommand:
-		if !c.stopping {
-			c.stopping = true
-			if c.cancelRun != nil {
-				c.cancelRun()
-			}
-			// Stop bypasses the command queue and interrupts pacing immediately.
-			c.stops <- struct{}{}
-		}
-		return nil
+		return c.enqueueStop(command)
 	case startCommand:
 		_, err := c.enqueueStart(startRequest{legacy: &command}, nil)
 		return err
 	case algorithmCommand, spawnCommand:
-		if c.cancelRun == nil || c.stopping {
+		if c.cancelRun == nil || c.pendingStop != nil {
 			return errors.New("start the simulation before sending a command")
 		}
 	default:
@@ -137,7 +136,7 @@ func (c *runController) enqueueStart(request startRequest, document []byte) (run
 	if c.serviceCtx.Err() != nil {
 		return runReceipt{}, errServiceClosed
 	}
-	if c.cancelRun != nil || c.stopping {
+	if c.cancelRun != nil || c.pendingStop != nil {
 		return runReceipt{}, errSimulationBusy
 	}
 	runID, err := newRunID()
@@ -149,6 +148,7 @@ func (c *runController) enqueueStart(request startRequest, document []byte) (run
 	c.runCtx, c.cancelRun = context.WithCancel(c.serviceCtx)
 	select {
 	case c.starts <- request:
+		c.reservedRunID = runID
 		if document != nil {
 			c.current = &runRecord{
 				RunID:      runID,
@@ -215,13 +215,6 @@ func (c *runController) currentRun() *runRecord {
 	return &record
 }
 
-// forgetRun removes configuration metadata when Stop clears the experiment.
-func (c *runController) forgetRun() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.current = nil
-}
-
 func (c *runController) contextForRun() context.Context {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -231,10 +224,18 @@ func (c *runController) contextForRun() context.Context {
 func (c *runController) finishRun() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.finishRunLocked()
+}
+
+// finishRunLocked releases the slot but retains the target of an accepted Stop.
+func (c *runController) finishRunLocked() {
 	if c.cancelRun != nil {
 		c.cancelRun()
 	}
 	c.runCtx, c.cancelRun = nil, nil
+	if c.pendingStop == nil {
+		c.reservedRunID = ""
+	}
 	// Submission uses the same lock, so old commands cannot enter the next run.
 	for len(c.commands) > 0 {
 		<-c.commands
@@ -242,17 +243,4 @@ func (c *runController) finishRun() {
 	for len(c.starts) > 0 {
 		<-c.starts
 	}
-}
-
-// acknowledgeStop publishes the empty state before allowing new starts.
-func (c *runController) acknowledgeStop(publish func() error) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	select {
-	case <-c.stops:
-	default:
-	}
-	err := publish()
-	c.stopping = false
-	return err
 }

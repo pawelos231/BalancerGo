@@ -77,7 +77,13 @@ func topologyDocument(t *testing.T, h *scenarioHarness) contract.TopologyDocumen
 // stopTelemetryScenario waits for the empty state before checking the HTTP cache.
 func stopTelemetryScenario(t *testing.T, h *scenarioHarness) {
 	t.Helper()
-	command := contract.Envelope{Type: contract.StopSimulation, Payload: []byte(`{}`)}
+	record := h.control.currentRun()
+	if record == nil {
+		t.Fatal("no run to stop")
+	}
+	command := contract.Envelope{
+		Type: contract.StopSimulation, RunID: record.RunID, CommandID: "stop-telemetry",
+	}
 	if err := h.socket.WriteJSON(command); err != nil {
 		t.Fatal(err)
 	}

@@ -34,8 +34,8 @@ func newScenarioHarness(t *testing.T) *scenarioHarness {
 	ctx, cancel := context.WithCancel(context.Background())
 	control := newRunController(ctx)
 	publication := &httpserver.Publication{}
-	hub := httpserver.NewHub(func(command contract.Envelope) error {
-		return submitFrontendCommand(control, ctx, command)
+	hub := httpserver.NewHub(func(command contract.Envelope, reply func(contract.CommandResultFrame)) error {
+		return submitFrontendCommand(control, ctx, command, reply)
 	})
 	go hub.Run(ctx)
 	defaults := legacyTestConfiguration()
@@ -202,11 +202,15 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 
 	// HTTP and WS cannot start another model while this one owns the slot.
 	scenarioRequest(t, h.server, http.MethodPost, "/api/simulations", document, http.StatusConflict)
-	err = submitFrontendCommand(h.control, context.Background(), contract.Envelope{Type: contract.StartSimulation, Payload: []byte(`{}`)})
+	err = submitFrontendCommand(h.control, context.Background(), contract.Envelope{
+		Type: contract.StartSimulation, Payload: []byte(`{}`),
+	}, nil)
 	if !errors.Is(err, errSimulationBusy) {
 		t.Fatalf("WS bypassed HTTP admission: %v", err)
 	}
-	if err := h.socket.WriteJSON(contract.Envelope{Type: contract.StopSimulation, Payload: []byte(`{}`)}); err != nil {
+	if err := h.socket.WriteJSON(contract.Envelope{
+		Type: contract.StopSimulation, RunID: receipt.RunID, CommandID: "stop-lifecycle",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	idle := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
@@ -318,7 +322,9 @@ func TestScenarioStartAdmission(t *testing.T) {
 
 	// Stop interrupts the reserved run and blocks new admission until the empty snapshot.
 	runCtx := control.contextForRun()
-	if err := submitFrontendCommand(control, context.Background(), contract.Envelope{Type: contract.StopSimulation}); err != nil {
+	if err := submitFrontendCommand(control, context.Background(), contract.Envelope{
+		Type: contract.StopSimulation, RunID: first.RunID, CommandID: "stop-admission",
+	}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !errors.Is(runCtx.Err(), context.Canceled) {
@@ -329,8 +335,7 @@ func TestScenarioStartAdmission(t *testing.T) {
 	if !errors.Is(err, errSimulationBusy) {
 		t.Fatal("new Start bypassed pending Stop")
 	}
-	control.forgetRun()
-	control.acknowledgeStop(func() error { return nil })
+	control.applyStop(<-control.stops, func() error { return nil })
 
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
 	second, err := control.startScenario(requestCtx, document, resolved)

@@ -73,8 +73,8 @@ func run() error {
 	// The I/O queue carries requests; only runInteractive owns the model state.
 	control := newRunController(ctx)
 	publication := &httpserver.Publication{}
-	hub := httpserver.NewHub(func(command contract.Envelope) error {
-		return submitFrontendCommand(control, ctx, command)
+	hub := httpserver.NewHub(func(command contract.Envelope, reply func(contract.CommandResultFrame)) error {
+		return submitFrontendCommand(control, ctx, command, reply)
 	})
 	go hub.Run(ctx)
 	api := &scenarioAPI{defaults: defaults, control: control, publication: publication}

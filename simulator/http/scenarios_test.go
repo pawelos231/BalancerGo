@@ -102,7 +102,7 @@ func encodedHTTPScenario(t *testing.T, definition scenario.Scenario) []byte {
 
 // scenarioHTTPHandler mounts the API on the same private mux used in production.
 func scenarioHTTPHandler(service ScenarioService) http.Handler {
-	hub := NewHub(func(contract.Envelope) error { return nil })
+	hub := NewHub(func(contract.Envelope, func(contract.CommandResultFrame)) error { return nil })
 	return NewServer(hub, "", service).Handler
 }
 
@@ -522,7 +522,9 @@ func TestScenarioMethodsAndCORS(t *testing.T) {
 	}
 
 	// Existing callers retain their WebSocket/health server without the new service.
-	legacy := NewServer(NewHub(func(contract.Envelope) error { return nil }), "").Handler
+	legacy := NewServer(NewHub(func(contract.Envelope, func(contract.CommandResultFrame)) error {
+		return nil
+	}), "").Handler
 	health := requestScenarioAPI(legacy, http.MethodGet, "/healthz", "", nil)
 	missing := requestScenarioAPI(legacy, http.MethodGet, "/api/scenarios/defaults", "", nil)
 	if health.Code != http.StatusNoContent || missing.Code != http.StatusNotFound {

@@ -17,7 +17,12 @@ import (
 
 // submitFrontendCommand translates a wire action without decoding its runtime
 // payload early. The application still reports those errors at the DES boundary.
-func submitFrontendCommand(control *runController, ctx context.Context, input contract.Envelope) error {
+func submitFrontendCommand(
+	control *runController,
+	ctx context.Context,
+	input contract.Envelope,
+	reply func(contract.CommandResultFrame),
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -35,7 +40,13 @@ func submitFrontendCommand(control *runController, ctx context.Context, input co
 	default:
 		return fmt.Errorf("unsupported command: %s", input.Type)
 	}
-	return control.submit(ctx, runtimeCommand{kind: kind, Payload: input.Payload})
+	return control.submit(ctx, runtimeCommand{
+		kind:      kind,
+		Payload:   input.Payload,
+		runID:     input.RunID,
+		commandID: input.CommandID,
+		reply:     reply,
+	})
 }
 
 // applyRuntimeCommand runs on the owner, within the scheduled command event.
