@@ -187,18 +187,22 @@ func normalizeIdleTimeout(
 }
 
 // normalizeLoadBalancer resolves an independent idle limit for each mapping phase.
-func normalizeLoadBalancer(config LoadBalancerConfig, duration time.Duration) (NormalizedLoadBalancerConfig, error) {
-	if err := validateLoadBalancer(config); err != nil {
+func normalizeLoadBalancer(
+	config LoadBalancerConfig,
+	duration time.Duration,
+	path, timeoutPath string,
+) (NormalizedLoadBalancerConfig, error) {
+	if err := validateLoadBalancer(config, path); err != nil {
 		return NormalizedLoadBalancerConfig{}, err
 	}
-	host, err := normalizeHost(config.Host, duration, "resources.loadBalancer.host")
+	host, err := normalizeHost(config.Host, duration, path+".host")
 	if err != nil {
 		return NormalizedLoadBalancerConfig{}, err
 	}
 	halfOpen, err := normalizeIdleTimeout(
 		config.HalfOpenIdleTimeout,
 		model.DefaultLBHalfOpenIdleTimeout,
-		"resources.loadBalancer.halfOpenIdleTimeoutNanoseconds",
+		timeoutPath+".halfOpenIdleTimeoutNanoseconds",
 	)
 	if err != nil {
 		return NormalizedLoadBalancerConfig{}, err
@@ -206,7 +210,7 @@ func normalizeLoadBalancer(config LoadBalancerConfig, duration time.Duration) (N
 	established, err := normalizeIdleTimeout(
 		config.EstablishedIdleTimeout,
 		model.DefaultLBEstablishedIdleTimeout,
-		"resources.loadBalancer.establishedIdleTimeoutNanoseconds",
+		timeoutPath+".establishedIdleTimeoutNanoseconds",
 	)
 	if err != nil {
 		return NormalizedLoadBalancerConfig{}, err
@@ -214,7 +218,7 @@ func normalizeLoadBalancer(config LoadBalancerConfig, duration time.Duration) (N
 	closing, err := normalizeIdleTimeout(
 		config.ClosingIdleTimeout,
 		model.DefaultLBClosingIdleTimeout,
-		"resources.loadBalancer.closingIdleTimeoutNanoseconds",
+		timeoutPath+".closingIdleTimeoutNanoseconds",
 	)
 	if err != nil {
 		return NormalizedLoadBalancerConfig{}, err
@@ -222,7 +226,7 @@ func normalizeLoadBalancer(config LoadBalancerConfig, duration time.Duration) (N
 	reset, err := normalizeIdleTimeout(
 		config.ResetIdleTimeout,
 		model.DefaultLBResetIdleTimeout,
-		"resources.loadBalancer.resetIdleTimeoutNanoseconds",
+		timeoutPath+".resetIdleTimeoutNanoseconds",
 	)
 	if err != nil {
 		return NormalizedLoadBalancerConfig{}, err

@@ -5,10 +5,10 @@ planned timeline format; the CLI, HTTP runtime and frontend still use version 1.
 They live outside `examples/scenarios/*.json` so existing presets and tests do
 not discover them as runnable scenarios.
 
-`scenario.DecodeDocumentV2` and `scenario.EncodeDocumentV2` currently check
-document syntax only. E1.2 will add semantic validation and normalization;
-E1.3 will add frontend types. Successful decoding does not mean a document is
-valid for simulation or that any timeline transition has been implemented.
+`scenario.DecodeDocumentV2` and `scenario.EncodeDocumentV2` check document syntax.
+`scenario.NormalizeV2` additionally validates the whole timeline and resolves
+each state independently. E1.3 will add frontend types. Successful validation
+does not enable execution; timeline transitions are implemented in later phases.
 
 | File | Intended experiment | Target application payload |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ field inherits; an explicit zero sets zero where that field permits it.
 
 State keys must be canonical nonnegative decimal `int64` strings: `"0"` is valid;
 `"00"`, `"+1"`, fractions and exponent notation are invalid. JSON object order is
-irrelevant; the eventual runtime orders states numerically. Integer field values
+irrelevant; normalization orders states numerically. Integer field values
 within JavaScript's safe range may be numbers; outside ±9,007,199,254,740,991 they
 must be decimal strings. The reader enforces each destination integer's range.
 
@@ -124,10 +124,32 @@ Backend 2 remains physically available throughout its temporary administrative d
 
 ## Validation boundary
 
-The current reader checks version 2, strict JSON shape/field types, unknown and
+The document reader checks version 2, strict JSON shape/field types, unknown and
 duplicate fields, canonical timestamp spelling, and exact integer transport.
-Ordinary omitted fields keep zero values. It does **not** enforce a state at zero,
-state times below the duration, numeric setting ranges, valid enum values,
-profile references, stable identities, insertion rules or client-count budgets.
-Those semantic checks belong to E1.2. The examples include a complete state at
-zero and transitions strictly inside the horizon so they fit that planned contract.
+Ordinary omitted fields keep zero values. Call `NormalizeV2` after decoding to
+check semantic validity; the same checks also cover directly constructed Go values.
+
+Normalization requires positive duration, a state at zero, and state times strictly
+below duration. It checks setting ranges, enum values, profile references, duplicate
+IDs/endpoints, retained identities, insertion times and run-wide client reservations.
+Equivalent IP spellings and host casing identify the same backend endpoint; the
+original address spelling is preserved. A later error rejects the whole timeline,
+without returning partially usable states or creating runtime objects.
+
+`NormalizedV2.Fixed` holds shared resolved settings; `States` contains full states
+sorted by `At`, not compiled transition actions. State `TotalClients` sums its
+declared group budgets. Run-wide `TotalClients` reserves the sum of each distinct
+group's maximum declared count, bounded by `MaxClients`. Reducing a count or
+removing a group does not release reservations, including slots never born.
+This conservative rule matches the current address reservation model.
+
+An override may address any slot below the group's largest count declared **up
+to that state**. For count 10 -> 1, override index 9 remains valid for a retained
+client; increasing to 10 later does not make an earlier out-of-range override valid.
+These are reserved slots, not proof that a client has already been born.
+`NormalizedClientGroup.Client(index)` still looks up clients within the current
+birth budget; later runtime updates must also handle existing clients beyond it.
+
+Client start times beyond the run duration and large arrival gaps are allowed;
+they may produce no arrivals during the run. Generator progress, overflow-safe
+replanning and state differences belong to E1.4/E1.12, not document normalization.

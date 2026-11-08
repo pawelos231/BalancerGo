@@ -40,6 +40,15 @@ func TestScenarioV2ExamplesRoundTrip(t *testing.T) {
 			if err != nil || !reflect.DeepEqual(restored, input) {
 				t.Fatalf("example changed during round trip: %v", err)
 			}
+
+			// The complete timeline must validate, even though runtime admission stays disabled.
+			resolved, err := scenario.NormalizeV2(input)
+			if err != nil {
+				t.Fatalf("example failed timeline validation: %v", err)
+			}
+			if len(resolved.States) != len(input.States) || resolved.States[0].At != 0 {
+				t.Fatal("normalized example lost its initial state or transitions")
+			}
 		})
 	}
 }

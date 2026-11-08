@@ -42,7 +42,12 @@ func Normalize(input Scenario) (Normalized, error) {
 		return Normalized{}, err
 	}
 
-	loadBalancer, err := normalizeLoadBalancer(input.Resources.LoadBalancer, input.Execution.Duration)
+	loadBalancer, err := normalizeLoadBalancer(
+		input.Resources.LoadBalancer,
+		input.Execution.Duration,
+		"resources.loadBalancer",
+		"resources.loadBalancer",
+	)
 	if err != nil {
 		return Normalized{}, err
 	}
@@ -129,6 +134,7 @@ func Normalize(input Scenario) (Normalized, error) {
 
 		resolvedGroup, err := normalizeGroup(
 			group,
+			group.Count,
 			input.Workload.Defaults,
 			defaultLinks,
 			profiles,
@@ -179,21 +185,21 @@ func validateExecution(config ExecutionConfig) error {
 }
 
 // validateLoadBalancer checks selection, forwarding and the independent input link.
-func validateLoadBalancer(config LoadBalancerConfig) error {
-	if err := validateID(config.ID, "resources.loadBalancer.id"); err != nil {
+func validateLoadBalancer(config LoadBalancerConfig, path string) error {
+	if err := validateID(config.ID, path+".id"); err != nil {
 		return err
 	}
 
 	supportedAlgorithm := config.Algorithm == "roundRobin" || config.Algorithm == "random"
 	if !supportedAlgorithm {
-		return fmt.Errorf("resources.loadBalancer.algorithm: must be roundRobin or random")
+		return fmt.Errorf("%s.algorithm: must be roundRobin or random", path)
 	}
 
 	if config.ForwardingBitsPerSecond <= 0 {
-		return fmt.Errorf("resources.loadBalancer.forwardingBitsPerSecond: must be positive")
+		return fmt.Errorf("%s.forwardingBitsPerSecond: must be positive", path)
 	}
 
-	return validateLink(config.Ingress, "resources.loadBalancer.ingress")
+	return validateLink(config.Ingress, path+".ingress")
 }
 
 // validateLink checks one direction's speed, travel time, queue size and loss.
@@ -383,9 +389,10 @@ func applyStreamPatch(config StreamConfig, patch StreamPatch) StreamConfig {
 }
 
 // normalizeGroup resolves shared group settings and individual client exceptions.
-// It stores only those exceptions instead of creating every client.
+// overrideLimit includes earlier client slots when a timeline lowers the birth budget.
 func normalizeGroup(
 	group ClientGroup,
+	overrideLimit int,
 	defaults StreamConfig,
 	links DirectionalLinks,
 	profiles map[string]LinkPatch,
@@ -421,13 +428,13 @@ func normalizeGroup(
 		Overrides: make([]NormalizedClientOverride, 0, len(group.Overrides)),
 	}
 
-	// Each client index must exist in the group and occur only once.
+	// Each override must address a reserved client slot and occur only once.
 	usedIndices := make(map[int]bool, len(group.Overrides))
 
 	for position, override := range group.Overrides {
 		overridePath := fmt.Sprintf("%s.overrides[%d]", path, position)
 
-		if override.Index < 0 || override.Index >= group.Count {
+		if override.Index < 0 || override.Index >= overrideLimit {
 			return NormalizedClientGroup{}, fmt.Errorf(
 				"%s.index: must identify a client in this group",
 				overridePath,
@@ -557,13 +564,7 @@ func validateAddress(backend BackendConfig, addresses map[string]string, path st
 		return fmt.Errorf("%s.port: must be in 1..65535", path)
 	}
 
-	// Normalize only the comparison key; keep the original address in the result.
-	host := strings.ToLower(backend.Address)
-	if ip := net.ParseIP(host); ip != nil {
-		host = ip.String()
-	}
-
-	address := net.JoinHostPort(host, strconv.Itoa(int(backend.Port)))
+	address := endpointKey(backend.Address, backend.Port)
 	if previous, exists := addresses[address]; exists {
 		return fmt.Errorf(
 			"%s.address: endpoint %q already used by %s",
@@ -575,4 +576,13 @@ func validateAddress(backend BackendConfig, addresses map[string]string, path st
 
 	addresses[address] = path
 	return nil
+}
+
+// endpointKey compares equivalent host spellings without changing the input address.
+func endpointKey(address string, port uint16) string {
+	host := strings.ToLower(address)
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	}
+	return net.JoinHostPort(host, strconv.Itoa(int(port)))
 }
