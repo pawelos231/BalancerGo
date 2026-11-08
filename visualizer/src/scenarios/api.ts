@@ -5,6 +5,7 @@ import type {
   ValidatedScenario,
 } from './types.ts';
 import type { TopologyDefinition } from '../telemetry/types';
+import { isExperimentContext } from '../experiment.ts';
 
 // Keep API failures readable while retaining the status for expected cases such as 404.
 export class ScenarioApiError extends Error {
@@ -77,7 +78,8 @@ export class ScenarioApi {
       const statuses = ['accepted', 'running', 'finished', 'failed'];
       const validStatus = isRecord(result) && typeof result.status === 'string'
         && statuses.includes(result.status);
-      if (!isRecord(result) || !isRunId(result.runId) || !validStatus || !isScenario(result.scenario)) {
+      if (!isRecord(result) || !isRunId(result.runId) || !validStatus
+        || !isScenario(result.scenario) || !isExperimentContext(result.experiment)) {
         throw invalidResponse();
       }
       return result as unknown as CurrentSimulation;

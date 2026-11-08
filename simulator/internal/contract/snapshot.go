@@ -72,6 +72,7 @@ type TransferSummary struct {
 type SimulationMetadata struct {
 	Status             string                 `json:"status"`
 	RunID              string                 `json:"runId,omitempty"`
+	Experiment         *ExperimentContext     `json:"experiment,omitempty"`
 	Algorithm          string                 `json:"algorithm"`
 	VirtualTimeSeconds float64                `json:"virtualTimeSeconds"`
 	Error              string                 `json:"error,omitempty"`

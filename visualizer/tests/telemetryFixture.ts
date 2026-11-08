@@ -1,5 +1,6 @@
 import type { TopologyLinkStats } from '../src/topology/types.ts';
 import type { SimulationSnapshot, TopologyDefinition } from '../src/telemetry/types.ts';
+import { experimentFixture } from './scenarioFixture.ts';
 
 export function linkStats(value = 0): TopologyLinkStats {
   return {
@@ -69,7 +70,10 @@ export function telemetryFrame(revision = '1', runId = 'run-1', value = 1): Simu
   return {
     type: 'simulationSnapshot',
     version: 1,
-    simulation: { runId, status: 'running', algorithm: 'roundRobin', virtualTimeSeconds: value / 10 },
+    simulation: {
+      runId, status: 'running', algorithm: 'roundRobin', virtualTimeSeconds: value / 10,
+      experiment: experimentFixture(),
+    },
     mode: 'NAT',
     algorithm: 'RoundRobin',
     servers: [{

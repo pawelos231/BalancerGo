@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
 
+	"load-balancer/internal/contract"
 	"load-balancer/scenario"
 )
 
@@ -31,6 +33,7 @@ type runReceipt struct{ RunID, Status string }
 type runRecord struct {
 	RunID, Status string
 	Scenario      []byte
+	Experiment    contract.ExperimentContext
 }
 
 var (
@@ -42,9 +45,10 @@ var (
 // startRequest carries a checked scenario or settings awaiting validation.
 // Only the simulation owner creates the world from this request.
 type startRequest struct {
-	runID    string
-	legacy   *runtimeCommand
-	scenario *scenario.Normalized
+	runID      string
+	legacy     *runtimeCommand
+	scenario   *scenario.Normalized
+	experiment contract.ExperimentContext
 }
 
 // runController coordinates I/O requests without accessing live models.
@@ -54,7 +58,6 @@ type runController struct {
 	starts     chan startRequest
 	stops      chan struct{}
 	serviceCtx context.Context
-	nextRunID  uint64
 	current    *runRecord
 	runCtx     context.Context
 	cancelRun  context.CancelFunc
@@ -120,7 +123,13 @@ func (c *runController) startScenario(
 	if err := ctx.Err(); err != nil {
 		return runReceipt{}, err
 	}
-	return c.enqueueStart(startRequest{scenario: &resolved}, document)
+	request := startRequest{
+		scenario: &resolved,
+		experiment: experimentContext(document, contract.ExperimentExecution{
+			Speed: resolved.Execution.Speed,
+		}),
+	}
+	return c.enqueueStart(request, document)
 }
 
 // enqueueStart requires the control lock; all transports use this admission check.
@@ -131,21 +140,21 @@ func (c *runController) enqueueStart(request startRequest, document []byte) (run
 	if c.cancelRun != nil || c.stopping {
 		return runReceipt{}, errSimulationBusy
 	}
-	if c.nextRunID == ^uint64(0) {
-		return runReceipt{}, errors.New("simulation run ID limit reached")
+	runID, err := newRunID()
+	if err != nil {
+		return runReceipt{}, err
 	}
 
-	runID := "run-" + strconv.FormatUint(c.nextRunID+1, 10)
 	request.runID = runID
 	c.runCtx, c.cancelRun = context.WithCancel(c.serviceCtx)
 	select {
 	case c.starts <- request:
-		c.nextRunID++
 		if document != nil {
 			c.current = &runRecord{
-				RunID:    runID,
-				Status:   "accepted",
-				Scenario: append([]byte(nil), document...),
+				RunID:      runID,
+				Status:     "accepted",
+				Scenario:   append([]byte(nil), document...),
+				Experiment: request.experiment,
 			}
 		}
 		return runReceipt{RunID: runID, Status: "accepted"}, nil
@@ -156,14 +165,28 @@ func (c *runController) enqueueStart(request startRequest, document []byte) (run
 	}
 }
 
+// newRunID uses fresh randomness, so restarting the backend does not restart a counter.
+func newRunID() (string, error) {
+	var randomBytes [16]byte
+	if _, err := rand.Read(randomBytes[:]); err != nil {
+		return "", fmt.Errorf("generate simulation run ID: %w", err)
+	}
+	return "run-" + hex.EncodeToString(randomBytes[:]), nil
+}
+
 // rememberRun records a validated legacy start without exposing model references.
-func (c *runController) rememberRun(runID string, document []byte) {
+func (c *runController) rememberRun(
+	runID string,
+	document []byte,
+	experiment contract.ExperimentContext,
+) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.current = &runRecord{
-		RunID:    runID,
-		Status:   "running",
-		Scenario: append([]byte(nil), document...),
+		RunID:      runID,
+		Status:     "running",
+		Scenario:   append([]byte(nil), document...),
+		Experiment: experiment,
 	}
 }
 
@@ -185,6 +208,10 @@ func (c *runController) currentRun() *runRecord {
 	}
 	record := *c.current
 	record.Scenario = append([]byte(nil), record.Scenario...)
+	if modified := record.Experiment.Build.VCSModified; modified != nil {
+		value := *modified
+		record.Experiment.Build.VCSModified = &value
+	}
 	return &record
 }
 

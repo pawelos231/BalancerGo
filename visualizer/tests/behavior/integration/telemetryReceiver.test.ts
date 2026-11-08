@@ -55,6 +55,24 @@ test('the current TCP phase survives topology hydration', async () => {
   assert.equal(displayed?.tcpPhase, 'fastRecovery');
 });
 
+test('latest experiment context survives pending and older topology hydration, then clears on idle', async () => {
+  const { receiver, requests } = receiverFixture();
+  const first = telemetryFrame();
+  receiver.receive(first);
+  assert.equal(receiver.state.data?.simulation.experiment, first.simulation.experiment);
+  const latest = telemetryFrame('2');
+  latest.simulation.experiment!.execution.traceEnabled = true;
+  receiver.receive(latest);
+  requests[0].resolve(topologyDefinition('1'));
+  await settle();
+  assert.equal(receiver.state.data?.simulation.experiment, latest.simulation.experiment);
+  requests[1].resolve(topologyDefinition('2'));
+  await settle();
+  assert.equal(receiver.state.data?.simulation.experiment, latest.simulation.experiment);
+  receiver.receive(idleFrame());
+  assert.equal(receiver.state.data?.simulation.experiment, undefined);
+});
+
 test('a behind response keeps a matched view while one follow-up catches the newest revision', async () => {
   const { receiver, requests } = receiverFixture();
   receiver.receive(telemetryFrame('1', 'run-1', 1));

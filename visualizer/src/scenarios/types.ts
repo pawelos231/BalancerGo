@@ -1,3 +1,5 @@
+import type { ExperimentContext } from '../experiment';
+
 // Large integers stay as decimal strings so JSON round trips preserve every digit.
 export type ExactInteger = number | string;
 
@@ -220,4 +222,5 @@ export interface CurrentSimulation {
   runId: string;
   status: 'accepted' | 'running' | 'finished' | 'failed';
   scenario: Scenario;
+  experiment: ExperimentContext;
 }

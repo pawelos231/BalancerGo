@@ -1,4 +1,5 @@
 import type { SimulationSnapshot } from './types.ts';
+import { isExperimentContext } from '../experiment.ts';
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -21,7 +22,11 @@ export function parseSnapshot(value: unknown): SimulationSnapshot {
     && Array.isArray(topology.nodes) && Array.isArray(topology.links);
   const hasRun = simulation.status === 'idle'
     || (typeof simulation.runId === 'string' && simulation.runId.length > 0);
-  if (!validStatus || !validAlgorithm || !validRevision || !validTime || !hasResources || !hasRun) {
+  const validExperiment = simulation.status === 'idle'
+    ? !('experiment' in simulation)
+    : isExperimentContext(simulation.experiment);
+  if (!validStatus || !validAlgorithm || !validRevision || !validTime
+    || !hasResources || !hasRun || !validExperiment) {
     throw new Error('The live snapshot is incomplete.');
   }
   return value as unknown as SimulationSnapshot;

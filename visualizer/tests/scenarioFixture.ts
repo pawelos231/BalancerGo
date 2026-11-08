@@ -1,4 +1,17 @@
 import type { Scenario } from '../src/scenarios/types.ts';
+import type { ExperimentContext } from '../src/experiment.ts';
+
+export function experimentFixture(): ExperimentContext {
+  return {
+    model: 'test-model-v1',
+    scenarioSha256: '0123456789abcdef'.repeat(4),
+    execution: { headless: false, speed: 0, traceEnabled: false },
+    build: {
+      goVersion: 'go1.25.0', moduleVersion: '', goos: 'windows', goarch: 'amd64',
+      vcsRevision: 'test-revision', vcsModified: false,
+    },
+  };
+}
 
 // Keep nontrivial defaults so preset tests notice accidentally reset inherited settings.
 export function scenarioFixture(): Scenario {

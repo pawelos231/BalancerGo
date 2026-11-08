@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ScenarioApi, ScenarioApiError, resolveApiBase } from '../../../src/scenarios/api.ts';
-import { scenarioFixture } from '../../scenarioFixture.ts';
+import { experimentFixture, scenarioFixture } from '../../scenarioFixture.ts';
 import { topologyDefinition } from '../../telemetryFixture.ts';
 
 test('API address follows the WebSocket backend unless explicitly configured', () => {
@@ -49,15 +49,32 @@ test('validation and Start send the direct document without rounding integer str
   }
 });
 
-test('current run keeps its exact scenario and 404 represents no run', async () => {
+test('current run keeps its exact scenario and experiment context, and 404 represents no run', async () => {
   const scenario = scenarioFixture();
-  const run = { runId: 'run-1', status: 'finished', scenario };
-  const existing = new ScenarioApi('http://backend.test', async () => Response.json(run));
-  assert.deepEqual(await existing.current(), run);
+  for (const status of ['accepted', 'running', 'finished', 'failed']) {
+    const run = { runId: 'c0fda683-opaque-id', status, scenario, experiment: experimentFixture() };
+    const existing = new ScenarioApi('http://backend.test', async () => Response.json(run));
+    assert.deepEqual(await existing.current(), run);
+  }
   const missing = new ScenarioApi('http://backend.test', async () => (
     Response.json({ error: 'No simulation exists.' }, { status: 404 })
   ));
   assert.equal(await missing.current(), null);
+});
+
+test('current run rejects missing or malformed experiment context and empty run IDs', async () => {
+  const run = {
+    runId: 'opaque-id', status: 'running', scenario: scenarioFixture(), experiment: experimentFixture(),
+  };
+  const invalidSpeed = experimentFixture();
+  invalidSpeed.execution.speed = -1;
+  const invalidBuild = { ...experimentFixture(), build: { goVersion: 'go1.25.0' } };
+  for (const experiment of [undefined, null, {}, invalidSpeed, invalidBuild]) {
+    const api = new ScenarioApi('http://backend.test', async () => Response.json({ ...run, experiment }));
+    await assert.rejects(api.current(), /unexpected response/);
+  }
+  const emptyId = new ScenarioApi('http://backend.test', async () => Response.json({ ...run, runId: '' }));
+  await assert.rejects(emptyId.current(), /unexpected response/);
 });
 
 test('file validation sends original JSON tokens and never starts a run', async () => {

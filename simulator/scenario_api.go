@@ -53,7 +53,12 @@ func (api *scenarioAPI) CurrentRun() *contract.RunRecord {
 	if record == nil {
 		return nil
 	}
-	return &contract.RunRecord{RunID: record.RunID, Status: record.Status, Scenario: record.Scenario}
+	return &contract.RunRecord{
+		RunID:      record.RunID,
+		Status:     record.Status,
+		Scenario:   record.Scenario,
+		Experiment: record.Experiment,
+	}
 }
 
 // CurrentTopology serves the last published graph, including finished experiments.

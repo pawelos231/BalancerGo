@@ -115,9 +115,10 @@ type RunReceipt struct {
 // RunRecord keeps the canonical request alongside its latest lifecycle status.
 // Scenario must contain an encoded scenario document with exact integer values.
 type RunRecord struct {
-	RunID    string          `json:"runId"`
-	Status   string          `json:"status"`
-	Scenario json.RawMessage `json:"scenario"`
+	RunID      string            `json:"runId"`
+	Status     string            `json:"status"`
+	Scenario   json.RawMessage   `json:"scenario"`
+	Experiment ExperimentContext `json:"experiment"`
 }
 
 // ScenarioSummary describes a validated workload without expanding its clients.

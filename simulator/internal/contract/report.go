@@ -292,11 +292,16 @@ type ExperimentReport struct {
 	Result   SimulationResult   `json:"result"`
 }
 
-// ExperimentManifest keeps the original importable document and identifies it.
-// Execution records process choices that differ from the document, such as pacing.
+// ExperimentManifest adds the importable scenario to the context shared by CLI and live runs.
 type ExperimentManifest struct {
+	ExperimentContext
+	Scenario json.RawMessage `json:"scenario"`
+}
+
+// ExperimentContext identifies the model, executable and canonical scenario of a run.
+// It travels with live measurements without repeating the whole scenario document.
+type ExperimentContext struct {
 	Model          string              `json:"model"`
-	Scenario       json.RawMessage     `json:"scenario"`
 	ScenarioSHA256 string              `json:"scenarioSha256"`
 	Execution      ExperimentExecution `json:"execution"`
 	Build          ExperimentBuild     `json:"build"`

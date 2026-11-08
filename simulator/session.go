@@ -9,6 +9,7 @@ import (
 	"time"
 
 	httpserver "load-balancer/http"
+	"load-balancer/internal/contract"
 	"load-balancer/internal/presentation"
 	"load-balancer/internal/simulation"
 )
@@ -31,6 +32,7 @@ func runInteractive(
 	var projector *presentation.Projector
 	var started time.Time
 	var elapsed time.Duration
+	var experiment *contract.ExperimentContext
 	config := defaults.publicConfig()
 	status, lastError, runID := "idle", "", ""
 
@@ -48,6 +50,8 @@ func runInteractive(
 		if err != nil {
 			return err
 		}
+		// Keep this run's identity even if HTTP has already accepted the next run.
+		frame.Simulation.Experiment = experiment
 		if current == nil {
 			publication.ClearTopology()
 		} else if definition != nil {
@@ -77,6 +81,7 @@ func runInteractive(
 			current.Stop()
 		}
 		current, projector = nil, nil
+		experiment = nil
 		started, elapsed = time.Time{}, 0
 		status, lastError, runID = "idle", "", ""
 		control.forgetRun()
@@ -124,10 +129,14 @@ func runInteractive(
 		config, status, lastError = prepared.config, "running", ""
 		runID = request.runID
 		if prepared.document != nil {
-			control.rememberRun(runID, prepared.document)
+			request.experiment = experimentContext(prepared.document, contract.ExperimentExecution{
+				Speed: prepared.scenario.Execution.Speed,
+			})
+			control.rememberRun(runID, prepared.document, request.experiment)
 		} else {
 			control.setRunStatus(runID, status)
 		}
+		experiment = &request.experiment
 		started, elapsed = time.Now(), 0
 		if current != nil {
 			current.Stop()

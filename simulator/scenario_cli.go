@@ -2,17 +2,12 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"runtime"
-	"runtime/debug"
 	"runtime/trace"
-	"strconv"
 	"time"
 
 	"load-balancer/internal/contract"
@@ -21,10 +16,7 @@ import (
 	"load-balancer/scenario"
 )
 
-const (
-	experimentReportVersion = 1
-	experimentModel         = "host-cpu-v1"
-)
+const experimentReportVersion = 1
 
 // loadedScenario keeps the importable input beside its checked runtime settings.
 // A series changes only the seed on value copies of these settings.
@@ -182,46 +174,4 @@ func startScenarioTrace(path string) (func() error, error) {
 		trace.Stop()
 		return file.Close()
 	}, nil
-}
-
-// experimentManifest identifies the canonical input and records runtime overrides.
-func experimentManifest(document []byte, traced bool) contract.ExperimentManifest {
-	hash := sha256.Sum256(document)
-	return contract.ExperimentManifest{
-		Model:          experimentModel,
-		Scenario:       document,
-		ScenarioSHA256: hex.EncodeToString(hash[:]),
-		Execution: contract.ExperimentExecution{
-			Headless:     true,
-			Speed:        0,
-			TraceEnabled: traced,
-		},
-		Build: experimentBuild(),
-	}
-}
-
-// experimentBuild keeps unknown VCS information absent rather than guessing it.
-func experimentBuild() contract.ExperimentBuild {
-	build := contract.ExperimentBuild{
-		GoVersion: runtime.Version(),
-		GOOS:      runtime.GOOS,
-		GOARCH:    runtime.GOARCH,
-	}
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return build
-	}
-	build.ModuleVersion = info.Main.Version
-	for _, setting := range info.Settings {
-		switch setting.Key {
-		case "vcs.revision":
-			build.VCSRevision = setting.Value
-		case "vcs.modified":
-			modified, err := strconv.ParseBool(setting.Value)
-			if err == nil {
-				build.VCSModified = &modified
-			}
-		}
-	}
-	return build
 }

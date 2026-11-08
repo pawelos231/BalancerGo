@@ -66,6 +66,27 @@ test('only supported complete snapshot envelopes enable the live model', () => {
   assert.throws(() => parseSnapshot({ ...telemetryFrame(), simulation: {} }), /incomplete/);
 });
 
+test('live and terminal snapshots require valid experiment context and an opaque nonempty run ID', () => {
+  for (const status of ['running', 'finished', 'failed'] as const) {
+    const frame = telemetryFrame('1', '6a1715a9-opaque-id');
+    frame.simulation.status = status;
+    assert.equal(parseSnapshot(frame).simulation.runId, '6a1715a9-opaque-id');
+    for (const experiment of [undefined, null, {}, { ...frame.simulation.experiment, scenarioSha256: 'BAD' }]) {
+      assert.throws(() => parseSnapshot({
+        ...frame, simulation: { ...frame.simulation, experiment },
+      }), /incomplete/);
+    }
+    assert.throws(() => parseSnapshot({ ...frame, simulation: { ...frame.simulation, runId: '' } }), /incomplete/);
+    const view = hydrateSnapshot(parseSnapshot(frame), topologyDefinition('1', frame.simulation.runId));
+    assert.equal(view.simulation.experiment, frame.simulation.experiment);
+  }
+  const idle = idleFrame();
+  assert.equal(idleSnapshot(parseSnapshot(idle)).simulation.experiment, undefined);
+  assert.throws(() => parseSnapshot({
+    ...idle, simulation: { ...idle.simulation, experiment: telemetryFrame().simulation.experiment },
+  }), /incomplete/);
+});
+
 test('payload hydration preserves live totals, zero measurements and topology counters', () => {
   const frame = telemetryFrame();
   const definition = topologyDefinition();

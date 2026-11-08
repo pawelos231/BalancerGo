@@ -25,7 +25,7 @@ perf_results.md
 
 # Local backup of the former frontend repository
 /.repo-backups/
-
+/papers
 
 # Editor directories and files
 .vscode/*

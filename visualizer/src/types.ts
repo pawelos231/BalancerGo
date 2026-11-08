@@ -1,4 +1,5 @@
 import type { CommandType } from './commands';
+import type { ExperimentContext } from './experiment';
 import type { CongestionMode } from './scenarios/types';
 import type { TopologyGraph } from './topology/types';
 
@@ -170,16 +171,17 @@ export interface SimulationConfig {
   maxEvents: number;
 }
 
-export interface SimulationMetadata {
-  runId?: string;
-  status: 'idle' | 'running' | 'finished' | 'failed';
+export type SimulationMetadata = {
   algorithm: AlgorithmName;
   virtualTimeSeconds: number;
   error?: string;
   performance?: SimulationPerformanceMetrics;
   payload?: SimulationPayloadProgress;
   transfers?: SimulationTransferResults;
-}
+} & (
+  | { status: 'idle'; runId?: string; experiment?: never }
+  | { status: 'running' | 'finished' | 'failed'; runId: string; experiment: ExperimentContext }
+);
 
 // Zero samples means unavailable; measured zero durations remain valid samples.
 export interface DurationSummary {

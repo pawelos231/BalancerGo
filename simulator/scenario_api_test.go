@@ -194,6 +194,11 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 	if record.RunID != receipt.RunID || record.Status != "running" {
 		t.Fatalf("wrong record: %+v", record)
 	}
+	assertInteractiveExperiment(t, document, input.Execution.Speed, record.Experiment)
+	if snapshot.Simulation.Experiment == nil ||
+		!reflect.DeepEqual(*snapshot.Simulation.Experiment, record.Experiment) {
+		t.Fatal("HTTP and WebSocket described different experiments")
+	}
 
 	// HTTP and WS cannot start another model while this one owns the slot.
 	scenarioRequest(t, h.server, http.MethodPost, "/api/simulations", document, http.StatusConflict)
@@ -204,7 +209,12 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 	if err := h.socket.WriteJSON(contract.Envelope{Type: contract.StopSimulation, Payload: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
-	readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool { return snapshot.Simulation.Status == "idle" })
+	idle := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
+		return snapshot.Simulation.Status == "idle"
+	})
+	if idle.Simulation.Experiment != nil || idle.Simulation.RunID != "" {
+		t.Fatal("Stop left the previous experiment's identity in the idle snapshot")
+	}
 	scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusNotFound)
 }
 
@@ -361,5 +371,10 @@ func TestLegacyStartStillCreatesScenarioRecord(t *testing.T) {
 	}
 	if record.Status != "finished" || record.RunID != snapshot.Simulation.RunID || input.Workload.ClientGroups[0].Count != 1 {
 		t.Fatal("legacy run was not exposed through the scenario API")
+	}
+	assertInteractiveExperiment(t, record.Scenario, 0, record.Experiment)
+	if snapshot.Simulation.Experiment == nil ||
+		!reflect.DeepEqual(*snapshot.Simulation.Experiment, record.Experiment) {
+		t.Fatal("finished legacy run lost its experiment metadata")
 	}
 }
