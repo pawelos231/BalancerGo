@@ -1,0 +1,157 @@
+{
+  "version": 2,
+  "fixed": {
+    "execution": {
+      "durationNanoseconds": 10000000000,
+      "snapshotIntervalNanoseconds": 100000000,
+      "seed": 1,
+      "speed": 0,
+      "maxEvents": 1000000
+    },
+    "tcp": {
+      "mssBytes": 1024,
+      "receiveBufferBytes": 65535,
+      "sackEnabled": true,
+      "ECNenabled": false,
+      "delayedAck": {
+        "enabled": false,
+        "segmentsPerACK": 2,
+        "maxDelayNanoseconds": 40000000
+      },
+      "rto": {
+        "mode": "adaptive",
+        "exponentialBackoff": true,
+        "initialTimeoutNanoseconds": 1000000000,
+        "minimumTimeoutNanoseconds": 200000000,
+        "maximumTimeoutNanoseconds": 60000000000
+      },
+      "close": {
+        "mslNanoseconds": 30000000000,
+        "finWaitTimeoutNanoseconds": 60000000000,
+        "maxFINRetries": 3
+      },
+      "congestionControl": {
+        "mode": "newReno",
+        "fastRetransmit": true,
+        "cubicFastConvergence": true,
+        "initialWindowSegments": 4,
+        "maximumWindowSegments": 0,
+        "initialSlowStartThresholdBytes": 65535
+      },
+      "clientIdleTimeoutNanoseconds": 20000000000,
+      "backendHalfOpenIdleTimeoutNanoseconds": 5000000000,
+      "backendEstablishedIdleTimeoutNanoseconds": 0
+    },
+    "loadBalancer": {
+      "id": "lb"
+    },
+    "network": {
+      "defaults": {
+        "bandwidthBitsPerSecond": 100000000,
+        "packetTravelTimeNanoseconds": 1000000,
+        "queueCapacity": 128,
+        "lossRate": 0,
+        "queuePolicy": "tailDrop",
+        "congestionThresholdPercent": 0,
+        "congestionSignalProbability": 0
+      },
+      "profiles": [
+        {
+          "id": "client-access",
+          "config": {
+            "bandwidthBitsPerSecond": 20000000
+          }
+        }
+      ]
+    },
+    "workload": {
+      "defaults": {
+        "packets": 256,
+        "bytes": 262144,
+        "packetGapNanoseconds": 0
+      }
+    }
+  },
+  "states": {
+    "0": {
+      "resources": {
+        "loadBalancer": {
+          "algorithm": "roundRobin",
+          "host": {
+            "cores": 1,
+            "packetProcessingTimeNanoseconds": 1000,
+            "queueCapacity": 128
+          },
+          "ingress": {
+            "bandwidthBitsPerSecond": 100000000,
+            "packetTravelTimeNanoseconds": 0,
+            "queueCapacity": 128,
+            "lossRate": 0,
+            "queuePolicy": "tailDrop",
+            "congestionThresholdPercent": 0,
+            "congestionSignalProbability": 0
+          },
+          "forwardingBitsPerSecond": 100000000,
+          "mappingTimeouts": {
+            "halfOpenIdleTimeoutNanoseconds": 5000000000,
+            "establishedIdleTimeoutNanoseconds": 50000000000,
+            "closingIdleTimeoutNanoseconds": 120000000000,
+            "resetIdleTimeoutNanoseconds": 10000000000
+          }
+        },
+        "backends": [
+          {
+            "id": "backend-1",
+            "name": "Web 1",
+            "address": "10.0.0.1",
+            "port": 80,
+            "network": {
+              "toLoadBalancer": {},
+              "fromLoadBalancer": {}
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 1000,
+              "queueCapacity": 128
+            },
+            "physicalAvailable": true,
+            "administrativeState": "active"
+          },
+          {
+            "id": "backend-2",
+            "name": "Web 2",
+            "address": "10.0.0.2",
+            "port": 80,
+            "network": {
+              "toLoadBalancer": {},
+              "fromLoadBalancer": {}
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 1000,
+              "queueCapacity": 128
+            },
+            "physicalAvailable": true,
+            "administrativeState": "active"
+          }
+        ]
+      },
+      "workload": {
+        "clientGroups": [
+          {
+            "id": "clients",
+            "count": 4,
+            "startAtNanoseconds": 0,
+            "clientGapNanoseconds": 250000000,
+            "network": {
+              "profile": "client-access",
+              "toLoadBalancer": {},
+              "fromLoadBalancer": {}
+            },
+            "stream": {}
+          }
+        ]
+      }
+    }
+  }
+}

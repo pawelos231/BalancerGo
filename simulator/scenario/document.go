@@ -36,22 +36,29 @@ func EncodeNormalizedDocument(input Normalized) ([]byte, error) {
 // DecodeDocument reads one strict scenario document without normalizing it.
 // Missing fields keep zero values; null is allowed only for optional pointer fields.
 func DecodeDocument(data []byte) (Scenario, error) {
+	var input Scenario
+	if err := decodeDocument(data, reflect.ValueOf(&input).Elem(), "scenario"); err != nil {
+		return Scenario{}, err
+	}
+	return input, nil
+}
+
+// decodeDocument shares strict token handling between document versions.
+func decodeDocument(data []byte, target reflect.Value, path string) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 
-	var input Scenario
-	target := reflect.ValueOf(&input).Elem()
-	if err := decodeDocumentValue(decoder, target, "scenario"); err != nil {
-		return Scenario{}, err
+	if err := decodeDocumentValue(decoder, target, path); err != nil {
+		return err
 	}
 
 	if _, err := decoder.Token(); err != io.EOF {
 		if err != nil {
-			return Scenario{}, fmt.Errorf("scenario: trailing JSON: %w", err)
+			return fmt.Errorf("%s: trailing JSON: %w", path, err)
 		}
-		return Scenario{}, fmt.Errorf("scenario: trailing JSON after the document")
+		return fmt.Errorf("%s: trailing JSON after the document", path)
 	}
-	return input, nil
+	return nil
 }
 
 // encodeDocumentValue follows Go field types so float settings stay JSON numbers.
@@ -89,6 +96,9 @@ func encodeDocumentValue(value reflect.Value, path string) (any, error) {
 			items[index] = encoded
 		}
 		return items, nil
+
+	case reflect.Map:
+		return encodeDocumentMap(value, path)
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		number := value.Int()
@@ -132,7 +142,7 @@ func documentField(field reflect.StructField) (string, bool) {
 // emptyDocumentValue omits nil patches and empty optional names or collections.
 func emptyDocumentValue(value reflect.Value) bool {
 	switch value.Kind() {
-	case reflect.Slice, reflect.String:
+	case reflect.Map, reflect.Slice, reflect.String:
 		return value.Len() == 0
 	default:
 		return value.IsZero()
@@ -174,6 +184,12 @@ func decodeDocumentToken(decoder *json.Decoder, target reflect.Value, token json
 			return fmt.Errorf("%s: expected an array", path)
 		}
 		return decodeDocumentArray(decoder, target, path)
+
+	case reflect.Map:
+		if token != json.Delim('{') {
+			return fmt.Errorf("%s: expected an object", path)
+		}
+		return decodeDocumentMap(decoder, target, path)
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
