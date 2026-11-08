@@ -171,6 +171,9 @@ export interface SimulationConfig {
   maxEvents: number;
 }
 
+// Canonical positive uint64 decimal text; never convert publication IDs to Number.
+export type PublicationSequence = string;
+
 export type SimulationMetadata = {
   algorithm: AlgorithmName;
   virtualTimeSeconds: number;
@@ -179,8 +182,13 @@ export type SimulationMetadata = {
   payload?: SimulationPayloadProgress;
   transfers?: SimulationTransferResults;
 } & (
-  | { status: 'idle'; runId?: string; experiment?: never }
-  | { status: 'running' | 'finished' | 'failed'; runId: string; experiment: ExperimentContext }
+  | { status: 'idle'; runId?: string; experiment?: never; publicationSequence?: never }
+  | {
+      status: 'running' | 'finished' | 'failed';
+      runId: string;
+      experiment: ExperimentContext;
+      publicationSequence: PublicationSequence;
+    }
 );
 
 // Zero samples means unavailable; measured zero durations remain valid samples.

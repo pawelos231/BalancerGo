@@ -65,14 +65,14 @@ export function topologyDefinition(revision = '1', runId = 'run-1'): TopologyDef
   };
 }
 
-export function telemetryFrame(revision = '1', runId = 'run-1', value = 1): SimulationSnapshot {
+export function telemetryFrame(revision = '1', runId = 'run-1', value = 1, publicationSequence = '1'): SimulationSnapshot {
   const definition = topologyDefinition(revision, runId);
   return {
     type: 'simulationSnapshot',
     version: 1,
     simulation: {
       runId, status: 'running', algorithm: 'roundRobin', virtualTimeSeconds: value / 10,
-      experiment: experimentFixture(),
+      experiment: experimentFixture(), publicationSequence,
     },
     mode: 'NAT',
     algorithm: 'RoundRobin',

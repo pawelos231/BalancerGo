@@ -4,6 +4,8 @@ import { scenarioApi, websocketUrl } from '../scenarios/runtimeApi';
 import { httpStartAcknowledged } from '../scenarios/startAcknowledgement';
 import type { CurrentSimulation, Scenario } from '../scenarios/types';
 import { parseSnapshot } from '../telemetry/parse';
+import { PublicationTracker } from '../telemetry/publications';
+import type { PublicationObservation } from '../telemetry/publications';
 import { TelemetryReceiver } from '../telemetry/receiver';
 import type { SimulationSnapshot } from '../telemetry/types';
 import type {
@@ -48,6 +50,7 @@ function useSimulation() {
   const [runRefresh, setRunRefresh] = useState(0);
   const [topologyLoading, setTopologyLoading] = useState(false);
   const [topologyError, setTopologyError] = useState<string | null>(null);
+  const [publicationObservation, setPublicationObservation] = useState<PublicationObservation | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const simulationRef = useRef<SimulationMetadata | null>(null);
@@ -56,6 +59,7 @@ function useSimulation() {
   const httpStartRef = useRef<HttpStart | null>(null);
   const mountedRef = useRef(false);
   const telemetryRef = useRef<TelemetryReceiver | null>(null);
+  const publicationsRef = useRef(new PublicationTracker());
 
   // Refs guard repeated commands before React updates the buttons.
   const setStartPending = useCallback((pending: boolean) => {
@@ -66,6 +70,7 @@ function useSimulation() {
   useEffect(() => {
     mountedRef.current = true;
     const stopCommands = stopCommandsRef.current;
+    const publications = publicationsRef.current;
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     const receiver = new TelemetryReceiver(
@@ -108,7 +113,11 @@ function useSimulation() {
     }
 
     function handleSnapshot(snapshot: SimulationSnapshot) {
+      // Reject retired runs before tracking so cleared runs cannot become current again.
       if (!stopCommands.acceptsSnapshot(snapshot.simulation)) return;
+      const observation = publications.observe(snapshot.simulation);
+      setPublicationObservation(observation);
+      if (!observation.acceptSnapshot) return;
       simulationRef.current = snapshot.simulation;
       setConnected(true);
 
@@ -139,6 +148,7 @@ function useSimulation() {
 
         // Wait for a fresh snapshot before enabling controls after reconnect.
         simulationRef.current = null;
+        publications.reconnect();
         receiver.reset();
         setCurrentRun(null);
         setCurrentRunError(null);
@@ -172,6 +182,7 @@ function useSimulation() {
         if (disposed) return;
 
         simulationRef.current = null;
+        publications.reconnect();
         receiver.reset();
         if (!httpStartRef.current) setStartPending(false);
         if (stopCommands.disconnect()) setCommandError(uncertainStopError);
@@ -321,6 +332,7 @@ function useSimulation() {
     currentRunError,
     topologyLoading,
     topologyError,
+    publicationObservation,
     refreshTopology,
     refreshCurrent,
     sendMessage,

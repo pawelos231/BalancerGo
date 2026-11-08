@@ -10,6 +10,7 @@ export interface TelemetryView {
 
 interface ReceivedFrame {
   snapshot: SimulationSnapshot;
+  // Local receiver arrival order, independent of the server's publicationSequence.
   sequence: number;
 }
 
@@ -68,7 +69,7 @@ export class TelemetryReceiver {
     this.fetchDefinitions();
   }
 
-  // Reconnect invalidates even identical run IDs, which a restarted backend may reuse.
+  // Reconnect clears cached definitions before rebuilding the view.
   reset() {
     if (this.disposed) return;
     this.clear();

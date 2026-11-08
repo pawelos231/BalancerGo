@@ -79,6 +79,10 @@ type SimulationMetadata struct {
 	Performance        *SimulationPerformance `json:"performance,omitempty"`
 	Payload            *PayloadProgress       `json:"payload,omitempty"`
 	Transfers          *TransferSummary       `json:"transfers,omitempty"`
+
+	// PublicationSequence counts snapshots before WS queuing, starting at 1 per run.
+	// Decimal text preserves large sequence numbers in JavaScript.
+	PublicationSequence string `json:"publicationSequence,omitempty"`
 }
 
 type SimulationSnapshot struct {

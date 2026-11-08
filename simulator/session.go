@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
+	"strconv"
 	"time"
 
 	httpserver "load-balancer/http"
@@ -33,6 +36,7 @@ func runInteractive(
 	var started time.Time
 	var elapsed time.Duration
 	var experiment *contract.ExperimentContext
+	var publicationSequence uint64
 	config := defaults.publicConfig()
 	status, lastError, runID := "idle", "", ""
 
@@ -69,6 +73,14 @@ func runInteractive(
 				counters.ForwardedPackets,
 			)
 		}
+		if current != nil {
+			if publicationSequence == math.MaxUint64 {
+				return errors.New("simulation publication sequence exhausted")
+			}
+			// Number the publication before the hub can replace it with a newer snapshot.
+			publicationSequence++
+			frame.Simulation.PublicationSequence = strconv.FormatUint(publicationSequence, 10)
+		}
 		return hub.BroadcastState(frame)
 	}
 	if err := publish(); err != nil {
@@ -82,6 +94,7 @@ func runInteractive(
 		}
 		current, projector = nil, nil
 		experiment = nil
+		publicationSequence = 0
 		started, elapsed = time.Time{}, 0
 		status, lastError, runID = "idle", "", ""
 		err := publish()
@@ -134,6 +147,7 @@ func runInteractive(
 
 		config, status, lastError = prepared.config, "running", ""
 		runID = request.runID
+		publicationSequence = 0
 		if prepared.document != nil {
 			request.experiment = experimentContext(prepared.document, contract.ExperimentExecution{
 				Speed: prepared.scenario.Execution.Speed,

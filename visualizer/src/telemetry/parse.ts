@@ -5,6 +5,12 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function validPublicationSequence(value: unknown): boolean {
+  return typeof value === 'string' && value.length <= 20 && /^[1-9]\d*$/.test(value)
+    && !/\D/.test(value)
+    && BigInt(value) <= 18446744073709551615n;
+}
+
 // Validate the envelope before enabling controls; individual resources are checked at hydration.
 export function parseSnapshot(value: unknown): SimulationSnapshot {
   if (!record(value) || value.type !== 'simulationSnapshot' || value.version !== 1) {
@@ -25,8 +31,11 @@ export function parseSnapshot(value: unknown): SimulationSnapshot {
   const validExperiment = simulation.status === 'idle'
     ? !('experiment' in simulation)
     : isExperimentContext(simulation.experiment);
+  const validPublication = simulation.status === 'idle'
+    ? !('publicationSequence' in simulation)
+    : validPublicationSequence(simulation.publicationSequence);
   if (!validStatus || !validAlgorithm || !validRevision || !validTime
-    || !hasResources || !hasRun || !validExperiment) {
+    || !hasResources || !hasRun || !validExperiment || !validPublication) {
     throw new Error('The live snapshot is incomplete.');
   }
   return value as unknown as SimulationSnapshot;

@@ -159,6 +159,18 @@ sharing static descriptors and settings between updates. It never combines data
 from different runs or revisions. Graph requests are coalesced; reconnect invalidates
 the old definition cache, and loading failures offer a retry without replacing the draft.
 
+Non-idle frames also identify a server publication with `simulation.publicationSequence`,
+a canonical positive uint64 decimal string. The hook validates this without converting
+it to a JavaScript number, then tracks delivery before topology coalescing or lifecycle
+updates. Its `publicationObservation` exposes the latest delivery kind, first observed
+and highest sequence, exact decimal missing counts, and whether this is a new publication.
+An attachment at sequence N establishes a baseline; it makes no claim about 1 through N-1.
+Gaps count missing publications after that baseline, including gaps across reconnects.
+Stale frames cannot regress the view. A reconnect retains the current run's watermark
+and allows one cached duplicate to rebuild the view without counting a new measurement.
+Idle and a different run reset this bounded scope; there is no retained run history,
+replay, or guarantee of complete historical measurements.
+
 Each created client and backend has its own node and
 two directed links. Clients appear left of the LB and backends right. Incoming
 arrows end at the corresponding LB input FIFO; both FIFOs use one shared receiver.
