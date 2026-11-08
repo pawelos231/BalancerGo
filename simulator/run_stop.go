@@ -1,11 +1,18 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 
 	"load-balancer/internal/contract"
 )
+
+// stopObservation is detached before the model and HTTP topology are cleared.
+type stopObservation struct {
+	snapshot *contract.SimulationSnapshot
+	topology json.RawMessage
+}
 
 // stopRequest keeps the target and reply together while the owner finishes work.
 // A Stop for run A must never clear a newly accepted run B.
@@ -57,32 +64,32 @@ func (c *runController) enqueueStop(command runtimeCommand) error {
 
 // applyStop rechecks the target on the owner, then clears it before replying.
 // Admission stays blocked while clear publishes idle, so another Start cannot slip in.
-func (c *runController) applyStop(request *stopRequest, clear func() error) error {
+func (c *runController) applyStop(request *stopRequest, clear func() (stopObservation, error)) error {
 	c.mu.Lock()
 	if c.pendingStop != request || request.runID != c.stopTargetLocked() {
 		if c.pendingStop == request {
 			c.pendingStop = nil
 		}
 		c.mu.Unlock()
-		request.respond(errors.New("Stop target is no longer the current simulation"))
+		request.respond(errors.New("Stop target is no longer the current simulation"), stopObservation{})
 		return nil
 	}
 
 	c.finishRunLocked()
 	c.current = nil
 	c.reservedRunID = ""
-	err := clear()
+	observation, err := clear()
 	c.mu.Unlock()
 
 	// Keep Start blocked until the reply is queued, without calling I/O under mu.
-	request.respond(err)
+	request.respond(err, observation)
 	c.mu.Lock()
 	c.pendingStop = nil
 	c.mu.Unlock()
 	return err
 }
 
-func (request *stopRequest) respond(err error) {
+func (request *stopRequest) respond(err error, observation stopObservation) {
 	if request.reply == nil {
 		return
 	}
@@ -96,6 +103,9 @@ func (request *stopRequest) respond(err error) {
 	if err != nil {
 		result.Status = contract.CommandRejected
 		result.Error = err.Error()
+	} else {
+		result.FinalSnapshot = observation.snapshot
+		result.TopologyDefinition = observation.topology
 	}
 	request.reply(result)
 }

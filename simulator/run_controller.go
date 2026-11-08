@@ -227,6 +227,27 @@ func (c *runController) finishRun() {
 	c.finishRunLocked()
 }
 
+// finishNaturally chooses normal completion or an already admitted Stop under one lock.
+// The terminal message is queued before another Start can reserve the slot.
+func (c *runController) finishNaturally(runID, status string, publishEnd func() error) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pendingStop != nil {
+		return false, nil
+	}
+	if c.reservedRunID != runID {
+		return false, errors.New("completed run is no longer the reserved simulation")
+	}
+	if c.current != nil && c.current.RunID == runID {
+		c.current.Status = status
+	}
+	if err := publishEnd(); err != nil {
+		return false, err
+	}
+	c.finishRunLocked()
+	return true, nil
+}
+
 // finishRunLocked releases the slot but retains the target of an accepted Stop.
 func (c *runController) finishRunLocked() {
 	if c.cancelRun != nil {

@@ -38,8 +38,8 @@ func readTelemetryFrame(
 		if err != nil {
 			t.Fatal(err)
 		}
-		var snapshot contract.SimulationSnapshot
-		if err := json.Unmarshal(data, &snapshot); err != nil {
+		snapshot, data, err := decodeSnapshotMessage(data)
+		if err != nil {
 			t.Fatal(err)
 		}
 		if ready(snapshot) {

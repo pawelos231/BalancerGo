@@ -54,6 +54,7 @@ function App() {
     startPending,
     stopPending,
     commandError,
+    terminationUncertainty,
     currentRun,
     currentRunError,
     refreshCurrent,
@@ -132,6 +133,11 @@ function App() {
           {topologyLoading && (
             <Alert severity="info" sx={{ mt: 2 }}>
               Updating network topology. Controls remain available while it loads.
+            </Alert>
+          )}
+          {terminationUncertainty && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              {terminationUncertainty}
             </Alert>
           )}
           {topologyError && (

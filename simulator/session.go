@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"os"
-	"strconv"
 	"time"
 
 	httpserver "load-balancer/http"
@@ -32,79 +30,69 @@ func runInteractive(
 			current.Stop()
 		}
 	}()
-	var projector *presentation.Projector
 	var started time.Time
 	var elapsed time.Duration
-	var experiment *contract.ExperimentContext
-	var publicationSequence uint64
+	publicationState := &runPublication{hub: hub, topology: publication}
 	config := defaults.publicConfig()
 	status, lastError, runID := "idle", "", ""
 
-	publish := func() error {
+	runState := func() presentation.RunState {
 		if current != nil {
 			config.Algorithm = current.Info().Algorithm
 		}
-		frame, definition, err := presentation.BuildSnapshot(current, projector, presentation.RunState{
+		return presentation.RunState{
 			Status:    status,
-			RunID:     runID,
 			Algorithm: config.Algorithm,
 			Error:     lastError,
 			Elapsed:   elapsed,
-		})
-		if err != nil {
-			return err
 		}
-		// Keep this run's identity even if HTTP has already accepted the next run.
-		frame.Simulation.Experiment = experiment
-		if current == nil {
-			publication.ClearTopology()
-		} else if definition != nil {
-			if err := publication.PublishTopology(definition); err != nil {
-				return err
-			}
-		}
-
-		// Running measurements include projection and definition encoding, as before.
-		if current != nil && status == "running" {
-			counters := frame.Simulation.Performance
-			frame.Simulation.Performance = presentation.MeasurePerformance(
-				time.Since(started),
-				counters.EventsExecuted,
-				counters.ForwardedPackets,
-			)
-		}
-		if current != nil {
-			if publicationSequence == math.MaxUint64 {
-				return errors.New("simulation publication sequence exhausted")
-			}
-			// Number the publication before the hub can replace it with a newer snapshot.
-			publicationSequence++
-			frame.Simulation.PublicationSequence = strconv.FormatUint(publicationSequence, 10)
-		}
-		return hub.BroadcastState(frame)
+	}
+	publish := func() error {
+		return publicationState.publish(current, runState())
 	}
 	if err := publish(); err != nil {
 		return err
 	}
 
-	clear := func() error {
+	clear := func(request *stopRequest) (stopObservation, error) {
+		var observation stopObservation
+		var endError error
+		if current != nil && runID == request.runID {
+			if publicationState.ended == nil {
+				current.SampleTraffic()
+				elapsed = time.Since(started)
+			}
+			observation, endError = publicationState.end(
+				current, runState(), contract.SimulationStopped, request.commandID,
+			)
+		} else {
+			// A reserved Start can be stopped before it has a model or measurement.
+			endError = hub.BroadcastEnded(contract.SimulationEndedFrame{
+				Type: "simulationEnded", RunID: request.runID,
+				Reason: contract.SimulationStopped, CommandID: request.commandID,
+			})
+		}
 		// Whole-run Stop is allowed to clear all endpoint and network state together.
 		if current != nil {
 			current.Stop()
 		}
-		current, projector = nil, nil
-		experiment = nil
-		publicationSequence = 0
+		current = nil
+		publicationState = &runPublication{hub: hub, topology: publication}
 		started, elapsed = time.Time{}, 0
 		status, lastError, runID = "idle", "", ""
 		err := publish()
 		log.Print("Simulation stopped and cleared; waiting for another start")
-		return err
+		return observation, errors.Join(endError, err)
+	}
+	applyStop := func(request *stopRequest) error {
+		return control.applyStop(request, func() (stopObservation, error) {
+			return clear(request)
+		})
 	}
 	stopCancelledRun := func() error {
 		select {
 		case request := <-control.stops:
-			return control.applyStop(request, clear)
+			return applyStop(request)
 		case <-ctx.Done():
 			return nil
 		}
@@ -116,7 +104,7 @@ func runInteractive(
 		case <-ctx.Done():
 			return nil
 		case stop := <-control.stops:
-			if err := control.applyStop(stop, clear); err != nil {
+			if err := applyStop(stop); err != nil {
 				return err
 			}
 			continue
@@ -131,10 +119,17 @@ func runInteractive(
 		}
 		prepared, err := prepareStart(request, defaults)
 		if err != nil {
-			lastError = fmt.Sprintf("invalid configuration: %v", err)
 			control.finishRun()
-			if err := publish(); err != nil {
-				return err
+			if request.legacy != nil && request.legacy.reply != nil {
+				// Reject this Start privately; the previous run's final sample stays frozen.
+				request.legacy.reply(contract.CommandResultFrame{
+					Type:        "commandResult",
+					CommandType: contract.StartSimulation,
+					RunID:       request.runID,
+					CommandID:   request.legacy.commandID,
+					Status:      contract.CommandRejected,
+					Error:       fmt.Sprintf("invalid configuration: %v", err),
+				})
 			}
 			continue
 		}
@@ -147,7 +142,6 @@ func runInteractive(
 
 		config, status, lastError = prepared.config, "running", ""
 		runID = request.runID
-		publicationSequence = 0
 		if prepared.document != nil {
 			request.experiment = experimentContext(prepared.document, contract.ExperimentExecution{
 				Speed: prepared.scenario.Execution.Speed,
@@ -156,13 +150,15 @@ func runInteractive(
 		} else {
 			control.setRunStatus(runID, status)
 		}
-		experiment = &request.experiment
 		started, elapsed = time.Now(), 0
 		if current != nil {
 			current.Stop()
 		}
 		current = simulation.New(prepared.scenario)
-		projector = presentation.NewProjector(runID)
+		publicationState = &runPublication{
+			hub: hub, topology: publication, projector: presentation.NewProjector(runID),
+			runID: runID, experiment: &request.experiment, started: started,
+		}
 		handled := func(err error) {
 			lastError = ""
 			if err != nil {
@@ -190,14 +186,25 @@ func runInteractive(
 		if encodeErr := json.NewEncoder(os.Stdout).Encode(presentation.BuildResult(current, elapsed)); encodeErr != nil {
 			return encodeErr
 		}
-		status = "finished"
+		nextStatus, nextError := "finished", ""
+		reason := contract.SimulationFinished
 		if err != nil {
-			status, lastError = "failed", err.Error()
+			nextStatus, nextError = "failed", err.Error()
+			reason = contract.SimulationFailed
 		}
-		control.setRunStatus(runID, status)
-		control.finishRun()
-		if err := publish(); err != nil {
+		finished, err := control.finishNaturally(runID, nextStatus, func() error {
+			status, lastError = nextStatus, nextError
+			_, err := publicationState.end(current, runState(), reason, "")
 			return err
+		})
+		if err != nil {
+			return err
+		}
+		if !finished {
+			if err := stopCancelledRun(); err != nil {
+				return err
+			}
+			continue
 		}
 		log.Printf("Simulation %s; waiting for another start", status)
 	}

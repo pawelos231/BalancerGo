@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isStopCommandResult, StopCommands } from '../../../src/hooks/stopCommands.ts';
+import { parseStopCommandResult, StopCommands } from '../../../src/hooks/stopCommands.ts';
 import type { StopCommandResult } from '../../../src/types.ts';
 import { CommandType } from '../../../src/commands.ts';
 
@@ -92,8 +92,9 @@ test('disconnect reports uncertainty, forgets the intent, and never replays it',
 });
 
 test('Stop result parsing distinguishes completion frames from snapshots and legacy errors', () => {
-  assert.equal(isStopCommandResult(result()), true);
-  assert.equal(isStopCommandResult(result({ runId: '', commandId: '', status: 'rejected' })), true);
+  const applied = result();
+  assert.equal(parseStopCommandResult(applied)?.result, applied);
+  assert.ok(parseStopCommandResult(result({ runId: '', commandId: '', status: 'rejected' })));
   for (const message of [
     null,
     { type: 'simulationSnapshot', simulation: { status: 'idle' } },
@@ -101,5 +102,5 @@ test('Stop result parsing distinguishes completion frames from snapshots and leg
     { ...result(), commandType: CommandType.SpawnClient },
     { ...result(), commandId: undefined },
     { ...result(), status: 'accepted' },
-  ]) assert.equal(isStopCommandResult(message), false);
+  ]) assert.equal(parseStopCommandResult(message), null);
 });

@@ -120,7 +120,10 @@ func TestStopBeforeModelCreationSurvivesNormalFinish(t *testing.T) {
 			if !errors.Is(err, errSimulationBusy) {
 				t.Fatalf("Start bypassed pending Stop: %v", err)
 			}
-			if err := control.applyStop(<-control.stops, func() error { cleared = true; return nil }); err != nil {
+			if err := control.applyStop(<-control.stops, func() (stopObservation, error) {
+				cleared = true
+				return stopObservation{}, nil
+			}); err != nil {
 				t.Fatal(err)
 			}
 			if replies != 1 || len(control.starts) != 0 || control.pendingStop != nil || control.reservedRunID != "" {
@@ -144,7 +147,10 @@ func TestStopClearsRetainedFinishedRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := control.applyStop(<-control.stops, func() error { cleared = true; return nil }); err != nil {
+	if err := control.applyStop(<-control.stops, func() (stopObservation, error) {
+		cleared = true
+		return stopObservation{}, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if !replied {
@@ -168,7 +174,10 @@ func TestStopRechecksTargetBeforeClearing(t *testing.T) {
 	control.runCtx, control.cancelRun = context.WithCancel(context.Background())
 	defer control.cancelRun()
 	cleared := false
-	if err := control.applyStop(request, func() error { cleared = true; return nil }); err != nil {
+	if err := control.applyStop(request, func() (stopObservation, error) {
+		cleared = true
+		return stopObservation{}, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if cleared || control.currentRun().RunID != "run-B" || control.contextForRun().Err() != nil {

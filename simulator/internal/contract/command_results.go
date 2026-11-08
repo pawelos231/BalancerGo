@@ -1,5 +1,7 @@
 package contract
 
+import "encoding/json"
+
 type CommandResultStatus string
 
 const (
@@ -7,8 +9,8 @@ const (
 	CommandRejected CommandResultStatus = "rejected"
 )
 
-// CommandResultFrame answers one Stop request on its submitting connection.
-// Applied means the owner has cleared that run; idle alone does not confirm it.
+// CommandResultFrame answers a command on its submitting connection.
+// An applied Stop confirms cleanup; its optional sample was captured beforehand.
 type CommandResultFrame struct {
 	Type        string              `json:"type"`
 	CommandType CommandType         `json:"commandType"`
@@ -16,4 +18,8 @@ type CommandResultFrame struct {
 	CommandID   string              `json:"commandId"`
 	Status      CommandResultStatus `json:"status"`
 	Error       string              `json:"error,omitempty"`
+
+	// Stop captures these before clearing, including when it clears a finished run.
+	FinalSnapshot      *SimulationSnapshot `json:"finalSnapshot,omitempty"`
+	TopologyDefinition json.RawMessage     `json:"topologyDefinition,omitempty"`
 }

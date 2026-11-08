@@ -4,8 +4,11 @@ import { scenarioApi, websocketUrl } from '../scenarios/runtimeApi';
 import { httpStartAcknowledged } from '../scenarios/startAcknowledgement';
 import type { CurrentSimulation, Scenario } from '../scenarios/types';
 import { parseSnapshot } from '../telemetry/parse';
-import { PublicationTracker } from '../telemetry/publications';
 import type { PublicationObservation } from '../telemetry/publications';
+import { RunLifecycleReceiver } from '../telemetry/lifecycle';
+import type { FinalSampleNotification, RunEndedNotification } from '../telemetry/lifecycle';
+import { parseSimulationEnded } from '../telemetry/lifecycleParse';
+import type { FinalSample, ParsedSimulationEnded } from '../telemetry/lifecycleParse';
 import { TelemetryReceiver } from '../telemetry/receiver';
 import type { SimulationSnapshot } from '../telemetry/types';
 import type {
@@ -13,9 +16,10 @@ import type {
   LoadBalancerState,
   SimulationCommand,
   SimulationMetadata,
-  StopCommandResult,
 } from '../types';
-import { isStopCommandResult, StopCommands } from './stopCommands';
+import { parseStopCommandResult, StopCommands } from './stopCommands';
+import type { ParsedStopCommandResult } from './stopCommands';
+import { readCommandError } from './commandErrors';
 
 const reconnectDelayMs = 1000;
 const uncertainStopError = 'Connection lost before Stop was acknowledged. '
@@ -27,10 +31,9 @@ interface HttpStart {
   observedRunIds: Set<string>;
 }
 
-function isCommandError(message: unknown): message is CommandError {
-  return message !== null && typeof message === 'object'
-    && 'type' in message && message.type === 'commandError'
-    && 'error' in message && typeof message.error === 'string';
+interface SimulationLifecycleOptions {
+  onRunEnded?: (notification: RunEndedNotification) => void;
+  onFinalSample?: (notification: FinalSampleNotification) => void;
 }
 
 function newCommandId(): string {
@@ -38,7 +41,7 @@ function newCommandId(): string {
   return Array.from(randomBytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function useSimulation() {
+function useSimulation(options: SimulationLifecycleOptions = {}) {
   const [data, setData] = useState<LoadBalancerState | null>(null);
   const [connected, setConnected] = useState(false);
   const [connectionEpoch, setConnectionEpoch] = useState(0);
@@ -51,6 +54,7 @@ function useSimulation() {
   const [topologyLoading, setTopologyLoading] = useState(false);
   const [topologyError, setTopologyError] = useState<string | null>(null);
   const [publicationObservation, setPublicationObservation] = useState<PublicationObservation | null>(null);
+  const [terminationUncertainty, setTerminationUncertainty] = useState<string | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const simulationRef = useRef<SimulationMetadata | null>(null);
@@ -59,7 +63,16 @@ function useSimulation() {
   const httpStartRef = useRef<HttpStart | null>(null);
   const mountedRef = useRef(false);
   const telemetryRef = useRef<TelemetryReceiver | null>(null);
-  const publicationsRef = useRef(new PublicationTracker());
+  const lifecycleOptionsRef = useRef(options);
+  lifecycleOptionsRef.current = options;
+  const lifecycleRef = useRef<RunLifecycleReceiver | null>(null);
+  if (!lifecycleRef.current) {
+    lifecycleRef.current = new RunLifecycleReceiver(
+      (notification) => lifecycleOptionsRef.current.onRunEnded?.(notification),
+      (notification) => lifecycleOptionsRef.current.onFinalSample?.(notification),
+      (runId) => !stopCommandsRef.current.hasClearedRun(runId),
+    );
+  }
 
   // Refs guard repeated commands before React updates the buttons.
   const setStartPending = useCallback((pending: boolean) => {
@@ -70,7 +83,7 @@ function useSimulation() {
   useEffect(() => {
     mountedRef.current = true;
     const stopCommands = stopCommandsRef.current;
-    const publications = publicationsRef.current;
+    const lifecycle = lifecycleRef.current!;
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     const receiver = new TelemetryReceiver(
@@ -84,13 +97,21 @@ function useSimulation() {
     );
     telemetryRef.current = receiver;
 
-    function handleCommandError(message: CommandError) {
+    function handleCommandError(message: Pick<CommandError, 'commandType' | 'error'>) {
       // A legacy Stop error has no identity and cannot settle this request.
       if (message.commandType === CommandType.StopSimulation) return;
+      // Private legacy WS rejection cannot settle an independent HTTP Start.
+      if (message.commandType === CommandType.StartSimulation && !httpStartRef.current) {
+        setStartPending(false);
+      }
       setCommandError(message.error);
     }
 
-    function handleStopResult(message: StopCommandResult) {
+    function handleStopResult({ result: message, sample }: ParsedStopCommandResult) {
+      const pending = stopCommands.pending;
+      if (pending?.runId !== message.runId || pending.commandId !== message.commandId) return;
+      // Deliver the validated sample before finish retires this run and clears its intent.
+      lifecycle.receiveStopAcknowledgement(sample);
       if (!stopCommands.finish(message)) return;
       setStopPending(false);
       if (message.status === 'rejected') {
@@ -112,12 +133,7 @@ function useSimulation() {
       setConnected(false);
     }
 
-    function handleSnapshot(snapshot: SimulationSnapshot) {
-      // Reject retired runs before tracking so cleared runs cannot become current again.
-      if (!stopCommands.acceptsSnapshot(snapshot.simulation)) return;
-      const observation = publications.observe(snapshot.simulation);
-      setPublicationObservation(observation);
-      if (!observation.acceptSnapshot) return;
+    function applySnapshot(snapshot: SimulationSnapshot, sample?: FinalSample) {
       simulationRef.current = snapshot.simulation;
       setConnected(true);
 
@@ -136,7 +152,35 @@ function useSimulation() {
         setRunRefresh((revision) => revision + 1);
       }
 
-      receiver.receive(snapshot);
+      if (sample) receiver.receiveFinal(sample);
+      else receiver.receive(snapshot);
+    }
+
+    function handleSnapshot(snapshot: SimulationSnapshot) {
+      // Reject retired runs before tracking so cleared runs cannot become current again.
+      if (!stopCommands.acceptsSnapshot(snapshot.simulation)) return;
+      const observation = lifecycle.observeSnapshot(snapshot.simulation);
+      if (!observation) return;
+      setPublicationObservation(observation);
+      if (!observation.acceptSnapshot) return;
+      applySnapshot(snapshot);
+    }
+
+    function handleRunEnded(parsed: ParsedSimulationEnded) {
+      // This callback runs synchronously even if React renders only the following run B.
+      const receipt = lifecycle.receiveEnd(parsed);
+      const { event } = parsed;
+      if (!lifecycle.terminationUncertainty) setTerminationUncertainty(null);
+      const httpStart = httpStartRef.current;
+      httpStart?.observedRunIds.add(event.runId);
+      if (httpStart?.runId === event.runId) {
+        httpStartRef.current = null;
+        setStartPending(false);
+      }
+      if (!receipt.display || !receipt.sample
+        || !stopCommands.acceptsSnapshot(receipt.sample.snapshot.simulation)) return;
+      setPublicationObservation(receipt.publicationObservation);
+      applySnapshot(receipt.sample.snapshot, receipt.sample);
     }
 
     function connect() {
@@ -148,7 +192,7 @@ function useSimulation() {
 
         // Wait for a fresh snapshot before enabling controls after reconnect.
         simulationRef.current = null;
-        publications.reconnect();
+        lifecycle.reconnect();
         receiver.reset();
         setCurrentRun(null);
         setCurrentRunError(null);
@@ -164,11 +208,16 @@ function useSimulation() {
 
         try {
           const message: unknown = JSON.parse(event.data);
+          const error = readCommandError(message);
+          const stopResult = parseStopCommandResult(message);
 
-          if (isCommandError(message)) {
-            handleCommandError(message);
-          } else if (isStopCommandResult(message)) {
-            handleStopResult(message);
+          if (error) {
+            handleCommandError(error);
+          } else if (stopResult) {
+            handleStopResult(stopResult);
+          } else if (message !== null && typeof message === 'object'
+            && 'type' in message && message.type === 'simulationEnded') {
+            handleRunEnded(parseSimulationEnded(message));
           } else {
             handleSnapshot(parseSnapshot(message));
           }
@@ -182,7 +231,12 @@ function useSimulation() {
         if (disposed) return;
 
         simulationRef.current = null;
-        publications.reconnect();
+        lifecycle.disconnect();
+        const uncertainRunId = lifecycle.terminationUncertainty;
+        if (uncertainRunId) {
+          setTerminationUncertainty(`Connection lost while run ${uncertainRunId} was active. `
+            + 'Its termination is unknown; reconnecting does not guarantee replay of its end event.');
+        }
         receiver.reset();
         if (!httpStartRef.current) setStartPending(false);
         if (stopCommands.disconnect()) setCommandError(uncertainStopError);
@@ -333,6 +387,7 @@ function useSimulation() {
     topologyLoading,
     topologyError,
     publicationObservation,
+    terminationUncertainty,
     refreshTopology,
     refreshCurrent,
     sendMessage,

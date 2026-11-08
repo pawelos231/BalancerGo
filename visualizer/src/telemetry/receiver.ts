@@ -1,6 +1,7 @@
 import type { LoadBalancerState } from '../types';
 import { hydrateSnapshot, idleSnapshot } from './hydrate.ts';
 import type { SimulationSnapshot, TopologyDefinition } from './types.ts';
+import type { FinalSample } from './lifecycleParse.ts';
 
 export interface TelemetryView {
   data: LoadBalancerState | null;
@@ -48,10 +49,28 @@ export class TelemetryReceiver {
   }
 
   receive(snapshot: SimulationSnapshot) {
+    this.receiveSnapshot(snapshot);
+  }
+
+  receiveFinal(sample: FinalSample) {
+    this.receiveSnapshot(sample.snapshot, sample);
+  }
+
+  private receiveSnapshot(snapshot: SimulationSnapshot, sample?: FinalSample) {
     if (this.disposed) return;
     const oldRun = this.latest?.snapshot.simulation.runId;
     if (snapshot.simulation.status === 'idle' || (oldRun && oldRun !== snapshot.simulation.runId)) {
       this.clear();
+    }
+
+    if (sample) {
+      // A self-contained end replaces pending HTTP work for this same run.
+      this.generation++;
+      this.request?.controller.abort();
+      this.request = null;
+      this.requestedKey = null;
+      this.definitions.set(sample.definition.revision, sample.definition);
+      this.failure = null;
     }
 
     const frame = { snapshot, sequence: ++this.sequence };
@@ -60,12 +79,15 @@ export class TelemetryReceiver {
     }
     this.latest = frame;
 
-    if (snapshot.simulation.status === 'idle') {
+    if (sample) {
+      this.matched = { frame, data: sample.data };
+    } else if (snapshot.simulation.status === 'idle') {
       this.matched = { frame, data: idleSnapshot(snapshot) };
     } else {
       this.hydrate(frame);
     }
     this.publish();
+    this.trimDefinitions();
     this.fetchDefinitions();
   }
 

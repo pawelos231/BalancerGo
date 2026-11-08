@@ -106,3 +106,13 @@ export interface SimulationSnapshot {
     };
   };
 }
+
+// End events carry their own topology: current HTTP may already describe the next run.
+export interface SimulationEnded {
+  type: 'simulationEnded';
+  runId: string;
+  reason: 'finished' | 'failed' | 'stopped';
+  commandId?: string;
+  finalSnapshot: SimulationSnapshot | null;
+  topologyDefinition: TopologyDefinition | null;
+}

@@ -171,6 +171,19 @@ and allows one cached duplicate to rebuild the view without counting a new measu
 Idle and a different run reset this bounded scope; there is no retained run history,
 replay, or guarantee of complete historical measurements.
 
+Run completion arrives as a nonreplaceable `simulationEnded` message with its run ID,
+reason (`finished`, `failed`, or `stopped`), final snapshot and matching topology
+definition. Definitions stay usable even if HTTP already serves the following run.
+A Stop before model creation has no final sample. Stop captures metrics before cleanup;
+its private acknowledgement includes that sample, while clearing a finished run reuses
+the original final measurement without producing another end.
+
+The hook's synchronous `onRunEnded` and `onFinalSample` callbacks run before React
+coalescing. The live view accepts fast completions without a preceding running frame,
+and older runs cannot replace a currently active run. Critical queue overflow closes
+the connection; an observed active run then has an explicitly uncertain termination.
+Reconnect alone cannot resolve that uncertainty or restore missed history.
+
 Each created client and backend has its own node and
 two directed links. Clients appear left of the LB and backends right. Incoming
 arrows end at the corresponding LB input FIFO; both FIFOs use one shared receiver.

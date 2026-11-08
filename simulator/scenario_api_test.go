@@ -71,14 +71,35 @@ func readScenarioSnapshot(t *testing.T, socket *websocket.Conn, ready func(contr
 	t.Helper()
 	socket.SetReadDeadline(time.Now().Add(3 * time.Second))
 	for {
-		var snapshot contract.SimulationSnapshot
-		if err := socket.ReadJSON(&snapshot); err != nil {
+		_, data, err := socket.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, _, err := decodeSnapshotMessage(data)
+		if err != nil {
 			t.Fatal(err)
 		}
 		if ready(snapshot) {
 			return snapshot
 		}
 	}
+}
+
+// End messages embed the final snapshot instead of sending it as replaceable telemetry.
+func decodeSnapshotMessage(data []byte) (contract.SimulationSnapshot, []byte, error) {
+	var message struct {
+		Type          string          `json:"type"`
+		FinalSnapshot json.RawMessage `json:"finalSnapshot"`
+	}
+	if err := json.Unmarshal(data, &message); err != nil {
+		return contract.SimulationSnapshot{}, nil, err
+	}
+	if message.Type == "simulationEnded" {
+		data = message.FinalSnapshot
+	}
+	var snapshot contract.SimulationSnapshot
+	err := json.Unmarshal(data, &snapshot)
+	return snapshot, data, err
 }
 
 func scenarioRequest(t *testing.T, server *httptest.Server, method, path string, document []byte, status int) []byte {
@@ -335,7 +356,7 @@ func TestScenarioStartAdmission(t *testing.T) {
 	if !errors.Is(err, errSimulationBusy) {
 		t.Fatal("new Start bypassed pending Stop")
 	}
-	control.applyStop(<-control.stops, func() error { return nil })
+	control.applyStop(<-control.stops, func() (stopObservation, error) { return stopObservation{}, nil })
 
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
 	second, err := control.startScenario(requestCtx, document, resolved)

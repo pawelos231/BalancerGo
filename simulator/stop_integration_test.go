@@ -31,7 +31,7 @@ func readStopResult(
 		if err := json.Unmarshal(data, &result); err != nil {
 			t.Fatal(err)
 		}
-		if result.Type == "simulationSnapshot" {
+		if result.Type == "simulationSnapshot" || result.Type == "simulationEnded" {
 			continue
 		}
 		if result.Type != "commandResult" || result.CommandType != contract.StopSimulation ||

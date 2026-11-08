@@ -2,6 +2,7 @@ import type { CommandType } from './commands';
 import type { ExperimentContext } from './experiment';
 import type { CongestionMode } from './scenarios/types';
 import type { TopologyGraph } from './topology/types';
+import type { SimulationSnapshot, TopologyDefinition } from './telemetry/types';
 
 export interface ClientKey {
   SrcIP: string;
@@ -240,4 +241,6 @@ export interface StopCommandResult {
   commandId: string;
   status: 'applied' | 'rejected';
   error?: string;
+  finalSnapshot?: SimulationSnapshot | null;
+  topologyDefinition?: TopologyDefinition | null;
 }

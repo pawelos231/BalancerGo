@@ -4,21 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"load-balancer/internal/contract"
-)
-
-const (
-	maxCommandBytes = 64 * 1024
-	writeWait       = 5 * time.Second
-	pongWait        = 60 * time.Second
-	pingPeriod      = 20 * time.Second
 )
 
 var upg = websocket.Upgrader{
@@ -30,219 +20,114 @@ var upg = websocket.Upgrader{
 
 var errHubClosed = errors.New("websocket hub is closed")
 
-type snapshotFrame struct {
-	data []byte
-}
-
-type wsClient struct {
-	conn           *websocket.Conn
-	outgoing       chan []byte
-	commandReplies chan []byte
-	done           chan struct{}
-	stopOnce       sync.Once
-}
-
-func (c *wsClient) stop() {
-	c.stopOnce.Do(func() {
-		close(c.done)
-		// Closing the connection also interrupts a blocked reader or writer.
-		c.conn.Close()
-	})
-}
-
-// queueLatest has one producer (Hub.Run). Pending frames are superseded rather
-// than accumulating behind a slow browser. A writer already sending a frame has
-// a bounded write deadline and cannot hold up the hub or the simulation.
-func (c *wsClient) queueLatest(frame []byte) {
-	select {
-	case <-c.done:
-		return
-	default:
-	}
-	select {
-	case c.outgoing <- frame:
-		return
-	default:
-	}
-	select {
-	case <-c.outgoing:
-	default:
-	}
-	select {
-	case c.outgoing <- frame:
-	default:
-	}
-}
-
-// queueReply keeps command outcomes separate from replaceable measurements.
-// A full reply queue closes the connection instead of silently losing a result.
-func (c *wsClient) queueReply(message any) {
-	select {
-	case <-c.done:
-		return
-	default:
-	}
-	frame, _ := json.Marshal(message) // Reply types contain only strings.
-	select {
-	case c.commandReplies <- frame:
-	default:
-		c.stop()
-	}
-}
-
-func (c *wsClient) replyCommand(result contract.CommandResultFrame) {
-	c.queueReply(result)
-}
-
 // Hub handles real I/O only. submit must enqueue a command without blocking;
 // it must not read or mutate live simulation state. BroadcastState serializes a
 // detached snapshot and never waits for a WebSocket connection or its writer.
 type Hub struct {
-	submit     func(contract.Envelope, func(contract.CommandResultFrame)) error
-	latest     atomic.Pointer[snapshotFrame]
-	wake       chan struct{}
-	register   chan *wsClient
-	unregister chan *wsClient
+	submit func(contract.Envelope, func(contract.CommandResultFrame)) error
+
+	mu         sync.Mutex
+	clients    map[*wsClient]struct{}
+	latest     []byte
+	currentEnd []byte
+	closed     bool
 	done       chan struct{}
 	runOnce    sync.Once
 }
 
 func NewHub(submit func(contract.Envelope, func(contract.CommandResultFrame)) error) *Hub {
 	return &Hub{
-		submit:     submit,
-		wake:       make(chan struct{}, 1),
-		register:   make(chan *wsClient),
-		unregister: make(chan *wsClient),
-		done:       make(chan struct{}),
+		submit:  submit,
+		clients: make(map[*wsClient]struct{}),
+		done:    make(chan struct{}),
 	}
 }
 
-// Run owns the connection set until ctx is canceled. Snapshot caching also works
-// before Run starts, allowing a browser to connect after a fast simulation ends.
+// Publications and registration work before Run starts. Run owns shutdown only.
 func (h *Hub) Run(ctx context.Context) {
 	h.runOnce.Do(func() {
-		clients := make(map[*wsClient]struct{})
-		defer func() {
-			close(h.done)
-			for c := range clients {
-				c.stop()
-			}
-		}()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case c := <-h.register:
-				clients[c] = struct{}{}
-				if frame := h.latest.Load(); frame != nil {
-					c.queueLatest(frame.data)
-				}
-			case c := <-h.unregister:
-				delete(clients, c)
-				c.stop()
-			case <-h.wake:
-				if frame := h.latest.Load(); frame != nil {
-					for c := range clients {
-						c.queueLatest(frame.data)
-					}
-				}
-			}
+		<-ctx.Done()
+		h.mu.Lock()
+		h.closed = true
+		close(h.done)
+		clients := h.clients
+		h.clients = nil
+		h.mu.Unlock()
+		for c := range clients {
+			c.stop()
 		}
 	})
 }
 
 func (h *Hub) BroadcastState(state interface{}) error {
-	select {
-	case <-h.done:
-		return errHubClosed
-	default:
-	}
 	data, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
-	h.latest.Store(&snapshotFrame{data: data})
-	select {
-	case h.wake <- struct{}{}:
-	default:
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return errHubClosed
+	}
+	h.latest = data
+	h.currentEnd = nil
+	for c := range h.clients {
+		c.queueLatest(data)
 	}
 	return nil
 }
 
-func (h *Hub) readCommands(c *wsClient) {
-	defer func() {
-		c.stop()
-		select {
-		case h.unregister <- c:
-		case <-h.done:
-		}
-	}()
-	c.conn.SetReadLimit(maxCommandBytes)
-	if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
-		return
+// BroadcastEnded publishes a retained lifecycle barrier without waiting on I/O.
+func (h *Hub) BroadcastEnded(ended contract.SimulationEndedFrame) error {
+	data, err := json.Marshal(ended)
+	if err != nil {
+		return err
 	}
-	c.conn.SetPongHandler(func(string) error {
-		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	})
-	for {
-		var envelope contract.Envelope
-		if err := c.conn.ReadJSON(&envelope); err != nil {
-			return
-		}
-		if h.submit == nil {
-			continue
-		}
-		if err := h.submit(envelope, c.replyCommand); err != nil {
-			log.Printf("UI command %q rejected: %v", envelope.Type, err)
-			if envelope.Type == contract.StopSimulation {
-				c.replyCommand(contract.CommandResultFrame{
-					Type:        "commandResult",
-					CommandType: envelope.Type,
-					RunID:       envelope.RunID,
-					CommandID:   envelope.CommandID,
-					Status:      contract.CommandRejected,
-					Error:       err.Error(),
-				})
-				continue
-			}
-			c.queueReply(contract.CommandErrorFrame{
-				Type: "commandError", CommandType: envelope.Type, Error: err.Error(),
-			})
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return errHubClosed
+	}
+	h.latest = nil
+	h.currentEnd = data
+	var overflowed []*wsClient
+	for c := range h.clients {
+		if c.queueCritical(data, true) {
+			overflowed = append(overflowed, c)
 		}
 	}
+	h.mu.Unlock()
+	for _, c := range overflowed {
+		c.closeOverflow()
+	}
+	return nil
 }
 
-func (h *Hub) writeFrames(c *wsClient) {
-	ticker := time.NewTicker(pingPeriod)
-	defer ticker.Stop()
-	defer c.stop()
-	for {
-		select {
-		case <-h.done:
-			return
-		case <-c.done:
-			return
-		case frame := <-c.commandReplies:
-			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				return
-			}
-			if err := c.conn.WriteMessage(websocket.TextMessage, frame); err != nil {
-				return
-			}
-		case frame := <-c.outgoing:
-			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				return
-			}
-			if err := c.conn.WriteMessage(websocket.TextMessage, frame); err != nil {
-				return
-			}
-		case <-ticker.C:
-			if err := c.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait)); err != nil {
-				return
-			}
-		}
+func (h *Hub) registerClient(c *wsClient) error {
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return errHubClosed
 	}
+	h.clients[c] = struct{}{}
+	overflow := false
+	if h.currentEnd != nil {
+		overflow = c.queueCritical(h.currentEnd, true)
+	} else if h.latest != nil {
+		c.queueLatest(h.latest)
+	}
+	h.mu.Unlock()
+	if overflow {
+		c.closeOverflow()
+	}
+	return nil
+}
+
+func (h *Hub) unregisterClient(c *wsClient) {
+	h.mu.Lock()
+	delete(h.clients, c)
+	h.mu.Unlock()
+	c.stop()
 }
 
 func (h *Hub) ServeWs(w http.ResponseWriter, r *http.Request) {
@@ -256,16 +141,14 @@ func (h *Hub) ServeWs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	c := &wsClient{
-		conn: conn, outgoing: make(chan []byte, 1),
-		commandReplies: make(chan []byte, 8), done: make(chan struct{}),
-	}
+	c := newWSClient(conn)
 	select {
-	case h.register <- c:
-	case <-h.done:
+	case <-r.Context().Done():
 		c.stop()
 		return
-	case <-r.Context().Done():
+	default:
+	}
+	if err := h.registerClient(c); err != nil {
 		c.stop()
 		return
 	}
