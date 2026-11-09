@@ -960,6 +960,19 @@ probes continue. Neither recovery nor probes clear drain. Backend topology metri
 show all three signals independently. See the [v2 execution notes](examples/scenarios-v2/README.md)
 for initial, insertion and full-state default semantics.
 
+The internal version-2 runtime also executes all client-generator transitions.
+A group's `count` is its lifetime birth budget. Reductions pause future births;
+growth resumes with the next unused index. Removing the group stops its generator
+while existing TCP streams and access links continue. Network edits update both
+links for born and future clients; stream edits apply only to future births.
+Address ranges use every group's maximum budget across the full plan, sorted by
+ID, so later insertion and growth cannot move or reuse another client's address.
+`ScheduledClients` reports current planned births, including those already born
+from removed groups; it is separate from the plan's address reservation bound.
+CLI and HTTP version-2 admission remains deferred to E1.13. See the
+[client-generator execution rules](examples/scenarios-v2/README.md#client-generators-and-access-links-e112)
+for timing, overrides and metric details.
+
 Backend cleanup is configured under `tcp`:
 
 - `backendHalfOpenIdleTimeoutNanoseconds`: defaults to 5 s, measured from

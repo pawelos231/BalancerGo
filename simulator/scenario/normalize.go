@@ -496,21 +496,24 @@ func (group NormalizedClientGroup) Client(index int) (ClientConfig, error) {
 		Stream:  group.Stream,
 	}
 
-	// Find the first override at or after this index.
-	position := sort.Search(len(group.Overrides), func(searchPosition int) bool {
-		return group.Overrides[searchPosition].Index >= index
-	})
-
-	if position < len(group.Overrides) {
-		override := group.Overrides[position]
-
-		if override.Index == index {
-			result.Network = override.Network
-			result.Stream = override.Stream
-		}
+	if override, ok := group.Override(index); ok {
+		result.Network = override.Network
+		result.Stream = override.Stream
 	}
 
 	return result, nil
+}
+
+// Override looks up a sparse exception independently of the current birth budget.
+// A retained client can outlive a reduction in Count.
+func (group NormalizedClientGroup) Override(index int) (NormalizedClientOverride, bool) {
+	position := sort.Search(len(group.Overrides), func(position int) bool {
+		return group.Overrides[position].Index >= index
+	})
+	if position < len(group.Overrides) && group.Overrides[position].Index == index {
+		return group.Overrides[position], true
+	}
+	return NormalizedClientOverride{}, false
 }
 
 // validateID checks ID length and the supported ASCII characters.

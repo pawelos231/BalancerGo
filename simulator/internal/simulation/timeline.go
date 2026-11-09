@@ -13,9 +13,8 @@ import (
 	"load-balancer/scenario"
 )
 
-var (
-	ErrUnsupportedTimelineChange = errors.New("simulation: timeline change is not supported yet")
-	ErrTimelineManualMutation    = errors.New("simulation: timeline configuration must be changed through scenario states")
+var ErrTimelineManualMutation = errors.New(
+	"simulation: timeline configuration must be changed through scenario states",
 )
 
 // timelineRuntime tracks only committed settings, not future desired states.
@@ -33,6 +32,7 @@ type configurationCommit struct {
 	added             []scenario.NormalizedBackendState
 	removed           []string
 	backendStates     []backendStateChange
+	groups            scenario.ClientGroupChanges
 	names             []backendNameChange
 	links             []linkConfigurationChange
 	forwardingChanged bool
@@ -69,8 +69,7 @@ type linkConfigurationChange struct {
 	congestionRNG *rand.Rand
 }
 
-// NewTimeline prepares a world only after every transition has a supported executor.
-// Only client-generator changes still need an executor.
+// NewTimeline prepares a world from a completely checked configuration timeline.
 func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("simulation: compiled timeline is required")
@@ -84,16 +83,14 @@ func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 		return nil, err
 	}
 
-	world := New(timelineConfiguration(plan, initial))
+	timeline := &timelineRuntime{plan: plan, revision: 1}
+	reservations := timelineClientReservations(initial.ClientGroups, commits)
+	world := newWorld(timelineConfiguration(plan, initial), timeline, reservations)
 	for _, backend := range initial.Backends {
 		world.applyBackendState(backendStateChange{
 			id: backend.ID, available: backend.PhysicalAvailable,
 			draining: backend.AdministrativeState == scenario.BackendAdminDrain,
 		})
-	}
-	world.timeline = &timelineRuntime{
-		plan:     plan,
-		revision: 1,
 	}
 	world.prepareResourceCommits(commits)
 
@@ -114,15 +111,12 @@ func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	return world, nil
 }
 
-// prepareConfigurationCommits rejects unsupported late edits before creating a world.
-// No transition is accepted merely because its initial state could run.
+// prepareConfigurationCommits describes all edits before creating runtime resources.
+// Compiled plans have already checked the entire document, including late states.
 func prepareConfigurationCommits(plan *scenario.CompiledV2) ([]configurationCommit, error) {
 	transitions := plan.Transitions()
 	commits := make([]configurationCommit, 0, len(transitions))
 	for _, transition := range transitions {
-		if err := checkSupportedTransition(transition); err != nil {
-			return nil, err
-		}
 		state, err := plan.StateAt(transition.At)
 		if err != nil {
 			return nil, err
@@ -131,6 +125,7 @@ func prepareConfigurationCommits(plan *scenario.CompiledV2) ([]configurationComm
 			at:            transition.At,
 			configuration: timelineConfiguration(plan, state),
 			removed:       transition.Backends.Removed,
+			groups:        transition.ClientGroups,
 			names:         make([]backendNameChange, 0, len(transition.Backends.Updated)),
 		}
 		for _, backend := range transition.Backends.Added {
@@ -188,18 +183,6 @@ func prepareConfigurationCommits(plan *scenario.CompiledV2) ([]configurationComm
 		commits = append(commits, commit)
 	}
 	return commits, nil
-}
-
-// checkSupportedTransition is extended alongside each concrete resource handler.
-func checkSupportedTransition(transition scenario.Transition) error {
-	unsupported := func(feature string) error {
-		return fmt.Errorf("%w at %s: %s", ErrUnsupportedTimelineChange, transition.At, feature)
-	}
-	groups := transition.ClientGroups
-	if len(groups.Added) != 0 || len(groups.Updated) != 0 || len(groups.Stopped) != 0 {
-		return unsupported("client generators")
-	}
-	return nil
 }
 
 // Prepare shared policies and random streams without creating future backend resources.
@@ -305,6 +288,7 @@ func (s *World) commitConfiguration(commit *configurationCommit) {
 	for _, change := range commit.backendStates {
 		s.applyBackendState(change)
 	}
+	s.commitClientGroups(commit.groups, commit.at)
 	s.scenario = commit.configuration
 	s.timeline.committedAt = commit.at
 	s.timeline.revision++

@@ -138,36 +138,14 @@ func TestTimelineEventBudgetDoesNotSplitACommit(t *testing.T) {
 	}
 }
 
-// A later unsupported edit rejects the world even if an earlier rename is supported.
-func TestTimelineRejectsUnsupportedChangesBeforeConstruction(t *testing.T) {
-	tests := []struct {
-		name string
-		edit func(*scenario.StateConfig)
-	}{
-		{"client generation", func(state *scenario.StateConfig) {
-			state.Workload.ClientGroups[0].Count = 1
-		}},
+// No runtime resources are created without a valid compiled timeline.
+func TestTimelineRejectsMissingPlanBeforeConstruction(t *testing.T) {
+	for _, plan := range []*scenario.CompiledV2{nil, {}} {
+		world, err := NewTimeline(plan)
+		if world != nil || err == nil {
+			t.Fatalf("missing plan was admitted: world=%v error=%v", world, err)
+		}
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			definition := timelineDefinition()
-			early := timelineDefinition().States["0"]
-			early.Resources.Backends[0].Name = "supported early rename"
-			definition.States["100000000"] = early
-			late := timelineDefinition().States["0"]
-			test.edit(&late)
-			definition.States["200000000"] = late
-			plan, err := scenario.CompileV2(definition)
-			if err != nil {
-				t.Fatal(err)
-			}
-			world, err := NewTimeline(plan)
-			if world != nil || !errors.Is(err, ErrUnsupportedTimelineChange) {
-				t.Fatalf("unsupported timeline was admitted: world=%v error=%v", world, err)
-			}
-		})
-	}
-
 }
 
 // Stop cancels future changes; manual algorithm/spawn commands cannot bypass the timeline.

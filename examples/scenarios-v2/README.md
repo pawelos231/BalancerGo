@@ -8,8 +8,8 @@ not discover them as runnable scenarios.
 `scenario.DecodeDocumentV2` and `scenario.EncodeDocumentV2` check document syntax.
 `scenario.NormalizeV2` additionally validates the whole timeline and resolves
 each state independently. The frontend has matching types and local validation.
-Successful validation
-does not enable execution; timeline transitions are implemented in later phases.
+The internal `simulation.NewTimeline` runtime executes all compiled transitions,
+including client generators. Public CLI/HTTP admission remains deferred to E1.13.
 
 | File | Intended experiment | Target application payload |
 | --- | --- | --- |
@@ -76,10 +76,10 @@ windows, retransmission timers, queues or in-flight packets. Those remain runtim
 state across a transition. This is configuration scheduling, not TCP-state replay
 or a checkpoint/resume format.
 
-## Agreed runtime rules for future implementation
+## Timeline runtime rules
 
-The following rules are the contract for later phases, not claims about current
-runtime support.
+The internal timeline runtime implements these rules. The current public entry
+points continue to accept version 1 until E1.13.
 
 - `fixed`, including the LB ID, is immutable throughout a run. A retained backend
   keeps its ID, address, port and role; its display `name` may change. IDs cannot
@@ -150,12 +150,13 @@ An override may address any slot below the group's largest count declared **up
 to that state**. For count 10 -> 1, override index 9 remains valid for a retained
 client; increasing to 10 later does not make an earlier out-of-range override valid.
 These are reserved slots, not proof that a client has already been born.
-`NormalizedClientGroup.Client(index)` still looks up clients within the current
-birth budget; later runtime updates must also handle existing clients beyond it.
+`NormalizedClientGroup.Client(index)` looks up clients within the current birth
+budget. `Override(index)` independently resolves sparse exceptions for retained
+clients beyond that budget; runtime updates leave their birth streams unchanged.
 
 Client start times beyond the run duration and large arrival gaps are allowed;
-they may produce no arrivals during the run. Generator progress, overflow-safe
-replanning belongs to E1.12; state differences are prepared by the E1.4 compiler.
+they may produce no arrivals during the run. Generator replanning checks the
+remaining horizon before adding a gap, preventing duration overflow.
 
 ## Compiled transitions and configuration lookup
 
@@ -192,9 +193,8 @@ and metadata edits. A group's `ReplanArrivals` is true only when `Count` or
 `StreamChanged` concerns future clients. Stopping a generator does not remove its
 existing clients, and removing a backend does not instantly clear remote TCP state.
 
-E1.5 supplies atomic execution; later stages add individual resource handlers.
-Address ranges, actual generator progress and birth-time arithmetic remain E1.12;
-their reservation must use each group's maximum count across the entire run.
+E1.5 supplies atomic execution; E1.6 through E1.12 implement the resource handlers,
+address reservations and generator progress described below.
 CLI, HTTP and the current frontend still reject or do not submit runnable v2.
 
 ## Internal execution boundary (E1.5)
@@ -204,10 +204,9 @@ entire compiled plan. E1.5 introduced backend display-name changes; E1.6 added
 backend link edits, E1.7 added shared LB ingress and forwarding limits, E1.8 added
 mutable LB/backend CPU resources, E1.9 added LB algorithms and mapping timeouts,
 E1.10 added backend insertion/removal with insertion-time resource lifetimes,
-and E1.11 adds physical failure/recovery and administrative drain.
-This allows real execution and publication tests without silently ignoring
-unfinished generator changes. Generator transitions still return
-`ErrUnsupportedTimelineChange` before any world is constructed.
+E1.11 added physical failure/recovery and administrative drain, and E1.12 adds
+generator insertion, updates and removal, including existing-client link edits.
+Every compiled transition now has an internal executor.
 
 One `engine.ScheduleConfigurationAt` callback applies all prepared edits at a
 timestamp, then installs the configuration and increments its commit counter once.
@@ -237,10 +236,10 @@ admission remains deferred to E1.13 and frontend migration to E1.14.
 
 `Link.PrepareConfig(config, congestionRNG)` checks a future edit without changing
 the link. Its prepared `Apply()` installs the settings without resetting queues,
-statistics or random streams. The timeline binds both backend link directions
-before advancing the engine and applies them with the rest of the timestamp's
-configuration commit. Link IDs and endpoint objects stay unchanged, so the next
-topology definition reports the new limits for the same paths.
+statistics or random streams. The timeline binds existing backend and client links
+during the timestamp's configuration commit. Future endpoints retain checked
+descriptors until their resources exist. Link IDs and endpoint objects stay
+unchanged, so the next topology definition reports the new limits for the same paths.
 
 A packet already serializing keeps its starting bandwidth, loss rate and travel
 time. A packet already travelling keeps its scheduled arrival. Waiting packets
@@ -254,7 +253,35 @@ arrivals without re-marking already admitted packets. A newly enabled probabilis
 policy receives a separate seeded stream; disabling and re-enabling it resumes
 that stream rather than resetting it.
 
-Client-group link updates are integrated with generator changes in E1.12.
+Client-group link updates use these same packet and queue rules.
+
+## Client generators and access links (E1.12)
+
+Each generator keeps one pending arrival and its actual birth progress. A budget
+of three means indices 0, 1 and 2 may be born over its lifetime. Reducing it to
+one after two births keeps both clients and pauses the generator. Raising it to
+three resumes with index 2. Removing the group permanently stops its generator;
+the clients, streams and both access links remain usable and observable.
+
+Only count and gap edits replace an arrival event. Network and stream edits
+leave its time and queue position unchanged. A state commit at the birth's exact
+timestamp runs first, so a reduced budget can cancel that birth. Zero-gap bursts
+still execute one ordinary DES callback per birth after the complete commit.
+
+Before any arrival is scheduled, the world reserves address ranges for every
+group ever declared, using each group's maximum count and sorting by ID. This
+keeps addresses stable across growth, removal, later insertion and declaration
+reordering. Reservations stay compact; an unborn slot creates no client or link.
+
+Network edits reach both actual links and reported settings for born clients,
+including individual overrides above a reduced count. Removing an override uses
+the current state's group defaults. Streams remain frozen at birth, while future
+births resolve the latest group and individual stream settings.
+
+`ScheduledClients` is the current planned birth target: sum `max(born, count)`
+for present groups, plus births from removed groups. It can fall when budgets
+shrink, but never below `CreatedClients`. `plan.TotalClients()` is the separate
+run-wide address reservation bound, including slots that may never be born.
 
 ## Shared LB network limits (E1.7)
 

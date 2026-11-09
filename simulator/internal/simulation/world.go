@@ -27,15 +27,16 @@ type World struct {
 	lb           *balancer.LoadBalancer
 	algorithmRNG *rand.Rand
 
-	egress         *network.Egress
-	ingress        *network.Ingress
-	clientIngress  *network.Input
-	backendIngress *network.Input
-	links          []namedLink
-	backends       map[string]*runtimeBackend
-	clientGroups   []runtimeClientGroup
-	clients        []runtimeClient
-	traffic        trafficSampler
+	egress           *network.Egress
+	ingress          *network.Ingress
+	clientIngress    *network.Input
+	backendIngress   *network.Input
+	links            []namedLink
+	backends         map[string]*runtimeBackend
+	clientGroups     map[string]*runtimeClientGroup
+	clientGroupOrder []*runtimeClientGroup
+	clients          []runtimeClient
+	traffic          trafficSampler
 
 	algorithm string
 
@@ -69,12 +70,22 @@ func (link namedLink) Stats() network.Stats {
 // New builds a world from a validated scenario kept read-only.
 // Clients and their two links are created only when their arrival event runs.
 func New(resolved scenario.Normalized) *World {
+	return newWorld(resolved, nil, nil)
+}
+
+// newWorld installs timeline reservations before scheduling any client births.
+func newWorld(
+	resolved scenario.Normalized,
+	timeline *timelineRuntime,
+	reservations []clientGroupReservation,
+) *World {
 	execution := resolved.Execution
 	e := engine.New(execution.Duration)
 	e.MaxEvents = execution.MaxEvents
 
 	s := &World{
 		scenario:  resolved,
+		timeline:  timeline,
 		algorithm: resolved.LoadBalancer.Algorithm,
 		engine:    e,
 		backends:  make(map[string]*runtimeBackend, len(resolved.Backends)),
@@ -102,7 +113,7 @@ func New(resolved scenario.Normalized) *World {
 		s.addBackend(backend)
 	}
 
-	s.initializeClients()
+	s.initializeClients(reservations)
 	s.SampleTraffic()
 	return s
 }
@@ -343,6 +354,7 @@ func (s *World) Stop() {
 	// Drop arrivals, queued packets and periodic callbacks together.
 	s.engine.Clear()
 	s.clientGroups = nil
+	s.clientGroupOrder = nil
 	for _, link := range s.links {
 		if link.Output != nil {
 			link.Output.DiscardPending()
