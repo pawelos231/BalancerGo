@@ -43,6 +43,43 @@ func routingClient(t *testing.T, lb *LoadBalancer, port uint16) *client.Client {
 	return endpoint
 }
 
+func TestPreparedAlgorithmDoesNotSelectOrChangeRoutes(t *testing.T) {
+	lb, backends := routingBackends(t, 0, 0)
+	first := routingClient(t, lb, 40000)
+	if _, err := lb.Route(first); err != nil {
+		t.Fatal(err)
+	}
+	previous := lb.GetAlgorithm()
+	rng := rand.New(rand.NewSource(23))
+	reference := rand.New(rand.NewSource(23))
+	selection := &algorithms.Random{RNG: rng}
+	prepared := lb.PrepareAlgorithm(selection)
+	if lb.GetAlgorithm() != previous {
+		t.Fatal("preparing an algorithm installed it before the commit")
+	}
+	prepared.Apply()
+	if lb.GetAlgorithm() != selection || lb.byKey[first.Key()] != backends[0] {
+		t.Fatal("applying a prepared algorithm changed an existing route or installed another selector")
+	}
+	if selected, err := lb.Route(routingClient(t, lb, 40001)); err != nil || selected != backends[reference.Intn(len(backends))] {
+		t.Fatalf("the prepared selector did not use the original RNG sequence: %v, %v", selected, err)
+	}
+	if got, want := rng.Int63(), reference.Int63(); got != want {
+		t.Fatal("algorithm preparation or application consumed a random draw")
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("nil algorithm preparation did not fail before application")
+			}
+		}()
+		lb.PrepareAlgorithm(nil)
+	}()
+	if lb.GetAlgorithm() != selection {
+		t.Fatal("failed algorithm preparation changed the selector")
+	}
+}
+
 // A one-slot backend has room for one LB mapping, regardless of the host's
 // independent established-TCP counter. A half-open mapping occupies that slot too.
 func TestRouteUsesLBMappingsInsteadOfBackendTCPCount(t *testing.T) {

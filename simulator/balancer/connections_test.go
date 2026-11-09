@@ -161,6 +161,139 @@ func TestMappingTimeoutsAreIndependent(t *testing.T) {
 	}
 }
 
+func TestMappingTimeoutChangesUseExistingActivityAtNextSweep(t *testing.T) {
+	for _, phase := range []struct {
+		name   string
+		packet model.Packet
+		phase  connectionPhase
+	}{
+		{"half open", model.Packet{Flag: model.FlagSYN}, stateHalfOpen},
+		{"established", model.Packet{Flag: model.FlagACK}, stateEstablished},
+		{"closing", model.Packet{Flag: model.FlagFIN | model.FlagACK}, stateClosing},
+		{"reset", model.Packet{Flag: model.FlagRST}, stateReset},
+	} {
+		t.Run(phase.name, func(t *testing.T) {
+			for _, change := range []struct {
+				name      string
+				initial   time.Duration
+				timeout   time.Duration
+				expiresAt time.Duration
+			}{
+				{"shorter", 20 * time.Second, 2 * time.Second, 5 * time.Second},
+				{"longer", 2 * time.Second, 7 * time.Second, 10 * time.Second},
+				{"disabled", 2 * time.Second, 0, 0},
+			} {
+				t.Run(change.name, func(t *testing.T) {
+					config := TimeoutConfig{
+						HalfOpen: change.initial, Established: change.initial,
+						Closing: change.initial, Reset: change.initial,
+					}
+					fixture := newMappingFixture(t, &config)
+					fixture.runUntil(t, time.Second)
+					fixture.sendClient(model.Packet{Flag: model.FlagSYN})
+					fixture.sendClient(phase.packet)
+					key := fixture.endpoint.Key()
+					state := fixture.lb.connections[key]
+					before := *state
+					if before.phase != phase.phase || before.lastActivity != time.Second {
+						t.Fatalf("initial mapping = %+v, want phase %v and activity at 1 s", before, phase.phase)
+					}
+					assertMapping := func(present bool) {
+						t.Helper()
+						if got := fixture.lb.byKey[key]; (got != nil) != present || (present && got != fixture.backend) {
+							t.Fatalf("route = %v, want present = %v and original backend", got, present)
+						}
+						if got := fixture.lb.connections[key]; present {
+							if got != state || *got != before {
+								t.Fatalf("timeout update or cleanup changed retained mapping: %+v", got)
+							}
+						} else if got != nil {
+							t.Fatalf("expired mapping state remains: %+v", got)
+						}
+						if fixture.lb.GetClient(key) != fixture.endpoint || fixture.endpoint.IsTerminated() || fixture.backend.Killed {
+							t.Fatal("timeout update or cleanup removed a registration or stopped an endpoint")
+						}
+					}
+
+					// Apply between sweeps, when a short timeout can already be overdue.
+					fixture.runUntil(t, 4*time.Second)
+					switch phase.phase {
+					case stateHalfOpen:
+						config.HalfOpen = change.timeout
+					case stateEstablished:
+						config.Established = change.timeout
+					case stateClosing:
+						config.Closing = change.timeout
+					case stateReset:
+						config.Reset = change.timeout
+					}
+					fixture.lb.SetMappingTimeouts(config)
+					if fixture.lb.timeouts != config {
+						t.Fatalf("timeouts = %+v, want %+v", fixture.lb.timeouts, config)
+					}
+					assertMapping(true)
+					fixture.runUntil(t, 5*time.Second-time.Nanosecond)
+					assertMapping(true)
+					for _, sweep := range []time.Duration{5 * time.Second, 10 * time.Second, 15 * time.Second} {
+						fixture.runUntil(t, sweep)
+						assertMapping(change.expiresAt == 0 || sweep < change.expiresAt)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestPreparedMappingTimeoutsValidateBeforeApplying(t *testing.T) {
+	initial := TimeoutConfig{
+		HalfOpen: 20 * time.Second, Established: 20 * time.Second,
+		Closing: 20 * time.Second, Reset: 20 * time.Second,
+	}
+	fixture := newMappingFixture(t, &initial)
+	fixture.runUntil(t, time.Second)
+	fixture.sendClient(model.Packet{Flag: model.FlagSYN})
+	fixture.sendClient(model.Packet{Flag: model.FlagACK})
+	key := fixture.endpoint.Key()
+	state := fixture.lb.connections[key]
+	before := *state
+	for _, invalid := range []TimeoutConfig{
+		{HalfOpen: -time.Nanosecond},
+		{Established: -time.Nanosecond},
+		{Closing: -time.Nanosecond},
+		{Reset: -time.Nanosecond},
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("preparing invalid timeouts %+v did not panic", invalid)
+				}
+			}()
+			fixture.lb.PrepareMappingTimeouts(invalid)
+		}()
+	}
+	config := TimeoutConfig{Established: 2 * time.Second}
+	prepared := fixture.lb.PrepareMappingTimeouts(config)
+	config.Established = 0
+	fixture.runUntil(t, 5*time.Second)
+	if fixture.lb.timeouts != initial || fixture.lb.byKey[key] != fixture.backend ||
+		fixture.lb.connections[key] != state || *state != before {
+		t.Fatal("preparing timeout changes mutated the active configuration or mapping")
+	}
+	fixture.runUntil(t, 6*time.Second)
+	prepared.Apply()
+	if fixture.lb.timeouts.Established != 2*time.Second || fixture.lb.byKey[key] != fixture.backend ||
+		fixture.lb.connections[key] != state || *state != before {
+		t.Fatal("applying prepared timeouts lost the prepared value or changed the mapping immediately")
+	}
+	fixture.runUntil(t, 10*time.Second)
+	if fixture.lb.byKey[key] != nil || fixture.lb.connections[key] != nil {
+		t.Fatal("the next sweep did not apply the prepared timeout to existing activity")
+	}
+	if fixture.lb.GetClient(key) != fixture.endpoint || fixture.endpoint.IsTerminated() || fixture.backend.Killed {
+		t.Fatal("applying prepared timeouts removed a registration or stopped an endpoint")
+	}
+}
+
 // Traffic may refresh a mapping after its nominal deadline and before the next sweep.
 // The observation belongs to LB input, even when chaos drops or delays its output.
 func TestMappingRefreshesBothDirectionsBeforeChaosAndCleanup(t *testing.T) {

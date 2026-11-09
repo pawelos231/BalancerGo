@@ -91,12 +91,7 @@ func New(resolved scenario.Normalized) *World {
 		algorithm,
 		s.resourceRNG("balancer"),
 	)
-	s.lb.SetMappingTimeouts(balancer.TimeoutConfig{
-		HalfOpen:    resolved.LoadBalancer.HalfOpenIdleTimeout,
-		Established: resolved.LoadBalancer.EstablishedIdleTimeout,
-		Closing:     resolved.LoadBalancer.ClosingIdleTimeout,
-		Reset:       resolved.LoadBalancer.ResetIdleTimeout,
-	})
+	s.lb.SetMappingTimeouts(configuredMappingTimeouts(resolved.LoadBalancer))
 	s.lb.SetHostConfig(configuredHost(resolved.LoadBalancer.Host))
 	s.egress = network.NewEgress(e, resolved.LoadBalancer.ForwardingBitsPerSecond)
 
@@ -181,6 +176,15 @@ func (s *World) addLink(
 		Link:   link,
 	})
 	return link
+}
+
+func configuredMappingTimeouts(config scenario.NormalizedLoadBalancerConfig) balancer.TimeoutConfig {
+	return balancer.TimeoutConfig{
+		HalfOpen:    config.HalfOpenIdleTimeout,
+		Established: config.EstablishedIdleTimeout,
+		Closing:     config.ClosingIdleTimeout,
+		Reset:       config.ResetIdleTimeout,
+	}
 }
 
 func configuredHost(config scenario.NormalizedHostConfig) host.Config {

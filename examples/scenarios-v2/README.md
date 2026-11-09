@@ -201,10 +201,10 @@ CLI, HTTP and the current frontend still reject or do not submit runnable v2.
 
 `simulation.NewTimeline(plan)` prepares an internal world only after checking the
 entire compiled plan. E1.5 introduced backend display-name changes; E1.6 added
-backend link edits, E1.7 added shared LB ingress and forwarding limits, and E1.8
-adds mutable LB/backend CPU resources with preserved work and historical core-time.
+backend link edits, E1.7 added shared LB ingress and forwarding limits, E1.8 added
+mutable LB/backend CPU resources, and E1.9 adds LB algorithms and mapping timeouts.
 This allows real execution and publication tests without silently ignoring
-unfinished LB policy, membership or generator changes. Such transitions
+unfinished availability, admission, membership or generator changes. Such transitions
 return `ErrUnsupportedTimelineChange` before any world is constructed. Initial
 physical unavailability or drain is also rejected until those handlers exist.
 
@@ -276,6 +276,26 @@ run and applied in one configuration event. Applying settings processes no packe
 handlers. A fresh topology definition publishes the current shared limits and
 input capacities under the same resource IDs before the first snapshot using them.
 CLI and HTTP execution of version 2 remains deferred to E1.13.
+
+## Mutable LB mapping policy (E1.9)
+
+The internal timeline can switch between `roundRobin` and seeded `random` for new
+mappings. Existing flows keep their backend through later packets and retries.
+An unchanged algorithm preserves its selector state. Random selection always uses
+the world's algorithm stream; switching away and back resumes the same sequence.
+Neither unrelated settings edits nor configuration reads reset or consume it.
+
+All four mapping idle limits can change together with CPU and network settings.
+The new limits apply to existing and future mappings at the next normal five-second
+cleanup sweep, including a sweep at the transition's timestamp. Each mapping keeps
+its original last activity and phase. A settings edit does not expire a mapping
+immediately, close an endpoint or reroute a flow. Zero disables that phase's cleanup.
+
+Algorithm objects and checked timeout settings are prepared before execution.
+The configuration event installs them with the rest of its state, then publishes
+one revision. Current configuration, algorithm metadata and refreshed topology
+definitions therefore describe the same complete state. CLI/HTTP admission remains
+deferred to E1.13.
 
 ## Frontend validation
 

@@ -284,11 +284,26 @@ func (lb *LoadBalancer) ClearConnectionTable() {
 	clear(lb.connections)
 }
 
-func (lb *LoadBalancer) SetAlgorithm(algo algorithms.Algorithm) {
+// PreparedAlgorithm binds a selector before a configuration commit starts.
+type PreparedAlgorithm struct {
+	lb        *LoadBalancer
+	algorithm algorithms.Algorithm
+}
+
+func (lb *LoadBalancer) PrepareAlgorithm(algo algorithms.Algorithm) PreparedAlgorithm {
 	if algo == nil {
 		panic("balancer: nil algorithm")
 	}
-	lb.algo = algo
+	return PreparedAlgorithm{lb: lb, algorithm: algo}
+}
+
+// Apply affects future mappings without changing routes or calling the selector.
+func (update PreparedAlgorithm) Apply() {
+	update.lb.algo = update.algorithm
+}
+
+func (lb *LoadBalancer) SetAlgorithm(algo algorithms.Algorithm) {
+	lb.PrepareAlgorithm(algo).Apply()
 }
 
 func (lb *LoadBalancer) GetAlgorithm() algorithms.Algorithm { return lb.algo }

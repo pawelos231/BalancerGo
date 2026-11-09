@@ -177,6 +177,75 @@ func TestTimelineSharedNetworkEditRefreshesTopologyConfiguration(t *testing.T) {
 	}
 }
 
+// Policy, network and CPU settings publish as one revision under stable resource IDs.
+func TestTimelineCompoundPolicyEditPublishesCoherentConfiguration(t *testing.T) {
+	input := timelineProjectionDefinition()
+	next := input.States["250000000"]
+	next.Resources.Backends = input.States["0"].Resources.Backends
+	config := &next.Resources.LoadBalancer
+	config.Algorithm = "random"
+	halfOpen, established, closing, reset := 7*time.Second, time.Duration(0), 9*time.Second, 11*time.Second
+	config.MappingTimeouts = scenario.LoadBalancerTimeoutConfig{
+		HalfOpenIdleTimeout: &halfOpen, EstablishedIdleTimeout: &established,
+		ClosingIdleTimeout: &closing, ResetIdleTimeout: &reset,
+	}
+	config.ForwardingBitsPerSecond = 5_000_000
+	config.Ingress.BandwidthBitsPerSecond = 6_000_000
+	cores, queue, cost := 3, 7, time.Millisecond
+	config.Host = scenario.HostConfig{Cores: &cores, QueueCapacity: &queue, PacketProcessingTime: &cost}
+	input.States["250000000"] = next
+	world := timelineProjectionFrom(t, input)
+	advanceProjection(t, world, 0)
+	projector := NewProjector("policy")
+	first := project(t, projector, world)
+	oldDocument := jsonProjection(t, first.Document)
+
+	advanceProjection(t, world, 250*time.Millisecond-time.Nanosecond)
+	before, _ := world.CurrentConfiguration()
+	if before.LoadBalancer.Algorithm != "roundRobin" || world.Info().Algorithm != "roundRobin" ||
+		project(t, projector, world).Document != nil {
+		t.Fatal("a policy edit became visible before its timestamp")
+	}
+	advanceProjection(t, world, 250*time.Millisecond)
+	frame, document, err := BuildSnapshot(world, projector, RunState{Status: "running", RunID: "policy"})
+	if err != nil || document == nil || document.Revision != "2" || frame.Topology.Revision != "2" {
+		t.Fatalf("the policy edit did not publish one complete definition: %v", err)
+	}
+	current, ok := world.CurrentConfiguration()
+	info := world.Info()
+	if !ok || current.At != 250*time.Millisecond || info.ConfigurationRevision != 2 ||
+		current.LoadBalancer.Algorithm != "random" || info.Algorithm != "random" ||
+		frame.Algorithm != "Random" || frame.Simulation.Algorithm != "random" {
+		t.Fatal("current configuration and snapshot metadata disagree about the committed policy")
+	}
+	if info.LBHalfOpenIdleTimeout != halfOpen || info.LBEstablishedIdleTimeout != established ||
+		info.LBClosingIdleTimeout != closing || info.LBResetIdleTimeout != reset ||
+		current.LoadBalancer.ResetIdleTimeout != reset {
+		t.Fatal("current timeout configuration retained previous limits")
+	}
+	result := BuildResult(world, 0)
+	if result.State.Algorithm != "Random" || result.LBIdleTimeouts != (contract.LBIdleTimeoutConfig{
+		HalfOpenIdleTimeoutSeconds: 7, EstablishedIdleTimeoutSeconds: 0,
+		ClosingIdleTimeoutSeconds: 9, ResetIdleTimeoutSeconds: 11,
+	}) {
+		t.Fatal("the result report did not use the current mapping policy")
+	}
+	assertHostDefinition(t, document, simulation.LoadBalancerNodeID, 1, 3, 1_000, 7)
+	if document.Ingress.Config.BandwidthBitsPerSecond != 6_000_000 ||
+		info.Forwarding.ForwardingBitsPerSecond != 5_000_000 ||
+		len(document.Nodes) != len(first.Document.Nodes) || len(document.Links) != len(first.Document.Links) {
+		t.Fatal("the compound policy commit published stale limits or changed graph membership")
+	}
+	for index, node := range document.Nodes {
+		if node.ID != first.Document.Nodes[index].ID {
+			t.Fatal("the compound policy edit changed a retained node ID")
+		}
+	}
+	if jsonProjection(t, first.Document) != oldDocument || project(t, projector, world).Document != nil {
+		t.Fatal("publishing policy mutated an old document or invalidated the new cache")
+	}
+}
+
 // Host-only commits refresh cached settings and keep CPU history through bypass.
 func TestTimelineHostEditRefreshesTopologyConfiguration(t *testing.T) {
 	for _, resource := range []string{"loadBalancer", "backend"} {

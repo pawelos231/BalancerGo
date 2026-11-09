@@ -31,15 +31,31 @@ type connectionState struct {
 	phase        connectionPhase
 }
 
-// SetMappingTimeouts sets local cleanup limits before clients arrive.
-func (lb *LoadBalancer) SetMappingTimeouts(config TimeoutConfig) {
+// PreparedTimeoutConfig binds checked cleanup limits without changing mapping ages.
+type PreparedTimeoutConfig struct {
+	lb     *LoadBalancer
+	config TimeoutConfig
+}
+
+// PrepareMappingTimeouts checks limits before a timeline starts executing.
+func (lb *LoadBalancer) PrepareMappingTimeouts(config TimeoutConfig) PreparedTimeoutConfig {
 	validLimits := config.HalfOpen >= 0 && config.Established >= 0 &&
 		config.Closing >= 0 && config.Reset >= 0
 
-	if !validLimits || len(lb.clients) != 0 {
-		panic("balancer: nonnegative mapping timeouts must be set before clients arrive")
+	if !validLimits {
+		panic("balancer: mapping timeouts must be nonnegative")
 	}
-	lb.timeouts = config
+	return PreparedTimeoutConfig{lb: lb, config: config}
+}
+
+// Apply installs limits for the next normal sweep, leaving current mappings intact.
+func (update PreparedTimeoutConfig) Apply() {
+	update.lb.timeouts = update.config
+}
+
+// SetMappingTimeouts changes cleanup limits without running cleanup immediately.
+func (lb *LoadBalancer) SetMappingTimeouts(config TimeoutConfig) {
+	lb.PrepareMappingTimeouts(config).Apply()
 }
 
 // observe refreshes a matched flow and follows flags, without checking TCP byte positions.

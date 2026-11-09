@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"time"
 
+	"load-balancer/algorithms"
+	"load-balancer/balancer"
 	"load-balancer/host"
 	"load-balancer/network"
 	"load-balancer/scenario"
@@ -36,6 +38,10 @@ type configurationCommit struct {
 	forwardingChanged bool
 	forwarding        network.PreparedForwardingConfig
 	hosts             []hostConfigurationChange
+	algorithmChanged  bool
+	algorithm         balancer.PreparedAlgorithm
+	timeoutsChanged   bool
+	timeouts          balancer.PreparedTimeoutConfig
 }
 
 type backendNameChange struct {
@@ -56,7 +62,7 @@ type linkConfigurationChange struct {
 }
 
 // NewTimeline prepares a world only after every transition has a supported executor.
-// Backend names and mutable network/CPU limits have prepared executors.
+// Backend names, network/CPU limits and LB mapping policy have prepared executors.
 func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("simulation: compiled timeline is required")
@@ -136,6 +142,8 @@ func prepareConfigurationCommits(
 				})
 			}
 			commit.forwardingChanged = update.ForwardingChanged
+			commit.algorithmChanged = update.AlgorithmChanged
+			commit.timeoutsChanged = update.TimeoutsChanged
 		}
 		for _, update := range transition.Backends.Updated {
 			if update.HostChanged {
@@ -172,11 +180,6 @@ func checkSupportedTransition(transition scenario.Transition) error {
 	unsupported := func(feature string) error {
 		return fmt.Errorf("%w at %s: %s", ErrUnsupportedTimelineChange, transition.At, feature)
 	}
-	if update := transition.LoadBalancer; update != nil {
-		if update.AlgorithmChanged || update.TimeoutsChanged {
-			return unsupported("load balancer algorithm or mapping timeouts")
-		}
-	}
 	if len(transition.Backends.Added) != 0 || len(transition.Backends.Removed) != 0 {
 		return unsupported("backend membership")
 	}
@@ -201,6 +204,17 @@ func (s *World) prepareResourceCommits(commits []configurationCommit) {
 	}
 	for commitIndex := range commits {
 		commit := &commits[commitIndex]
+		lb := commit.configuration.LoadBalancer
+		if commit.algorithmChanged {
+			var selection algorithms.Algorithm = &algorithms.RoundRobin{}
+			if lb.Algorithm == "random" {
+				selection = &algorithms.Random{RNG: s.algorithmRNG}
+			}
+			commit.algorithm = s.lb.PrepareAlgorithm(selection)
+		}
+		if commit.timeoutsChanged {
+			commit.timeouts = s.lb.PrepareMappingTimeouts(configuredMappingTimeouts(lb))
+		}
 		for changeIndex := range commit.hosts {
 			change := &commit.hosts[changeIndex]
 			if change.backendID == "" {
@@ -263,6 +277,13 @@ func (s *World) commitConfiguration(commit configurationCommit) {
 	}
 	if commit.forwardingChanged {
 		commit.forwarding.Apply()
+	}
+	if commit.algorithmChanged {
+		commit.algorithm.Apply()
+		s.algorithm = commit.configuration.LoadBalancer.Algorithm
+	}
+	if commit.timeoutsChanged {
+		commit.timeouts.Apply()
 	}
 	for _, change := range commit.names {
 		s.timeline.backends[change.id].Name = change.name
