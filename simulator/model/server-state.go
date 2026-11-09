@@ -8,6 +8,8 @@ type ServerState struct {
 	Address                string
 	Port                   uint16
 	Active                 bool
+	Draining               bool
+	HealthTCP              bool
 	ActiveConnections      uint32
 	HalfOpenConnections    uint32
 	LatencyP95Milli        uint32

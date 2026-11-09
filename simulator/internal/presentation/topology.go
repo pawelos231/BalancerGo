@@ -65,6 +65,9 @@ func loadBalancerMetrics(info simulation.Info, ingress simulation.IngressObserva
 
 func backendMetrics(server model.ServerState) []nodeMetric {
 	metrics := []nodeMetric{
+		{"physicalAvailable", "Physically available (1 = yes)", "", boolMetric(server.Active), false},
+		{"administrativeDrain", "Administrative drain (1 = yes)", "", boolMetric(server.Draining), false},
+		{"observedHealthy", "LB observed healthy (1 = yes)", "", boolMetric(server.HealthTCP), false},
 		{"activeConnections", "Active connections", "connections", float64(server.ActiveConnections), false},
 		{"halfOpenConnections", "Half-open connections", "connections", float64(server.HalfOpenConnections), false},
 		{"receivedPackets", "Packets delivered to backend TCP", "packets", float64(server.NumberOfHandledPackets), false},
@@ -74,6 +77,13 @@ func backendMetrics(server model.ServerState) []nodeMetric {
 	}
 	metrics = appendHostMetrics(metrics, server.Host)
 	return appendECNMetrics(metrics, server.ECN)
+}
+
+func boolMetric(value bool) float64 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func clientMetrics(client simulation.ClientObservation) []nodeMetric {

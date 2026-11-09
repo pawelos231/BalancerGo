@@ -64,6 +64,62 @@ func timelineProjectionFrom(t *testing.T, input scenario.ScenarioV2) *simulation
 	return world
 }
 
+// Availability, admission and a resource cohort publish together without changing old graphs.
+func TestTimelineAvailabilityPublishesIndependentPhysicalAdministrativeAndObservedState(t *testing.T) {
+	input := timelineProjectionDefinition()
+	next := input.States["250000000"]
+	available := false
+	drain := scenario.BackendAdminDrain
+	next.Resources.Backends[0].PhysicalAvailable = &available
+	next.Resources.Backends[0].AdministrativeState = &drain
+	bandwidth := int64(5_000_000)
+	next.Resources.Backends[0].Network.FromLoadBalancer.BandwidthBitsPerSecond = &bandwidth
+	cores, cost, queue := 2, time.Microsecond, 4
+	next.Resources.Backends[0].Host = scenario.HostConfig{
+		Cores: &cores, PacketProcessingTime: &cost, QueueCapacity: &queue,
+	}
+	next.Resources.Backends[1] = scenario.BackendStateConfig{
+		ID: "three", Name: "New three", Address: "10.0.0.3", Port: 80,
+		PhysicalAvailable: &available, AdministrativeState: &drain,
+	}
+	input.States["250000000"] = next
+	world := timelineProjectionFrom(t, input)
+	advanceProjection(t, world, 0)
+	projector := NewProjector("availability")
+	first := project(t, projector, world)
+	oldDocument := jsonProjection(t, first.Document)
+	advanceProjection(t, world, 250*time.Millisecond)
+	frame, document, err := BuildSnapshot(world, projector, RunState{Status: "running", RunID: "availability"})
+	if err != nil || document == nil || document.Revision != "2" || frame.Topology.Revision != "2" ||
+		world.Info().ConfigurationRevision != 2 {
+		t.Fatalf("availability cohort did not publish one complete revision: %v", err)
+	}
+	seen := 0
+	for _, node := range frame.Topology.Nodes {
+		if node.ID != simulation.BackendNodeID("one") && node.ID != simulation.BackendNodeID("three") {
+			continue
+		}
+		seen++
+		if node.Active == nil || *node.Active || node.Metrics["physicalAvailable"] != 0 ||
+			node.Metrics["administrativeDrain"] != 1 || node.Metrics["observedHealthy"] != 1 {
+			t.Fatalf("backend status dimensions were mixed: %+v", node)
+		}
+	}
+	if seen != 2 || document.Servers[0].Name != "New one" || document.Servers[1].ID != "three" {
+		t.Fatal("status publication omitted a retained or inserted backend")
+	}
+	assertHostDefinition(t, document, simulation.BackendNodeID("one"), 1, 2, 1, 4)
+	foundLink := false
+	for _, link := range document.Links {
+		if link.ID == "link/backend/one/from-lb" {
+			foundLink = link.Config.BandwidthBitsPerSecond == 5_000_000
+		}
+	}
+	if !foundLink || jsonProjection(t, first.Document) != oldDocument || project(t, projector, world).Document != nil {
+		t.Fatal("compound commit lost its link edit, rewrote old definitions or invalidated the new cache")
+	}
+}
+
 // Membership and retained-resource edits publish together without rewriting old graphs.
 func TestTimelineMembershipPublishesCoherentTopology(t *testing.T) {
 	input := timelineProjectionDefinition()

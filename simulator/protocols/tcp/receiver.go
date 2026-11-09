@@ -78,6 +78,11 @@ func (r *Receiver) Shutdown() {
 		return
 	}
 	r.stopped = true
+	r.ResetConnections()
+}
+
+// ResetConnections discards local flows and timers while preserving configuration and counters.
+func (r *Receiver) ResetConnections() {
 	for key := range r.connections {
 		r.ForgetConnection(key)
 	}

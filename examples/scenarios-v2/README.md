@@ -203,11 +203,11 @@ CLI, HTTP and the current frontend still reject or do not submit runnable v2.
 entire compiled plan. E1.5 introduced backend display-name changes; E1.6 added
 backend link edits, E1.7 added shared LB ingress and forwarding limits, E1.8 added
 mutable LB/backend CPU resources, E1.9 added LB algorithms and mapping timeouts,
-and E1.10 adds backend insertion/removal with insertion-time resource lifetimes.
+E1.10 added backend insertion/removal with insertion-time resource lifetimes,
+and E1.11 adds physical failure/recovery and administrative drain.
 This allows real execution and publication tests without silently ignoring
-unfinished availability, admission or generator changes. Such transitions
-return `ErrUnsupportedTimelineChange` before any world is constructed. Initial
-physical unavailability or drain is also rejected until those handlers exist.
+unfinished generator changes. Generator transitions still return
+`ErrUnsupportedTimelineChange` before any world is constructed.
 
 One `engine.ScheduleConfigurationAt` callback applies all prepared edits at a
 timestamp, then installs the configuration and increments its commit counter once.
@@ -297,6 +297,40 @@ The configuration event installs them with the rest of its state, then publishes
 one revision. Current configuration, algorithm metadata and refreshed topology
 definitions therefore describe the same complete state. CLI/HTTP admission remains
 deferred to E1.13.
+
+## Physical availability and administrative drain (E1.11)
+
+Each full-state backend declaration has independent `physicalAvailable` and
+`administrativeState` settings. Omission resolves to `true` and `active` in that
+state; it does not retain an earlier `false` or `drain`. Initial backends and
+backends inserted later follow the same rules.
+
+For example, set `physicalAvailable: false` to crash a backend. Its local TCP
+connections, protocol timers, queued CPU packets and active CPU work are cleared.
+Its CPU resource remains recoverable with its current settings and cumulative
+counters. The links keep their queues and packets already emitted on the return
+path may still arrive. Clients and LB mappings retain their independent state;
+an old mapping never migrates to another backend.
+
+The LB initially assumes a registered backend is healthy. It learns failure only
+when a probe times out, so new mappings may still select the crashed backend
+before that timeout. Restoring `physicalAvailable: true` permits local work again;
+it neither clears drain nor changes observed health. A later successful probe
+restores eligibility when administrative policy also allows it. Probes currently
+use the existing ideal path without consuming network capacity.
+
+Set `administrativeState: "drain"` to exclude a backend from new mappings while
+keeping pinned traffic and probes working. A first SYN already assigned before
+drain, retransmitted SYNs and established-flow packets still reach the backend.
+Set the state to `active` to allow new selection subject to LB-observed health.
+Selection uses the LB's registered capacity and own mapping count, rather than
+the backend's hidden physical state or local TCP counters.
+
+Availability and admission edits can share one atomic commit with membership,
+names, CPU, network and mapping policy. Generic backend metrics expose physical
+availability, administrative drain and LB-observed health separately, including
+the interval where a crashed backend is still observed healthy. Existing v1
+server fields and frontend hydration remain compatible until the v2 UI migration.
 
 ## Frontend validation
 

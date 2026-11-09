@@ -27,6 +27,7 @@ type healthCheck struct {
 	timeout        engine.EventID
 	serial         uint64
 	healthy        bool
+	draining       bool
 	maxConnections uint32 // Backend capacity recorded by the LB at registration.
 }
 
@@ -121,11 +122,27 @@ func (lb *LoadBalancer) AddServer(srv *server.Server, send Sender) error {
 	lb.toServer[srv] = send
 	check := &healthCheck{
 		healthy:        true,
+		draining:       srv.Draining,
 		maxConnections: srv.MaxConnections,
 	}
 	lb.health[srv] = check
 	lb.scheduleHealthCheck(srv, check)
 	return nil
+}
+
+// SetBackendDraining controls new mappings without interrupting pinned traffic.
+// Health remains the result of the most recent probe, independent of this policy.
+func (lb *LoadBalancer) SetBackendDraining(srv *server.Server, draining bool) {
+	check := lb.health[srv]
+	if check == nil || check.draining == draining {
+		return
+	}
+	check.draining = draining
+	if draining {
+		srv.StartDrain()
+	} else {
+		srv.StopDrain()
+	}
 }
 
 // RetireServer removes a backend from new selection and stops its local work.
@@ -245,7 +262,7 @@ func (lb *LoadBalancer) Route(cl *client.Client) (*server.Server, error) {
 	backends := make([]*server.Server, 0, len(lb.servers))
 	for _, srv := range lb.servers {
 		check := lb.health[srv]
-		if check.healthy {
+		if check.healthy && !check.draining {
 			candidates = append(candidates, algorithms.Candidate{
 				MaxConnections:    check.maxConnections,
 				MappedConnections: uint32(len(lb.connTable[srv])),
@@ -392,7 +409,10 @@ func (lb *LoadBalancer) scheduleHealthCheck(srv *server.Server, check *healthChe
 // VisitBackends reads detached values in backend registration order.
 func (lb *LoadBalancer) VisitBackends(visit func(model.ServerState)) {
 	for _, srv := range lb.servers {
-		visit(srv.GetState())
+		state := srv.GetState()
+		state.HealthTCP = lb.health[srv].healthy
+		state.Draining = lb.health[srv].draining
+		visit(state)
 	}
 }
 

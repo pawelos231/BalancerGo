@@ -79,7 +79,9 @@ func NewServer(
 		Send: s.emit,
 		CanOpen: func() bool {
 			halfOpenFull := s.MaxHalfOpen > 0 && s.HalfOpenConnections >= s.MaxHalfOpen
-			return s.CanAcceptNewConnection() && !halfOpenFull
+			// The balancer owns drain and health policy for new flow selection.
+			return !s.Killed && s.Active && !halfOpenFull &&
+				(s.MaxConnections == 0 || s.ActiveConnections < s.MaxConnections)
 		},
 		CanEstablish: func() bool {
 			return s.MaxConnections == 0 || s.ActiveConnections < s.MaxConnections
@@ -127,32 +129,26 @@ func (s *Server) Shutdown() {
 	s.LastUpdated = s.engine.Now()
 }
 
-// MarkFailed represents a physical failure. A failed health probe should call
-// UpdateHealth instead, so a reachable target can answer a later probe.
-func (s *Server) MarkFailed() {
-	if s.Killed {
+// SetPhysicalAvailable changes reachability without changing drain or observed health.
+func (s *Server) SetPhysicalAvailable(available bool) {
+	if s.Killed || s.Active == available {
 		return
 	}
-	s.processor.DiscardPending()
-	s.Active = false
-	s.HealthTCP = false
-	s.LatencyP95Milli = math.MaxUint32
-	s.Draining = true
-	s.DrainStartedAt = s.engine.Now()
+	s.Active = available
+	if !available {
+		s.processor.DiscardPending()
+		for event := range s.probeEvents {
+			s.engine.Cancel(event)
+		}
+		clear(s.probeEvents)
+		s.transport.ResetConnections()
+	}
 	s.LastUpdated = s.engine.Now()
 }
 
-func (s *Server) MarkHealthy() {
-	if s.Killed {
-		return
-	}
-	s.Active = true
-	s.HealthTCP = true
-	s.LatencyP95Milli = 0
-	s.Draining = false
-	s.DrainStartedAt = 0
-	s.LastUpdated = s.engine.Now()
-}
+// MarkFailed and MarkHealthy are compatibility helpers for physical availability.
+func (s *Server) MarkFailed()  { s.SetPhysicalAvailable(false) }
+func (s *Server) MarkHealthy() { s.SetPhysicalAvailable(true) }
 
 func (s *Server) StartDrain() {
 	if s.Killed {
@@ -242,7 +238,8 @@ func (s *Server) GetState() model.ServerState {
 	processing := s.processor.Stats()
 	return model.ServerState{
 		ID: s.ID, Name: s.Name, Address: s.Address, Port: s.Port,
-		Active: s.Active, ActiveConnections: s.ActiveConnections,
+		Active: s.Active, Draining: s.Draining, HealthTCP: s.HealthTCP,
+		ActiveConnections:   s.ActiveConnections,
 		HalfOpenConnections: s.HalfOpenConnections, LatencyP95Milli: s.LatencyP95Milli,
 		CpuUsage:               processing.Utilization(),
 		Host:                   processing,

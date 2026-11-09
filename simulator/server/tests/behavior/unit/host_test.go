@@ -132,6 +132,10 @@ func TestBackendFailureAndShutdownDiscardPendingCPUWork(t *testing.T) {
 			if len(h.replies) != 1 || h.replies[0].Key != freshFlow || h.server.HalfOpenConnections != 1 {
 				t.Fatalf("recovery processed old or invalid deliveries: replies=%+v", h.replies)
 			}
+			if stats.OfferedPackets != 4 || stats.AcceptedPackets != 4 ||
+				stats.ProcessedPackets != 2 || stats.BusyTime != 25*time.Microsecond {
+				t.Fatalf("recovery lost CPU history: %+v", stats)
+			}
 		})
 	}
 }

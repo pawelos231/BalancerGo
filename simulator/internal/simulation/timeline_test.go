@@ -144,24 +144,6 @@ func TestTimelineRejectsUnsupportedChangesBeforeConstruction(t *testing.T) {
 		name string
 		edit func(*scenario.StateConfig)
 	}{
-		{"physical availability", func(state *scenario.StateConfig) {
-			state.Resources.Backends[0].PhysicalAvailable = scenarioRuntimeValue(false)
-		}},
-		{"administrative admission", func(state *scenario.StateConfig) {
-			state.Resources.Backends[0].AdministrativeState = scenarioRuntimeValue(scenario.BackendAdminDrain)
-		}},
-		{"added unavailable backend", func(state *scenario.StateConfig) {
-			state.Resources.Backends = append(state.Resources.Backends, scenario.BackendStateConfig{
-				ID: "unavailable", Address: "10.0.0.3", Port: 80,
-				PhysicalAvailable: scenarioRuntimeValue(false),
-			})
-		}},
-		{"added draining backend", func(state *scenario.StateConfig) {
-			state.Resources.Backends = append(state.Resources.Backends, scenario.BackendStateConfig{
-				ID: "draining", Address: "10.0.0.3", Port: 80,
-				AdministrativeState: scenarioRuntimeValue(scenario.BackendAdminDrain),
-			})
-		}},
 		{"client generation", func(state *scenario.StateConfig) {
 			state.Workload.ClientGroups[0].Count = 1
 		}},
@@ -186,26 +168,6 @@ func TestTimelineRejectsUnsupportedChangesBeforeConstruction(t *testing.T) {
 		})
 	}
 
-	// Static v2 must not silently ignore availability or drain at time zero either.
-	for _, field := range []string{"physical", "administrative"} {
-		t.Run("initial "+field, func(t *testing.T) {
-			definition := timelineDefinition()
-			backend := &definition.States["0"].Resources.Backends[0]
-			if field == "physical" {
-				backend.PhysicalAvailable = scenarioRuntimeValue(false)
-			} else {
-				backend.AdministrativeState = scenarioRuntimeValue(scenario.BackendAdminDrain)
-			}
-			plan, err := scenario.CompileV2(definition)
-			if err != nil {
-				t.Fatal(err)
-			}
-			world, err := NewTimeline(plan)
-			if world != nil || !errors.Is(err, ErrUnsupportedTimelineChange) {
-				t.Fatalf("unsupported initial state was admitted: world=%v error=%v", world, err)
-			}
-		})
-	}
 }
 
 // Stop cancels future changes; manual algorithm/spawn commands cannot bypass the timeline.

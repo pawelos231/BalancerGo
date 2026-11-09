@@ -951,6 +951,15 @@ reports and traffic sampling, while the current graph omits the removed node
 and its links. Membership, CPU, network and policy edits at one timestamp
 publish as one configuration revision.
 
+Version-2 states also separate physical failure/recovery from administrative
+drain and LB-observed health. `physicalAvailable: false` clears local TCP and CPU
+work while keeping counters, links, remote clients and pinned mappings. Recovery
+permits local work again; the LB learns failure and recovery through probes.
+`administrativeState: "drain"` blocks new mappings while existing traffic and
+probes continue. Neither recovery nor probes clear drain. Backend topology metrics
+show all three signals independently. See the [v2 execution notes](examples/scenarios-v2/README.md)
+for initial, insertion and full-state default semantics.
+
 Backend cleanup is configured under `tcp`:
 
 - `backendHalfOpenIdleTimeoutNanoseconds`: defaults to 5 s, measured from

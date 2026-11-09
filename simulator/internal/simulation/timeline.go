@@ -30,8 +30,9 @@ type timelineRuntime struct {
 type configurationCommit struct {
 	at                time.Duration
 	configuration     scenario.Normalized
-	added             []scenario.NormalizedBackend
+	added             []scenario.NormalizedBackendState
 	removed           []string
+	backendStates     []backendStateChange
 	names             []backendNameChange
 	links             []linkConfigurationChange
 	forwardingChanged bool
@@ -45,6 +46,12 @@ type configurationCommit struct {
 
 type backendNameChange struct {
 	id, name string
+}
+
+type backendStateChange struct {
+	id        string
+	available bool
+	draining  bool
 }
 
 type hostConfigurationChange struct {
@@ -63,7 +70,7 @@ type linkConfigurationChange struct {
 }
 
 // NewTimeline prepares a world only after every transition has a supported executor.
-// Membership, names, network/CPU limits and LB mapping policy have executors.
+// Only client-generator changes still need an executor.
 func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("simulation: compiled timeline is required")
@@ -72,12 +79,18 @@ func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	if err != nil {
 		return nil, err
 	}
-	commits, err := prepareConfigurationCommits(plan, initial)
+	commits, err := prepareConfigurationCommits(plan)
 	if err != nil {
 		return nil, err
 	}
 
 	world := New(timelineConfiguration(plan, initial))
+	for _, backend := range initial.Backends {
+		world.applyBackendState(backendStateChange{
+			id: backend.ID, available: backend.PhysicalAvailable,
+			draining: backend.AdministrativeState == scenario.BackendAdminDrain,
+		})
+	}
 	world.timeline = &timelineRuntime{
 		plan:     plan,
 		revision: 1,
@@ -103,16 +116,7 @@ func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 
 // prepareConfigurationCommits rejects unsupported late edits before creating a world.
 // No transition is accepted merely because its initial state could run.
-func prepareConfigurationCommits(
-	plan *scenario.CompiledV2,
-	initial scenario.NormalizedState,
-) ([]configurationCommit, error) {
-	for _, backend := range initial.Backends {
-		if !backend.PhysicalAvailable || backend.AdministrativeState != scenario.BackendAdminActive {
-			return nil, fmt.Errorf("%w at 0s: backend availability and admission policy", ErrUnsupportedTimelineChange)
-		}
-	}
-
+func prepareConfigurationCommits(plan *scenario.CompiledV2) ([]configurationCommit, error) {
 	transitions := plan.Transitions()
 	commits := make([]configurationCommit, 0, len(transitions))
 	for _, transition := range transitions {
@@ -130,7 +134,7 @@ func prepareConfigurationCommits(
 			names:         make([]backendNameChange, 0, len(transition.Backends.Updated)),
 		}
 		for _, backend := range transition.Backends.Added {
-			commit.added = append(commit.added, backend.NormalizedBackend)
+			commit.added = append(commit.added, backend)
 		}
 		if update := transition.LoadBalancer; update != nil {
 			if update.HostChanged {
@@ -148,6 +152,12 @@ func prepareConfigurationCommits(
 			commit.timeoutsChanged = update.TimeoutsChanged
 		}
 		for _, update := range transition.Backends.Updated {
+			if update.AvailabilityChanged || update.AdmissionChanged {
+				commit.backendStates = append(commit.backendStates, backendStateChange{
+					id: update.Config.ID, available: update.Config.PhysicalAvailable,
+					draining: update.Config.AdministrativeState == scenario.BackendAdminDrain,
+				})
+			}
 			if update.HostChanged {
 				commit.hosts = append(commit.hosts, hostConfigurationChange{
 					backendID: update.Config.ID, config: configuredHost(update.Config.Host),
@@ -185,19 +195,9 @@ func checkSupportedTransition(transition scenario.Transition) error {
 	unsupported := func(feature string) error {
 		return fmt.Errorf("%w at %s: %s", ErrUnsupportedTimelineChange, transition.At, feature)
 	}
-	for _, backend := range transition.Backends.Added {
-		if !backend.PhysicalAvailable || backend.AdministrativeState != scenario.BackendAdminActive {
-			return unsupported("backend availability or admission policy")
-		}
-	}
 	groups := transition.ClientGroups
 	if len(groups.Added) != 0 || len(groups.Updated) != 0 || len(groups.Stopped) != 0 {
 		return unsupported("client generators")
-	}
-	for _, update := range transition.Backends.Updated {
-		if update.AvailabilityChanged || update.AdmissionChanged {
-			return unsupported("backend availability or admission policy")
-		}
 	}
 	return nil
 }
@@ -235,7 +235,7 @@ func (s *World) prepareResourceCommits(commits []configurationCommit) {
 }
 
 // timelineConfiguration adapts checked state data to the existing world constructor.
-// Availability and admission are checked before these extra v2 fields are omitted.
+// Physical availability and admission are applied separately to their owners.
 func timelineConfiguration(plan *scenario.CompiledV2, state scenario.NormalizedState) scenario.Normalized {
 	fixed := plan.Fixed()
 	backends := make([]scenario.NormalizedBackend, 0, len(state.Backends))
@@ -262,7 +262,11 @@ func (s *World) commitConfiguration(commit *configurationCommit) {
 		s.removeBackend(id)
 	}
 	for _, backend := range commit.added {
-		s.addBackend(backend)
+		s.addBackend(backend.NormalizedBackend)
+		s.applyBackendState(backendStateChange{
+			id: backend.ID, available: backend.PhysicalAvailable,
+			draining: backend.AdministrativeState == scenario.BackendAdminDrain,
+		})
 	}
 	for index := range commit.hosts {
 		change := &commit.hosts[index]
@@ -298,9 +302,18 @@ func (s *World) commitConfiguration(commit *configurationCommit) {
 	for _, change := range commit.names {
 		s.backends[change.id].server.Name = change.name
 	}
+	for _, change := range commit.backendStates {
+		s.applyBackendState(change)
+	}
 	s.scenario = commit.configuration
 	s.timeline.committedAt = commit.at
 	s.timeline.revision++
+}
+
+func (s *World) applyBackendState(change backendStateChange) {
+	backend := s.backends[change.id].server
+	backend.SetPhysicalAvailable(change.available)
+	s.lb.SetBackendDraining(backend, change.draining)
 }
 
 // CurrentConfiguration returns the last committed v2 state, never a future declaration.
