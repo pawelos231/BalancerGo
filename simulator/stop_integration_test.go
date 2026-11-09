@@ -53,11 +53,15 @@ func TestStopResultsStayOnSubmittingWebSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer other.Close()
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Duration = time.Hour
-	input.Execution.Speed = 1
-	input.Execution.SnapshotInterval = time.Hour
-	input.Workload.ClientGroups[0].Count = 0
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Duration = time.Hour
+	input.Fixed.Execution.Speed = 1
+	input.Fixed.Execution.SnapshotInterval = time.Hour
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 0
+		input.States["0"] = initialState
+	}
 	receipt := startTelemetryScenario(t, h, input)
 	for _, socket := range []*websocket.Conn{h.socket, other} {
 		readScenarioSnapshot(t, socket, func(snapshot contract.SimulationSnapshot) bool {

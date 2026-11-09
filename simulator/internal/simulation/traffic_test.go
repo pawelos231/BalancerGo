@@ -13,14 +13,18 @@ import (
 )
 
 // trafficTestDefinition makes a one-byte transmission take exactly 100 ms.
-func trafficTestDefinition() scenario.Scenario {
+func trafficTestDefinition() scenario.ScenarioV2 {
 	definition := baseScenario()
-	definition.Workload.ClientGroups[0].Count = 0
-	definition.Resources.Backends = definition.Resources.Backends[:1]
-	definition.Execution.Duration = 150 * time.Millisecond
-	definition.Network.Defaults.BandwidthBitsPerSecond = 80
-	definition.Network.Defaults.PacketTravelTime = 20 * time.Millisecond
-	definition.Resources.LoadBalancer.ForwardingBitsPerSecond = math.MaxInt64
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups[0].Count = 0
+		state.Resources.Backends = state.Resources.Backends[:1]
+	})
+	definition.Fixed.Execution.Duration = 150 * time.Millisecond
+	definition.Fixed.Network.Defaults.BandwidthBitsPerSecond = 80
+	definition.Fixed.Network.Defaults.PacketTravelTime = 20 * time.Millisecond
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.ForwardingBitsPerSecond = math.MaxInt64
+	})
 	return definition
 }
 
@@ -49,7 +53,7 @@ func trafficBoundaries(t *testing.T, world *World, boundaries ...time.Duration) 
 }
 
 func TestTrafficIncludesBoundaryCompletionAndFinalPartialWindow(t *testing.T) {
-	s := New(normalizedRuntimeScenario(t, trafficTestDefinition()))
+	s := newTimelineWorld(t, trafficTestDefinition())
 	for index := 0; index < 5000; index++ {
 		s.engine.ScheduleAt(100*time.Millisecond, func() {})
 	}
@@ -70,10 +74,10 @@ func TestTrafficIncludesBoundaryCompletionAndFinalPartialWindow(t *testing.T) {
 
 func TestTrafficLossCountsCompletedTXButNotQueueOrDelivery(t *testing.T) {
 	definition := trafficTestDefinition()
-	definition.Execution.Duration = 100 * time.Millisecond
-	definition.Network.Defaults.QueueCapacity = 1
-	definition.Network.Defaults.LossRate = 1
-	s := New(normalizedRuntimeScenario(t, definition))
+	definition.Fixed.Execution.Duration = 100 * time.Millisecond
+	definition.Fixed.Network.Defaults.QueueCapacity = 1
+	definition.Fixed.Network.Defaults.LossRate = 1
+	s := newTimelineWorld(t, definition)
 	output := scenarioRuntimeLink(t, s, LoadBalancerNodeID, BackendNodeID("srv-00")).Output
 	arrivals := 0
 	for index := 0; index < 3; index++ {
@@ -100,10 +104,13 @@ func TestTrafficLossCountsCompletedTXButNotQueueOrDelivery(t *testing.T) {
 
 func TestTrafficBalancerRXFollowsSharedIngress(t *testing.T) {
 	definition := trafficTestDefinition()
-	definition.Execution.Duration = 250 * time.Millisecond
-	definition.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = 80
-	definition.Resources.LoadBalancer.Ingress.PacketTravelTime = 30 * time.Millisecond
-	s := New(normalizedRuntimeScenario(t, definition))
+	definition.Fixed.Execution.Duration = 250 * time.Millisecond
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = 80
+
+		state.Resources.LoadBalancer.Ingress.PacketTravelTime = 30 * time.Millisecond
+	})
+	s := newTimelineWorld(t, definition)
 	access := scenarioRuntimeLink(t, s, BackendNodeID("srv-00"), LoadBalancerNodeID).Link
 	arrivals := 0
 	access.Transmit(1, func() {
@@ -121,7 +128,7 @@ func TestTrafficBalancerRXFollowsSharedIngress(t *testing.T) {
 }
 
 func TestTrafficReadsAndDuplicateSamplingKeepStateFrozen(t *testing.T) {
-	s := New(normalizedRuntimeScenario(t, trafficTestDefinition()))
+	s := newTimelineWorld(t, trafficTestDefinition())
 	output := scenarioRuntimeLink(t, s, LoadBalancerNodeID, BackendNodeID("srv-00")).Output
 	output.Transmit(1, func() {})
 	if err := s.Advance(context.Background(), 100*time.Millisecond); err != nil {
@@ -152,12 +159,14 @@ func TestTrafficReadsAndDuplicateSamplingKeepStateFrozen(t *testing.T) {
 
 func TestTrafficNewClientUsesSharedWindow(t *testing.T) {
 	definition := trafficTestDefinition()
-	definition.Resources.Backends = nil
-	definition.Execution.Duration = 100 * time.Millisecond
-	definition.Network.Defaults.BandwidthBitsPerSecond = 8_000
-	definition.Network.Defaults.PacketTravelTime = 0
-	definition.Workload.ClientGroups = []scenario.ClientGroup{{ID: "later", Count: 1, StartAt: 50 * time.Millisecond}}
-	s := New(normalizedRuntimeScenario(t, definition))
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Resources.Backends = nil })
+	definition.Fixed.Execution.Duration = 100 * time.Millisecond
+	definition.Fixed.Network.Defaults.BandwidthBitsPerSecond = 8_000
+	definition.Fixed.Network.Defaults.PacketTravelTime = 0
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups = []scenario.ClientGroup{{ID: "later", Count: 1, StartAt: 50 * time.Millisecond}}
+	})
+	s := newTimelineWorld(t, definition)
 	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
@@ -167,9 +176,9 @@ func TestTrafficNewClientUsesSharedWindow(t *testing.T) {
 	assertNodeTraffic(t, rates, LoadBalancerNodeID, 0, 400, 100*time.Millisecond)
 }
 
-func TestTrafficHeadlessZeroAndFreshRuns(t *testing.T) {
+func TestTrafficHeadlessAndFreshRuns(t *testing.T) {
 	definition := trafficTestDefinition()
-	s := New(normalizedRuntimeScenario(t, definition))
+	s := newTimelineWorld(t, definition)
 	output := scenarioRuntimeLink(t, s, LoadBalancerNodeID, BackendNodeID("srv-00")).Output
 	output.Transmit(1, func() {})
 	if err := runWorld(context.Background(), s); err != nil {
@@ -177,7 +186,7 @@ func TestTrafficHeadlessZeroAndFreshRuns(t *testing.T) {
 	}
 	assertNodeTraffic(t, readWorld(s).Traffic, BackendNodeID("srv-00"), 0, 20, 50*time.Millisecond)
 
-	fresh := New(normalizedRuntimeScenario(t, definition))
+	fresh := newTimelineWorld(t, definition)
 	if len(readWorld(fresh).Traffic) != 0 {
 		t.Fatal("fresh world retained a previous run's measurement")
 	}
@@ -186,22 +195,19 @@ func TestTrafficHeadlessZeroAndFreshRuns(t *testing.T) {
 	}
 	assertNodeTraffic(t, readWorld(fresh).Traffic, LoadBalancerNodeID, 0, 0, 50*time.Millisecond)
 
-	definition.Execution.Duration = 0
-	zero := New(normalizedRuntimeScenario(t, definition))
-	if err := runWorld(context.Background(), zero); err != nil {
-		t.Fatal(err)
-	}
-	if len(readWorld(zero).Traffic) != 0 {
-		t.Fatal("zero-duration world invented a traffic measurement")
+	unadvanced := newTimelineWorld(t, definition)
+	unadvanced.SampleTraffic()
+	if len(readWorld(unadvanced).Traffic) != 0 {
+		t.Fatal("an unadvanced world invented a traffic measurement")
 	}
 }
 
 func TestTrafficFailureSamplesItsActualPartialTime(t *testing.T) {
 	definition := trafficTestDefinition()
-	definition.Network.Defaults.BandwidthBitsPerSecond = 160
-	definition.Network.Defaults.PacketTravelTime = 0
-	definition.Execution.MaxEvents = 1
-	s := New(normalizedRuntimeScenario(t, definition))
+	definition.Fixed.Network.Defaults.BandwidthBitsPerSecond = 160
+	definition.Fixed.Network.Defaults.PacketTravelTime = 0
+	definition.Fixed.Execution.MaxEvents = 1
+	s := newTimelineWorld(t, definition)
 	output := scenarioRuntimeLink(t, s, LoadBalancerNodeID, BackendNodeID("srv-00")).Output
 	output.Transmit(1, func() {})
 	err := s.Advance(context.Background(), 100*time.Millisecond)

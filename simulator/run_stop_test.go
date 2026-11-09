@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"load-balancer/internal/contract"
-	"load-balancer/scenario"
 )
 
 func reserveStopTestRun(t *testing.T, control *runController) string {
@@ -44,22 +43,22 @@ func TestStopRequiresRunAndCommandIDs(t *testing.T) {
 }
 
 func TestStaleStopCannotCancelReservedRun(t *testing.T) {
-	for _, legacy := range []bool{false, true} {
+	for _, websocketStart := range []bool{false, true} {
 		name := "scenario"
-		if legacy {
-			name = "legacy_with_previous_record"
+		if websocketStart {
+			name = "websocket_with_previous_record"
 		}
 		t.Run(name, func(t *testing.T) {
 			control := newRunController(context.Background())
 			control.current = &runRecord{RunID: "run-A", Status: "finished"}
 			var runID string
-			if legacy {
+			if websocketStart {
 				runID = reserveStopTestRun(t, control)
 				if control.currentRun().RunID != "run-A" {
-					t.Fatal("legacy start unexpectedly replaced the previous record")
+					t.Fatal("WebSocket start unexpectedly replaced the previous record")
 				}
 			} else {
-				receipt, err := control.startScenario(context.Background(), []byte(`{}`), scenario.Normalized{})
+				receipt, err := control.startTimeline(context.Background(), []byte(`{}`), mustCompileScenario(testConfiguration().scenarioDefinitionV2()))
 				if err != nil {
 					t.Fatal(err)
 				}

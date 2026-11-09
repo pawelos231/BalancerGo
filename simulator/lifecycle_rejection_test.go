@@ -10,9 +10,9 @@ import (
 
 func TestLifecycleRejectedStartKeepsPreviousFinalOutcome(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Speed, input.Execution.Duration = 0, 100*time.Millisecond
-	input.Workload.Defaults.Bytes = 0
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Speed, input.Fixed.Execution.Duration = 0, 100*time.Millisecond
+	input.Fixed.Workload.Defaults.Bytes = 0
 	receipt := startTelemetryScenario(t, h, input)
 	var original []byte
 	for {

@@ -13,37 +13,39 @@ import (
 // Its zero queue accepts an idle core but provides no waiting slots.
 func TestHostDefaultsAndIndependentBackendRoundTrip(t *testing.T) {
 	input := exampleScenario()
-	resolved, err := scenario.Normalize(input)
+	resolved, err := scenario.NormalizeV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantDefault := scenario.DefaultHostConfig()
-	if resolved.LoadBalancer.Host != wantDefault || resolved.Backends[0].Host != wantDefault {
+	if resolved.States[0].LoadBalancer.Host != wantDefault || resolved.States[0].Backends[0].Host != wantDefault {
 		t.Fatalf("omitted hosts lost the idealized default: %+v", resolved)
 	}
 
-	input.Resources.Backends[0].Host = scenario.HostConfig{
-		Cores:                pointer(2),
-		PacketProcessingTime: pointer(10 * time.Microsecond),
-		QueueCapacity:        pointer(0),
-	}
-	document, err := scenario.EncodeDocument(input)
+	editInitialState(&input, func(state *scenario.StateConfig) {
+		state.Resources.Backends[0].Host = scenario.HostConfig{
+			Cores:                pointer(2),
+			PacketProcessingTime: pointer(10 * time.Microsecond),
+			QueueCapacity:        pointer(0),
+		}
+	})
+	document, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocument(document)
+	restored, err := scenario.DecodeDocumentV2(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.Normalize(restored)
+	resolved, err = scenario.NormalizeV2(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
-	backend := resolved.Backends[0].Host
+	backend := resolved.States[0].Backends[0].Host
 	if backend.Cores != 2 || backend.PacketProcessingTime != 10*time.Microsecond || backend.QueueCapacity != 0 {
 		t.Fatalf("backend host changed across JSON round-trip: %+v", backend)
 	}
-	if resolved.LoadBalancer.Host != wantDefault {
+	if resolved.States[0].LoadBalancer.Host != wantDefault {
 		t.Fatal("a backend CPU override changed the balancer")
 	}
 }
@@ -63,8 +65,10 @@ func TestHostValidation(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			input := exampleScenario()
-			input.Resources.Backends[0].Host = test.config
-			_, err := scenario.Normalize(input)
+			editInitialState(&input, func(state *scenario.StateConfig) {
+				state.Resources.Backends[0].Host = test.config
+			})
+			_, err := scenario.NormalizeV2(input)
 			if err == nil || !strings.Contains(err.Error(), "resources.backends[0].host") {
 				t.Fatalf("expected a backend host error, got %v", err)
 			}
@@ -73,22 +77,28 @@ func TestHostValidation(t *testing.T) {
 
 	// Two busy cores over this horizon would overflow the cumulative duration.
 	input := exampleScenario()
-	input.Execution.Duration = time.Duration(math.MaxInt64)
-	input.Execution.Speed = 0
-	input.Resources.LoadBalancer.Host = scenario.HostConfig{
-		Cores:                pointer(2),
-		PacketProcessingTime: pointer(time.Nanosecond),
-		QueueCapacity:        pointer(0),
-	}
-	if _, err := scenario.Normalize(input); err == nil {
+	input.Fixed.Execution.Duration = time.Duration(math.MaxInt64)
+	input.Fixed.Execution.Speed = 0
+	editInitialState(&input, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Host = scenario.HostConfig{
+			Cores:                pointer(2),
+			PacketProcessingTime: pointer(time.Nanosecond),
+			QueueCapacity:        pointer(0),
+		}
+	})
+	if _, err := scenario.NormalizeV2(input); err == nil {
 		t.Fatal("accepted CPU counters that cannot represent the experiment horizon")
 	}
-	input.Resources.LoadBalancer.Host.PacketProcessingTime = pointer(time.Duration(0))
-	if _, err := scenario.Normalize(input); err == nil {
+	editInitialState(&input, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Host.PacketProcessingTime = pointer(time.Duration(0))
+	})
+	if _, err := scenario.NormalizeV2(input); err == nil {
 		t.Fatal("disabled CPU must still validate its configured core-time integral")
 	}
-	input.Resources.LoadBalancer.Host.Cores = pointer(1)
-	if _, err := scenario.Normalize(input); err != nil {
+	editInitialState(&input, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Host.Cores = pointer(1)
+	})
+	if _, err := scenario.NormalizeV2(input); err != nil {
 		t.Fatalf("a representable disabled CPU capacity was rejected: %v", err)
 	}
 }

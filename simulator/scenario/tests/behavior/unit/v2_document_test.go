@@ -37,14 +37,11 @@ func TestDocumentV2EmptyShape(t *testing.T) {
 	if _, err := scenario.DecodeDocumentV2(encoded); err != nil {
 		t.Fatalf("canonical empty document should decode: %v", err)
 	}
-	if original, err := scenario.DecodeDocument([]byte(`{}`)); err != nil || !reflect.DeepEqual(original, scenario.Scenario{}) {
-		t.Fatalf("v1 missing-field behavior changed: %+v, %v", original, err)
-	}
 }
 
 // TestDocumentV2Version requires an explicit v2 version in both directions.
 func TestDocumentV2Version(t *testing.T) {
-	for _, version := range []int{0, scenario.Version, scenario.VersionV2 + 1} {
+	for _, version := range []int{0, 1, scenario.VersionV2 + 1} {
 		t.Run(strconv.Itoa(version), func(t *testing.T) {
 			data := []byte(`{"version":` + strconv.Itoa(version) + `}`)
 			decoded, err := scenario.DecodeDocumentV2(data)

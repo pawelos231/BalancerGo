@@ -12,45 +12,7 @@ import (
 
 // exampleTimeline keeps the same valid defaults as the static scenario fixture.
 // Each call owns its slices, so editing one state cannot change another state.
-func exampleTimeline() scenario.ScenarioV2 {
-	base := exampleScenario()
-	backend := base.Resources.Backends[0]
-	loadBalancer := base.Resources.LoadBalancer
-
-	return scenario.ScenarioV2{
-		Version: scenario.VersionV2,
-		Fixed: scenario.FixedConfig{
-			Execution:    base.Execution,
-			TCP:          base.TCP,
-			LoadBalancer: scenario.LoadBalancerIdentity{ID: loadBalancer.ID},
-			Network:      base.Network,
-			Workload: scenario.WorkloadDefaultsConfig{
-				Defaults: base.Workload.Defaults,
-			},
-		},
-		States: map[string]scenario.StateConfig{
-			"0": {
-				Resources: scenario.StateResourcesConfig{
-					LoadBalancer: scenario.LoadBalancerStateConfig{
-						Algorithm:               loadBalancer.Algorithm,
-						Ingress:                 loadBalancer.Ingress,
-						ForwardingBitsPerSecond: loadBalancer.ForwardingBitsPerSecond,
-					},
-					Backends: []scenario.BackendStateConfig{
-						{
-							ID:      backend.ID,
-							Address: backend.Address,
-							Port:    backend.Port,
-						},
-					},
-				},
-				Workload: scenario.StateWorkloadConfig{
-					ClientGroups: base.Workload.ClientGroups,
-				},
-			},
-		},
-	}
-}
+func exampleTimeline() scenario.ScenarioV2 { return exampleScenario() }
 
 // Times 2 and 10 must follow numeric order, not JSON key order or string sorting.
 func TestNormalizeV2OrdersFullStatesNumerically(t *testing.T) {

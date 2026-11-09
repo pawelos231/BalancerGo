@@ -12,9 +12,9 @@ export const routingPresets: readonly ScenarioPreset[] = [
       'The seed stays a decimal string so every digit survives JSON exchange.',
     build(defaults) {
       const scenario = isolatedExperiment(defaults);
-      scenario.execution.seed = '9007199254740993';
-      scenario.resources.loadBalancer.algorithm = 'random';
-      scenario.resources.backends = presetBackends(4);
+      scenario.fixed.execution.seed = '9007199254740993';
+      scenario.states['0'].resources.loadBalancer.algorithm = 'random';
+      scenario.states['0'].resources.backends = presetBackends(4);
 
       return scenario;
     },
@@ -28,8 +28,8 @@ export const routingPresets: readonly ScenarioPreset[] = [
       'Their SYN attempts exercise the retry and connection cleanup path.',
     build(defaults) {
       const scenario = isolatedExperiment(defaults);
-      scenario.resources.backends = [];
-      scenario.workload.clientGroups = [presetClientGroup('clients', 8)];
+      scenario.states['0'].resources.backends = [];
+      scenario.states['0'].workload.clientGroups = [presetClientGroup('clients', 8)];
 
       return scenario;
     },
@@ -43,7 +43,7 @@ export const routingPresets: readonly ScenarioPreset[] = [
       'This separates an idle topology from traffic and queue activity.',
     build(defaults) {
       const scenario = isolatedExperiment(defaults);
-      scenario.workload.clientGroups = [presetClientGroup('clients', 0)];
+      scenario.states['0'].workload.clientGroups = [presetClientGroup('clients', 0)];
 
       return scenario;
     },

@@ -8,6 +8,8 @@ import {
   CardContent,
   CardHeader,
   Chip,
+  MenuItem,
+  TextField,
   Stack,
   Typography,
 } from '@mui/material';
@@ -15,6 +17,7 @@ import Grid from '@mui/material/Grid';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import type { FormEvent } from 'react';
 import type { ScenarioDraft, ScenarioField } from '../scenarios/draft';
+import { scenarioStateTimes, selectedScenarioState } from '../scenarios/draft';
 import { scenarioFieldSections } from '../scenarios/formFields';
 import type { Scenario } from '../scenarios/types';
 import ScenarioFieldInput from './ScenarioFieldInput';
@@ -23,6 +26,8 @@ import type { HostEdits, HostField, HostTarget, HostValues } from '../scenarios/
 
 interface SimulationFormProps {
   scenario: Scenario;
+  selectedAt: string;
+  onSelectState: (at: string) => void;
   values: ScenarioDraft;
   errors: Partial<Record<ScenarioField, string>>;
   connected: boolean;
@@ -42,6 +47,8 @@ interface SimulationFormProps {
 // Sections share one scenario draft and one Start action.
 function SimulationForm({
   scenario,
+  selectedAt,
+  onSelectState,
   values,
   errors,
   connected,
@@ -60,9 +67,9 @@ function SimulationForm({
   const hasErrors = Object.keys(errors).length > 0 || Object.keys(hostEdits.errors).length > 0;
   const canStart = connected && !running && !pending && !validating && !hasErrors;
   const fieldsDisabled = !connected || pending || validating;
-  const groups = scenario.workload.clientGroups;
+  const groups = selectedScenarioState(scenario, selectedAt).workload.clientGroups;
   const displayedGroups = groups.slice(0, 12);
-  const profiles = scenario.network.profiles ?? [];
+  const profiles = scenario.fixed.network.profiles ?? [];
 
   const startLabel = pending ? 'Waiting for confirmation…' : 'Start simulation';
   const nextRunHint = running
@@ -86,6 +93,13 @@ function SimulationForm({
 
       <CardContent>
         <Stack spacing={2}>
+          <TextField
+            select label="Existing state (virtual nanoseconds)" value={selectedAt}
+            disabled={fieldsDisabled} onChange={event => onSelectState(event.target.value)}
+            helperText="Resource, host and group settings edit this state. Experiment, TCP and shared defaults edit fixed settings."
+          >
+            {scenarioStateTimes(scenario).map(at => <MenuItem key={at} value={at}>{at}</MenuItem>)}
+          </TextField>
           <Alert severity="info">
             {groups.length} client groups and {profiles.length} link profiles are retained.
             Traffic and link fields edit defaults; group, profile and client overrides stay in place.
@@ -196,6 +210,7 @@ function SimulationForm({
           <HostProcessingEditor
             key={hostRevision}
             scenario={scenario}
+            selectedAt={selectedAt}
             edits={hostEdits}
             disabled={fieldsDisabled}
             onChange={onHostChange}

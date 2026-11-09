@@ -8,22 +8,32 @@ import (
 	"load-balancer/scenario"
 )
 
-// baseScenario preserves the small legacy runtime fixture as native input data.
+// baseScenario supplies a small native timeline without application configuration.
 // Application flag parsing and browser configuration are exercised in main tests.
-func baseScenario() scenario.Scenario {
-	return scenario.Scenario{
-		Version:   scenario.Version,
-		Execution: scenario.ExecutionConfig{Duration: time.Second, SnapshotInterval: 100 * time.Millisecond, Seed: 1, MaxEvents: 100_000},
-		Network:   scenario.NetworkConfig{Defaults: scenario.LinkConfig{BandwidthBitsPerSecond: 1_000_000_000, PacketTravelTime: time.Millisecond, QueueCapacity: 1024}},
-		Resources: scenario.ResourcesConfig{
-			LoadBalancer: scenario.LoadBalancerConfig{ID: "lb", Algorithm: "roundRobin", Ingress: scenario.DefaultIngressConfig(), ForwardingBitsPerSecond: 1_000_000_000},
-			Backends: []scenario.BackendConfig{
-				{ID: "srv-00", Name: "backend-00", Address: "10.0.0.1", Port: 80},
-				{ID: "srv-01", Name: "backend-01", Address: "10.0.0.2", Port: 80},
-			},
+func baseScenario() scenario.ScenarioV2 {
+	return scenario.ScenarioV2{
+		Version: scenario.VersionV2,
+		Fixed: scenario.FixedConfig{
+			Execution:    scenario.ExecutionConfig{Duration: time.Second, SnapshotInterval: 100 * time.Millisecond, Seed: 1, MaxEvents: 100_000},
+			LoadBalancer: scenario.LoadBalancerIdentity{ID: "lb"},
+			Network:      scenario.NetworkConfig{Defaults: scenario.LinkConfig{BandwidthBitsPerSecond: 1_000_000_000, PacketTravelTime: time.Millisecond, QueueCapacity: 1024}},
+			Workload:     scenario.WorkloadDefaultsConfig{Defaults: scenario.StreamConfig{Packets: 3, Bytes: -1}},
 		},
-		Workload: scenario.WorkloadConfig{Defaults: scenario.StreamConfig{Packets: 3, Bytes: -1}, ClientGroups: []scenario.ClientGroup{{ID: "clients", Count: 2}}},
+		States: map[string]scenario.StateConfig{"0": {
+			Resources: scenario.StateResourcesConfig{
+				LoadBalancer: scenario.LoadBalancerStateConfig{Algorithm: "roundRobin", Ingress: scenario.DefaultIngressConfig(), ForwardingBitsPerSecond: 1_000_000_000},
+				Backends:     []scenario.BackendStateConfig{{ID: "srv-00", Name: "backend-00", Address: "10.0.0.1", Port: 80}, {ID: "srv-01", Name: "backend-01", Address: "10.0.0.2", Port: 80}},
+			},
+			Workload: scenario.StateWorkloadConfig{ClientGroups: []scenario.ClientGroup{{ID: "clients", Count: 2}}},
+		}},
 	}
+}
+
+// editInitialState updates only the native document's initial complete state.
+func editInitialState(definition *scenario.ScenarioV2, edit func(*scenario.StateConfig)) {
+	state := definition.States["0"]
+	edit(&state)
+	definition.States["0"] = state
 }
 
 // runWorld uses fixed virtual measurement windows for model tests, without UI I/O.

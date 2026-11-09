@@ -19,8 +19,13 @@ func TestScenarioFilesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) == 0 {
-		t.Fatal("no scenario example files found")
+	timelines, err := filepath.Glob(filepath.Join("..", "..", "..", "examples", "scenarios-v2", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths = append(paths, timelines...)
+	if len(paths) != 37 {
+		t.Fatalf("found %d runnable scenario examples, want 37", len(paths))
 	}
 
 	for _, path := range paths {
@@ -29,18 +34,21 @@ func TestScenarioFilesRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, err := scenario.DecodeDocument(document)
+			input, err := scenario.DecodeDocumentV2(document)
 			if err != nil {
 				t.Fatalf("strictly decode example: %v", err)
 			}
-			original, err := scenario.Normalize(input)
+			original, err := scenario.NormalizeV2(input)
 			if err != nil {
 				t.Fatalf("normalize example: %v", err)
+			}
+			if _, err := scenario.CompileV2(input); err != nil {
+				t.Fatalf("compile complete example: %v", err)
 			}
 
 			// Canonical transport must preserve every effective setting of the full file.
 			restored := scenarioFileRoundTrip(t, input)
-			resolved, err := scenario.Normalize(restored)
+			resolved, err := scenario.NormalizeV2(restored)
 			if err != nil {
 				t.Fatalf("normalize restored example: %v", err)
 			}
@@ -52,19 +60,21 @@ func TestScenarioFilesRoundTrip(t *testing.T) {
 			if !limitScenarioSmokeClients(t, &restored) {
 				return
 			}
-			restored.Execution.Duration = 50 * time.Millisecond
-			restored.Execution.SnapshotInterval = time.Millisecond
-			restored.Execution.Speed = 0
-			restored.Execution.MaxEvents = 1_000_000
-			restored.Workload.Defaults.Bytes = 2050
-			for index := range restored.Workload.ClientGroups {
-				group := &restored.Workload.ClientGroups[index]
-				if group.Stream.Bytes != nil {
-					*group.Stream.Bytes = 2050
-				}
-				for position := range group.Overrides {
-					if group.Overrides[position].Stream.Bytes != nil {
-						*group.Overrides[position].Stream.Bytes = 2050
+			restored.Fixed.Execution.Duration = max(50*time.Millisecond, original.States[len(original.States)-1].At+50*time.Millisecond)
+			restored.Fixed.Execution.SnapshotInterval = time.Millisecond
+			restored.Fixed.Execution.Speed = 0
+			restored.Fixed.Execution.MaxEvents = 1_000_000
+			restored.Fixed.Workload.Defaults.Bytes = 2050
+			for _, state := range restored.States {
+				for index := range state.Workload.ClientGroups {
+					group := &state.Workload.ClientGroups[index]
+					if group.Stream.Bytes != nil {
+						*group.Stream.Bytes = 2050
+					}
+					for position := range group.Overrides {
+						if group.Overrides[position].Stream.Bytes != nil {
+							*group.Overrides[position].Stream.Bytes = 2050
+						}
 					}
 				}
 			}
@@ -79,10 +89,10 @@ func TestScenarioFilesRoundTrip(t *testing.T) {
 }
 
 // limitScenarioSmokeClients bounds runtime allocation without discarding explicit overrides.
-func limitScenarioSmokeClients(t *testing.T, input *scenario.Scenario) bool {
+func limitScenarioSmokeClients(t *testing.T, input *scenario.ScenarioV2) bool {
 	t.Helper()
 	const maxClients = 128
-	groups := input.Workload.ClientGroups
+	groups := input.States["0"].Workload.ClientGroups
 	total, required := 0, 0
 	minimum := make([]int, len(groups))
 	for index, group := range groups {
@@ -113,10 +123,12 @@ func limitScenarioSmokeClients(t *testing.T, input *scenario.Scenario) bool {
 // TestScenarioSmokeSampleKeepsOverrides checks the global cap across multiple client groups.
 func TestScenarioSmokeSampleKeepsOverrides(t *testing.T) {
 	input := scenarioRuntimeDefinition()
-	input.Workload.ClientGroups = []scenario.ClientGroup{
-		{ID: "first", Count: 100, Overrides: []scenario.ClientOverride{{Index: 75}}},
-		{ID: "second", Count: 100, Overrides: []scenario.ClientOverride{{Index: 40}}},
-	}
+	editInitialState(&input, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups = []scenario.ClientGroup{
+			{ID: "first", Count: 100, Overrides: []scenario.ClientOverride{{Index: 75}}},
+			{ID: "second", Count: 100, Overrides: []scenario.ClientOverride{{Index: 40}}},
+		}
+	})
 	if !limitScenarioSmokeClients(t, &input) {
 		t.Fatal("a sample that can retain both override prefixes was rejected")
 	}
@@ -137,23 +149,25 @@ func TestScenarioLimitsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	var wire struct {
-		Resources struct {
-			LoadBalancer struct {
-				Forwarding json.RawMessage `json:"forwardingBitsPerSecond"`
-				Ingress    struct {
-					Bandwidth json.RawMessage `json:"bandwidthBitsPerSecond"`
-				} `json:"ingress"`
-			} `json:"loadBalancer"`
-		} `json:"resources"`
+		States map[string]struct {
+			Resources struct {
+				LoadBalancer struct {
+					Forwarding json.RawMessage `json:"forwardingBitsPerSecond"`
+					Ingress    struct {
+						Bandwidth json.RawMessage `json:"bandwidthBitsPerSecond"`
+					} `json:"ingress"`
+				} `json:"loadBalancer"`
+			} `json:"resources"`
+		} `json:"states"`
 	}
 	if err := json.Unmarshal(document, &wire); err != nil {
 		t.Fatal(err)
 	}
 	exactRate := []byte(`"80000000000000000"`)
-	if !bytes.Equal(wire.Resources.LoadBalancer.Forwarding, exactRate) || !bytes.Equal(wire.Resources.LoadBalancer.Ingress.Bandwidth, exactRate) {
+	if !bytes.Equal(wire.States["0"].Resources.LoadBalancer.Forwarding, exactRate) || !bytes.Equal(wire.States["0"].Resources.LoadBalancer.Ingress.Bandwidth, exactRate) {
 		t.Fatal("both LB rates must use exact decimal strings outside the JavaScript safe-integer range")
 	}
-	input, err := scenario.DecodeDocument(document)
+	input, err := scenario.DecodeDocumentV2(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,13 +189,13 @@ func TestScenarioLimitsDocument(t *testing.T) {
 }
 
 // scenarioFileRoundTrip produces independent input data through the public document codec.
-func scenarioFileRoundTrip(t *testing.T, input scenario.Scenario) scenario.Scenario {
+func scenarioFileRoundTrip(t *testing.T, input scenario.ScenarioV2) scenario.ScenarioV2 {
 	t.Helper()
-	document, err := scenario.EncodeDocument(input)
+	document, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocument(document)
+	restored, err := scenario.DecodeDocumentV2(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,35 +203,41 @@ func scenarioFileRoundTrip(t *testing.T, input scenario.Scenario) scenario.Scena
 }
 
 // runScenarioFile excludes wall time while retaining all virtual counters and endpoint state.
-func runScenarioFile(t *testing.T, input scenario.Scenario) worldReadings {
+func runScenarioFile(t *testing.T, input scenario.ScenarioV2) worldReadings {
 	t.Helper()
-	resolved, err := scenario.Normalize(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := New(resolved)
+	resolved := normalizedRuntimeScenario(t, input)
+	s := newTimelineWorld(t, input)
 	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
 	result := readWorld(s)
-	if s.engine.Now() != input.Execution.Duration {
+	if s.engine.Now() != input.Fixed.Execution.Duration {
 		t.Fatal("the bounded run did not reach its virtual horizon")
 	}
 
 	// Arrival chains may start after this shortened horizon, including every group.
 	expectedCreated := 0
 	for _, group := range resolved.ClientGroups {
-		if group.Count == 0 || group.StartAt > input.Execution.Duration {
+		if group.Count == 0 || group.StartAt > input.Fixed.Execution.Duration {
 			continue
 		}
 		count := group.Count
 		if group.ClientGap > 0 {
-			lastIndex := int64((input.Execution.Duration - group.StartAt) / group.ClientGap)
+			lastIndex := int64((input.Fixed.Execution.Duration - group.StartAt) / group.ClientGap)
 			if lastIndex < int64(count-1) {
 				count = int(lastIndex) + 1
 			}
 		}
 		expectedCreated += count
+	}
+	// Both shipped timeline examples keep all declared generators through the end
+	// and schedule their complete lifetime budgets before the shortened horizon.
+	if len(input.States) > 1 {
+		checked, err := scenario.NormalizeV2(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedCreated = checked.TotalClients
 	}
 	if result.CreatedClients != expectedCreated {
 		t.Fatalf("created clients = %d, want %d within the bounded horizon", result.CreatedClients, expectedCreated)

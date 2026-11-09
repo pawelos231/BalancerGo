@@ -160,7 +160,6 @@ function App() {
               startPending={startPending}
               stopPending={stopPending}
               commandError={commandError}
-              currentRun={currentRun}
               sendMessage={sendMessage}
             >
               <ExperimentSetup

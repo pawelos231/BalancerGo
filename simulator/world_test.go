@@ -11,41 +11,56 @@ import (
 
 // Native fixtures are shared by application integration tests, without exposing
 // the world's private endpoint pointers or network queues.
-func scenarioRuntimeDefinition() scenario.Scenario {
-	definition := legacyTestConfiguration().scenarioDefinition()
-	definition.Execution.Duration = 500 * time.Millisecond
-	definition.Network.Defaults = scenario.LinkConfig{
+func scenarioRuntimeDefinition() scenario.ScenarioV2 {
+	definition := testConfiguration().scenarioDefinitionV2()
+	definition.Fixed.Execution.Duration = 500 * time.Millisecond
+	definition.Fixed.Network.Defaults = scenario.LinkConfig{
 		BandwidthBitsPerSecond: 8_000_000,
 		QueueCapacity:          32,
 	}
-	definition.Resources.LoadBalancer.Ingress = definition.Network.Defaults
-	definition.Resources.LoadBalancer.ForwardingBitsPerSecond = 9_223_372_036_854_775_807
-	definition.Workload.Defaults = scenario.StreamConfig{Bytes: 0}
-	definition.Workload.ClientGroups = []scenario.ClientGroup{{ID: "clients", Count: 1}}
+	initial := definition.States["0"]
+	initial.Resources.LoadBalancer.Ingress = definition.Fixed.Network.Defaults
+	initial.Resources.LoadBalancer.ForwardingBitsPerSecond = 9_223_372_036_854_775_807
+	definition.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 0}
+	initial.Workload.ClientGroups = []scenario.ClientGroup{{ID: "clients", Count: 1}}
+	definition.States["0"] = initial
 	return definition
 }
 
 func scenarioRuntimeValue[T any](value T) *T { return &value }
 
-func normalizedRuntimeScenario(t *testing.T, input scenario.Scenario) scenario.Normalized {
+func initialScenarioState(t *testing.T, plan *scenario.CompiledV2) scenario.NormalizedState {
 	t.Helper()
-	resolved, err := scenario.Normalize(input)
+	state, err := plan.StateAt(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+
+func compiledRuntimeScenario(t *testing.T, input scenario.ScenarioV2) *scenario.CompiledV2 {
+	t.Helper()
+	resolved, err := scenario.CompileV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return resolved
 }
 
-func newScenarioSimulation(input scenario.Normalized) *simulation.World {
-	return simulation.New(input)
+func newScenarioSimulation(input *scenario.CompiledV2) *simulation.World {
+	world, err := simulation.NewTimeline(input)
+	if err != nil {
+		panic(err)
+	}
+	return world
 }
 
 func newSimulation(cfg configuration) *simulation.World {
-	return simulation.New(mustNormalizeScenario(cfg.scenarioDefinition()))
+	return newScenarioSimulation(mustCompileScenario(cfg.scenarioDefinitionV2()))
 }
 
-func mustNormalizeScenario(input scenario.Scenario) scenario.Normalized {
-	resolved, err := scenario.Normalize(input)
+func mustCompileScenario(input scenario.ScenarioV2) *scenario.CompiledV2 {
+	resolved, err := scenario.CompileV2(input)
 	if err != nil {
 		panic(err)
 	}

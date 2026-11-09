@@ -11,21 +11,24 @@ import (
 
 // Only backend-facing links congest. ACK return paths remain unconstrained,
 // so CE feedback can slow clients without losing the transfer's payload.
-func ecnScenario() scenario.Scenario {
+func ecnScenario() scenario.ScenarioV2 {
 	input := baseScenario()
-	input.Execution.Duration = 10 * time.Second
-	input.Execution.MaxEvents = 1_000_000
-	input.TCP.ECNEnabled = scenarioRuntimeValue(true)
-	input.Workload.ClientGroups[0].Count = 4
-	input.Workload.Defaults = scenario.StreamConfig{Bytes: 32 * 1024, PacketGap: 5 * time.Millisecond}
-	input.Resources.Backends = input.Resources.Backends[:1]
-	input.Resources.Backends[0].Network.FromLoadBalancer = scenario.LinkPatch{
-		BandwidthBitsPerSecond:      scenarioRuntimeValue(int64(1_000_000)),
-		QueueCapacity:               scenarioRuntimeValue(64),
-		QueuePolicy:                 scenarioRuntimeValue("threshold"),
-		CongestionThresholdPercent:  scenarioRuntimeValue(25.0),
-		CongestionSignalProbability: scenarioRuntimeValue(1.0),
-	}
+	input.Fixed.Execution.Duration = 10 * time.Second
+	input.Fixed.Execution.MaxEvents = 1_000_000
+	input.Fixed.TCP.ECNEnabled = scenarioRuntimeValue(true)
+	editInitialState(&input, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 4 })
+	input.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 32 * 1024, PacketGap: 5 * time.Millisecond}
+	editInitialState(&input, func(state *scenario.StateConfig) {
+		state.Resources.Backends = state.Resources.Backends[:1]
+
+		state.Resources.Backends[0].Network.FromLoadBalancer = scenario.LinkPatch{
+			BandwidthBitsPerSecond:      scenarioRuntimeValue(int64(1_000_000)),
+			QueueCapacity:               scenarioRuntimeValue(64),
+			QueuePolicy:                 scenarioRuntimeValue("threshold"),
+			CongestionThresholdPercent:  scenarioRuntimeValue(25.0),
+			CongestionSignalProbability: scenarioRuntimeValue(1.0),
+		}
+	})
 	return input
 }
 
@@ -33,8 +36,8 @@ func TestECNTransferThroughWorldQueues(t *testing.T) {
 	for _, mode := range []string{"reno", "newReno", "tahoe", "cubic"} {
 		t.Run(mode, func(t *testing.T) {
 			input := ecnScenario()
-			input.TCP.CongestionControl.Mode = scenarioRuntimeValue(mode)
-			world := New(normalizedRuntimeScenario(t, input))
+			input.Fixed.TCP.CongestionControl.Mode = scenarioRuntimeValue(mode)
+			world := newTimelineWorld(t, input)
 			if err := world.Advance(context.Background(), world.EndTime()); err != nil {
 				t.Fatal(err)
 			}
@@ -64,7 +67,7 @@ func TestECNTransferThroughWorldQueues(t *testing.T) {
 // A mark belongs to the packet copy crossing the queue, not the sender's original.
 // A later marked hop preserves CE without counting a second local transition.
 func TestECNMetadataSurvivesHops(t *testing.T) {
-	world := New(normalizedRuntimeScenario(t, baseScenario()))
+	world := newTimelineWorld(t, baseScenario())
 	config := scenario.LinkConfig{
 		BandwidthBitsPerSecond: 8_000, QueueCapacity: 2,
 		QueuePolicy: "threshold", CongestionThresholdPercent: 0, CongestionSignalProbability: 1,

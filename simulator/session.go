@@ -120,13 +120,13 @@ func runInteractive(
 		prepared, err := prepareStart(request, defaults)
 		if err != nil {
 			control.finishRun()
-			if request.legacy != nil && request.legacy.reply != nil {
+			if request.command != nil && request.command.reply != nil {
 				// Reject this Start privately; the previous run's final sample stays frozen.
-				request.legacy.reply(contract.CommandResultFrame{
+				request.command.reply(contract.CommandResultFrame{
 					Type:        "commandResult",
 					CommandType: contract.StartSimulation,
 					RunID:       request.runID,
-					CommandID:   request.legacy.commandID,
+					CommandID:   request.command.commandID,
 					Status:      contract.CommandRejected,
 					Error:       fmt.Sprintf("invalid configuration: %v", err),
 				})
@@ -144,7 +144,7 @@ func runInteractive(
 		runID = request.runID
 		if prepared.document != nil {
 			request.experiment = experimentContext(prepared.document, contract.ExperimentExecution{
-				Speed: prepared.scenario.Execution.Speed,
+				Speed: prepared.plan.Fixed().Execution.Speed,
 			})
 			control.rememberRun(runID, prepared.document, request.experiment)
 		} else {
@@ -164,20 +164,11 @@ func runInteractive(
 			hub: hub, topology: publication, projector: presentation.NewProjector(runID),
 			runID: runID, experiment: &request.experiment, started: started,
 		}
-		handled := func(err error) {
-			lastError = ""
-			if err != nil {
-				lastError = err.Error()
-			}
-			if err := publish(); err != nil {
-				log.Printf("snapshot: %v", err)
-			}
-		}
 		if err := publish(); err != nil {
 			return err
 		}
 		log.Printf("Starting simulation: %+v", config)
-		err = runWorld(runCtx, current, control.commands, publish, handled)
+		err = runWorld(runCtx, current, publish)
 		elapsed = time.Since(started)
 		if ctx.Err() != nil {
 			return nil

@@ -13,8 +13,6 @@ export interface ScenarioLinkConfig {
   congestionSignalProbability?: number;
 }
 
-export type ScenarioLinkPatch = Partial<ScenarioLinkConfig>;
-
 // Zero processing time keeps the ideal host; positive time occupies virtual cores.
 export interface ScenarioHostConfig {
   cores?: ExactInteger;
@@ -64,86 +62,22 @@ export interface ScenarioDelayedACKConfig {
   maxDelayNanoseconds: ExactInteger;
 }
 
-export interface ScenarioEndpointNetwork {
-  profile?: string;
-  toLoadBalancer: ScenarioLinkPatch;
-  fromLoadBalancer: ScenarioLinkPatch;
-}
-
 export interface ScenarioStream {
   packets: ExactInteger;
   bytes: ExactInteger;
   packetGapNanoseconds: ExactInteger;
 }
 
-export interface ScenarioClientGroup {
-  id: string;
-  count: ExactInteger;
-  startAtNanoseconds: ExactInteger;
-  clientGapNanoseconds: ExactInteger;
-  network: ScenarioEndpointNetwork;
-  stream: Partial<ScenarioStream>;
-  overrides?: {
-    index: ExactInteger;
-    network: ScenarioEndpointNetwork;
-    stream: Partial<ScenarioStream>;
-  }[];
+export interface ScenarioExecution {
+  durationNanoseconds: ExactInteger;
+  snapshotIntervalNanoseconds: ExactInteger;
+  seed: ExactInteger;
+  speed: number;
+  maxEvents: ExactInteger;
 }
 
-// Field names mirror the native backend document; durations are exact nanoseconds.
-export interface Scenario {
-  version: ExactInteger;
-  execution: {
-    durationNanoseconds: ExactInteger;
-    // Real time between UI snapshots; independent of the virtual clock.
-    snapshotIntervalNanoseconds: ExactInteger;
-    seed: ExactInteger;
-    speed: number;
-    maxEvents: ExactInteger;
-  };
-  tcp?: {
-    mssBytes?: ExactInteger;
-    receiveBufferBytes?: ExactInteger;
-    sackEnabled?: boolean;
-    ECNenabled?: boolean;
-    delayedAck?: Partial<ScenarioDelayedACKConfig>;
-    congestionControl?: Partial<ScenarioCongestionConfig>;
-    rto?: Partial<ScenarioRTOConfig>;
-    close?: Partial<ScenarioCloseConfig>;
-    clientIdleTimeoutNanoseconds?: ExactInteger;
-    backendHalfOpenIdleTimeoutNanoseconds?: ExactInteger;
-    backendEstablishedIdleTimeoutNanoseconds?: ExactInteger;
-  };
-  network: {
-    defaults: ScenarioLinkConfig;
-    profiles?: { id: string; config: ScenarioLinkPatch }[];
-  };
-  resources: {
-    loadBalancer: {
-      id: string;
-      algorithm: string;
-      ingress: ScenarioLinkConfig;
-      forwardingBitsPerSecond: ExactInteger;
-      halfOpenIdleTimeoutNanoseconds?: ExactInteger;
-      establishedIdleTimeoutNanoseconds?: ExactInteger;
-      closingIdleTimeoutNanoseconds?: ExactInteger;
-      resetIdleTimeoutNanoseconds?: ExactInteger;
-      host?: ScenarioHostConfig;
-    };
-    backends: {
-      id: string;
-      name?: string;
-      address: string;
-      port: ExactInteger;
-      network: ScenarioEndpointNetwork;
-      host?: ScenarioHostConfig;
-    }[];
-  };
-  workload: {
-    defaults: ScenarioStream;
-    clientGroups: ScenarioClientGroup[];
-  };
-}
+export type { ScenarioV2 as Scenario } from './v2Types.ts';
+import type { ScenarioV2 as Scenario } from './v2Types.ts';
 
 export interface ScenarioSummary {
   totalClients: ExactInteger;
@@ -161,50 +95,21 @@ export interface ValidatedScenario {
 // Client groups stay compact; the native Scenario remains the file and Start format.
 export interface ResolvedScenario {
   version: ExactInteger;
-  execution: Scenario['execution'];
-  tcp: {
-    mssBytes: number;
-    receiveBufferBytes: number;
-    sackEnabled: boolean;
-    ECNenabled: boolean;
-    delayedAck: ScenarioDelayedACKConfig;
-    congestionControl: ScenarioCongestionConfig;
-    rto: ScenarioRTOConfig;
-    close: ScenarioCloseConfig;
-    clientIdleTimeoutNanoseconds: ExactInteger;
-    backendHalfOpenIdleTimeoutNanoseconds: ExactInteger;
-    backendEstablishedIdleTimeoutNanoseconds: ExactInteger;
+  fixed: {
+    execution: ScenarioExecution;
+    tcp: Record<string, unknown>;
+    loadBalancer: { id: string };
+    networkDefaults: ScenarioLinkConfig;
+    defaultStream: ScenarioStream;
   };
-  networkDefaults: ScenarioLinkConfig;
-  loadBalancer: Scenario['resources']['loadBalancer'] & {
-    halfOpenIdleTimeoutNanoseconds: ExactInteger;
-    establishedIdleTimeoutNanoseconds: ExactInteger;
-    closingIdleTimeoutNanoseconds: ExactInteger;
-    resetIdleTimeoutNanoseconds: ExactInteger;
-  };
+  states: {
+    atNanoseconds: ExactInteger;
+    loadBalancer: Record<string, unknown>;
+    backends: unknown[];
+    clientGroups: unknown[];
+    totalClients: ExactInteger;
+  }[];
   totalClients: ExactInteger;
-  defaultStream: ScenarioStream;
-  backends: {
-    id: string;
-    name: string;
-    address: string;
-    port: ExactInteger;
-    network: ResolvedLinks;
-    host?: ScenarioHostConfig;
-  }[];
-  clientGroups: {
-    id: string;
-    count: ExactInteger;
-    startAtNanoseconds: ExactInteger;
-    clientGapNanoseconds: ExactInteger;
-    network: ResolvedLinks;
-    stream: ScenarioStream;
-    overrides: {
-      index: ExactInteger;
-      network: ResolvedLinks;
-      stream: ScenarioStream;
-    }[];
-  }[];
 }
 
 // Both directions have concrete values, with no inherited patches left to apply.

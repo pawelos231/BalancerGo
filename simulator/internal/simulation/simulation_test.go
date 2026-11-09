@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"load-balancer/network"
+	"load-balancer/scenario"
 )
 
 // TestSimulationQueueSnapshots checks native observations with both queue owners.
@@ -24,15 +25,20 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			definition := baseScenario()
-			definition.Workload.ClientGroups[0].Count = 0
-			definition.Network.Defaults.BandwidthBitsPerSecond = 8_000
-			definition.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = definition.Network.Defaults.BandwidthBitsPerSecond
-			definition.Resources.LoadBalancer.Ingress.PacketTravelTime = definition.Network.Defaults.PacketTravelTime
-			definition.Resources.LoadBalancer.Ingress.QueueCapacity = test.capacity
-			definition.Resources.LoadBalancer.ForwardingBitsPerSecond = math.MaxInt64
-			definition.Network.Defaults.QueueCapacity = test.capacity
-			definition.Execution.Duration = 5 * time.Millisecond
-			s := New(normalizedRuntimeScenario(t, definition))
+			editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 0 })
+			definition.Fixed.Network.Defaults.BandwidthBitsPerSecond = 8_000
+			editInitialState(&definition, func(state *scenario.StateConfig) {
+				state.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = definition.Fixed.Network.Defaults.BandwidthBitsPerSecond
+
+				state.Resources.LoadBalancer.Ingress.PacketTravelTime = definition.Fixed.Network.Defaults.PacketTravelTime
+
+				state.Resources.LoadBalancer.Ingress.QueueCapacity = test.capacity
+
+				state.Resources.LoadBalancer.ForwardingBitsPerSecond = math.MaxInt64
+			})
+			definition.Fixed.Network.Defaults.QueueCapacity = test.capacity
+			definition.Fixed.Execution.Duration = 5 * time.Millisecond
+			s := newTimelineWorld(t, definition)
 
 			// Every path gets one active packet, then waiting packets or tail drops.
 			arrivals := 0
@@ -74,7 +80,7 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 			}
 
 			// All admitted packets finish; rejected callbacks never run.
-			if err := s.engine.RunUntil(definition.Execution.Duration); err != nil {
+			if err := s.engine.RunUntil(definition.Fixed.Execution.Duration); err != nil {
 				t.Fatal(err)
 			}
 			finished := waiting
@@ -89,7 +95,7 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 			}
 
 			// A new run starts with empty physical links and empty managed FIFOs.
-			fresh := New(normalizedRuntimeScenario(t, definition))
+			fresh := newTimelineWorld(t, definition)
 			assertSimulationLinkSnapshots(t, fresh, network.Stats{})
 		})
 	}
@@ -98,15 +104,21 @@ func TestSimulationQueueSnapshots(t *testing.T) {
 // TestSimulationSharesForwardingBudget checks shared outputs and native readings.
 func TestSimulationSharesForwardingBudget(t *testing.T) {
 	definition := baseScenario()
-	definition.Workload.ClientGroups[0].Count = 0
-	definition.Resources.Backends = definition.Resources.Backends[:2]
-	definition.Network.Defaults.BandwidthBitsPerSecond = 8_000
-	definition.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = definition.Network.Defaults.BandwidthBitsPerSecond
-	definition.Resources.LoadBalancer.Ingress.PacketTravelTime = definition.Network.Defaults.PacketTravelTime
-	definition.Resources.LoadBalancer.ForwardingBitsPerSecond = 8_000
-	definition.Network.Defaults.QueueCapacity = 1
-	definition.Execution.Duration = 4 * time.Millisecond
-	s := New(normalizedRuntimeScenario(t, definition))
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups[0].Count = 0
+		state.Resources.Backends = state.Resources.Backends[:2]
+	})
+	definition.Fixed.Network.Defaults.BandwidthBitsPerSecond = 8_000
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = definition.Fixed.Network.Defaults.BandwidthBitsPerSecond
+
+		state.Resources.LoadBalancer.Ingress.PacketTravelTime = definition.Fixed.Network.Defaults.PacketTravelTime
+
+		state.Resources.LoadBalancer.ForwardingBitsPerSecond = 8_000
+	})
+	definition.Fixed.Network.Defaults.QueueCapacity = 1
+	definition.Fixed.Execution.Duration = 4 * time.Millisecond
+	s := newTimelineWorld(t, definition)
 
 	// Physical input links do not consume the LB's output forwarding budget.
 	arrivals := make(map[string]time.Duration)
@@ -148,7 +160,7 @@ func TestSimulationSharesForwardingBudget(t *testing.T) {
 	}
 	assertForwardingSnapshots(t, s, started)
 
-	if err := s.engine.RunUntil(definition.Execution.Duration); err != nil {
+	if err := s.engine.RunUntil(definition.Fixed.Execution.Duration); err != nil {
 		t.Fatal(err)
 	}
 	wantArrivals := map[string]time.Duration{
@@ -163,9 +175,9 @@ func TestSimulationSharesForwardingBudget(t *testing.T) {
 	assertForwardingSnapshots(t, s, started)
 
 	// A new simulation owns a fresh pacer and fresh counters.
-	fresh := New(normalizedRuntimeScenario(t, definition))
+	fresh := newTimelineWorld(t, definition)
 	assertForwardingSnapshots(t, fresh, network.ForwardingStats{
-		ForwardingBitsPerSecond: definition.Resources.LoadBalancer.ForwardingBitsPerSecond,
+		ForwardingBitsPerSecond: definition.States["0"].Resources.LoadBalancer.ForwardingBitsPerSecond,
 	})
 }
 
@@ -201,19 +213,21 @@ func assertSimulationLinkSnapshots(t *testing.T, s *World, want network.Stats) {
 // TestSimulationCountsTCPWireTraffic checks that real model packets use the budget.
 func TestSimulationCountsTCPWireTraffic(t *testing.T) {
 	definition := baseScenario()
-	definition.Workload.ClientGroups[0].Count = 2
-	definition.Resources.Backends = definition.Resources.Backends[:1]
-	definition.Workload.Defaults.Bytes = 1024
-	definition.Resources.LoadBalancer.ForwardingBitsPerSecond = 1_000_000
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups[0].Count = 2
+		state.Resources.Backends = state.Resources.Backends[:1]
+	})
+	definition.Fixed.Workload.Defaults.Bytes = 1024
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Resources.LoadBalancer.ForwardingBitsPerSecond = 1_000_000 })
 
 	var first worldReadings
 	for run := 0; run < 2; run++ {
-		s := New(normalizedRuntimeScenario(t, definition))
+		s := newTimelineWorld(t, definition)
 		if err := runWorld(context.Background(), s); err != nil {
 			t.Fatal(err)
 		}
 		report := readWorld(s)
-		if report.CompletedStreams != definition.Workload.ClientGroups[0].Count || report.ClosedClients != 0 {
+		if report.CompletedStreams != definition.States["0"].Workload.ClientGroups[0].Count || report.ClosedClients != 0 {
 			t.Fatalf("TCP streams did not finish: completed=%d closed=%d", report.CompletedStreams, report.ClosedClients)
 		}
 

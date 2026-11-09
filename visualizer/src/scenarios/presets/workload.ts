@@ -19,7 +19,7 @@ export const workloadPresets: readonly ScenarioPreset[] = [
         { id: 'after-horizon', startAt: 200_000_000_000 },
       ];
 
-      scenario.workload.clientGroups = waves.map(({ id, startAt }) => {
+      scenario.states['0'].workload.clientGroups = waves.map(({ id, startAt }) => {
         const group = presetClientGroup(id, 4);
         group.startAtNanoseconds = startAt;
         group.clientGapNanoseconds = 250_000_000;
@@ -45,10 +45,10 @@ export const workloadPresets: readonly ScenarioPreset[] = [
       shortStreams.stream.bytes = 4096;
       shortStreams.overrides = [0, 1, 1024, 1025].map((bytes, index) => ({
         index,
-        network: { toLoadBalancer: {}, fromLoadBalancer: {} },
+        network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
         stream: { bytes },
       }));
-      scenario.workload.clientGroups = [shortStreams, longStreams];
+      scenario.states['0'].workload.clientGroups = [shortStreams, longStreams];
 
       return scenario;
     },

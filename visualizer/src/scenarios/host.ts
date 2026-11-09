@@ -1,4 +1,6 @@
 import type { ExactInteger, Scenario, ScenarioHostConfig } from './types.ts';
+import type { V2HostConfig } from './v2Types.ts';
+import { retainResourceIds, selectedScenarioState } from './draft.ts';
 
 export type HostField = 'cores' | 'packetProcessingTimeUs' | 'queueCapacity';
 export type HostValues = Record<HostField, string>;
@@ -29,7 +31,7 @@ function microseconds(value: ExactInteger): string {
   return `${nanoseconds / 1000n}${fraction ? `.${fraction}` : ''}`;
 }
 
-export function hostValues(host?: ScenarioHostConfig): HostValues {
+export function hostValues(host?: V2HostConfig): HostValues {
   return {
     cores: String(host?.cores ?? 1),
     packetProcessingTimeUs: microseconds(host?.packetProcessingTimeNanoseconds ?? 0),
@@ -70,27 +72,27 @@ export function hostErrorKey(target: string, field: HostField): string {
   return `${target}/${field}`;
 }
 
-export function scenarioHost(scenario: Scenario, target: HostTarget): ScenarioHostConfig | undefined {
+export function scenarioHost(scenario: Scenario, target: HostTarget, selectedAt = '0'): V2HostConfig | undefined {
   return target === 'loadBalancer'
-    ? scenario.resources.loadBalancer.host
-    : scenario.resources.backends.find(backend => backendHostTarget(backend.id) === target)?.host;
+    ? selectedScenarioState(scenario, selectedAt).resources.loadBalancer.host
+    : selectedScenarioState(scenario, selectedAt).resources.backends.find(backend => backendHostTarget(backend.id) === target)?.host;
 }
 
-function targetHost(scenario: Scenario, target: HostTarget): { host?: ScenarioHostConfig } {
-  if (target === 'loadBalancer') return scenario.resources.loadBalancer;
-  const backend = scenario.resources.backends.find(entry => backendHostTarget(entry.id) === target);
+function targetHost(scenario: Scenario, target: HostTarget, selectedAt = '0'): { host?: V2HostConfig } {
+  if (target === 'loadBalancer') return selectedScenarioState(scenario, selectedAt).resources.loadBalancer;
+  const backend = selectedScenarioState(scenario, selectedAt).resources.backends.find(entry => backendHostTarget(entry.id) === target);
   if (!backend) throw new Error(`Backend ${target} no longer exists.`);
   return backend;
 }
 
-function assignHostField(host: ScenarioHostConfig, field: HostField, value: ExactInteger) {
+function assignHostField(host: V2HostConfig, field: HostField, value: ExactInteger) {
   if (field === 'packetProcessingTimeUs') host.packetProcessingTimeNanoseconds = value;
   else host[field] = value;
 }
 
 // Changing one backend leaves every other host and unrelated scenario field intact.
 export function editHostField(
-  scenario: Scenario, edits: HostEdits, target: HostTarget, field: HostField, raw: string,
+  scenario: Scenario, edits: HostEdits, target: HostTarget, field: HostField, raw: string, selectedAt = '0',
 ): { scenario: Scenario; edits: HostEdits } {
   const next = {
     values: { ...edits.values, [target]: { ...edits.values[target], [field]: raw } },
@@ -105,8 +107,8 @@ export function editHostField(
     return { scenario, edits: next };
   }
 
-  const updated = structuredClone(scenario);
-  const resource = targetHost(updated, target);
+  const updated = retainResourceIds(structuredClone(scenario), scenario);
+  const resource = targetHost(updated, target, selectedAt);
   resource.host ??= {};
   assignHostField(resource.host, field, value);
   delete next.errors[key];
@@ -114,8 +116,8 @@ export function editHostField(
 }
 
 // Blank common values mean that imported backends have different effective settings.
-export function commonBackendHostValues(scenario: Scenario): HostValues {
-  const values = scenario.resources.backends.map(backend => hostValues(backend.host));
+export function commonBackendHostValues(scenario: Scenario, selectedAt = '0'): HostValues {
+  const values = selectedScenarioState(scenario, selectedAt).resources.backends.map(backend => hostValues(backend.host));
   const first = values[0] ?? hostValues();
   return Object.fromEntries(hostFields.map(field => [
     field, values.every(value => value[field] === first[field]) ? first[field] : '',
@@ -123,17 +125,17 @@ export function commonBackendHostValues(scenario: Scenario): HostValues {
 }
 
 // This explicit action replaces backend settings, including pending individual edits.
-export function applyHostToAllBackends(scenario: Scenario, values: HostValues): Scenario {
+export function applyHostToAllBackends(scenario: Scenario, values: HostValues, selectedAt = '0'): Scenario {
   const host: ScenarioHostConfig = {};
   for (const field of hostFields) assignHostField(host, field, parseHostValue(field, values[field]));
-  const updated = structuredClone(scenario);
-  for (const backend of updated.resources.backends) backend.host = { ...host };
+  const updated = retainResourceIds(structuredClone(scenario), scenario);
+  for (const backend of selectedScenarioState(updated, selectedAt).resources.backends) backend.host = { ...host };
   return updated;
 }
 
 // A removed backend must not leave an invisible invalid edit blocking Start.
-export function retainHostEdits(scenario: Scenario, edits: HostEdits, onlyLB = false): HostEdits {
-  const backendTargets = onlyLB ? [] : scenario.resources.backends.map(backend => backendHostTarget(backend.id));
+export function retainHostEdits(scenario: Scenario, edits: HostEdits, onlyLB = false, selectedAt = '0'): HostEdits {
+  const backendTargets = onlyLB ? [] : selectedScenarioState(scenario, selectedAt).resources.backends.map(backend => backendHostTarget(backend.id));
   const targets = new Set(['loadBalancer', ...backendTargets]);
   const validErrors = new Set([...targets].flatMap(target => (
     hostFields.map(field => hostErrorKey(target, field))

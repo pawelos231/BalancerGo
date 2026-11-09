@@ -147,7 +147,7 @@ remain in the final state; reaching that time does not imply successful completi
 ### Run a full JSON scenario from CLI
 
 The CLI runs native version-2 scenario files, including every timed state.
-The current frontend still exports version 1 until its migration in E1.14.
+The frontend, library, import/export and API use the same version-2 contract.
 From the repository root, for example in PowerShell:
 
 ```powershell
@@ -162,7 +162,7 @@ speed. The runner uses the same strict decoder, validation and compiler as
 the scenario API, including decimal strings for integers outside JavaScript's
 safe range. Profiles, directional links, groups and individual overrides remain
 part of the full configuration. Every state is checked before creating the world;
-an invalid later state rejects the whole run. Version-1 CLI files are rejected.
+an invalid later state rejects the whole run. Version-1 scenario documents are rejected at every input boundary.
 
 With `-output`, the report goes into that file and stdout stays empty. Omit
 `-output` to print the report as one JSON document to stdout. Output and trace
@@ -317,11 +317,8 @@ Each client gets its own access
 and return link when it arrives; each backend also has its own pair. Groups,
 profiles and individual overrides can assign different settings in each direction.
 CLI flags create a one-state v2 document. Runnable timeline examples are in
-[examples/scenarios-v2](examples/scenarios-v2/README.md). The frontend temporarily
-uses a v1 input adapter for its form, library, import/export and HTTP Start.
-That adapter builds the same native world and retains the admitted v1 source and
-its matching hash. Its historical zero-duration runs still end at exactly zero;
-native v2 requires a positive duration.
+[examples/scenarios-v2](examples/scenarios-v2/README.md). The frontend edits and submits that same native document. Every scenario requires
+a positive duration; no legacy format or conversion fallback is accepted.
 
 Access links feed two LB input FIFOs: one for clients and one for backends.
 Both use one shared physical input link. All LB outputs share a separate
@@ -333,11 +330,7 @@ Each output has one FIFO, configured by the destination's
 
 Native v2 runs reject manual `setAlgorithm` and `spawnClient` commands at admission,
 including while Start is pending. Configuration changes belong in `states`; Stop
-remains available. The temporary v1 browser's `spawnClient` command uses the group's network and stream settings. Its
-optional `groupId` selects that group and is required when more than one group
-exists. Spawned clients arrive from the current virtual time, separated by the
-group's `clientGapNanoseconds`. Their indices follow the group's initial range,
-even when some initial clients have not arrived yet.
+remains available. The form has no manual algorithm or client-spawn controls.
 
 Scenario duration fields have explicit `Nanoseconds` JSON names and retain native
 `time.Duration` precision in Go. HTTP documents use JSON numbers for safe integers
@@ -382,8 +375,7 @@ and one complete scenario object, with a maximum body of 2 MiB.
 
 | Method | Route                               | Result                                                                                       |
 | ------ | ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| GET    | `/api/scenarios/defaults?version=2` | Native v2 scenario derived from the Go/CLI settings.                                        |
-| GET    | `/api/scenarios/defaults`           | Temporary v1 defaults for the existing browser.                                             |
+| GET    | `/api/scenarios/defaults`           | Native v2 scenario derived from the Go/CLI settings.                                        |
 | POST   | `/api/scenarios/validate`           | Canonical scenario, counts and resolved effective configuration; no model is created.        |
 | POST   | `/api/simulations`                  | `202` with `runId` and `status: "accepted"`.                                                 |
 | GET    | `/api/simulations/current`          | Run ID, lifecycle status and full canonical admitted scenario; `404` when none exists.       |
@@ -398,13 +390,13 @@ does not stop them. WS snapshots identify their run with `simulation.runId`.
 The current document remains available after completion or failure and reconnect;
 **Stop and clear** removes it. WebSocket experiment hashes identify this same full
 canonical source. Headless pacing changes do not edit its requested speed or hash.
-POST routes temporarily also accept v1 documents for the current browser.
+Every scenario route accepts only version 2 and validates the full timeline.
 
 For example, with Docker Compose running:
 
 ```powershell
 $base = 'http://localhost:8081'
-$scenario = Invoke-RestMethod "$base/api/scenarios/defaults?version=2"
+$scenario = Invoke-RestMethod "$base/api/scenarios/defaults"
 $scenario.fixed.execution.durationNanoseconds = 1000000000
 $scenario.fixed.execution.speed = 0
 $scenario.fixed.workload.defaults.bytes = 1024
@@ -416,8 +408,8 @@ Invoke-RestMethod "$base/api/simulations" -Method Post -ContentType 'application
 Invoke-RestMethod "$base/api/simulations/current"
 ```
 
-The frontend **Scenario library** has 26 presets across links, queues, loss,
-workloads, routing, edge cases, performance and reference experiments. Search or filter the catalog;
+The frontend **Scenario library** has 34 presets across TCP transport, links,
+queues, host CPU, loss, workloads, routing, edge cases, performance and reference experiments. Search or filter the catalog;
 six cards appear per page. Choose a preset and click **Validate and load preset**
 to load it into the form, then use the single **Start simulation** button.
 The catalog lives in `visualizer/src/scenarios/presets.ts`, with factories split
@@ -430,11 +422,17 @@ The [reference matrix](examples/scenarios/REFERENCE_EXPERIMENTS.md) contains eig
 60-second cases with two backends: backend 2 varies between 4/40 ms base travel
 RTT and a 1 Gbit/s/64 kbit/s return link, with 16 KiB/1 MiB per client.
 Backend 1 stays fixed; all other settings are shared across the matrix.
-Editing ordinary fields changes only their part of the scenario. Link settings
-edit network defaults; endpoint profiles and directional overrides remain intact.
+Select an existing timestamp to edit that complete state. Form edits update only
+`fixed` settings or `states[selectedAt]`; all other states remain intact. State
+timestamps are ordered numerically, including exact integers above 2^53. Link
+defaults remain fixed; endpoint profiles and directional overrides remain intact.
 With multiple groups, changing the total client count redistributes it
 proportionally and shows the resulting group counts. Existing configured
-backends are retained when resizing the list; new backends use inherited settings.
+backends are retained when resizing the selected state; new backends use inherited
+settings and IDs reserved against the entire document. Shrinking a client group
+retains historical overrides; a new group in a later state starts no earlier
+than that state. This selector edits existing states; adding and removing states
+is a later editor feature.
 Validation and Start keep their errors visible and do not change the running model.
 
 The **Simulator throughput** preset measures the simulator's real execution rate:
@@ -492,15 +490,15 @@ streams and explicit overrides returned by validation. The resolved preview is
 read-only and is not the import format. Correct invalid form values before
 validation or export. The active run's original document remains separate.
 
-Twenty-seven ready documents, their units and expected settings are described in
-[examples/scenarios/README.md](examples/scenarios/README.md). Twenty-six mirror the UI
+Thirty-five ready documents, their units and expected settings are described in
+[examples/scenarios/README.md](examples/scenarios/README.md). Thirty-four mirror the UI
 preset catalog; `advanced-overrides.json` demonstrates directional and individual
 client settings. Nanosecond fields store exact virtual time, bandwidth is in
 decimal bit/s, queue capacities count waiting packets and `bytes: -1` uses
 `packets * 1024`. Integers beyond JavaScript's safe range use decimal strings.
 
-For reproducible virtual results, retain the native file, seed, code revision
-and Go/model version, and replay runtime commands at the same virtual times.
+For reproducible virtual results, retain the full native timeline, seed, code
+revision and Go/model version. Configuration changes belong in the saved states.
 Wall time and simulator throughput depend on host load, pacing and snapshot work.
 The sliding-window model can remain limited by the receive window, round-trip
 time or sender pauses even when configured client rates sum above an LB limit;
@@ -564,7 +562,7 @@ measurement excludes framing and compression and does not measure simulation spe
 - `internal/simulation/world.go` builds the normalized runtime and connects
   endpoints. `internal/simulation/clients.go` creates clients lazily from
   compact groups. The application `runner.go` executes bounded event batches,
-  applies runtime commands between batches and publishes at real-time intervals;
+  checks cancellation between batches and publishes at real-time intervals;
   `internal/presentation` builds snapshots.
   Client access links and backend return links reach their respective input
   FIFOs, followed by one shared physical input link into the LB.
@@ -646,11 +644,7 @@ shows the same counters, with budget wait converted to milliseconds.
 
 HTTP Start carries the native scenario through the bounded Start queue to the
 simulation owner. Configuration is validated before models are created. The
-legacy WebSocket `startSimulation` remains available for compatibility. During
-a run, `setAlgorithm` and `spawnClient` are applied at virtual
-step boundaries and logged with their virtual timestamp. After a run, these
-controls are disabled until another Start. Invalid requests are reported in the
-UI; starting an already running experiment is rejected.
+WebSocket `startSimulation` accepts the same complete native scenario document. Manual `setAlgorithm` and `spawnClient` mutations are rejected; declare changes in scenario states before Start. Stop remains available. Invalid requests are reported in the UI; starting an already running experiment is rejected.
 
 Command names are defined once in `simulator/internal/contract/commands.go` as `CommandType`
 constants. After adding or renaming an action, run `go generate ./http` from
@@ -675,8 +669,8 @@ window. ACK identifies the next missing byte and can jump across buffered ranges
 when a gap is filled. Duplicate and overlapping data count only newly received
 bytes; those bytes may be counted before they are cumulatively acknowledged.
 
-Set `tcp.receiveBufferBytes` in a scenario, use the **TCP receive buffer per
-connection** form field, or pass `-tcp-receive-buffer` with the legacy CLI.
+Set `fixed.tcp.receiveBufferBytes` in a scenario, use the **TCP receive buffer per
+connection** form field, or pass `-tcp-receive-buffer` with the CLI.
 The default is 65535 bytes, and supported capacities are 1..65535 without window
 scaling. An omitted scenario setting inherits the default; explicit zero is
 invalid. Received contiguous bytes are consumed immediately, so the advertised
@@ -704,7 +698,7 @@ closing or terminated clients report zero pending payload after abandoning their
 
 ### Selective acknowledgments
 
-`tcp.sackEnabled` enables the optional SACK profile; its default is `false`.
+`fixed.tcp.sackEnabled` enables the optional SACK profile; its default is `false`.
 Use **Selective acknowledgements (SACK)** in the TCP traffic form or
 `-sack-enabled=true` in the CLI. The effective choice appears in
 `result.TCP.SACKEnabled` and in the experiment's scenario manifest.
@@ -736,7 +730,7 @@ options consume modeled wire bytes: an offered SYN is 44 bytes, an ACK with one
 block is 52 bytes, and one with four blocks is 76 bytes. ACKs are still immediate;
 delayed ACK remains a separate planned mechanism.
 
-The **TCP congestion control** form section configures `tcp.congestionControl`:
+The **TCP congestion control** form section configures `fixed.tcp.congestionControl`:
 
 - `mode`: `reno` by default, `newReno` for partial-ACK recovery without SACK,
   `tahoe` for the historical loss-response comparison,
@@ -927,7 +921,7 @@ retried, adaptive data starts with at least 3 s, capped by the configured maximu
 These rules follow the selected [RFC 6298](https://www.rfc-editor.org/rfc/rfc6298.html)
 profile; fixed mode deliberately retains its configured base instead.
 
-The **TCP timers** form section configures `tcp.rto.mode` (`adaptive` or `fixed`),
+The **TCP timers** form section configures `fixed.tcp.rto.mode` (`adaptive` or `fixed`),
 `exponentialBackoff`, and `initialTimeoutNanoseconds`, `minimumTimeoutNanoseconds`,
 `maximumTimeoutNanoseconds`. Limits must be positive and ordered
 `minimum <= initial <= maximum`. Mode and backoff are independent: fixed mode
@@ -936,7 +930,7 @@ still collecting safe RTT measurements. Legacy CLI equivalents are
 `-tcp-rto-mode`, `-tcp-rto-backoff`, `-tcp-rto-initial`, `-tcp-rto-minimum`
 and `-tcp-rto-maximum`.
 
-Client idle cleanup is separate from retransmission: `tcp.clientIdleTimeoutNanoseconds`
+Client idle cleanup is separate from retransmission: `fixed.tcp.clientIdleTimeoutNanoseconds`
 defaults to 20 s; `-tcp-idle-timeout` is its CLI equivalent. Zero disables it.
 Backend cleanup and LB mapping expiry have their own policies below. When comparing
 timer modes, keep these policies equal: an endpoint's idle timeout can terminate it,
@@ -996,7 +990,7 @@ effective TCP report. Zero disables either limit. Closing uses its own timers.
 The LB keeps only a phase and last activity time for each flow mapping. Its four
 idle limits are independent of endpoint RTO, MSL and FIN-wait settings:
 
-| Observed phase | Native field under `resources.loadBalancer` | Default |
+| Observed phase | Native field under `states[at].resources.loadBalancer.mappingTimeouts` | Default |
 |---|---|---:|
 | `halfOpen`: new client SYN | `halfOpenIdleTimeoutNanoseconds` | 5 s |
 | `established`: client ACK or DATA+ACK | `establishedIdleTimeoutNanoseconds` | 50 s |
@@ -1060,7 +1054,7 @@ final ACK and retains TIME_WAIT so a repeated peer FIN can receive another ACK.
 ACK and FIN can be combined, and a peer FIN ends only that peer's sending half.
 Accepted client payload can still finish after an early backend FIN.
 
-The **TCP closing** form section configures `tcp.close`:
+The **TCP closing** form section configures `fixed.tcp.close`:
 
 - `mslNanoseconds`: default 30 seconds, so TIME_WAIT lasts 60 virtual seconds;
 - `finWaitTimeoutNanoseconds`: default 60 seconds waiting for the peer FIN
@@ -1226,3 +1220,6 @@ optimization, while also checking that the simulated outcomes remain comparable.
 
 Dependencies, build output, runtime traces, and local repository backups are
 excluded from Git by the root `.gitignore`.
+
+
+Current benchmark scripts require native scenario version 2, including archived campaign inputs. Historical version-1 archives remain unchanged and require their original simulator revision; replay does not convert them.

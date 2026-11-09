@@ -44,12 +44,15 @@ func TestWorldRTOBlackholedSYNIdlePolicies(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := scenarioRuntimeDefinition()
-			input.Execution.Duration = test.until
-			input.Resources.Backends = nil
-			input.TCP.ClientIdleTimeout = &test.clientIdle
-			input.Resources.LoadBalancer.HalfOpenIdleTimeout = &test.halfOpenIdle
-			input.Resources.LoadBalancer.EstablishedIdleTimeout = &test.establishedIdle
-			world := New(normalizedRuntimeScenario(t, input))
+			input.Fixed.Execution.Duration = test.until
+			editInitialState(&input, func(state *scenario.StateConfig) { state.Resources.Backends = nil })
+			input.Fixed.TCP.ClientIdleTimeout = &test.clientIdle
+			editInitialState(&input, func(state *scenario.StateConfig) {
+				state.Resources.LoadBalancer.MappingTimeouts.HalfOpenIdleTimeout = &test.halfOpenIdle
+
+				state.Resources.LoadBalancer.MappingTimeouts.EstablishedIdleTimeout = &test.establishedIdle
+			})
+			world := newTimelineWorld(t, input)
 			t.Cleanup(world.Stop)
 
 			runIngressUntil(t, world, test.until)
@@ -78,13 +81,16 @@ func TestWorldRTOEstablishedIdlePolicy(t *testing.T) {
 	for _, establishedIdle := range []time.Duration{0, 2 * time.Second} {
 		t.Run(establishedIdle.String(), func(t *testing.T) {
 			input := scenarioRuntimeDefinition()
-			input.Execution.Duration = 70 * time.Second
-			input.Resources.Backends = input.Resources.Backends[:1]
-			input.TCP.ClientIdleTimeout = scenarioRuntimeValue(time.Duration(0))
-			input.Resources.LoadBalancer.HalfOpenIdleTimeout = scenarioRuntimeValue(time.Millisecond)
-			input.Resources.LoadBalancer.EstablishedIdleTimeout = &establishedIdle
-			input.Workload.Defaults = scenario.StreamConfig{Bytes: 1, PacketGap: 2 * time.Minute}
-			world := New(normalizedRuntimeScenario(t, input))
+			input.Fixed.Execution.Duration = 70 * time.Second
+			editInitialState(&input, func(state *scenario.StateConfig) { state.Resources.Backends = state.Resources.Backends[:1] })
+			input.Fixed.TCP.ClientIdleTimeout = scenarioRuntimeValue(time.Duration(0))
+			editInitialState(&input, func(state *scenario.StateConfig) {
+				state.Resources.LoadBalancer.MappingTimeouts.HalfOpenIdleTimeout = scenarioRuntimeValue(time.Millisecond)
+
+				state.Resources.LoadBalancer.MappingTimeouts.EstablishedIdleTimeout = &establishedIdle
+			})
+			input.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 1, PacketGap: 2 * time.Minute}
+			world := newTimelineWorld(t, input)
 			t.Cleanup(world.Stop)
 
 			// Handshake finishes quickly; no data or ACK traffic refreshes its idle clock.
@@ -98,7 +104,7 @@ func TestWorldRTOEstablishedIdlePolicy(t *testing.T) {
 			}
 
 			if establishedIdle == 0 {
-				runIngressUntil(t, world, input.Execution.Duration)
+				runIngressUntil(t, world, input.Fixed.Execution.Duration)
 				if observed := onlyRTOClient(t, world); !observed.Active {
 					t.Fatalf("disabled established idle timer still closed the client: %+v", observed)
 				}
@@ -128,15 +134,15 @@ func TestWorldRTOMeasuresPhysicalTopologyAndUsesFixedConfiguration(t *testing.T)
 	for _, mode := range []model.RTOMode{model.RTOAdaptive, model.RTOFixed} {
 		t.Run(string(mode), func(t *testing.T) {
 			input := scenarioRuntimeDefinition()
-			input.Execution.Duration = time.Second
-			input.Resources.Backends = input.Resources.Backends[:1]
-			input.Network.Defaults.PacketTravelTime = 10 * time.Millisecond
-			input.Workload.Defaults.Bytes = 1
+			input.Fixed.Execution.Duration = time.Second
+			editInitialState(&input, func(state *scenario.StateConfig) { state.Resources.Backends = state.Resources.Backends[:1] })
+			input.Fixed.Network.Defaults.PacketTravelTime = 10 * time.Millisecond
+			input.Fixed.Workload.Defaults.Bytes = 1
 
 			wantTimeout := 200 * time.Millisecond
 			if mode == model.RTOFixed {
 				wantTimeout = 375 * time.Millisecond
-				input.TCP.RTO = scenario.RTOConfig{
+				input.Fixed.TCP.RTO = scenario.RTOConfig{
 					Mode:               scenarioRuntimeValue(string(mode)),
 					ExponentialBackoff: scenarioRuntimeValue(false),
 					InitialTimeout:     &wantTimeout,
@@ -144,9 +150,9 @@ func TestWorldRTOMeasuresPhysicalTopologyAndUsesFixedConfiguration(t *testing.T)
 					MaximumTimeout:     scenarioRuntimeValue(2 * time.Second),
 				}
 			}
-			world := New(normalizedRuntimeScenario(t, input))
+			world := newTimelineWorld(t, input)
 			t.Cleanup(world.Stop)
-			runIngressUntil(t, world, input.Execution.Duration)
+			runIngressUntil(t, world, input.Fixed.Execution.Duration)
 
 			observed := onlyRTOClient(t, world)
 			state := observed.State.RTO

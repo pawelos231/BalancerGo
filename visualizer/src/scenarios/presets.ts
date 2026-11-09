@@ -13,6 +13,7 @@ import { hostPresets } from './presets/host.ts';
 export { presetCategories } from './scenarioPresetTypes.ts';
 export type { ScenarioPreset } from './scenarioPresetTypes.ts';
 
+// Every builder returns a native v2 document; no format conversion is required.
 // Pin the largest benchmark while retaining the original presets' relative order.
 export const scenarioPresets = [
   ...performancePresets,

@@ -13,9 +13,9 @@ func TestWorldNewRenoRepairsTwoLossesWithoutTimeout(t *testing.T) {
 	definition := congestionScenario()
 	mode := "newReno"
 	initialSegments := 8
-	definition.TCP.CongestionControl.Mode = &mode
-	definition.TCP.CongestionControl.InitialWindowSegments = &initialSegments
-	world := New(normalizedRuntimeScenario(t, definition))
+	definition.Fixed.TCP.CongestionControl.Mode = &mode
+	definition.Fixed.TCP.CongestionControl.InitialWindowSegments = &initialSegments
+	world := newTimelineWorld(t, definition)
 
 	dropped := map[uint64]bool{1025: false, 3073: false}
 	runtime := interceptCongestionTraffic(t, world, func(packet model.Packet) bool {

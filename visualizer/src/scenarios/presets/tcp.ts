@@ -11,8 +11,8 @@ export const tcpPresets: readonly ScenarioPreset[] = [
       'A second segment cannot follow before the ACK. Disable delayed ACK to compare transfer rates.',
     build(defaults) {
       const scenario = isolatedExperiment(defaults);
-      scenario.tcp = {
-        ...scenario.tcp,
+      scenario.fixed.tcp = {
+        ...scenario.fixed.tcp,
         receiveBufferBytes: 65535,
         sackEnabled: false,
         ECNenabled: false,

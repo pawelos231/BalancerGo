@@ -10,18 +10,20 @@ import (
 // Queue marks and TCP reactions must reach both CLI reports and topology frames.
 func TestECNProjection(t *testing.T) {
 	definition := projectionScenario()
-	definition.Execution.Duration = 2 * time.Second
+	definition.Fixed.Execution.Duration = 2 * time.Second
 	enabled := true
-	definition.TCP.ECNEnabled = &enabled
-	definition.Workload.Defaults = scenario.StreamConfig{Bytes: 64 * 1024}
-	definition.Workload.ClientGroups[0].Count = 4
-	definition.Network.Defaults.QueueCapacity = 64
-	definition.Network.Defaults.QueuePolicy = "threshold"
-	definition.Network.Defaults.CongestionThresholdPercent = 10
-	definition.Network.Defaults.CongestionSignalProbability = 1
+	definition.Fixed.TCP.ECNEnabled = &enabled
+	definition.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 64 * 1024}
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 4 })
+	definition.Fixed.Network.Defaults.QueueCapacity = 64
+	definition.Fixed.Network.Defaults.QueuePolicy = "threshold"
+	definition.Fixed.Network.Defaults.CongestionThresholdPercent = 10
+	definition.Fixed.Network.Defaults.CongestionSignalProbability = 1
 	// A slow backend output builds a queue without congesting ACK return links.
 	bandwidth := int64(1_000_000)
-	definition.Resources.Backends[0].Network.FromLoadBalancer.BandwidthBitsPerSecond = &bandwidth
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.Backends[0].Network.FromLoadBalancer.BandwidthBitsPerSecond = &bandwidth
+	})
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, world.EndTime())
 

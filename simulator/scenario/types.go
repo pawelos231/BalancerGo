@@ -5,21 +5,9 @@ package scenario
 import "time"
 
 const (
-	Version     = 1
 	MaxClients  = (1 << 24) - 1
 	MaxBackends = 10000
 )
-
-// Scenario describes one experiment, from clients and backends to link settings.
-// Normalize checks it and fills in inherited settings.
-type Scenario struct {
-	Version   int             `json:"version"`
-	Execution ExecutionConfig `json:"execution"`
-	TCP       TCPConfig       `json:"tcp"`
-	Network   NetworkConfig   `json:"network"`
-	Resources ResourcesConfig `json:"resources"`
-	Workload  WorkloadConfig  `json:"workload"`
-}
 
 // TCPConfig separates transport timers and receive buffering from network links.
 // Omitted settings inherit defaults; a zero idle timeout disables idle cleanup.
@@ -133,51 +121,12 @@ type EndpointNetworkConfig struct {
 	FromLoadBalancer LinkPatch `json:"fromLoadBalancer"`
 }
 
-// ResourcesConfig lists the balancer and backend servers in the experiment.
-// Normalize checks their IDs and resolves each backend's links.
-type ResourcesConfig struct {
-	LoadBalancer LoadBalancerConfig `json:"loadBalancer"`
-	Backends     []BackendConfig    `json:"backends"`
-}
-
-// LoadBalancerConfig separates the shared input from backend selection and forwarding.
-// Ingress.QueueCapacity sizes each input queue; outputs use endpoint settings.
-type LoadBalancerConfig struct {
-	ID                      string         `json:"id"`
-	Algorithm               string         `json:"algorithm"`
-	Host                    HostConfig     `json:"host,omitempty"`
-	Ingress                 LinkConfig     `json:"ingress"`
-	ForwardingBitsPerSecond int64          `json:"forwardingBitsPerSecond"`
-	HalfOpenIdleTimeout     *time.Duration `json:"halfOpenIdleTimeoutNanoseconds,omitempty"`
-	EstablishedIdleTimeout  *time.Duration `json:"establishedIdleTimeoutNanoseconds,omitempty"`
-	ClosingIdleTimeout      *time.Duration `json:"closingIdleTimeoutNanoseconds,omitempty"`
-	ResetIdleTimeout        *time.Duration `json:"resetIdleTimeoutNanoseconds,omitempty"`
-}
-
-// BackendConfig identifies one server and its network settings.
-// Its address and port describe the destination for assigned connections.
-type BackendConfig struct {
-	ID      string                `json:"id"`
-	Name    string                `json:"name,omitempty"`
-	Address string                `json:"address"`
-	Port    uint16                `json:"port"`
-	Network EndpointNetworkConfig `json:"network"`
-	Host    HostConfig            `json:"host,omitempty"`
-}
-
 // HostConfig limits packet processing separately from links and TCP buffering.
 // Zero processing time disables the CPU model; omitted values use safe defaults.
 type HostConfig struct {
 	Cores                *int           `json:"cores,omitempty"`
 	PacketProcessingTime *time.Duration `json:"packetProcessingTimeNanoseconds,omitempty"`
 	QueueCapacity        *int           `json:"queueCapacity,omitempty"`
-}
-
-// WorkloadConfig describes how much data clients send and how they are grouped.
-// Stream defaults apply unless a group or individual client overrides them.
-type WorkloadConfig struct {
-	Defaults     StreamConfig  `json:"defaults"`
-	ClientGroups []ClientGroup `json:"clientGroups"`
 }
 
 // StreamConfig describes a client's payload size and pause between data segments.

@@ -12,9 +12,11 @@ import (
 func TestHostCountersAreProjectedWithoutChangingTheWorld(t *testing.T) {
 	definition := projectionScenario()
 	cores, queue, cost := 1, 2, time.Millisecond
-	definition.Resources.Backends[0].Host = scenario.HostConfig{
-		Cores: &cores, PacketProcessingTime: &cost, QueueCapacity: &queue,
-	}
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.Backends[0].Host = scenario.HostConfig{
+			Cores: &cores, PacketProcessingTime: &cost, QueueCapacity: &queue,
+		}
+	})
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, world.EndTime())
 	before := world.EventsExecuted()

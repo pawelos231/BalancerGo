@@ -188,9 +188,10 @@ func normalizeIdleTimeout(
 
 // normalizeLoadBalancer resolves an independent idle limit for each mapping phase.
 func normalizeLoadBalancer(
-	config LoadBalancerConfig,
+	config LoadBalancerStateConfig,
+	id string,
 	duration time.Duration,
-	path, timeoutPath string,
+	path string,
 ) (NormalizedLoadBalancerConfig, error) {
 	if err := validateLoadBalancer(config, path); err != nil {
 		return NormalizedLoadBalancerConfig{}, err
@@ -199,8 +200,9 @@ func normalizeLoadBalancer(
 	if err != nil {
 		return NormalizedLoadBalancerConfig{}, err
 	}
+	timeoutPath := path + ".mappingTimeouts"
 	halfOpen, err := normalizeIdleTimeout(
-		config.HalfOpenIdleTimeout,
+		config.MappingTimeouts.HalfOpenIdleTimeout,
 		model.DefaultLBHalfOpenIdleTimeout,
 		timeoutPath+".halfOpenIdleTimeoutNanoseconds",
 	)
@@ -208,7 +210,7 @@ func normalizeLoadBalancer(
 		return NormalizedLoadBalancerConfig{}, err
 	}
 	established, err := normalizeIdleTimeout(
-		config.EstablishedIdleTimeout,
+		config.MappingTimeouts.EstablishedIdleTimeout,
 		model.DefaultLBEstablishedIdleTimeout,
 		timeoutPath+".establishedIdleTimeoutNanoseconds",
 	)
@@ -216,7 +218,7 @@ func normalizeLoadBalancer(
 		return NormalizedLoadBalancerConfig{}, err
 	}
 	closing, err := normalizeIdleTimeout(
-		config.ClosingIdleTimeout,
+		config.MappingTimeouts.ClosingIdleTimeout,
 		model.DefaultLBClosingIdleTimeout,
 		timeoutPath+".closingIdleTimeoutNanoseconds",
 	)
@@ -224,7 +226,7 @@ func normalizeLoadBalancer(
 		return NormalizedLoadBalancerConfig{}, err
 	}
 	reset, err := normalizeIdleTimeout(
-		config.ResetIdleTimeout,
+		config.MappingTimeouts.ResetIdleTimeout,
 		model.DefaultLBResetIdleTimeout,
 		timeoutPath+".resetIdleTimeoutNanoseconds",
 	)
@@ -232,7 +234,7 @@ func normalizeLoadBalancer(
 		return NormalizedLoadBalancerConfig{}, err
 	}
 	return NormalizedLoadBalancerConfig{
-		ID:                      config.ID,
+		ID:                      id,
 		Algorithm:               config.Algorithm,
 		Host:                    host,
 		Ingress:                 config.Ingress,

@@ -366,7 +366,7 @@ func TestScenarioCLICancellation(t *testing.T) {
 
 // A large seed exercises exact integer handling; slow playback must be ignored.
 func scenarioCLIDefinition() scenario.ScenarioV2 {
-	input := legacyTestConfiguration().scenarioDefinitionV2()
+	input := testConfiguration().scenarioDefinitionV2()
 	input.Fixed.Execution.Duration = 500 * time.Millisecond
 	input.Fixed.Network.Defaults = scenario.LinkConfig{BandwidthBitsPerSecond: 8_000_000, QueueCapacity: 32}
 	state := input.States["0"]

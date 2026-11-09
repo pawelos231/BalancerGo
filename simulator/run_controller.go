@@ -23,8 +23,7 @@ const (
 	spawnCommand
 )
 
-// runtimeCommand keeps decoding at the existing virtual boundary. Only the
-// input adapter interprets Payload; World receives a typed operation.
+// runtimeCommand carries Start input or an addressed Stop to the run owner.
 type runtimeCommand struct {
 	kind      commandKind
 	Payload   []byte
@@ -50,8 +49,7 @@ var (
 // Only the simulation owner creates the world from this request.
 type startRequest struct {
 	runID      string
-	legacy     *runtimeCommand
-	scenario   *scenario.Normalized
+	command    *runtimeCommand
 	plan       *scenario.CompiledV2
 	experiment contract.ExperimentContext
 }
@@ -59,7 +57,6 @@ type startRequest struct {
 // runController coordinates I/O requests without accessing live models.
 type runController struct {
 	mu            sync.Mutex
-	commands      chan runtimeCommand
 	starts        chan startRequest
 	stops         chan *stopRequest
 	serviceCtx    context.Context
@@ -68,20 +65,18 @@ type runController struct {
 	cancelRun     context.CancelFunc
 	reservedRunID string // Includes accepted starts whose model has not been created yet.
 	pendingStop   *stopRequest
-	nativeRun     bool
 }
 
 func newRunController(ctx context.Context) *runController {
 	return &runController{
-		commands:   make(chan runtimeCommand, 64),
 		starts:     make(chan startRequest, 1),
 		stops:      make(chan *stopRequest, 1),
 		serviceCtx: ctx,
 	}
 }
 
-// submit checks application requests and queues Start/runtime commands for the
-// simulation owner. Stop cancels the run and signals the owner to clear its state.
+// submit admits Start and Stop; timeline changes belong in the scenario document.
+// Stop cancels the run and signals the owner to clear its state.
 func (c *runController) submit(ctx context.Context, command runtimeCommand) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -96,25 +91,17 @@ func (c *runController) submit(ctx context.Context, command runtimeCommand) erro
 	case stopCommand:
 		return c.enqueueStop(command)
 	case startCommand:
-		_, err := c.enqueueStart(startRequest{legacy: &command}, nil)
+		_, err := c.enqueueStart(startRequest{command: &command}, nil)
 		return err
 	case algorithmCommand, spawnCommand:
 		if c.cancelRun == nil || c.pendingStop != nil {
 			return errors.New("start the simulation before sending a command")
 		}
-		if c.nativeRun {
-			return simulation.ErrTimelineManualMutation
-		}
+		return simulation.ErrTimelineManualMutation
 	default:
 		return fmt.Errorf("unsupported application command: %d", command.kind)
 	}
 
-	select {
-	case c.commands <- command:
-		return nil
-	default:
-		return errCommandQueueFull
-	}
 }
 
 // startTimeline admits an immutable plan and retains the same canonical source.
@@ -140,26 +127,6 @@ func (c *runController) startTimeline(
 	return c.enqueueStart(request, document)
 }
 
-// startScenario reserves the same start slot as WS, independent of request lifetime.
-func (c *runController) startScenario(
-	ctx context.Context,
-	document []byte,
-	resolved scenario.Normalized,
-) (runReceipt, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return runReceipt{}, err
-	}
-	request := startRequest{
-		scenario: &resolved,
-		experiment: experimentContext(document, contract.ExperimentExecution{
-			Speed: resolved.Execution.Speed,
-		}),
-	}
-	return c.enqueueStart(request, document)
-}
-
 // enqueueStart requires the control lock; all transports use this admission check.
 func (c *runController) enqueueStart(request startRequest, document []byte) (runReceipt, error) {
 	if c.serviceCtx.Err() != nil {
@@ -178,7 +145,6 @@ func (c *runController) enqueueStart(request startRequest, document []byte) (run
 	select {
 	case c.starts <- request:
 		c.reservedRunID = runID
-		c.nativeRun = request.plan != nil
 		if document != nil {
 			c.current = &runRecord{
 				RunID:      runID,
@@ -204,7 +170,7 @@ func newRunID() (string, error) {
 	return "run-" + hex.EncodeToString(randomBytes[:]), nil
 }
 
-// rememberRun records a validated legacy start without exposing model references.
+// rememberRun records a validated WebSocket start without exposing model references.
 func (c *runController) rememberRun(
 	runID string,
 	document []byte,
@@ -284,14 +250,10 @@ func (c *runController) finishRunLocked() {
 		c.cancelRun()
 	}
 	c.runCtx, c.cancelRun = nil, nil
-	c.nativeRun = false
 	if c.pendingStop == nil {
 		c.reservedRunID = ""
 	}
 	// Submission uses the same lock, so old commands cannot enter the next run.
-	for len(c.commands) > 0 {
-		<-c.commands
-	}
 	for len(c.starts) > 0 {
 		<-c.starts
 	}

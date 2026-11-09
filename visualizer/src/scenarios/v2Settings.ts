@@ -1,6 +1,6 @@
 import type {
   ResolvedLinks,
-  Scenario,
+  ScenarioExecution,
   ScenarioLinkConfig,
   ScenarioStream,
 } from './types.ts';
@@ -16,7 +16,7 @@ import { validateID } from './v2Identity.ts';
 import { INT64_MAX } from './v2Values.ts';
 
 // Check virtual run limits separately from real-time playback and UI refreshes.
-export function validateExecution(config: Scenario['execution'], path: string): void {
+export function validateExecution(config: ScenarioExecution, path: string): void {
   if (BigInt(config.durationNanoseconds) <= 0n) {
     throw new Error(`${path}.durationNanoseconds: must be positive`);
   }

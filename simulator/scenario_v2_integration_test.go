@@ -179,7 +179,7 @@ func assertNativeManualCommandsRejected(t *testing.T, control *runController) {
 			t.Fatalf("native %s returned %v", command.Type, err)
 		}
 	}
-	if len(control.commands) != 0 || control.contextForRun().Err() != nil {
+	if control.contextForRun().Err() != nil {
 		t.Fatal("rejected manual mutation changed the active run")
 	}
 }
@@ -230,47 +230,16 @@ func TestScenarioV2CommandsAreBlockedBeforeAndAfterWorldCreation(t *testing.T) {
 	})
 }
 
-func TestLegacyZeroDurationKeepsOriginalSourceAndHash(t *testing.T) {
-	for _, transport := range []string{"HTTP", "WS"} {
-		t.Run(transport, func(t *testing.T) {
-			h := newScenarioHarness(t)
-			var source []byte
-			if transport == "HTTP" {
-				input := h.defaults.scenarioDefinition()
-				input.Execution.Duration, input.Execution.Speed = 0, 0
-				document, err := scenario.EncodeDocument(input)
-				if err != nil {
-					t.Fatal(err)
-				}
-				source = document
-				request := bytes.Replace(document, []byte(`"version":1`), []byte(`"version":"\u0031"`), 1)
-				scenarioRequest(t, h.server, http.MethodPost, "/api/simulations", request, http.StatusAccepted)
-			} else if err := h.socket.WriteJSON(contract.Envelope{
-				Type: contract.StartSimulation, Payload: []byte(`{"durationSeconds":0,"speed":0}`),
-			}); err != nil {
-				t.Fatal(err)
-			}
-			final := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
-				return snapshot.Simulation.Status == "finished"
-			})
-			body := scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusOK)
-			var record contract.RunRecord
-			if err := json.Unmarshal(body, &record); err != nil {
-				t.Fatal(err)
-			}
-			if source != nil && !bytes.Equal(record.Scenario, source) {
-				t.Fatal("legacy HTTP admission changed its canonical source")
-			}
-			stored, err := scenario.DecodeDocument(record.Scenario)
-			if err != nil || stored.Version != scenario.Version || stored.Execution.Duration != 0 ||
-				final.Simulation.VirtualTimeSeconds != 0 {
-				t.Fatalf("legacy zero duration changed: source=%+v, time=%g, err=%v",
-					stored.Execution, final.Simulation.VirtualTimeSeconds, err)
-			}
-			assertInteractiveExperiment(t, record.Scenario, 0, record.Experiment)
-			if final.Simulation.Experiment == nil || !reflect.DeepEqual(*final.Simulation.Experiment, record.Experiment) {
-				t.Fatal("legacy WS metadata does not identify its archived v1 source")
-			}
-		})
+func TestScenarioInputsRejectVersionOneAndFlatWebSocketSettings(t *testing.T) {
+	for _, document := range [][]byte{[]byte(`{"version":1}`), []byte(`{"durationSeconds":0,"speed":0}`)} {
+		_, err := prepareStart(startRequest{command: &runtimeCommand{Payload: document}}, testConfiguration())
+		if err == nil {
+			t.Fatalf("obsolete input was accepted: %s", document)
+		}
+	}
+	h := newScenarioHarness(t)
+	scenarioRequest(t, h.server, http.MethodPost, "/api/simulations", []byte(`{"version":1}`), http.StatusBadRequest)
+	if h.control.currentRun() != nil {
+		t.Fatal("rejected obsolete input reserved a run")
 	}
 }

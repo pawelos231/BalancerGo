@@ -49,9 +49,9 @@ func readTelemetryFrame(
 }
 
 // startTelemetryScenario uses real HTTP admission and returns its run identity.
-func startTelemetryScenario(t *testing.T, h *scenarioHarness, input scenario.Scenario) contract.RunReceipt {
+func startTelemetryScenario(t *testing.T, h *scenarioHarness, input scenario.ScenarioV2) contract.RunReceipt {
 	t.Helper()
-	document, err := scenario.EncodeDocument(input)
+	document, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,17 +188,28 @@ func assertCompactTelemetry(t *testing.T, frame telemetryFrame) {
 // TestTelemetryTopologyRevisionLifecycle separates structural changes from counters.
 func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Duration = 2 * time.Second
-	input.Execution.Speed = 1
-	input.Execution.SnapshotInterval = 20 * time.Millisecond
-	input.Workload.Defaults.Bytes = 1 << 30
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Duration = 2 * time.Second
+	input.Fixed.Execution.Speed = 1
+	input.Fixed.Execution.SnapshotInterval = 20 * time.Millisecond
+	input.Fixed.Workload.Defaults.Bytes = 1 << 30
 	// Keep transfers active without exhausting the event budget before the 500 ms arrival.
-	input.Workload.Defaults.PacketGap = 5 * time.Millisecond
-	input.Workload.ClientGroups = []scenario.ClientGroup{
-		{ID: "initial", Count: 1},
-		{ID: "later", Count: 1, StartAt: 500 * time.Millisecond},
+	input.Fixed.Workload.Defaults.PacketGap = 5 * time.Millisecond
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups = []scenario.ClientGroup{
+			{ID: "initial", Count: 1},
+			{ID: "later", Count: 1, StartAt: 500 * time.Millisecond},
+		}
+		input.States["0"] = initialState
 	}
+	// The timeline adds one group before the independently scheduled later arrival.
+	future := input.States["0"]
+	future.Workload.ClientGroups = append([]scenario.ClientGroup(nil), future.Workload.ClientGroups...)
+	future.Workload.ClientGroups = append(future.Workload.ClientGroups, scenario.ClientGroup{
+		ID: "extra", Count: 1, StartAt: 200 * time.Millisecond,
+	})
+	input.States["200000000"] = future
 	receipt := startTelemetryScenario(t, h, input)
 	first := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && len(snapshot.Topology.Nodes) == 4
@@ -207,34 +218,19 @@ func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 	assertTelemetryReferences(t, first.snapshot, topologyDocument(t, h))
 	assertCompactTelemetry(t, first)
 
-	// Metrics and runtime routing policy do not create new resource definitions.
+	// Metrics alone do not create new resource definitions.
 	next := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.VirtualTimeSeconds > first.snapshot.Simulation.VirtualTimeSeconds
 	})
 	if next.snapshot.Topology.Revision != initialRevision || reflect.DeepEqual(next.data, first.data) {
 		t.Fatal("changing measurements did not retain a stable definition revision")
 	}
-	command := contract.Envelope{Type: contract.SetAlgorithm, Payload: []byte(`{"Name":"random"}`)}
-	if err := h.socket.WriteJSON(command); err != nil {
-		t.Fatal(err)
-	}
-	changed := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
-		return snapshot.Simulation.Algorithm == "random"
-	})
-	if changed.snapshot.Topology.Revision != initialRevision {
-		t.Fatal("runtime algorithm changed the static graph revision")
-	}
-
-	// Spawn publishes its new definition before the corresponding live snapshot.
-	command = contract.Envelope{Type: contract.SpawnClient, Payload: []byte(`{"Count":1,"groupId":"initial"}`)}
-	if err := h.socket.WriteJSON(command); err != nil {
-		t.Fatal(err)
-	}
+	// The configuration commit publishes definitions before its first client sample.
 	spawned := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return len(snapshot.Topology.Nodes) == 5
 	})
 	if spawned.snapshot.Simulation.RunID != receipt.RunID || spawned.snapshot.Topology.Revision == initialRevision {
-		t.Fatal("Spawn lost the run identity or retained an outdated definition")
+		t.Fatal("Timeline growth lost the run identity or retained an outdated definition")
 	}
 	assertTelemetryReferences(t, spawned.snapshot, topologyDocument(t, h))
 	copy := h.publication.CurrentTopology()
@@ -243,7 +239,7 @@ func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 		t.Fatal("HTTP topology cache exposed mutable bytes")
 	}
 
-	// A scheduled arrival changes membership independently of runtime commands.
+	// A scheduled arrival changes membership independently of the group insertion.
 	later := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return len(snapshot.Topology.Nodes) == 6
 	})
@@ -268,11 +264,15 @@ func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 // TestTelemetryFinishedRunCanReconnect keeps the last sample and its definitions together.
 func TestTelemetryFinishedRunCanReconnect(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Duration = 150 * time.Millisecond
-	input.Execution.Speed = 0
-	input.Workload.Defaults.Bytes = 0
-	input.Workload.ClientGroups[0].Count = 1
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Duration = 150 * time.Millisecond
+	input.Fixed.Execution.Speed = 0
+	input.Fixed.Workload.Defaults.Bytes = 0
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 1
+		input.States["0"] = initialState
+	}
 	receipt := startTelemetryScenario(t, h, input)
 	finished := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
@@ -302,7 +302,7 @@ func TestTelemetryFinishedRunCanReconnect(t *testing.T) {
 
 // TestTelemetryPayloadSize compares actual JSON for the same active model state.
 func TestTelemetryPayloadSize(t *testing.T) {
-	cfg := legacyTestConfiguration()
+	cfg := testConfiguration()
 	cfg.clients = 2000
 	cfg.streamBytes = 1 << 30
 	cfg.queue = 4096

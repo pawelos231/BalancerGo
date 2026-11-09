@@ -18,19 +18,19 @@ function backendsScenario() {
 // Omitted CPU is ideal. Setting 10 microseconds writes exactly 10,000 nanoseconds.
 test('host settings preserve omission and edit only their selected native host', () => {
   const original = backendsScenario();
-  assert.deepEqual(hostValues(original.resources.loadBalancer.host), {
+  assert.deepEqual(hostValues(original.states['0'].resources.loadBalancer.host), {
     cores: '1', packetProcessingTimeUs: '0', queueCapacity: '1024',
   });
-  const backendID = original.resources.backends[1].id;
+  const backendID = original.states['0'].resources.backends[1].id;
   const changed = editHostField(
     original, emptyHostEdits(), backendHostTarget(backendID), 'packetProcessingTimeUs', '10',
   );
 
   assert.deepEqual(changed.edits.errors, {});
-  assert.equal(changed.scenario.resources.backends[1].host?.packetProcessingTimeNanoseconds, 10_000);
-  assert.deepEqual(changed.scenario.resources.backends[0], original.resources.backends[0]);
-  assert.deepEqual(changed.scenario.resources.loadBalancer, original.resources.loadBalancer);
-  assert.equal(original.resources.backends[1].host, undefined);
+  assert.equal(changed.scenario.states['0'].resources.backends[1].host?.packetProcessingTimeNanoseconds, 10_000);
+  assert.deepEqual(changed.scenario.states['0'].resources.backends[0], original.states['0'].resources.backends[0]);
+  assert.deepEqual(changed.scenario.states['0'].resources.loadBalancer, original.states['0'].resources.loadBalancer);
+  assert.equal(original.states['0'].resources.backends[1].host, undefined);
 });
 
 // Invalid input stays visible and cannot mutate the accepted document.
@@ -52,14 +52,14 @@ test('host validation keeps explicit zeroes and clears corrected pending edits',
 
   const corrected = editHostField(original, invalid.edits, 'loadBalancer', 'cores', '2');
   assert.deepEqual(corrected.edits.errors, {});
-  assert.equal(corrected.scenario.resources.loadBalancer.host?.cores, 2);
+  assert.equal(corrected.scenario.states['0'].resources.loadBalancer.host?.cores, 2);
 });
 
 // Imported heterogeneous hosts stay distinct until Apply to all explicitly replaces them.
 test('common backend controls detect mixed settings and apply all without sharing objects', () => {
   const original = backendsScenario();
-  original.resources.backends[0].host = { cores: 1, packetProcessingTimeNanoseconds: 10000, queueCapacity: 8 };
-  original.resources.backends[1].host = { cores: 4, packetProcessingTimeNanoseconds: 10000, queueCapacity: 32 };
+  original.states['0'].resources.backends[0].host = { cores: 1, packetProcessingTimeNanoseconds: 10000, queueCapacity: 8 };
+  original.states['0'].resources.backends[1].host = { cores: 4, packetProcessingTimeNanoseconds: 10000, queueCapacity: 32 };
   assert.deepEqual(commonBackendHostValues(original), {
     cores: '', packetProcessingTimeUs: '10', queueCapacity: '',
   });
@@ -70,37 +70,37 @@ test('common backend controls detect mixed settings and apply all without sharin
   assert.deepEqual(commonBackendHostValues(updated), {
     cores: '2', packetProcessingTimeUs: '0', queueCapacity: '0',
   });
-  updated.resources.backends[0].host!.cores = 3;
-  assert.equal(updated.resources.backends[1].host!.cores, 2);
-  assert.equal(original.resources.backends[0].host.cores, 1);
+  updated.states['0'].resources.backends[0].host!.cores = 3;
+  assert.equal(updated.states['0'].resources.backends[1].host!.cores, 2);
+  assert.equal(original.states['0'].resources.backends[0].host.cores, 1);
 });
 
 // Resizing preserves retained CPU settings and removes invisible invalid drafts.
 test('backend resize retains host settings and prunes removed backend errors', () => {
   const original = backendsScenario();
-  original.resources.backends[0].host = { cores: 4, packetProcessingTimeNanoseconds: 10000 };
-  const removedID = original.resources.backends[1].id;
+  original.states['0'].resources.backends[0].host = { cores: 4, packetProcessingTimeNanoseconds: 10000 };
+  const removedID = original.states['0'].resources.backends[1].id;
   const invalid = editHostField(original, emptyHostEdits(), backendHostTarget(removedID), 'cores', '0');
   const reduced = applyScenarioField(original, 'servers', '1');
-  assert.deepEqual(reduced.resources.backends[0].host, original.resources.backends[0].host);
+  assert.deepEqual(reduced.states['0'].resources.backends[0].host, original.states['0'].resources.backends[0].host);
   assert.deepEqual(retainHostEdits(reduced, invalid.edits), emptyHostEdits());
 
   const expanded = applyScenarioField(original, 'servers', '3');
-  assert.deepEqual(expanded.resources.backends[0].host, original.resources.backends[0].host);
-  assert.equal(expanded.resources.backends[2].host, undefined);
+  assert.deepEqual(expanded.states['0'].resources.backends[0].host, original.states['0'].resources.backends[0].host);
+  assert.equal(expanded.states['0'].resources.backends[2].host, undefined);
 });
 
 // Library presets deliberately choose CPU experiments or reset inherited CPU limits.
 test('CPU presets select only their intended hosts and all other presets disable CPU', () => {
   const defaults = backendsScenario();
-  defaults.resources.loadBalancer.host = { cores: 9, packetProcessingTimeNanoseconds: 999999 };
-  for (const backend of defaults.resources.backends) backend.host = { packetProcessingTimeNanoseconds: 999999 };
+  defaults.states['0'].resources.loadBalancer.host = { cores: 9, packetProcessingTimeNanoseconds: 999999 };
+  for (const backend of defaults.states['0'].resources.backends) backend.host = { packetProcessingTimeNanoseconds: 999999 };
 
   for (const preset of scenarioPresets) {
     const scenario = preset.build(defaults);
     if (preset.category !== 'host-cpu') {
-      assert.equal(hostValues(scenario.resources.loadBalancer.host).packetProcessingTimeUs, '0', preset.id);
-      for (const backend of scenario.resources.backends) {
+      assert.equal(hostValues(scenario.states['0'].resources.loadBalancer.host).packetProcessingTimeUs, '0', preset.id);
+      for (const backend of scenario.states['0'].resources.backends) {
         assert.equal(hostValues(backend.host).packetProcessingTimeUs, '0', preset.id);
       }
     }
@@ -108,10 +108,10 @@ test('CPU presets select only their intended hosts and all other presets disable
 
   const preset = scenarioPresets.find(entry => entry.id === 'backend-cpu-bottleneck')!;
   const configured = preset.build(defaults);
-  assert.equal(configured.tcp?.congestionControl?.mode, 'newReno');
-  assert.equal(configured.tcp?.sackEnabled, true);
-  assert.equal(hostValues(configured.resources.loadBalancer.host).packetProcessingTimeUs, '0');
-  assert.ok(configured.resources.backends.every(backend => hostValues(backend.host).packetProcessingTimeUs === '10'));
+  assert.equal(configured.fixed.tcp?.congestionControl?.mode, 'newReno');
+  assert.equal(configured.fixed.tcp?.sackEnabled, true);
+  assert.equal(hostValues(configured.states['0'].resources.loadBalancer.host).packetProcessingTimeUs, '0');
+  assert.ok(configured.states['0'].resources.backends.every(backend => hostValues(backend.host).packetProcessingTimeUs === '10'));
 });
 
 // Backend cards and topology use one set of counters from the generic node metrics.

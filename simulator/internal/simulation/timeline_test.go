@@ -14,39 +14,9 @@ import (
 // timelineDefinition keeps both real backends but schedules no client arrivals.
 // This makes one configuration event easy to distinguish from ordinary network work.
 func timelineDefinition() scenario.ScenarioV2 {
-	base := baseScenario()
-	base.Workload.ClientGroups[0].Count = 0
-	lb := base.Resources.LoadBalancer
-	backends := make([]scenario.BackendStateConfig, 0, len(base.Resources.Backends))
-	for _, backend := range base.Resources.Backends {
-		backends = append(backends, scenario.BackendStateConfig{
-			ID: backend.ID, Name: backend.Name, Address: backend.Address, Port: backend.Port,
-			Network: backend.Network, Host: backend.Host,
-		})
-	}
-
-	return scenario.ScenarioV2{
-		Version: scenario.VersionV2,
-		Fixed: scenario.FixedConfig{
-			Execution:    base.Execution,
-			TCP:          base.TCP,
-			LoadBalancer: scenario.LoadBalancerIdentity{ID: lb.ID},
-			Network:      base.Network,
-			Workload:     scenario.WorkloadDefaultsConfig{Defaults: base.Workload.Defaults},
-		},
-		States: map[string]scenario.StateConfig{
-			"0": {
-				Resources: scenario.StateResourcesConfig{
-					LoadBalancer: scenario.LoadBalancerStateConfig{
-						Algorithm: lb.Algorithm, Ingress: lb.Ingress,
-						ForwardingBitsPerSecond: lb.ForwardingBitsPerSecond,
-					},
-					Backends: backends,
-				},
-				Workload: scenario.StateWorkloadConfig{ClientGroups: base.Workload.ClientGroups},
-			},
-		},
-	}
+	definition := baseScenario()
+	definition.States["0"].Workload.ClientGroups[0].Count = 0
+	return definition
 }
 
 func newTimelineWorld(t *testing.T, definition scenario.ScenarioV2) *World {

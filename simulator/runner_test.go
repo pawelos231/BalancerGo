@@ -17,10 +17,18 @@ import (
 func runnerWorld(t *testing.T, execution scenario.ExecutionConfig) *simulation.World {
 	t.Helper()
 	input := scenarioRuntimeDefinition()
-	input.Execution = execution
-	input.Workload.ClientGroups[0].Count = 0
-	input.Resources.Backends = nil
-	return simulation.New(normalizedRuntimeScenario(t, input))
+	input.Fixed.Execution = execution
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 0
+		input.States["0"] = initialState
+	}
+	{
+		initialState := input.States["0"]
+		initialState.Resources.Backends = nil
+		input.States["0"] = initialState
+	}
+	return newScenarioSimulation(compiledRuntimeScenario(t, input))
 }
 
 // Both playback speeds use 30 real ms between updates, despite covering
@@ -42,7 +50,7 @@ func TestRunnerSnapshotIntervalUsesRealTime(t *testing.T) {
 				}
 				return nil
 			}
-			if err := runWorld(context.Background(), world, nil, publish, nil); err != nil {
+			if err := runWorld(context.Background(), world, publish); err != nil {
 				t.Fatal(err)
 			}
 
@@ -71,10 +79,10 @@ func TestRunnerPublishesDuringDenseUnpacedRun(t *testing.T) {
 	world.ScheduleAt(0, func() { time.Sleep(20 * time.Millisecond) })
 	var updates []time.Duration
 
-	err := runWorld(context.Background(), world, nil, func() error {
+	err := runWorld(context.Background(), world, func() error {
 		updates = append(updates, world.Now())
 		return nil
-	}, nil)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,27 +95,17 @@ func TestRunnerPublishesDuringDenseUnpacedRun(t *testing.T) {
 }
 
 // A long refresh interval must not delay commands or cancellation until the next UI update.
-func TestRunnerCommandsAndStopDoNotWaitForSnapshot(t *testing.T) {
+func TestRunnerStopDoesNotWaitForSnapshot(t *testing.T) {
 	world := runnerWorld(t, scenario.ExecutionConfig{
 		Duration: time.Hour, SnapshotInterval: time.Hour, Speed: 1, MaxEvents: 100_000,
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	commands := make(chan runtimeCommand, 1)
-	world.ScheduleAt(0, func() {
-		commands <- runtimeCommand{kind: algorithmCommand, Payload: []byte(`{"name":"random"}`)}
-	})
-	handled := false
-
-	err := runWorld(ctx, world, commands, nil, func(err error) {
-		if err != nil {
-			t.Fatal(err)
-		}
-		handled = true
-		cancel()
-	})
-	if !errors.Is(err, context.Canceled) || !handled || world.Info().Algorithm != "random" {
-		t.Fatalf("command did not run before Stop: err=%v handled=%v algorithm=%s", err, handled, world.Info().Algorithm)
+	world.ScheduleAt(0, cancel)
+	frames := 0
+	err := runWorld(ctx, world, func() error { frames++; return nil })
+	if !errors.Is(err, context.Canceled) || frames != 0 || world.Now() >= world.EndTime() {
+		t.Fatalf("Stop waited for the next snapshot: err=%v frames=%d virtualTime=%s", err, frames, world.Now())
 	}
 }
 
@@ -116,9 +114,9 @@ func TestRunnerRefreshIntervalDoesNotChangeSimulation(t *testing.T) {
 	var previous any
 	for _, interval := range []time.Duration{time.Nanosecond, time.Hour} {
 		input := payloadScenario()
-		input.Execution.Speed = 0
-		input.Execution.SnapshotInterval = interval
-		world := simulation.New(normalizedRuntimeScenario(t, input))
+		input.Fixed.Execution.Speed = 0
+		input.Fixed.Execution.SnapshotInterval = interval
+		world := newScenarioSimulation(compiledRuntimeScenario(t, input))
 		// Force a batch boundary so the short interval can publish during the run.
 		for index := 0; index < 5000; index++ {
 			world.ScheduleAt(10*time.Millisecond, func() {})
@@ -132,7 +130,7 @@ func TestRunnerRefreshIntervalDoesNotChangeSimulation(t *testing.T) {
 			_, _, err := presentation.BuildSnapshot(world, projector, presentation.RunState{})
 			return err
 		}
-		if err := runWorld(context.Background(), world, nil, publish, nil); err != nil {
+		if err := runWorld(context.Background(), world, publish); err != nil {
 			t.Fatal(err)
 		}
 		if interval == time.Nanosecond && frames < 2 || interval == time.Hour && frames != 1 {

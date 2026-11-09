@@ -28,11 +28,11 @@ func TestCongestionProjectionAndRetainedReport(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			definition := projectionScenario()
-			definition.Network.Defaults.PacketTravelTime = 5 * time.Millisecond
-			definition.Workload.ClientGroups[0].Count = 1
-			definition.Workload.Defaults = scenario.StreamConfig{Bytes: 8 * model.SEGMENT_SIZE}
+			definition.Fixed.Network.Defaults.PacketTravelTime = 5 * time.Millisecond
+			editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 1 })
+			definition.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 8 * model.SEGMENT_SIZE}
 			if test.name != "defaults" {
-				definition.TCP.CongestionControl = scenario.CongestionConfig{
+				definition.Fixed.TCP.CongestionControl = scenario.CongestionConfig{
 					Mode:                           &test.mode,
 					InitialWindowSegments:          &test.segments,
 					InitialSlowStartThresholdBytes: &test.threshold,

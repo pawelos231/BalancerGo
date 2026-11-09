@@ -16,20 +16,24 @@ import (
 // TestTransferResultsPartitionAttempts counts failures separately from active and future work.
 func TestTransferResultsPartitionAttempts(t *testing.T) {
 	input := payloadScenario()
-	input.Execution.Speed = 0
-	input.Execution.Duration = 60 * time.Millisecond
-	input.Workload.ClientGroups = []scenario.ClientGroup{
-		{
-			ID: "completed", Count: 1,
-			Stream: scenario.StreamPatch{
-				Bytes: scenarioRuntimeValue(17), PacketGap: scenarioRuntimeValue(time.Duration(0)),
+	input.Fixed.Execution.Speed = 0
+	input.Fixed.Execution.Duration = 60 * time.Millisecond
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups = []scenario.ClientGroup{
+			{
+				ID: "completed", Count: 1,
+				Stream: scenario.StreamPatch{
+					Bytes: scenarioRuntimeValue(17), PacketGap: scenarioRuntimeValue(time.Duration(0)),
+				},
 			},
-		},
-		{ID: "interrupted", Count: 1},
-		{ID: "active", Count: 1, Stream: scenario.StreamPatch{Bytes: scenarioRuntimeValue(1 << 20)}},
-		{ID: "future", Count: 2, StartAt: time.Second},
+			{ID: "interrupted", Count: 1},
+			{ID: "active", Count: 1, Stream: scenario.StreamPatch{Bytes: scenarioRuntimeValue(1 << 20)}},
+			{ID: "future", Count: 2, StartAt: time.Second},
+		}
+		input.States["0"] = initialState
 	}
-	s := simulation.New(normalizedRuntimeScenario(t, input))
+	s := newScenarioSimulation(compiledRuntimeScenario(t, input))
 	before := presentation.TransferResults(s)
 	if before.Started != 0 || before.NotStarted != 5 || before.Handshake.Samples != 0 {
 		t.Fatalf("before arrivals = %+v", before)
@@ -43,7 +47,7 @@ func TestTransferResultsPartitionAttempts(t *testing.T) {
 			}
 		})
 	})
-	if err := runWorld(context.Background(), s, nil, nil, nil); err != nil {
+	if err := runWorld(context.Background(), s, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,11 +98,19 @@ func TestTransferResultsPartitionAttempts(t *testing.T) {
 // TestTransferResultsRetainUnroutedFailures includes clients absent from the LB's routing table.
 func TestTransferResultsRetainUnroutedFailures(t *testing.T) {
 	input := payloadScenario()
-	input.Resources.Backends = nil
+	{
+		initialState := input.States["0"]
+		initialState.Resources.Backends = nil
+		input.States["0"] = initialState
+	}
 	// Isolate the client's 20 s read timeout from LB half-open cleanup.
-	input.Resources.LoadBalancer.HalfOpenIdleTimeout = scenarioRuntimeValue(time.Duration(0))
-	input.Execution.Duration = 21 * time.Second
-	input.Execution.Speed = 0
+	{
+		initialState := input.States["0"]
+		initialState.Resources.LoadBalancer.MappingTimeouts.HalfOpenIdleTimeout = scenarioRuntimeValue(time.Duration(0))
+		input.States["0"] = initialState
+	}
+	input.Fixed.Execution.Duration = 21 * time.Second
+	input.Fixed.Execution.Speed = 0
 	s := runTransferWorld(t, input)
 	summary := presentation.TransferResults(s)
 	if summary.Started != 1 || summary.Failed != 1 || summary.InProgress != 0 || summary.Succeeded != 0 {
@@ -120,12 +132,20 @@ func TestTransferCompletionAtHorizon(t *testing.T) {
 	for _, end := range []time.Duration{5 * time.Nanosecond, 6 * time.Nanosecond} {
 		t.Run(end.String(), func(t *testing.T) {
 			input := scenarioRuntimeDefinition()
-			input.Resources.Backends = input.Resources.Backends[:1]
-			input.Network.Defaults.BandwidthBitsPerSecond = math.MaxInt64
-			input.Resources.LoadBalancer.Ingress = input.Network.Defaults
-			input.Execution.Duration = end
-			input.Execution.SnapshotInterval = time.Nanosecond
-			input.Execution.Speed = 0
+			{
+				initialState := input.States["0"]
+				initialState.Resources.Backends = initialState.Resources.Backends[:1]
+				input.States["0"] = initialState
+			}
+			input.Fixed.Network.Defaults.BandwidthBitsPerSecond = math.MaxInt64
+			{
+				initialState := input.States["0"]
+				initialState.Resources.LoadBalancer.Ingress = input.Fixed.Network.Defaults
+				input.States["0"] = initialState
+			}
+			input.Fixed.Execution.Duration = end
+			input.Fixed.Execution.SnapshotInterval = time.Nanosecond
+			input.Fixed.Execution.Speed = 0
 			s := runTransferWorld(t, input)
 			summary := presentation.TransferResults(s)
 			if end == 5*time.Nanosecond {
@@ -149,8 +169,8 @@ func TestTransferCompletionAtHorizon(t *testing.T) {
 // A stopped backend leaves the sender active until its own read timeout expires.
 func TestTransferBackendFailureWaitsForClientTimeout(t *testing.T) {
 	input := payloadScenario()
-	input.TCP.ClientIdleTimeout = scenarioRuntimeValue(50 * time.Millisecond)
-	s := simulation.New(normalizedRuntimeScenario(t, input))
+	input.Fixed.TCP.ClientIdleTimeout = scenarioRuntimeValue(50 * time.Millisecond)
+	s := newScenarioSimulation(compiledRuntimeScenario(t, input))
 	runIngressUntil(t, s, 17*time.Millisecond)
 	var backendID string
 	s.VisitBackends(func(backend simulation.BackendObservation) { backendID = backend.State.ID })
@@ -193,7 +213,7 @@ func TestTransferSnapshotLifecycle(t *testing.T) {
 	}
 
 	input := payloadScenario()
-	input.Execution.Speed = 0
+	input.Fixed.Execution.Speed = 0
 	receipt := startTelemetryScenario(t, h, input)
 	finished := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
@@ -205,12 +225,24 @@ func TestTransferSnapshotLifecycle(t *testing.T) {
 	stopTelemetryScenario(t, h)
 
 	// A normally finished run can contain a failed transfer and a future arrival.
-	input.Resources.Backends = nil
-	input.Resources.LoadBalancer.HalfOpenIdleTimeout = scenarioRuntimeValue(time.Duration(0))
-	input.Execution.Duration = 21 * time.Second
-	input.Workload.ClientGroups = append(input.Workload.ClientGroups, scenario.ClientGroup{
-		ID: "future", Count: 1, StartAt: 22 * time.Second,
-	})
+	{
+		initialState := input.States["0"]
+		initialState.Resources.Backends = nil
+		input.States["0"] = initialState
+	}
+	{
+		initialState := input.States["0"]
+		initialState.Resources.LoadBalancer.MappingTimeouts.HalfOpenIdleTimeout = scenarioRuntimeValue(time.Duration(0))
+		input.States["0"] = initialState
+	}
+	input.Fixed.Execution.Duration = 21 * time.Second
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups = append(initialState.Workload.ClientGroups, scenario.ClientGroup{
+			ID: "future", Count: 1, StartAt: 22 * time.Second,
+		})
+		input.States["0"] = initialState
+	}
 	receipt = startTelemetryScenario(t, h, input)
 	failed := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
@@ -226,13 +258,13 @@ func TestTransferSnapshotLifecycle(t *testing.T) {
 	stopTelemetryScenario(t, h)
 }
 
-func runTransferWorld(t *testing.T, input scenario.Scenario) *simulation.World {
+func runTransferWorld(t *testing.T, input scenario.ScenarioV2) *simulation.World {
 	t.Helper()
-	world := simulation.New(normalizedRuntimeScenario(t, input))
-	if err := runWorld(context.Background(), world, nil, nil, nil); err != nil {
+	world := newScenarioSimulation(compiledRuntimeScenario(t, input))
+	if err := runWorld(context.Background(), world, nil); err != nil {
 		t.Fatal(err)
 	}
-	if world.Now() != input.Execution.Duration {
+	if world.Now() != input.Fixed.Execution.Duration {
 		t.Fatal("transfer run did not reach its virtual horizon")
 	}
 	return world

@@ -2,35 +2,30 @@ package main
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"load-balancer/internal/simulation"
 )
 
-// runWorld owns real-time pacing and application requests. World owns all
+// runWorld owns real-time pacing and cancellation. World owns all
 // virtual events; publishing observes it synchronously on this same goroutine.
 func runWorld(
 	ctx context.Context,
 	world *simulation.World,
-	commands <-chan runtimeCommand,
 	publish func() error,
-	handled func(error),
 ) error {
-	return runWorldWithPacing(ctx, world, commands, publish, handled, false)
+	return runWorldWithPacing(ctx, world, publish, false)
 }
 
 // Headless execution changes pacing without editing the admitted configuration.
 func runUnpacedWorld(ctx context.Context, world *simulation.World) error {
-	return runWorldWithPacing(ctx, world, nil, nil, nil, true)
+	return runWorldWithPacing(ctx, world, nil, true)
 }
 
 func runWorldWithPacing(
 	ctx context.Context,
 	world *simulation.World,
-	commands <-chan runtimeCommand,
 	publish func() error,
-	handled func(error),
 	unpaced bool,
 ) error {
 	wallStart := time.Now()
@@ -39,21 +34,6 @@ func runWorldWithPacing(
 		execution.Speed = 0
 	}
 	nextSnapshot := wallStart.Add(execution.SnapshotInterval)
-
-	// Commands join the DES at its current time, independently of UI refreshes.
-	scheduleCommand := func(command runtimeCommand) {
-		world.ScheduleAfter(0, func() {
-			err := applyRuntimeCommand(world, command)
-			if err != nil {
-				log.Printf("command at %s: %v", world.Now(), err)
-			} else {
-				log.Printf("command at %s: %s %s", world.Now(), commandName(command.kind), command.Payload)
-			}
-			if handled != nil {
-				handled(err)
-			}
-		})
-	}
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -68,10 +48,6 @@ func runWorldWithPacing(
 			if allowed < float64(until) {
 				until = time.Duration(allowed)
 			}
-		}
-
-		for n := len(commands); n > 0; n-- {
-			scheduleCommand(<-commands)
 		}
 
 		reached, err := world.AdvanceBatch(ctx, until)
@@ -99,7 +75,7 @@ func runWorldWithPacing(
 		}
 
 		// Playback waits at most 10 real ms before checking progress again.
-		// A command or Stop wakes it sooner, even with a very long UI interval.
+		// Stop wakes it sooner, even with a very long UI interval.
 		delay := 10 * time.Millisecond
 		remaining := float64(world.EndTime()-world.Now()) / execution.Speed
 		if remaining < float64(delay) {
@@ -113,9 +89,6 @@ func runWorldWithPacing(
 		case <-ctx.Done():
 			timer.Stop()
 			return ctx.Err()
-		case command := <-commands:
-			timer.Stop()
-			scheduleCommand(command)
 		case <-timer.C:
 		}
 	}

@@ -13,30 +13,32 @@ import (
 	"load-balancer/scenario"
 )
 
-func projectionScenario() scenario.Scenario {
+func projectionScenario() scenario.ScenarioV2 {
 	link := scenario.LinkConfig{BandwidthBitsPerSecond: 8_000_000, QueueCapacity: 32}
-	return scenario.Scenario{
-		Version:   scenario.Version,
-		Execution: scenario.ExecutionConfig{Duration: 500 * time.Millisecond, SnapshotInterval: time.Millisecond, Seed: 41, MaxEvents: 1_000_000},
-		Network:   scenario.NetworkConfig{Defaults: link},
-		Resources: scenario.ResourcesConfig{
-			LoadBalancer: scenario.LoadBalancerConfig{ID: "lb", Algorithm: "roundRobin", Ingress: link, ForwardingBitsPerSecond: math.MaxInt64},
-			Backends:     []scenario.BackendConfig{{ID: "one", Address: "10.0.0.1", Port: 80}},
+	return scenario.ScenarioV2{
+		Version: scenario.VersionV2,
+		Fixed: scenario.FixedConfig{
+			Execution:    scenario.ExecutionConfig{Duration: 500 * time.Millisecond, SnapshotInterval: time.Millisecond, Seed: 41, MaxEvents: 1_000_000},
+			LoadBalancer: scenario.LoadBalancerIdentity{ID: "lb"},
+			Network:      scenario.NetworkConfig{Defaults: link},
+			Workload:     scenario.WorkloadDefaultsConfig{Defaults: scenario.StreamConfig{Bytes: 4096, PacketGap: time.Second}},
 		},
-		Workload: scenario.WorkloadConfig{
-			Defaults:     scenario.StreamConfig{Bytes: 4096, PacketGap: time.Second},
-			ClientGroups: []scenario.ClientGroup{{ID: "clients", Count: 2}},
-		},
+		States: map[string]scenario.StateConfig{"0": {
+			Resources: scenario.StateResourcesConfig{LoadBalancer: scenario.LoadBalancerStateConfig{Algorithm: "roundRobin", Ingress: link, ForwardingBitsPerSecond: math.MaxInt64}, Backends: []scenario.BackendStateConfig{{ID: "one", Address: "10.0.0.1", Port: 80}}},
+			Workload:  scenario.StateWorkloadConfig{ClientGroups: []scenario.ClientGroup{{ID: "clients", Count: 2}}},
+		}},
 	}
 }
 
-func projectionWorld(t *testing.T, definition scenario.Scenario) *simulation.World {
+func editInitialState(definition *scenario.ScenarioV2, edit func(*scenario.StateConfig)) {
+	state := definition.States["0"]
+	edit(&state)
+	definition.States["0"] = state
+}
+
+func projectionWorld(t *testing.T, definition scenario.ScenarioV2) *simulation.World {
 	t.Helper()
-	normalized, err := scenario.Normalize(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return simulation.New(normalized)
+	return timelineProjectionFrom(t, definition)
 }
 
 func advanceProjection(t *testing.T, world *simulation.World, until time.Duration) {
@@ -70,9 +72,11 @@ func jsonProjection(t *testing.T, value any) string {
 func TestProjectionKeepsCreationAndRoutingOrders(t *testing.T) {
 	definition := projectionScenario()
 	delay := time.Millisecond
-	definition.Workload.ClientGroups[0].Overrides = []scenario.ClientOverride{{
-		Index: 0, Network: scenario.EndpointNetworkConfig{ToLoadBalancer: scenario.LinkPatch{PacketTravelTime: &delay}},
-	}}
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups[0].Overrides = []scenario.ClientOverride{{
+			Index: 0, Network: scenario.EndpointNetworkConfig{ToLoadBalancer: scenario.LinkPatch{PacketTravelTime: &delay}},
+		}}
+	})
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, 0)
 	projector := NewProjector("ordered")
@@ -121,7 +125,10 @@ func TestProjectionKeepsCreationAndRoutingOrders(t *testing.T) {
 
 func TestProjectionRevisionsRetainHistoricalReportLinks(t *testing.T) {
 	definition := projectionScenario()
-	definition.Workload.ClientGroups[0].ClientGap = 2 * time.Millisecond
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups[0].Count = 3
+		state.Workload.ClientGroups[0].ClientGap = 2 * time.Millisecond
+	})
 	world := projectionWorld(t, definition)
 	projector := NewProjector("membership")
 	initial := project(t, projector, world)
@@ -134,17 +141,14 @@ func TestProjectionRevisionsRetainHistoricalReportLinks(t *testing.T) {
 	if sample := project(t, projector, world); sample.Document == nil || sample.Document.Revision != "3" {
 		t.Fatal("second arrival did not revise definitions")
 	}
-	if err := world.SpawnClients(1, "clients"); err != nil {
-		t.Fatal(err)
-	}
 	reserved := project(t, projector, world)
 	if reserved.Document != nil || reserved.Topology.Nodes[0].Metrics["scheduledClients"] != 3 {
 		t.Fatal("reserving a future client revised current membership")
 	}
-	advanceProjection(t, world, world.Now())
-	spawned := project(t, projector, world)
-	if spawned.Document == nil || spawned.Document.Revision != "4" {
-		t.Fatal("spawned arrival did not revise definitions")
+	advanceProjection(t, world, 4*time.Millisecond)
+	arrived := project(t, projector, world)
+	if arrived.Document == nil || arrived.Document.Revision != "4" {
+		t.Fatal("scheduled arrival did not revise definitions")
 	}
 	linksBefore := len(BuildResult(world, 0).Links)
 	if err := world.StopBackend("one"); err != nil {
@@ -166,24 +170,20 @@ func TestProjectionRevisionsRetainHistoricalReportLinks(t *testing.T) {
 // A late backend adds its own node and two links while earlier definitions stay immutable.
 func TestProjectionRebuildsDefinitionsAfterLateBackendAddition(t *testing.T) {
 	definition := projectionScenario()
+	next := projectionScenario().States["0"]
+	additional := next.Resources.Backends[0]
+	additional.ID = "two"
+	additional.Name, additional.Address = "Additional", "10.99.0.1"
+	next.Resources.Backends = append(next.Resources.Backends, additional)
+	definition.States["1"] = next
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, 0)
 	projector := NewProjector("late-change")
 	first := project(t, projector, world)
 	frozen := jsonProjection(t, first.Document)
-	resolved, err := scenario.Normalize(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	additional := resolved.Backends[0]
-	additional.ID = "two"
-	additional.Name, additional.Address = "Additional", "10.99.0.1"
-	world.AddBackend(additional)
+	advanceProjection(t, world, time.Nanosecond)
 	second := project(t, projector, world)
-	if second.Document == nil || second.Document.Revision != "2" ||
-		second.Document.Nodes[2].ID != "backend/two" || second.Document.Nodes[2].Label != "Additional" ||
-		second.Document.Nodes[2].Address != "10.99.0.1:80" ||
-		len(second.Document.Nodes) != len(first.Document.Nodes)+1 || len(second.Document.Links) != len(first.Document.Links)+2 {
+	if second.Document == nil || second.Document.Revision != "2" || second.Document.Nodes[2].ID != "backend/two" || second.Document.Nodes[2].Label != "Additional" || second.Document.Nodes[2].Address != "10.99.0.1:80" || len(second.Document.Nodes) != len(first.Document.Nodes)+1 || len(second.Document.Links) != len(first.Document.Links)+2 {
 		t.Fatalf("late change did not refresh complete definitions: %+v", second.Document)
 	}
 	if jsonProjection(t, first.Document) != frozen {
@@ -196,14 +196,16 @@ func TestProjectionRebuildsDefinitionsAfterLateBackendAddition(t *testing.T) {
 
 func TestProjectionAggregatesCompletedFailedAndFutureTransfers(t *testing.T) {
 	definition := projectionScenario()
-	definition.Workload.Defaults = scenario.StreamConfig{Bytes: 64}
+	definition.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 64}
 	longGap := time.Second
-	definition.Workload.ClientGroups = []scenario.ClientGroup{
-		{ID: "done", Count: 1},
-		{ID: "interrupted", Count: 1},
-		{ID: "ongoing", Count: 1, Stream: scenario.StreamPatch{PacketGap: &longGap}},
-		{ID: "future", Count: 1, StartAt: time.Second},
-	}
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups = []scenario.ClientGroup{
+			{ID: "done", Count: 1},
+			{ID: "interrupted", Count: 1},
+			{ID: "ongoing", Count: 1, Stream: scenario.StreamPatch{PacketGap: &longGap}},
+			{ID: "future", Count: 1, StartAt: time.Second},
+		}
+	})
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, 0)
 	if err := world.StopClient("client/interrupted/0"); err != nil {
@@ -225,7 +227,7 @@ func TestProjectionAggregatesCompletedFailedAndFutureTransfers(t *testing.T) {
 	}
 	if result.VirtualTime != "10ms" || result.WallTime != "3s" || result.Seed != 41 ||
 		result.CompletedPayloadBytes != 64 || result.State.Algorithm != "RoundRobin" || result.State.Mode != contract.LBModeNAT {
-		t.Fatalf("legacy report values changed: %+v", result)
+		t.Fatalf("report values changed: %+v", result)
 	}
 	advanceProjection(t, world, world.EndTime())
 	if summary := TransferResults(world); summary.InProgress != 1 || summary.Failed != 1 || summary.NotStarted != 1 {
@@ -242,11 +244,10 @@ func TestSnapshotIdleAndRuntimeRepresentations(t *testing.T) {
 	if actual := jsonProjection(t, idle); actual != want {
 		t.Fatalf("idle JSON = %s", actual)
 	}
-	world := projectionWorld(t, projectionScenario())
+	definition := projectionScenario()
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Resources.LoadBalancer.Algorithm = "random" })
+	world := projectionWorld(t, definition)
 	advanceProjection(t, world, 5*time.Millisecond)
-	if err := world.SetAlgorithm("random"); err != nil {
-		t.Fatal(err)
-	}
 	active, document, err := BuildSnapshot(world, NewProjector("live"), RunState{Status: "finished", RunID: "live", Error: "sample error", Elapsed: 2 * time.Second})
 	if err != nil || document == nil || active.Algorithm != "Random" || active.Simulation.Algorithm != "random" ||
 		active.Simulation.Status != "finished" || active.Simulation.Error != "sample error" || active.Simulation.VirtualTimeSeconds != 0.005 {

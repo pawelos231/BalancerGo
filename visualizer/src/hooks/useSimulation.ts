@@ -100,10 +100,6 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     function handleCommandError(message: Pick<CommandError, 'commandType' | 'error'>) {
       // A legacy Stop error has no identity and cannot settle this request.
       if (message.commandType === CommandType.StopSimulation) return;
-      // Private legacy WS rejection cannot settle an independent HTTP Start.
-      if (message.commandType === CommandType.StartSimulation && !httpStartRef.current) {
-        setStartPending(false);
-      }
       setCommandError(message.error);
     }
 
@@ -317,7 +313,6 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     const commandPending = startPendingRef.current || stopCommandsRef.current.pending !== null;
     if (commandPending || !simulation) return false;
     if (simulation.status === 'idle') return false;
-    if (command.Type !== CommandType.StopSimulation && simulation.status !== 'running') return false;
 
     try {
       if (command.Type === CommandType.StopSimulation) {
@@ -327,9 +322,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
           socket.send(JSON.stringify({ ...command, ...intent }));
         });
       }
-      setCommandError(null);
-      socket.send(JSON.stringify(command));
-      return true;
+      return false;
     } catch (error) {
       setStopPending(false);
       setCommandError('Failed to send the command. Check the server connection.');

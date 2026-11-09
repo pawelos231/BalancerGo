@@ -42,20 +42,24 @@ func TestPublicationSequenceLifecycle(t *testing.T) {
 	})
 	assertPublicationSequence(t, idle, "")
 
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Duration = 0
-	input.Execution.Speed = 0
-	input.Execution.SnapshotInterval = time.Hour
-	input.Workload.ClientGroups[0].Count = 0
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Duration = time.Nanosecond
+	input.Fixed.Execution.Speed = 0
+	input.Fixed.Execution.SnapshotInterval = time.Hour
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 0
+		input.States["0"] = initialState
+	}
 	receipt := startTelemetryScenario(t, h, input)
 	finished := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
 	})
-	// Start, end-of-world, and finished all publish at virtual time zero. The
+	// A tiny unpaced run publishes start, end-of-world, and finished. The
 	// final number counts even frames replaced before a browser can read them.
 	assertPublicationSequence(t, finished, "3")
-	if finished.snapshot.Simulation.VirtualTimeSeconds != 0 {
-		t.Fatal("zero-duration run advanced virtual time")
+	if finished.snapshot.Simulation.VirtualTimeSeconds != time.Nanosecond.Seconds() {
+		t.Fatal("tiny run ended at the wrong virtual time")
 	}
 
 	url := "ws" + strings.TrimPrefix(h.server.URL, "http") + "/ws"
@@ -96,43 +100,18 @@ func TestPublicationSequenceLifecycle(t *testing.T) {
 	}
 }
 
-func TestPublicationSequenceIncludesCommandSnapshots(t *testing.T) {
-	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Duration = time.Hour
-	input.Execution.Speed = 1
-	input.Execution.SnapshotInterval = time.Hour
-	input.Workload.ClientGroups[0].Count = 0
-	receipt := startTelemetryScenario(t, h, input)
-	initial := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
-		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "running"
-	})
-	assertPublicationSequence(t, initial, "1")
-
-	// The hour-long refresh interval makes each next publication command-driven.
-	for index, algorithm := range []string{"random", "roundRobin"} {
-		payload, err := json.Marshal(map[string]string{"Name": algorithm})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := h.socket.WriteJSON(contract.Envelope{Type: contract.SetAlgorithm, Payload: payload}); err != nil {
-			t.Fatal(err)
-		}
-		changed := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
-			return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Algorithm == algorithm
-		})
-		assertPublicationSequence(t, changed, []string{"2", "3"}[index])
-	}
-}
-
 func TestPublicationSequenceIncludesFailedSnapshot(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Duration = time.Second
-	input.Execution.Speed = 0
-	input.Execution.SnapshotInterval = time.Hour
-	input.Execution.MaxEvents = 1
-	input.Workload.ClientGroups[0].Count = 1
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Duration = time.Second
+	input.Fixed.Execution.Speed = 0
+	input.Fixed.Execution.SnapshotInterval = time.Hour
+	input.Fixed.Execution.MaxEvents = 1
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 1
+		input.States["0"] = initialState
+	}
 	receipt := startTelemetryScenario(t, h, input)
 	failed := readTelemetryFrame(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "failed"

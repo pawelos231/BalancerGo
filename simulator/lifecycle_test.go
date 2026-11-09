@@ -111,12 +111,20 @@ func assertLifecycleObservation(t *testing.T, ended contract.SimulationEndedFram
 func TestLifecycleFastRunsPreserveUnreadFinalOutcomes(t *testing.T) {
 	h := newScenarioHarness(t)
 	witness := lifecycleSocket(t, h)
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Speed, input.Execution.Duration = 0, 100*time.Millisecond
-	input.Workload.Defaults.Bytes, input.Workload.ClientGroups[0].Count = 0, 1
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Speed, input.Fixed.Execution.Duration = 0, 100*time.Millisecond
+	{
+		initialState := input.States["0"]
+		input.Fixed.Workload.Defaults.Bytes, initialState.Workload.ClientGroups[0].Count = 0, 1
+		input.States["0"] = initialState
+	}
 	first := startTelemetryScenario(t, h, input)
 	firstEnd := readLifecycleEnd(t, witness, first.RunID)
-	input.Workload.ClientGroups[0].Count = 2
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 2
+		input.States["0"] = initialState
+	}
 	second := startTelemetryScenario(t, h, input)
 	secondEnd := readLifecycleEnd(t, witness, second.RunID)
 	if topologyDocument(t, h).RunID != second.RunID {
@@ -161,11 +169,15 @@ func TestLifecycleFastRunsPreserveUnreadFinalOutcomes(t *testing.T) {
 func TestLifecycleRunningStopPublishesBeforePrivateReply(t *testing.T) {
 	h := newScenarioHarness(t)
 	other := lifecycleSocket(t, h)
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Duration, input.Execution.Speed, input.Execution.SnapshotInterval = time.Hour, 1, time.Millisecond
-	input.Workload.Defaults.Bytes = 1 << 30
-	input.Workload.Defaults.PacketGap = 10 * time.Millisecond
-	input.Workload.ClientGroups[0].Count = 1
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Duration, input.Fixed.Execution.Speed, input.Fixed.Execution.SnapshotInterval = time.Hour, 1, time.Millisecond
+	input.Fixed.Workload.Defaults.Bytes = 1 << 30
+	input.Fixed.Workload.Defaults.PacketGap = 10 * time.Millisecond
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 1
+		input.States["0"] = initialState
+	}
 	receipt := startTelemetryScenario(t, h, input)
 	var active contract.SimulationSnapshot
 	for {

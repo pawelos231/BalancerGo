@@ -1,6 +1,7 @@
 import type { SimulationConfig } from '../types';
 import { congestionModeOptions } from './types.ts';
 import type { ExactInteger, Scenario } from './types';
+import type { ScenarioStateV2 } from './v2Types.ts';
 
 export type ScenarioField = keyof SimulationConfig;
 export type ScenarioDraft = Record<ScenarioField, string>;
@@ -14,49 +15,49 @@ type DirectField = Exclude<ScenarioField, 'clients' | 'servers' | 'clientGapMs'>
 // These paths change shared defaults without flattening endpoint overrides.
 const fieldPaths: Record<DirectField, readonly string[]> = {
   algorithm: ['resources', 'loadBalancer', 'algorithm'],
-  durationSeconds: ['execution', 'durationNanoseconds'],
-  snapshotIntervalMs: ['execution', 'snapshotIntervalNanoseconds'],
-  seed: ['execution', 'seed'],
-  speed: ['execution', 'speed'],
-  maxEvents: ['execution', 'maxEvents'],
-  packets: ['workload', 'defaults', 'packets'],
-  bytes: ['workload', 'defaults', 'bytes'],
-  mssBytes: ['tcp', 'mssBytes'],
-  receiveBufferBytes: ['tcp', 'receiveBufferBytes'],
-  sackEnabled: ['tcp', 'sackEnabled'],
-  ECNenabled: ['tcp', 'ECNenabled'],
-  delayedAckEnabled: ['tcp', 'delayedAck', 'enabled'],
-  delayedAckSegments: ['tcp', 'delayedAck', 'segmentsPerACK'],
-  delayedAckMaxDelayMs: ['tcp', 'delayedAck', 'maxDelayNanoseconds'],
-  congestionControl: ['tcp', 'congestionControl', 'mode'],
-  fastRetransmit: ['tcp', 'congestionControl', 'fastRetransmit'],
-  cubicFastConvergence: ['tcp', 'congestionControl', 'cubicFastConvergence'],
-  initialCongestionWindowSegments: ['tcp', 'congestionControl', 'initialWindowSegments'],
-  maximumCongestionWindowSegments: ['tcp', 'congestionControl', 'maximumWindowSegments'],
-  initialSlowStartThresholdBytes: ['tcp', 'congestionControl', 'initialSlowStartThresholdBytes'],
-  rtoMode: ['tcp', 'rto', 'mode'],
-  rtoBackoff: ['tcp', 'rto', 'exponentialBackoff'],
-  rtoInitialMs: ['tcp', 'rto', 'initialTimeoutNanoseconds'],
-  rtoMinimumMs: ['tcp', 'rto', 'minimumTimeoutNanoseconds'],
-  rtoMaximumMs: ['tcp', 'rto', 'maximumTimeoutNanoseconds'],
-  tcpMSLMs: ['tcp', 'close', 'mslNanoseconds'],
-  tcpFinWaitTimeoutMs: ['tcp', 'close', 'finWaitTimeoutNanoseconds'],
-  tcpMaxFINRetries: ['tcp', 'close', 'maxFINRetries'],
-  clientIdleTimeoutMs: ['tcp', 'clientIdleTimeoutNanoseconds'],
-  backendHalfOpenIdleTimeoutMs: ['tcp', 'backendHalfOpenIdleTimeoutNanoseconds'],
-  backendEstablishedIdleTimeoutMs: ['tcp', 'backendEstablishedIdleTimeoutNanoseconds'],
-  lbHalfOpenIdleTimeoutMs: ['resources', 'loadBalancer', 'halfOpenIdleTimeoutNanoseconds'],
-  lbEstablishedIdleTimeoutMs: ['resources', 'loadBalancer', 'establishedIdleTimeoutNanoseconds'],
-  lbClosingIdleTimeoutMs: ['resources', 'loadBalancer', 'closingIdleTimeoutNanoseconds'],
-  lbResetIdleTimeoutMs: ['resources', 'loadBalancer', 'resetIdleTimeoutNanoseconds'],
-  packetGapMs: ['workload', 'defaults', 'packetGapNanoseconds'],
-  bandwidthBitsPerSecond: ['network', 'defaults', 'bandwidthBitsPerSecond'],
-  packetTravelTimeMs: ['network', 'defaults', 'packetTravelTimeNanoseconds'],
-  linkQueue: ['network', 'defaults', 'queueCapacity'],
-  loss: ['network', 'defaults', 'lossRate'],
-  queuePolicy: ['network', 'defaults', 'queuePolicy'],
-  congestionThresholdPercent: ['network', 'defaults', 'congestionThresholdPercent'],
-  congestionSignalProbability: ['network', 'defaults', 'congestionSignalProbability'],
+  durationSeconds: ['fixed', 'execution', 'durationNanoseconds'],
+  snapshotIntervalMs: ['fixed', 'execution', 'snapshotIntervalNanoseconds'],
+  seed: ['fixed', 'execution', 'seed'],
+  speed: ['fixed', 'execution', 'speed'],
+  maxEvents: ['fixed', 'execution', 'maxEvents'],
+  packets: ['fixed', 'workload', 'defaults', 'packets'],
+  bytes: ['fixed', 'workload', 'defaults', 'bytes'],
+  mssBytes: ['fixed', 'tcp', 'mssBytes'],
+  receiveBufferBytes: ['fixed', 'tcp', 'receiveBufferBytes'],
+  sackEnabled: ['fixed', 'tcp', 'sackEnabled'],
+  ECNenabled: ['fixed', 'tcp', 'ECNenabled'],
+  delayedAckEnabled: ['fixed', 'tcp', 'delayedAck', 'enabled'],
+  delayedAckSegments: ['fixed', 'tcp', 'delayedAck', 'segmentsPerACK'],
+  delayedAckMaxDelayMs: ['fixed', 'tcp', 'delayedAck', 'maxDelayNanoseconds'],
+  congestionControl: ['fixed', 'tcp', 'congestionControl', 'mode'],
+  fastRetransmit: ['fixed', 'tcp', 'congestionControl', 'fastRetransmit'],
+  cubicFastConvergence: ['fixed', 'tcp', 'congestionControl', 'cubicFastConvergence'],
+  initialCongestionWindowSegments: ['fixed', 'tcp', 'congestionControl', 'initialWindowSegments'],
+  maximumCongestionWindowSegments: ['fixed', 'tcp', 'congestionControl', 'maximumWindowSegments'],
+  initialSlowStartThresholdBytes: ['fixed', 'tcp', 'congestionControl', 'initialSlowStartThresholdBytes'],
+  rtoMode: ['fixed', 'tcp', 'rto', 'mode'],
+  rtoBackoff: ['fixed', 'tcp', 'rto', 'exponentialBackoff'],
+  rtoInitialMs: ['fixed', 'tcp', 'rto', 'initialTimeoutNanoseconds'],
+  rtoMinimumMs: ['fixed', 'tcp', 'rto', 'minimumTimeoutNanoseconds'],
+  rtoMaximumMs: ['fixed', 'tcp', 'rto', 'maximumTimeoutNanoseconds'],
+  tcpMSLMs: ['fixed', 'tcp', 'close', 'mslNanoseconds'],
+  tcpFinWaitTimeoutMs: ['fixed', 'tcp', 'close', 'finWaitTimeoutNanoseconds'],
+  tcpMaxFINRetries: ['fixed', 'tcp', 'close', 'maxFINRetries'],
+  clientIdleTimeoutMs: ['fixed', 'tcp', 'clientIdleTimeoutNanoseconds'],
+  backendHalfOpenIdleTimeoutMs: ['fixed', 'tcp', 'backendHalfOpenIdleTimeoutNanoseconds'],
+  backendEstablishedIdleTimeoutMs: ['fixed', 'tcp', 'backendEstablishedIdleTimeoutNanoseconds'],
+  lbHalfOpenIdleTimeoutMs: ['resources', 'loadBalancer', 'mappingTimeouts', 'halfOpenIdleTimeoutNanoseconds'],
+  lbEstablishedIdleTimeoutMs: ['resources', 'loadBalancer', 'mappingTimeouts', 'establishedIdleTimeoutNanoseconds'],
+  lbClosingIdleTimeoutMs: ['resources', 'loadBalancer', 'mappingTimeouts', 'closingIdleTimeoutNanoseconds'],
+  lbResetIdleTimeoutMs: ['resources', 'loadBalancer', 'mappingTimeouts', 'resetIdleTimeoutNanoseconds'],
+  packetGapMs: ['fixed', 'workload', 'defaults', 'packetGapNanoseconds'],
+  bandwidthBitsPerSecond: ['fixed', 'network', 'defaults', 'bandwidthBitsPerSecond'],
+  packetTravelTimeMs: ['fixed', 'network', 'defaults', 'packetTravelTimeNanoseconds'],
+  linkQueue: ['fixed', 'network', 'defaults', 'queueCapacity'],
+  loss: ['fixed', 'network', 'defaults', 'lossRate'],
+  queuePolicy: ['fixed', 'network', 'defaults', 'queuePolicy'],
+  congestionThresholdPercent: ['fixed', 'network', 'defaults', 'congestionThresholdPercent'],
+  congestionSignalProbability: ['fixed', 'network', 'defaults', 'congestionSignalProbability'],
   forwardingBitsPerSecond: ['resources', 'loadBalancer', 'forwardingBitsPerSecond'],
   ingressBandwidthBitsPerSecond: ['resources', 'loadBalancer', 'ingress', 'bandwidthBitsPerSecond'],
   ingressPacketTravelTimeMs: ['resources', 'loadBalancer', 'ingress', 'packetTravelTimeNanoseconds'],
@@ -106,7 +107,7 @@ const positiveFields = new Set<ScenarioField>([
   'tcpMSLMs', 'tcpFinWaitTimeoutMs',
 ]);
 
-// Older documents keep their original shape while the form shows effective defaults.
+// Omitted settings retain their native shape while the form shows defaults.
 const optionalDefaults: Partial<Record<ScenarioField, string | number | boolean>> = {
   mssBytes: 1024,
   receiveBufferBytes: 65535,
@@ -268,16 +269,17 @@ export function validateScenarioField(
 }
 
 // Project fields for display only; this projection never replaces the native draft.
-export function scenarioFormValues(scenario: Scenario): ScenarioDraft {
+export function scenarioFormValues(scenario: Scenario, selectedAt = '0'): ScenarioDraft {
+  const selected = selectedScenarioState(scenario, selectedAt);
   const values = {} as ScenarioDraft;
   for (const [name, path] of Object.entries(fieldPaths)) {
     const field = name as DirectField;
 
     const requested = path.reduce<unknown>((parent, key) => {
       return parent == null ? undefined : Reflect.get(parent as object, key);
-    }, scenario);
+    }, path[0] === 'fixed' ? scenario : selected);
     const inherited = field === 'fastRetransmit'
-      ? (scenario.tcp?.congestionControl?.mode ?? 'reno') !== 'none'
+      ? (scenario.fixed.tcp?.congestionControl?.mode ?? 'reno') !== 'none'
       : optionalDefaults[field];
     const value = (field === 'queuePolicy' || field === 'ingressQueuePolicy') && requested === ''
       ? 'tailDrop' : requested ?? inherited;
@@ -286,34 +288,39 @@ export function scenarioFormValues(scenario: Scenario): ScenarioDraft {
       ? String(value)
       : durationText(value as ExactInteger, decimals);
   }
-  const groups = scenario.workload.clientGroups;
+  const groups = selected.workload.clientGroups;
   values.clients = String(groups.reduce((sum, group) => sum + integer(group.count), 0n));
-  values.servers = String(scenario.resources.backends.length);
+  values.servers = String(selected.resources.backends.length);
   const gaps = new Set(groups.map((group) => String(integer(group.clientGapNanoseconds))));
   values.clientGapMs = gaps.size > 1 ? '' : durationText(groups[0]?.clientGapNanoseconds ?? 0, 6);
   return values;
 }
 
 // Apply one explicit edit while keeping all unrelated native settings intact.
-export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw: string): Scenario {
-  const error = validateScenarioField(field, raw, scenario.tcp?.mssBytes ?? 1024);
+export function applyScenarioField(
+  scenario: Scenario, field: ScenarioField, raw: string, selectedAt = '0', reservationBaseline = scenario,
+): Scenario {
+  selectedScenarioState(scenario, selectedAt);
+  const error = validateScenarioField(field, raw, scenario.fixed.tcp?.mssBytes ?? 1024);
   if (error) throw new Error(error);
-  const mode = scenario.tcp?.congestionControl?.mode ?? 'reno';
+  const mode = scenario.fixed.tcp?.congestionControl?.mode ?? 'reno';
   if (field === 'fastRetransmit' && raw.trim() === 'true' && mode === 'none') {
     throw new Error('Fast retransmit requires Reno, NewReno, Tahoe or CUBIC congestion control.');
   }
   const updated = structuredClone(scenario);
+  const selected = selectedScenarioState(updated, selectedAt);
+  const usedIds = new Set([...resourceIds(scenario), ...resourceIds(reservationBaseline)]);
   if (field === 'clients') {
-    resizeClients(updated, Number(raw));
+    resizeClients(selected, Number(raw), usedIds, selectedAt, scenario);
   } else if (field === 'servers') {
-    resizeBackends(updated, Number(raw));
+    resizeBackends(selected, Number(raw), usedIds, scenario);
   } else if (field === 'clientGapMs') {
-    if (updated.workload.clientGroups.length === 0) resizeClients(updated, 0);
+    if (selected.workload.clientGroups.length === 0) resizeClients(selected, 0, usedIds, selectedAt, scenario);
     const value = documentInteger(duration(raw, 6));
-    for (const group of updated.workload.clientGroups) group.clientGapNanoseconds = value;
+    for (const group of selected.workload.clientGroups) group.clientGapNanoseconds = value;
   } else {
     const path = fieldPaths[field];
-    let target: object = updated;
+    let target: object = path[0] === 'fixed' ? updated : selected;
     // Create only the edited optional path, leaving unrelated defaults omitted.
     for (const key of path.slice(0, -1)) {
       if (Reflect.get(target, key) == null) Reflect.set(target, key, {});
@@ -367,8 +374,8 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
   }
 
   // Keep SACK and its recovery policy explicit instead of silently changing either.
-  if (updated.tcp?.sackEnabled) {
-    const congestion = updated.tcp.congestionControl;
+  if (updated.fixed.tcp?.sackEnabled) {
+    const congestion = updated.fixed.tcp.congestionControl;
     const selectedMode = congestion?.mode ?? 'reno';
     const supportedMode = selectedMode === 'reno'
       || selectedMode === 'newReno' || selectedMode === 'cubic';
@@ -380,12 +387,12 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
     }
   }
 
-  if (updated.tcp?.ECNenabled && updated.tcp.congestionControl?.mode === 'none') {
+  if (updated.fixed.tcp?.ECNenabled && updated.fixed.tcp.congestionControl?.mode === 'none') {
     throw new Error('ECN requires Reno, NewReno, Tahoe or CUBIC congestion control.');
   }
-  const congestion = updated.tcp?.congestionControl;
+  const congestion = updated.fixed.tcp?.congestionControl;
   // Changing MSS also changes every window configured in segments.
-  const mss = integer(updated.tcp?.mssBytes ?? 1024);
+  const mss = integer(updated.fixed.tcp?.mssBytes ?? 1024);
   const threshold = integer(congestion?.initialSlowStartThresholdBytes ?? 65535);
   if (threshold < 2n * mss) {
     throw new Error(`The slow-start threshold must be at least ${2n * mss} bytes for this MSS.`);
@@ -399,19 +406,20 @@ export function applyScenarioField(scenario: Scenario, field: ScenarioField, raw
   if (congestion?.mode === 'none' && integer(congestion.maximumWindowSegments ?? 0) !== 0n) {
     throw new Error('A maximum congestion window requires Reno, NewReno, Tahoe or CUBIC.');
   }
+  reservations.set(updated, usedIds);
   return updated;
 }
 
 // Preserve groups and their relative sizes; never discard explicit client overrides.
-function resizeClients(scenario: Scenario, count: number) {
-  const groups = scenario.workload.clientGroups;
+function resizeClients(selected: ScenarioStateV2, count: number, used: Set<string>, selectedAt: string, scenario: Scenario) {
+  const groups = selected.workload.clientGroups;
   if (groups.length === 0) {
-    const used = resourceIds(scenario);
     let id = 'clients';
     for (let index = 1; used.has(id); index++) id = `clients-${index}`;
+    used.add(id);
     groups.push({
-      id, count, startAtNanoseconds: 0, clientGapNanoseconds: 0,
-      network: { toLoadBalancer: {}, fromLoadBalancer: {} }, stream: {},
+      id, count, startAtNanoseconds: documentInteger(BigInt(selectedAt)), clientGapNanoseconds: 0,
+      network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} }, stream: {},
     });
     return;
   }
@@ -437,21 +445,42 @@ function resizeClients(scenario: Scenario, count: number) {
 
   for (const share of shares) {
     const group = groups[share.index];
-    const invalid = group.overrides?.find((override) => integer(override.index) >= share.count);
-    if (invalid) {
-      throw new Error(`Group "${group.id}" needs at least ${integer(invalid.index) + 1n} clients to keep its explicit overrides.`);
-    }
+    const historicalCount = Object.entries(scenario.states)
+      .filter(([at]) => BigInt(at) < BigInt(selectedAt))
+      .flatMap(([, state]) => state.workload.clientGroups.filter(entry => entry.id === group.id))
+      .reduce((maximum, entry) => integer(entry.count) > maximum ? integer(entry.count) : maximum, 0n);
+    const slots = historicalCount > share.count ? historicalCount : share.count;
+    const invalid = group.overrides?.find(override => integer(override.index) >= slots);
+    if (invalid) throw new Error(`Group "${group.id}" needs at least ${integer(invalid.index) + 1n} clients to keep its explicit overrides.`);
     if (integer(group.count) !== share.count) group.count = Number(share.count);
   }
 }
 
-// IDs belong to one shared resource namespace across LB, groups and backends.
-function resourceIds(scenario: Scenario): Set<string> {
+// Reservations follow the draft lineage, including IDs removed by earlier edits.
+const reservations = new WeakMap<Scenario, Set<string>>();
+export function retainResourceIds(updated: Scenario, baseline: Scenario): Scenario {
+  reservations.set(updated, resourceIds(baseline));
+  return updated;
+}
+
+export function resourceIds(scenario: Scenario): Set<string> {
   return new Set([
-    scenario.resources.loadBalancer.id,
-    ...scenario.resources.backends.map((backend) => backend.id),
-    ...scenario.workload.clientGroups.map((group) => group.id),
+    ...(reservations.get(scenario) ?? []), scenario.fixed.loadBalancer.id,
+    ...Object.values(scenario.states).flatMap(state => [
+      ...state.resources.backends.map(backend => backend.id),
+      ...state.workload.clientGroups.map(group => group.id),
+    ]),
   ]);
+}
+
+export function scenarioStateTimes(scenario: Scenario): string[] {
+  return Object.keys(scenario.states).sort((left, right) => BigInt(left) < BigInt(right) ? -1 : BigInt(left) > BigInt(right) ? 1 : 0);
+}
+
+export function selectedScenarioState(scenario: Scenario, selectedAt = '0'): ScenarioStateV2 {
+  const state = scenario.states[selectedAt];
+  if (!state) throw new Error(`Scenario state ${selectedAt} does not exist.`);
+  return state;
 }
 
 // Compare mapped IPv6 spellings with IPv4 endpoints before choosing a new address.
@@ -467,11 +496,10 @@ function endpointKey(address: string, port: ExactInteger): string {
 }
 
 // Existing backend settings stay in order; new backends inherit network defaults.
-function resizeBackends(scenario: Scenario, count: number) {
-  scenario.resources.backends = scenario.resources.backends.slice(0, count);
-  const backends = scenario.resources.backends;
-  const usedIds = resourceIds(scenario);
-  const endpoints = new Set(backends.map((backend) => endpointKey(backend.address, backend.port)));
+function resizeBackends(selected: ScenarioStateV2, count: number, usedIds: Set<string>, baseline: Scenario) {
+  const endpoints = new Set(Object.values(baseline.states).flatMap(state => state.resources.backends.map(backend => endpointKey(backend.address, backend.port))));
+  selected.resources.backends = selected.resources.backends.slice(0, count);
+  const backends = selected.resources.backends;
   let idIndex = 1;
   let addressIndex = 0;
   while (backends.length < count) {
@@ -484,7 +512,7 @@ function resizeBackends(scenario: Scenario, count: number) {
     } while (endpoints.has(endpointKey(address, 80)));
     backends.push({
       id, name: id, address, port: 80,
-      network: { toLoadBalancer: {}, fromLoadBalancer: {} },
+      network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
     });
     usedIds.add(id);
     endpoints.add(endpointKey(address, 80));

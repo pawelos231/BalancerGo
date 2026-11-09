@@ -36,7 +36,6 @@ type NativeScenarioService interface {
 type checkedScenario struct {
 	definition scenario.ScenarioV2
 	plan       *scenario.CompiledV2
-	legacy     *legacyScenario
 }
 
 // scenarioAPI translates bounded HTTP documents into calls on the owner service.
@@ -80,10 +79,6 @@ func (api scenarioAPI) validate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if checked.legacy != nil {
-		validateLegacyScenario(w, *checked.legacy)
-		return
-	}
 	document, err := scenario.EncodeDocumentV2(checked.definition)
 	if err != nil {
 		writeScenarioError(w, http.StatusInternalServerError, "unable to encode scenario")
@@ -115,12 +110,6 @@ func (api scenarioAPI) validate(w http.ResponseWriter, r *http.Request) {
 
 // defaults serves the owner's scenario in the same format accepted by POST.
 func (api scenarioAPI) defaults(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("version") != "2" {
-		if legacy, ok := api.service.(LegacyScenarioService); ok {
-			writeLegacyDefaults(w, legacy)
-			return
-		}
-	}
 	service, ok := api.service.(NativeScenarioService)
 	if !ok {
 		writeScenarioError(w, http.StatusServiceUnavailable, "native scenario service is unavailable")
@@ -142,9 +131,7 @@ func (api scenarioAPI) start(w http.ResponseWriter, r *http.Request) {
 	}
 	var receipt contract.RunReceipt
 	var err error
-	if checked.legacy != nil {
-		receipt, err = startLegacyScenario(r.Context(), api.service, *checked.legacy)
-	} else if service, ok := api.service.(NativeScenarioService); ok {
+	if service, ok := api.service.(NativeScenarioService); ok {
 		receipt, err = service.StartScenarioV2(r.Context(), checked.definition, checked.plan)
 	} else {
 		err = ErrServiceClosed
@@ -195,17 +182,6 @@ func readScenario(w http.ResponseWriter, r *http.Request) (checkedScenario, bool
 			writeScenarioError(w, http.StatusBadRequest, "unable to read scenario")
 		}
 		return empty, false
-	}
-	var header struct {
-		Version json.RawMessage `json:"version"`
-	}
-	if err := json.Unmarshal(document, &header); err != nil {
-		writeScenarioError(w, http.StatusBadRequest, err.Error())
-		return empty, false
-	}
-	// Remove this boundary together with the old browser contract in E1.14.
-	if isLegacyScenarioVersion(header.Version) {
-		return readLegacyScenario(w, document)
 	}
 	definition, err := scenario.DecodeDocumentV2(document)
 	if err != nil {

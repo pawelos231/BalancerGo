@@ -38,7 +38,7 @@ func newScenarioHarness(t *testing.T) *scenarioHarness {
 		return submitFrontendCommand(control, ctx, command, reply)
 	})
 	go hub.Run(ctx)
-	defaults := legacyTestConfiguration()
+	defaults := testConfiguration()
 	api := &scenarioAPI{defaults: defaults, control: control, publication: publication}
 	server := httptest.NewServer(httpserver.NewServer(hub, "", api).Handler)
 	done := make(chan error, 1)
@@ -127,19 +127,27 @@ func scenarioRequest(t *testing.T, server *httptest.Server, method, path string,
 // TestHTTPScenarioLifecycle checks profiles in the runtime and request-independent starts.
 func TestHTTPScenarioLifecycle(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Speed = 1
-	input.Execution.Duration = 2 * time.Second
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Speed = 1
+	input.Fixed.Execution.Duration = 2 * time.Second
 	slowRate := int64(10_000_000)
-	input.Network.Profiles = []scenario.LinkProfile{{
+	input.Fixed.Network.Profiles = []scenario.LinkProfile{{
 		ID: "slow", Config: scenario.LinkPatch{BandwidthBitsPerSecond: &slowRate},
 	}}
-	input.Workload.ClientGroups = []scenario.ClientGroup{
-		{ID: "slow-clients", Count: 2, Network: scenario.EndpointNetworkConfig{Profile: "slow"}},
-		{ID: "fast-clients", Count: 1},
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups = []scenario.ClientGroup{
+			{ID: "slow-clients", Count: 2, Network: scenario.EndpointNetworkConfig{Profile: "slow"}},
+			{ID: "fast-clients", Count: 1},
+		}
+		input.States["0"] = initialState
 	}
-	input.Resources.Backends[0].Network.Profile = "slow"
-	document, err := scenario.EncodeDocument(input)
+	{
+		initialState := input.States["0"]
+		initialState.Resources.Backends[0].Network.Profile = "slow"
+		input.States["0"] = initialState
+	}
+	document, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,14 +216,14 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 	if err := json.Unmarshal(body, &record); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocument(record.Scenario)
+	restored, err := scenario.DecodeDocumentV2(record.Scenario)
 	if err != nil || !reflect.DeepEqual(restored, input) {
 		t.Fatalf("current scenario changed: %v", err)
 	}
 	if record.RunID != receipt.RunID || record.Status != "running" {
 		t.Fatalf("wrong record: %+v", record)
 	}
-	assertInteractiveExperiment(t, document, input.Execution.Speed, record.Experiment)
+	assertInteractiveExperiment(t, document, input.Fixed.Execution.Speed, record.Experiment)
 	if snapshot.Simulation.Experiment == nil ||
 		!reflect.DeepEqual(*snapshot.Simulation.Experiment, record.Experiment) {
 		t.Fatal("HTTP and WebSocket described different experiments")
@@ -245,67 +253,17 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 
 // A packets-only form edit keeps Bytes=-1 in the stored input. Runtime receives
 // the resolved byte count, while explicit zero timeouts and false flags stay exact.
-func TestLegacyStartRetainsRequestedAndResolvedSettings(t *testing.T) {
-	defaults := legacyTestConfiguration()
-	request := startRequest{
-		legacy: &runtimeCommand{Payload: []byte(`{
-			"packets": 7,
-			"rtoBackoff": false,
-			"cubicFastConvergence": false,
-			"tcpMaxFINRetries": 0,
-			"clientIdleTimeoutMs": 0,
-			"backendHalfOpenIdleTimeoutMs": 0,
-			"lbHalfOpenIdleTimeoutMs": 0,
-			"packetTravelTimeMs": 0.000013
-		}`)},
-	}
-	prepared, err := prepareStart(request, defaults)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stored, err := scenario.DecodeDocument(prepared.document)
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	// Defaults and the stored document keep the user's unresolved byte choice.
-	if defaults.streamBytes != -1 || defaults.packets != 3 ||
-		stored.Workload.Defaults.Bytes != -1 || stored.Workload.Defaults.Packets != 7 {
-		t.Fatal("preparation replaced raw stream defaults with runtime values")
-	}
-	if prepared.scenario.DefaultStream.Bytes != 7*1024 {
-		t.Fatalf("resolved payload bytes = %d", prepared.scenario.DefaultStream.Bytes)
-	}
-
-	// Both retained representations describe the same explicit timer policy.
-	if *stored.TCP.RTO.ExponentialBackoff || prepared.scenario.TCP.RTO.ExponentialBackoff ||
-		*stored.TCP.CongestionControl.CubicFastConvergence ||
-		prepared.scenario.TCP.CongestionControl.CubicFastConvergence {
-		t.Fatal("preparation lost an explicit false flag")
-	}
-	if *stored.TCP.Close.MaxFINRetries != 0 || prepared.scenario.TCP.Close.MaxFINRetries != 0 ||
-		*stored.TCP.ClientIdleTimeout != 0 || prepared.scenario.TCP.ClientIdleTimeout != 0 ||
-		*stored.TCP.BackendHalfOpenIdleTimeout != 0 || prepared.scenario.TCP.BackendHalfOpenIdleTimeout != 0 ||
-		*stored.Resources.LoadBalancer.HalfOpenIdleTimeout != 0 || prepared.scenario.LoadBalancer.HalfOpenIdleTimeout != 0 {
-		t.Fatal("preparation replaced explicit zero limits")
-	}
-	if stored.Network.Defaults.PacketTravelTime != 13*time.Nanosecond ||
-		prepared.scenario.NetworkDefaults.PacketTravelTime != stored.Network.Defaults.PacketTravelTime {
-		t.Fatal("preparation changed native travel-time precision")
-	}
-}
-
-// TestScenarioStartAdmission checks simultaneous transports, detached records and Stop.
 func TestScenarioStartAdmission(t *testing.T) {
 	serviceCtx, cancelService := context.WithCancel(context.Background())
 	defer cancelService()
 	control := newRunController(serviceCtx)
-	input := legacyTestConfiguration().scenarioDefinition()
-	resolved, err := scenario.Normalize(input)
+	input := testConfiguration().scenarioDefinitionV2()
+	resolved, err := scenario.CompileV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := scenario.EncodeDocument(input)
+	document, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +276,7 @@ func TestScenarioStartAdmission(t *testing.T) {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			_, err := control.startScenario(context.Background(), document, resolved)
+			_, err := control.startTimeline(context.Background(), document, resolved)
 			errorsCh <- err
 		}()
 	}
@@ -352,14 +310,14 @@ func TestScenarioStartAdmission(t *testing.T) {
 		t.Fatal("Stop did not cancel the run")
 	}
 	control.finishRun()
-	_, err = control.startScenario(context.Background(), document, resolved)
+	_, err = control.startTimeline(context.Background(), document, resolved)
 	if !errors.Is(err, errSimulationBusy) {
 		t.Fatal("new Start bypassed pending Stop")
 	}
 	control.applyStop(<-control.stops, func() (stopObservation, error) { return stopObservation{}, nil })
 
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
-	second, err := control.startScenario(requestCtx, document, resolved)
+	second, err := control.startTimeline(requestCtx, document, resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,34 +331,5 @@ func TestScenarioStartAdmission(t *testing.T) {
 	cancelService()
 	if control.contextForRun().Err() == nil {
 		t.Fatal("service shutdown did not cancel its model")
-	}
-}
-
-// TestLegacyStartStillCreatesScenarioRecord checks the existing form's WS path.
-func TestLegacyStartStillCreatesScenarioRecord(t *testing.T) {
-	h := newScenarioHarness(t)
-	if err := h.socket.WriteJSON(contract.Envelope{Type: contract.StartSimulation, Payload: []byte(`{"clients":1,"speed":0}`)}); err != nil {
-		t.Fatal(err)
-	}
-	snapshot := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool { return snapshot.Simulation.Status == "finished" })
-	if snapshot.Simulation.RunID == "" {
-		t.Fatal("legacy run has no identity")
-	}
-	body := scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusOK)
-	var record contract.RunRecord
-	if err := json.Unmarshal(body, &record); err != nil {
-		t.Fatal(err)
-	}
-	input, err := scenario.DecodeDocument(record.Scenario)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.Status != "finished" || record.RunID != snapshot.Simulation.RunID || input.Workload.ClientGroups[0].Count != 1 {
-		t.Fatal("legacy run was not exposed through the scenario API")
-	}
-	assertInteractiveExperiment(t, record.Scenario, 0, record.Experiment)
-	if snapshot.Simulation.Experiment == nil ||
-		!reflect.DeepEqual(*snapshot.Simulation.Experiment, record.Experiment) {
-		t.Fatal("finished legacy run lost its experiment metadata")
 	}
 }

@@ -19,7 +19,7 @@ interface ScenarioRunDetailsProps {
 function ScenarioRunDetails({ run }: ScenarioRunDetailsProps) {
   const [expanded, setExpanded] = useState(false);
   const { scenario } = run;
-  const groups = scenario.workload.clientGroups;
+  const groups = scenario.states['0'].workload.clientGroups;
   const visibleGroups = groups.slice(0, 12);
 
   return (
@@ -30,8 +30,8 @@ function ScenarioRunDetails({ run }: ScenarioRunDetailsProps) {
       </Stack>
 
       <Typography variant="body2" color="text.secondary">
-        {scenario.resources.backends.length} backends · {groups.length} client groups
-        {' · '}Algorithm: {scenario.resources.loadBalancer.algorithm}
+        {scenario.states['0'].resources.backends.length} backends · {groups.length} client groups
+        {' · '}Algorithm: {scenario.states['0'].resources.loadBalancer.algorithm}
       </Typography>
 
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -77,8 +77,7 @@ function ScenarioRunDetails({ run }: ScenarioRunDetailsProps) {
         </AccordionDetails>
       </Accordion>
       <Typography variant="caption" color="text.secondary">
-        This is the scenario accepted at start. Runtime algorithm changes and added clients
-        appear in the live state; they do not rewrite this document.
+        This is the complete scenario accepted at start, including all scheduled states.
       </Typography>
     </Stack>
   );

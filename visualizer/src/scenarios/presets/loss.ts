@@ -12,7 +12,7 @@ export const lossPresets: readonly ScenarioPreset[] = [
       'Reverse links and both backend paths have no random loss.',
     build(defaults) {
       const scenario = isolatedExperiment(defaults);
-      scenario.workload.clientGroups[0].network.toLoadBalancer.lossRate = 0.075;
+      scenario.states['0'].workload.clientGroups[0].network.toLoadBalancer.lossRate = 0.075;
 
       return scenario;
     },
@@ -26,7 +26,7 @@ export const lossPresets: readonly ScenarioPreset[] = [
       'This models a failed link, rather than a backend health or CPU failure.',
     build(defaults) {
       const scenario = isolatedExperiment(defaults);
-      scenario.resources.backends[0].network.fromLoadBalancer.lossRate = 1;
+      scenario.states['0'].resources.backends[0].network.fromLoadBalancer.lossRate = 1;
 
       return scenario;
     },

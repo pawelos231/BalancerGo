@@ -23,17 +23,29 @@ func TestPerformanceMetricsLifecycle(t *testing.T) {
 	}
 
 	// A short unpaced run still performs real work and reports its own counters.
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Speed = 0
-	input.Execution.Duration = 100 * time.Microsecond
-	input.Execution.SnapshotInterval = 10 * time.Microsecond
-	input.Execution.MaxEvents = 1_000_000
-	input.Network.Defaults.BandwidthBitsPerSecond = 80_000_000_000_000
-	input.Network.Defaults.PacketTravelTime = 0
-	input.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = 8_000_000_000_000_000
-	input.Resources.LoadBalancer.ForwardingBitsPerSecond = 8_000_000_000_000_000
-	input.Workload.Defaults.Bytes = 1 << 30
-	input.Workload.ClientGroups[0].Count = 4
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Speed = 0
+	input.Fixed.Execution.Duration = 100 * time.Microsecond
+	input.Fixed.Execution.SnapshotInterval = 10 * time.Microsecond
+	input.Fixed.Execution.MaxEvents = 1_000_000
+	input.Fixed.Network.Defaults.BandwidthBitsPerSecond = 80_000_000_000_000
+	input.Fixed.Network.Defaults.PacketTravelTime = 0
+	{
+		initialState := input.States["0"]
+		initialState.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = 8_000_000_000_000_000
+		input.States["0"] = initialState
+	}
+	{
+		initialState := input.States["0"]
+		initialState.Resources.LoadBalancer.ForwardingBitsPerSecond = 8_000_000_000_000_000
+		input.States["0"] = initialState
+	}
+	input.Fixed.Workload.Defaults.Bytes = 1 << 30
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 4
+		input.States["0"] = initialState
+	}
 	receipt := startTelemetryScenario(t, h, input)
 	finished := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
@@ -71,8 +83,12 @@ func TestPerformanceMetricsLifecycle(t *testing.T) {
 	}
 
 	// Less work in a fresh model must not inherit the previous cumulative counters.
-	input.Workload.ClientGroups[0].Count = 1
-	input.Workload.Defaults.Bytes = 0
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 1
+		input.States["0"] = initialState
+	}
+	input.Fixed.Workload.Defaults.Bytes = 0
 	second := startTelemetryScenario(t, h, input)
 	fresh := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == second.RunID && snapshot.Simulation.Status == "finished"
@@ -93,14 +109,14 @@ func TestPerformanceMetricsLifecycle(t *testing.T) {
 // TestPerformanceFailedRunFreezes keeps completed work visible after an event limit.
 func TestPerformanceFailedRunFreezes(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinition()
+	input := h.defaults.scenarioDefinitionV2()
 	// A tiny playback wait makes elapsed time observable even on coarse clocks.
-	input.Execution.Speed = 1
-	input.Execution.Duration = time.Millisecond
-	input.Execution.SnapshotInterval = time.Millisecond
-	input.Execution.MaxEvents = 20
-	input.Network.Defaults.PacketTravelTime = 0
-	input.Workload.Defaults.Bytes = 1024 * 1024
+	input.Fixed.Execution.Speed = 1
+	input.Fixed.Execution.Duration = time.Millisecond
+	input.Fixed.Execution.SnapshotInterval = time.Millisecond
+	input.Fixed.Execution.MaxEvents = 20
+	input.Fixed.Network.Defaults.PacketTravelTime = 0
+	input.Fixed.Workload.Defaults.Bytes = 1024 * 1024
 	receipt := startTelemetryScenario(t, h, input)
 	failed := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "failed"

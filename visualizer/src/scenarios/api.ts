@@ -6,6 +6,7 @@ import type {
 } from './types.ts';
 import type { TopologyDefinition } from '../telemetry/types';
 import { isExperimentContext } from '../experiment.ts';
+import { validateScenarioV2 } from './v2.ts';
 
 // Keep API failures readable while retaining the status for expected cases such as 404.
 export class ScenarioApiError extends Error {
@@ -154,23 +155,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isScenario(value: unknown): value is Scenario {
-  if (!isRecord(value)) return false;
-  const { execution, network, resources, workload } = value;
-  return isRecord(execution)
-    && isRecord(network) && isRecord(network.defaults)
-    && isRecord(resources) && isRecord(resources.loadBalancer)
-    && isRecord(resources.loadBalancer.ingress) && Array.isArray(resources.backends)
-    && isRecord(workload) && isRecord(workload.defaults) && Array.isArray(workload.clientGroups);
+  if (!isRecord(value) || !isRecord(value.fixed) || !isRecord(value.states)) return false;
+  const fixed = value.fixed;
+  if (!isRecord(fixed.execution) || !isRecord(fixed.tcp)
+    || !isRecord(fixed.network) || !isRecord(fixed.network.defaults)
+    || !isRecord(fixed.workload) || !isRecord(fixed.workload.defaults)) return false;
+  if (!Object.values(value.states).every(state => isRecord(state)
+    && isRecord(state.resources) && isRecord(state.resources.loadBalancer)
+    && Array.isArray(state.resources.backends)
+    && isRecord(state.workload) && Array.isArray(state.workload.clientGroups))) return false;
+  try { validateScenarioV2(value); return true; } catch { return false; }
 }
 
 function isResolvedScenario(value: unknown): boolean {
-  return isRecord(value)
-    && isRecord(value.execution)
-    && isRecord(value.networkDefaults)
-    && isRecord(value.loadBalancer)
-    && isRecord(value.defaultStream)
-    && Array.isArray(value.backends)
-    && Array.isArray(value.clientGroups)
+  return isRecord(value) && String(value.version) === '2'
+    && isRecord(value.fixed) && isRecord(value.fixed.execution)
+    && isRecord(value.fixed.networkDefaults) && isRecord(value.fixed.defaultStream)
+    && Array.isArray(value.states) && value.states.every(state => isRecord(state)
+      && isExactInteger(state.atNanoseconds) && isRecord(state.loadBalancer)
+      && Array.isArray(state.backends) && Array.isArray(state.clientGroups)
+      && isExactInteger(state.totalClients))
     && isExactInteger(value.totalClients);
 }
 

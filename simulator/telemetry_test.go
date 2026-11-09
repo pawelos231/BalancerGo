@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"load-balancer/scenario"
 	"reflect"
 	"strconv"
 	"strings"
@@ -192,9 +193,13 @@ func restoreTelemetryServers(t *testing.T, document *contract.TopologyDocument, 
 // TestTelemetryMatchesLegacyProjection checks complete reconstruction and pure reads.
 func TestTelemetryMatchesLegacyProjection(t *testing.T) {
 	definition := scenarioRuntimeDefinition()
-	definition.Workload.ClientGroups[0].Count = 2
-	definition.Workload.Defaults.Bytes = 4096
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+	{
+		initialState := definition.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 2
+		definition.States["0"] = initialState
+	}
+	definition.Fixed.Workload.Defaults.Bytes = 4096
+	s := newScenarioSimulation(compiledRuntimeScenario(t, definition))
 	runIngressUntil(t, s, 0)
 	publisher := presentation.NewProjector("run-test")
 	first := sampleTelemetry(t, publisher, s)
@@ -256,8 +261,8 @@ func TestTelemetryClosedClientsKeepRevision(t *testing.T) {
 	definition := scenarioRuntimeDefinition()
 	// Keep the active closer through TIME_WAIT, then exercise retained closed values.
 	msl := time.Millisecond
-	definition.TCP.Close.MSL = &msl
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+	definition.Fixed.TCP.Close.MSL = &msl
+	s := newScenarioSimulation(compiledRuntimeScenario(t, definition))
 	runIngressUntil(t, s, 0)
 	publisher := presentation.NewProjector("run-closed")
 	first := sampleTelemetry(t, publisher, s)
@@ -268,12 +273,9 @@ func TestTelemetryClosedClientsKeepRevision(t *testing.T) {
 	if err := s.MarkBackendFailed(first.Document.Servers[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetAlgorithm("random"); err != nil {
-		t.Fatal(err)
-	}
 	second := sampleTelemetry(t, publisher, s)
 	if second.Document != nil || second.Topology.Revision != first.Topology.Revision {
-		t.Fatal("closed clients, health changes and routing policy must not revise definitions")
+		t.Fatal("closed clients and health changes must not revise definitions")
 	}
 	if actual := restoreTelemetryTopology(t, first.Document, second.Topology); !reflect.DeepEqual(actual, presentation.BuildTopology(s)) {
 		t.Fatal("closed-client or failed-backend values diverged from the full projection")
@@ -281,11 +283,24 @@ func TestTelemetryClosedClientsKeepRevision(t *testing.T) {
 }
 
 // TestTelemetryArrivalsAndSpawnReviseDefinitions keeps every retained document immutable.
-func TestTelemetryArrivalsAndSpawnReviseDefinitions(t *testing.T) {
+func TestTelemetryArrivalsAndTimelineGrowthReviseDefinitions(t *testing.T) {
 	definition := scenarioRuntimeDefinition()
-	definition.Workload.ClientGroups[0].Count = 3
-	definition.Workload.ClientGroups[0].ClientGap = 2 * time.Millisecond
-	s := newScenarioSimulation(normalizedRuntimeScenario(t, definition))
+	{
+		initialState := definition.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 3
+		definition.States["0"] = initialState
+	}
+	{
+		initialState := definition.States["0"]
+		initialState.Workload.ClientGroups[0].ClientGap = 2 * time.Millisecond
+		definition.States["0"] = initialState
+	}
+	// Grow the lifetime birth budget at 6 ms, after the initial three arrivals.
+	future := definition.States["0"]
+	future.Workload.ClientGroups = append([]scenario.ClientGroup(nil), future.Workload.ClientGroups...)
+	future.Workload.ClientGroups[0].Count = 5
+	definition.States["6000000"] = future
+	s := newScenarioSimulation(compiledRuntimeScenario(t, definition))
 	publisher := presentation.NewProjector("run-arrivals")
 	initial := sampleTelemetry(t, publisher, s)
 	frozenInitial := telemetryJSON(t, initial.Document)
@@ -306,17 +321,10 @@ func TestTelemetryArrivalsAndSpawnReviseDefinitions(t *testing.T) {
 		}
 	}
 
-	if err := s.SpawnClients(2, "clients"); err != nil {
-		t.Fatal(err)
-	}
-	reserved := sampleTelemetry(t, publisher, s)
-	if reserved.Document != nil || reserved.Topology.Nodes[0].Metrics["scheduledClients"] != 5 {
-		t.Fatal("reserving future clients changes a live count, not current membership")
-	}
-	runIngressUntil(t, s, s.Now())
+	runIngressUntil(t, s, 6*time.Millisecond)
 	spawned := sampleTelemetry(t, publisher, s)
-	if spawned.Document == nil || spawned.Topology.Revision != "5" {
-		t.Fatal("a newly created spawned client must revise definitions")
+	if spawned.Document == nil || spawned.Topology.Revision != "5" || s.Info().ScheduledClients != 5 || s.Info().CreatedClients != 4 {
+		t.Fatal("a client born after timeline growth must revise definitions")
 	}
 	if string(frozenInitial) != string(telemetryJSON(t, initial.Document)) {
 		t.Fatal("later revisions changed a retained document")
@@ -331,8 +339,12 @@ func TestTelemetryArrivalsAndSpawnReviseDefinitions(t *testing.T) {
 // A backend failure changes live values; adding another backend revises graph membership.
 func TestTelemetryStoppedBackendsRetainLinksAndNewBackendsReviseDefinitions(t *testing.T) {
 	definition := scenarioRuntimeDefinition()
-	definition.Workload.ClientGroups[0].Count = 0
-	resolved := normalizedRuntimeScenario(t, definition)
+	{
+		initialState := definition.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 0
+		definition.States["0"] = initialState
+	}
+	resolved := compiledRuntimeScenario(t, definition)
 	s := newScenarioSimulation(resolved)
 	publisher := presentation.NewProjector("run-backend-lifecycle")
 	first := sampleTelemetry(t, publisher, s)
@@ -355,7 +367,7 @@ func TestTelemetryStoppedBackendsRetainLinksAndNewBackendsReviseDefinitions(t *t
 	}
 
 	// A distinct backend changes actual membership and contributes two additional paths.
-	additional := resolved.Backends[0]
+	additional := initialScenarioState(t, resolved).Backends[0].NormalizedBackend
 	additional.ID = "additional"
 	additional.Address = "10.99.0.1"
 	s.AddBackend(additional)

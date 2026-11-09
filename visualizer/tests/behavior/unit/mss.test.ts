@@ -11,12 +11,12 @@ import { scenarioFixture } from '../../scenarioFixture.ts';
 test('manual MSS suggestions and custom values round trip without changing workload', () => {
   const original = scenarioFixture();
   assert.equal(scenarioFormValues(original).mssBytes, '1024');
-  assert.equal(original.tcp, undefined);
+  assert.deepEqual(original.fixed.tcp, {});
 
   for (const mss of ['536', '1024', '1452', '1460', '8960', '1234']) {
     const edited = applyScenarioField(original, 'mssBytes', mss);
-    assert.equal(edited.tcp?.mssBytes, Number(mss));
-    assert.deepEqual(edited.workload, original.workload);
+    assert.equal(edited.fixed.tcp?.mssBytes, Number(mss));
+    assert.deepEqual(edited.states['0'].workload, original.states['0'].workload);
 
     const restored = JSON.parse(serializeScenario(edited));
     assert.equal(scenarioFormValues(restored).mssBytes, mss);
@@ -38,7 +38,7 @@ test('manual MSS validates numeric limits and clears a corrected input error', (
   assert.ok(invalid.errors.mssBytes);
   const corrected = editScenarioForm(invalid, 'mssBytes', '1460');
   assert.deepEqual(corrected.errors, {});
-  assert.equal(corrected.scenario.tcp?.mssBytes, 1460);
+  assert.equal(corrected.scenario.fixed.tcp?.mssBytes, 1460);
 });
 
 // A larger MSS cannot silently raise an explicit byte threshold.
@@ -48,22 +48,22 @@ test('MSS-dependent window limits reconcile related pending edits', () => {
   const state = { scenario, values: scenarioFormValues(scenario), errors: {} };
   const large = editScenarioForm(state, 'mssBytes', '65495');
   assert.match(large.errors.mssBytes!, /at least 130990 bytes/);
-  assert.equal(large.scenario.tcp, undefined);
+  assert.deepEqual(large.scenario.fixed.tcp, {});
 
   const corrected = editScenarioForm(large, 'initialSlowStartThresholdBytes', '130990');
   assert.deepEqual(corrected.errors, {});
-  assert.equal(corrected.scenario.tcp?.mssBytes, 65495);
+  assert.equal(corrected.scenario.fixed.tcp?.mssBytes, 65495);
 
   const small = applyScenarioField(scenario, 'mssBytes', '1');
   assert.equal(validateScenarioField('initialSlowStartThresholdBytes', '2', 1), undefined);
   assert.equal(applyScenarioField(small, 'initialSlowStartThresholdBytes', '2')
-    .tcp?.congestionControl?.initialSlowStartThresholdBytes, 2);
+    .fixed.tcp?.congestionControl?.initialSlowStartThresholdBytes, 2);
 });
 
 // A saved custom MSS must not silently alter the library's reference experiments.
 test('scenario library starts from the default MSS after a custom configuration', () => {
   const defaults = scenarioFixture();
-  defaults.tcp = { mssBytes: 8960 };
+  defaults.fixed.tcp = { mssBytes: 8960 };
   for (const preset of scenarioPresets) {
     const expected = preset.category === 'host-cpu' ? '1460' : '1024';
     assert.equal(scenarioFormValues(preset.build(defaults)).mssBytes, expected, preset.id);

@@ -16,9 +16,9 @@ function mixedScenario() {
   const preset = scenarioPresets.find((entry) => entry.id === 'mixed-clients');
   assert.ok(preset);
   const scenario = preset.build(scenarioFixture());
-  scenario.workload.clientGroups[0].network.toLoadBalancer.queueCapacity = 7;
-  scenario.workload.clientGroups[0].stream = { bytes: 1234 };
-  scenario.workload.clientGroups[0].overrides = [{
+  scenario.states['0'].workload.clientGroups[0].network.toLoadBalancer.queueCapacity = 7;
+  scenario.states['0'].workload.clientGroups[0].stream = { bytes: 1234 };
+  scenario.states['0'].workload.clientGroups[0].overrides = [{
     index: 3,
     network: { profile: 'slow-client', toLoadBalancer: {}, fromLoadBalancer: { lossRate: 0.2 } },
     stream: { bytes: 0 },
@@ -32,16 +32,16 @@ test('SACK is opt-in and preserves omission and explicit false in native documen
 
   // Looking at an older scenario does not write the inherited false into it.
   assert.equal(scenarioFormValues(original).sackEnabled, 'false');
-  assert.equal(original.tcp, undefined);
+  assert.deepEqual(original.fixed.tcp, {});
 
   const enabled = applyScenarioField(original, 'sackEnabled', 'true');
-  assert.deepEqual(enabled.tcp, { sackEnabled: true });
+  assert.deepEqual(enabled.fixed.tcp, { sackEnabled: true });
   assert.equal(scenarioFormValues(enabled).sackEnabled, 'true');
 
   // Export and a later explicit disable retain the boolean, rather than omit it.
   const disabled = applyScenarioField(enabled, 'sackEnabled', 'false');
   const restored = JSON.parse(serializeScenario(disabled));
-  assert.deepEqual(restored.tcp, { sackEnabled: false });
+  assert.deepEqual(restored.fixed.tcp, { sackEnabled: false });
   assert.equal(scenarioFormValues(restored).sackEnabled, 'false');
   assert.deepEqual(original, before);
   assert.ok(validateScenarioField('sackEnabled', '1'));
@@ -56,7 +56,7 @@ test('SACK edits reject recovery combinations that the simulator does not suppor
   for (const mode of ['reno', 'newReno', 'cubic'] as const) {
     const selected = applyScenarioField(original, 'congestionControl', mode);
     const enabled = applyScenarioField(selected, 'sackEnabled', 'true');
-    assert.equal(enabled.tcp?.sackEnabled, true);
+    assert.equal(enabled.fixed.tcp?.sackEnabled, true);
     assert.throws(() => applyScenarioField(enabled, 'fastRetransmit', 'false'), /SACK requires/);
     assert.throws(() => applyScenarioField(enabled, 'congestionControl', 'tahoe'), /SACK requires/);
     assert.throws(() => applyScenarioField(enabled, 'congestionControl', 'none'), /SACK requires/);
@@ -86,24 +86,24 @@ test('form projection retains exact native integers and nanosecond precision', (
   assert.equal(fields.clientGapMs, '0');
 
   const mixed = mixedScenario();
-  mixed.workload.clientGroups[1].clientGapNanoseconds = '9007199254740993';
+  mixed.states['0'].workload.clientGroups[1].clientGapNanoseconds = '9007199254740993';
   const mixedFields = scenarioFormValues(mixed);
   assert.equal(mixedFields.clients, '16');
   assert.equal(mixedFields.clientGapMs, '');
-  mixed.workload.clientGroups[0].clientGapNanoseconds = '9007199254740993';
+  mixed.states['0'].workload.clientGroups[0].clientGapNanoseconds = '9007199254740993';
   assert.equal(scenarioFormValues(mixed).clientGapMs, '9007199254.740993');
 });
 
 test('receive-buffer edits preserve the scenario and older documents inherit the default', () => {
   const original = mixedScenario();
-  assert.equal(original.tcp, undefined);
+  assert.deepEqual(original.fixed.tcp, {});
   const before = structuredClone(original);
 
   const updated = applyScenarioField(original, 'receiveBufferBytes', '64');
-  assert.deepEqual(updated.tcp, { receiveBufferBytes: 64 });
+  assert.deepEqual(updated.fixed.tcp, { receiveBufferBytes: 64 });
   assert.equal(scenarioFormValues(updated).receiveBufferBytes, '64');
-  assert.deepEqual(updated.network, original.network);
-  assert.deepEqual(updated.workload, original.workload);
+  assert.deepEqual(updated.fixed.network, original.fixed.network);
+  assert.deepEqual(updated.states['0'].workload, original.states['0'].workload);
   assert.deepEqual(original, before);
 
   const restored = JSON.parse(JSON.stringify(updated));
@@ -136,7 +136,7 @@ test('older scenarios display timer defaults without adding settings to the docu
 
 test('LB mapping timers preserve omission, explicit zero and exact native export in every phase', () => {
   const original = mixedScenario();
-  original.tcp = {
+  original.fixed.tcp = {
     backendHalfOpenIdleTimeoutNanoseconds: 123,
     backendEstablishedIdleTimeoutNanoseconds: 456,
     rto: { initialTimeoutNanoseconds: 789 },
@@ -153,18 +153,18 @@ test('LB mapping timers preserve omission, explicit zero and exact native export
   for (const [field, nativeField] of timers) {
     const disabled = applyScenarioField(original, field, '0');
     const disabledRoundTrip = JSON.parse(serializeScenario(disabled));
-    assert.equal(disabledRoundTrip.resources.loadBalancer[nativeField], 0);
+    assert.equal(disabledRoundTrip.states['0'].resources.loadBalancer.mappingTimeouts[nativeField], 0);
     assert.equal(scenarioFormValues(disabledRoundTrip)[field], '0');
 
     const exact = applyScenarioField(disabledRoundTrip, field, '9007199254.740993');
     const restored = JSON.parse(serializeScenario(exact));
     const expected = structuredClone(original);
-    expected.resources.loadBalancer[nativeField] = '9007199254740993';
+    expected.states['0'].resources.loadBalancer.mappingTimeouts[nativeField] = '9007199254740993';
     assert.deepEqual(restored, JSON.parse(serializeScenario(expected)));
     assert.equal(scenarioFormValues(restored)[field], '9007199254.740993');
     for (const [, omittedField] of timers) {
       if (omittedField !== nativeField) {
-        assert.equal(Object.hasOwn(restored.resources.loadBalancer, omittedField), false);
+        assert.equal(Object.hasOwn(restored.states['0'].resources.loadBalancer.mappingTimeouts, omittedField), false);
       }
     }
     assert.equal(validateScenarioField(field, '0'), undefined);
@@ -189,7 +189,7 @@ test('backend timer edits retain exact values and do not fill unrelated defaults
   edited = applyScenarioField(edited, 'backendEstablishedIdleTimeoutMs', '9007199254.740993');
   const restored = JSON.parse(JSON.stringify(edited));
 
-  assert.deepEqual(restored.tcp, {
+  assert.deepEqual(restored.fixed.tcp, {
     backendHalfOpenIdleTimeoutNanoseconds: 0,
     backendEstablishedIdleTimeoutNanoseconds: '9007199254740993',
   });
@@ -207,7 +207,7 @@ test('backend timer edits retain exact values and do not fill unrelated defaults
 
 test('closing fields display backend defaults and preserve exact edits through native export', () => {
   const scenario = mixedScenario();
-  scenario.tcp = {
+  scenario.fixed.tcp = {
     close: {
       mslNanoseconds: 2_500_000,
       finWaitTimeoutNanoseconds: 7_500_000,
@@ -224,7 +224,7 @@ test('closing fields display backend defaults and preserve exact edits through n
   edited = applyScenarioField(edited, 'tcpFinWaitTimeoutMs', '9007199254.740993');
   edited = applyScenarioField(edited, 'tcpMaxFINRetries', '0');
   const restored = JSON.parse(JSON.stringify(edited));
-  assert.deepEqual(restored.tcp.close, {
+  assert.deepEqual(restored.fixed.tcp.close, {
     mslNanoseconds: '4611686018427387903',
     finWaitTimeoutNanoseconds: '9007199254740993',
     maxFINRetries: 0,
@@ -232,8 +232,8 @@ test('closing fields display backend defaults and preserve exact edits through n
   assert.equal(scenarioFormValues(restored).tcpMSLMs, '4611686018427.387903');
   assert.equal(scenarioFormValues(restored).tcpFinWaitTimeoutMs, '9007199254.740993');
   assert.equal(scenarioFormValues(restored).tcpMaxFINRetries, '0');
-  assert.deepEqual(edited.network, scenario.network);
-  assert.deepEqual(edited.workload, scenario.workload);
+  assert.deepEqual(edited.fixed.network, scenario.fixed.network);
+  assert.deepEqual(edited.states['0'].workload, scenario.states['0'].workload);
   assert.deepEqual(scenario, before);
 
   const section = scenarioFieldSections.find((entry) => entry.id === 'tcp-closing');
@@ -243,8 +243,8 @@ test('closing fields display backend defaults and preserve exact edits through n
 test('closing edits keep older document omissions and reject invalid retention and retry limits', () => {
   const scenario = mixedScenario();
   const edited = applyScenarioField(scenario, 'tcpMaxFINRetries', '0');
-  assert.deepEqual(edited.tcp, { close: { maxFINRetries: 0 } });
-  assert.equal(scenario.tcp, undefined);
+  assert.deepEqual(edited.fixed.tcp, { close: { maxFINRetries: 0 } });
+  assert.deepEqual(scenario.fixed.tcp, {});
   const valid: [ScenarioField, string][] = [
     ['tcpMSLMs', '0.000001'], ['tcpMSLMs', '4611686018427.387903'],
     ['tcpFinWaitTimeoutMs', '0.000001'], ['tcpFinWaitTimeoutMs', '9223372036854.775807'],
@@ -286,15 +286,15 @@ test('congestion edits retain mode none and large exact integers without flatten
   edited = applyScenarioField(edited, 'initialCongestionWindowSegments', '2');
   edited = applyScenarioField(edited, 'initialSlowStartThresholdBytes', '9007199254740993');
 
-  assert.deepEqual(edited.tcp?.congestionControl, {
+  assert.deepEqual(edited.fixed.tcp?.congestionControl, {
     mode: 'none',
     fastRetransmit: false,
     initialWindowSegments: 2,
     initialSlowStartThresholdBytes: '9007199254740993',
   });
-  assert.deepEqual(edited.network, original.network);
-  assert.deepEqual(edited.workload, original.workload);
-  assert.deepEqual(edited.resources, original.resources);
+  assert.deepEqual(edited.fixed.network, original.fixed.network);
+  assert.deepEqual(edited.states['0'].workload, original.states['0'].workload);
+  assert.deepEqual(edited.states['0'].resources, original.states['0'].resources);
   assert.deepEqual(original, before);
 
   // Import/export keeps a threshold one byte above JavaScript's exact integer limit.
@@ -315,7 +315,7 @@ test('fast recovery follows Reno defaults and preserves an explicit disabled set
 
   const disabled = applyScenarioField(original, 'fastRetransmit', 'false');
   const restored = JSON.parse(JSON.stringify(disabled));
-  assert.equal(restored.tcp.congestionControl.fastRetransmit, false);
+  assert.equal(restored.fixed.tcp.congestionControl.fastRetransmit, false);
   assert.equal(scenarioFormValues(restored).fastRetransmit, 'false');
 
   // Switching off Reno disables its dependent policy; turning Reno back on keeps false.
@@ -328,13 +328,13 @@ test('fast recovery follows Reno defaults and preserves an explicit disabled set
   const reno = applyScenarioField(none, 'congestionControl', 'reno');
   assert.equal(scenarioFormValues(reno).fastRetransmit, 'false');
   const enabled = applyScenarioField(reno, 'fastRetransmit', 'true');
-  assert.equal(enabled.tcp?.congestionControl?.fastRetransmit, true);
-  assert.deepEqual(enabled.network, original.network);
+  assert.equal(enabled.fixed.tcp?.congestionControl?.fastRetransmit, true);
+  assert.deepEqual(enabled.fixed.network, original.fixed.network);
   assert.deepEqual(original, before);
 
   // Imported rwnd-only scenarios inherit false even when the field is absent.
   const imported = structuredClone(original);
-  imported.tcp = { congestionControl: { mode: 'none' } };
+  imported.fixed.tcp = { congestionControl: { mode: 'none' } };
   assert.equal(scenarioFormValues(imported).fastRetransmit, 'false');
   assert.ok(validateScenarioField('fastRetransmit', '1'));
 });
@@ -348,22 +348,22 @@ for (const mode of ['tahoe', 'newReno']) {
     const selected = applyScenarioField(original, 'congestionControl', mode);
     assert.equal(scenarioFormValues(selected).congestionControl, mode);
     assert.equal(scenarioFormValues(selected).fastRetransmit, 'true');
-    assert.equal(selected.tcp?.congestionControl?.fastRetransmit, undefined);
+    assert.equal(selected.fixed.tcp?.congestionControl?.fastRetransmit, undefined);
 
     // Disabling and re-enabling fast retransmit survives native JSON export/import.
     const disabled = applyScenarioField(selected, 'fastRetransmit', 'false');
     const restored = JSON.parse(JSON.stringify(disabled));
     assert.equal(scenarioFormValues(restored).fastRetransmit, 'false');
     const enabled = applyScenarioField(restored, 'fastRetransmit', 'true');
-    assert.equal(enabled.tcp?.congestionControl?.mode, mode);
-    assert.equal(enabled.tcp?.congestionControl?.fastRetransmit, true);
+    assert.equal(enabled.fixed.tcp?.congestionControl?.mode, mode);
+    assert.equal(enabled.fixed.tcp?.congestionControl?.fastRetransmit, true);
 
     // Switching from none retains its explicit false until the user enables it.
     const none = applyScenarioField(original, 'congestionControl', 'none');
     const fromNone = applyScenarioField(none, 'congestionControl', mode);
     assert.equal(scenarioFormValues(fromNone).fastRetransmit, 'false');
-    assert.deepEqual(enabled.network, restored.network);
-    assert.deepEqual(enabled.workload, restored.workload);
+    assert.deepEqual(enabled.fixed.network, restored.fixed.network);
+    assert.deepEqual(enabled.states['0'].workload, restored.states['0'].workload);
     assert.deepEqual(original, before);
   });
 }
@@ -375,20 +375,20 @@ test('CUBIC edits preserve its convergence setting across native JSON and mode c
   const cubic = applyScenarioField(original, 'congestionControl', 'cubic');
   assert.equal(scenarioFormValues(cubic).fastRetransmit, 'true');
   assert.equal(scenarioFormValues(cubic).cubicFastConvergence, 'true');
-  assert.equal(cubic.tcp?.congestionControl?.cubicFastConvergence, undefined);
+  assert.equal(cubic.fixed.tcp?.congestionControl?.cubicFastConvergence, undefined);
 
   // A single-flow experiment keeps this explicit false through export/import.
   const disabled = applyScenarioField(cubic, 'cubicFastConvergence', 'false');
-  assert.deepEqual(disabled.network, original.network);
-  assert.deepEqual(disabled.workload, original.workload);
+  assert.deepEqual(disabled.fixed.network, original.fixed.network);
+  assert.deepEqual(disabled.states['0'].workload, original.states['0'].workload);
   const imported = JSON.parse(JSON.stringify(disabled));
-  assert.equal(imported.tcp.congestionControl.cubicFastConvergence, false);
+  assert.equal(imported.fixed.tcp.congestionControl.cubicFastConvergence, false);
   const reno = applyScenarioField(imported, 'congestionControl', 'reno');
   const selectedAgain = applyScenarioField(reno, 'congestionControl', 'cubic');
   assert.equal(scenarioFormValues(selectedAgain).cubicFastConvergence, 'false');
   assert.equal(scenarioFormValues(selectedAgain).congestionControl, 'cubic');
-  assert.deepEqual(selectedAgain.network, imported.network);
-  assert.deepEqual(selectedAgain.workload, imported.workload);
+  assert.deepEqual(selectedAgain.fixed.network, imported.fixed.network);
+  assert.deepEqual(selectedAgain.states['0'].workload, imported.states['0'].workload);
   assert.deepEqual(original, before);
   assert.ok(validateScenarioField('cubicFastConvergence', '1'));
 });
@@ -439,7 +439,7 @@ test('timer edits preserve explicit false, disabled idle cleanup and unrelated t
   edited = applyScenarioField(edited, 'lbHalfOpenIdleTimeoutMs', '0');
   edited = applyScenarioField(edited, 'lbEstablishedIdleTimeoutMs', '40000');
 
-  assert.deepEqual(edited.tcp, {
+  assert.deepEqual(edited.fixed.tcp, {
     rto: {
       mode: 'fixed',
       exponentialBackoff: false,
@@ -449,11 +449,11 @@ test('timer edits preserve explicit false, disabled idle cleanup and unrelated t
     },
     clientIdleTimeoutNanoseconds: 0,
   });
-  assert.deepEqual(edited.network, original.network);
-  assert.deepEqual(edited.workload, original.workload);
-  assert.deepEqual(edited.resources.backends, original.resources.backends);
-  assert.equal(edited.resources.loadBalancer.halfOpenIdleTimeoutNanoseconds, 0);
-  assert.equal(edited.resources.loadBalancer.establishedIdleTimeoutNanoseconds, 40_000_000_000);
+  assert.deepEqual(edited.fixed.network, original.fixed.network);
+  assert.deepEqual(edited.states['0'].workload, original.states['0'].workload);
+  assert.deepEqual(edited.states['0'].resources.backends, original.states['0'].resources.backends);
+  assert.equal(edited.states['0'].resources.loadBalancer.mappingTimeouts.halfOpenIdleTimeoutNanoseconds, 0);
+  assert.equal(edited.states['0'].resources.loadBalancer.mappingTimeouts.establishedIdleTimeoutNanoseconds, 40_000_000_000);
   assert.deepEqual(original, before);
 
   // Import/export keeps exact nanoseconds as well as the disabled settings.
@@ -516,11 +516,11 @@ test('presets populate the same form while one manual edit keeps their native st
 
     const updated = applyScenarioField(scenario, 'speed', '2.5');
     const expected = structuredClone(scenario);
-    expected.execution.speed = 2.5;
+    expected.fixed.execution.speed = 2.5;
     assert.deepEqual(updated, expected);
     assert.deepEqual(scenario, before);
-    assert.equal(updated.execution.seed, scenario.execution.seed);
-    assert.equal(updated.execution.maxEvents, scenario.execution.maxEvents);
+    assert.equal(updated.fixed.execution.seed, scenario.fixed.execution.seed);
+    assert.equal(updated.fixed.execution.maxEvents, scenario.fixed.execution.maxEvents);
   }
 });
 
@@ -532,7 +532,7 @@ test('every catalog preset projects valid fields and keeps native settings after
     const before = structuredClone(scenario);
     const fields = scenarioFormValues(scenario);
     const gaps = new Set(
-      scenario.workload.clientGroups.map((group) => String(group.clientGapNanoseconds)),
+      scenario.states['0'].workload.clientGroups.map((group) => String(group.clientGapNanoseconds)),
     );
 
     for (const [name, raw] of Object.entries(fields)) {
@@ -546,20 +546,20 @@ test('every catalog preset projects valid fields and keeps native settings after
       assert.equal(error, undefined, `${preset.id}: ${name}=${raw}`);
     }
 
-    const count = scenario.workload.clientGroups.reduce(
+    const count = scenario.states['0'].workload.clientGroups.reduce(
       (total, group) => total + BigInt(group.count),
       0n,
     );
     assert.equal(fields.clients, String(count), `${preset.id}: total clients`);
     assert.equal(
       fields.servers,
-      String(scenario.resources.backends.length),
+      String(scenario.states['0'].resources.backends.length),
       `${preset.id}: backend count`,
     );
 
     const edited = applyScenarioField(scenario, 'speed', '2.5');
     const expected = structuredClone(scenario);
-    expected.execution.speed = 2.5;
+    expected.fixed.execution.speed = 2.5;
 
     assert.deepEqual(edited, expected, `${preset.id}: one field edit`);
     assert.deepEqual(scenario, before, `${preset.id}: original draft`);
@@ -575,19 +575,19 @@ test('editing shared defaults preserves profiles, direction patches and client o
   updated = applyScenarioField(updated, 'algorithm', 'roundRobin');
 
   const expected = structuredClone(scenario);
-  expected.network.defaults.bandwidthBitsPerSecond = '9007199254740993';
-  expected.workload.defaults.bytes = -1;
-  expected.workload.defaults.packets = 200;
-  expected.resources.loadBalancer.algorithm = 'roundRobin';
+  expected.fixed.network.defaults.bandwidthBitsPerSecond = '9007199254740993';
+  expected.fixed.workload.defaults.bytes = -1;
+  expected.fixed.workload.defaults.packets = 200;
+  expected.states['0'].resources.loadBalancer.algorithm = 'roundRobin';
   assert.deepEqual(updated, expected);
   assert.deepEqual(scenario, before);
-  assert.equal(updated.workload.clientGroups[0].stream.bytes, 1234);
-  assert.equal(updated.workload.clientGroups[0].overrides![0].stream.bytes, 0);
+  assert.equal(updated.states['0'].workload.clientGroups[0].stream.bytes, 1234);
+  assert.equal(updated.states['0'].workload.clientGroups[0].overrides![0].stream.bytes, 0);
 
   const ingress = applyScenarioField(scenario, 'ingressQueueCapacity', '0');
-  assert.equal(ingress.resources.loadBalancer.ingress.queueCapacity, 0);
-  assert.equal(ingress.network.defaults.queueCapacity, scenario.network.defaults.queueCapacity);
-  assert.deepEqual(ingress.workload.clientGroups, scenario.workload.clientGroups);
+  assert.equal(ingress.states['0'].resources.loadBalancer.ingress.queueCapacity, 0);
+  assert.equal(ingress.fixed.network.defaults.queueCapacity, scenario.fixed.network.defaults.queueCapacity);
+  assert.deepEqual(ingress.states['0'].workload.clientGroups, scenario.states['0'].workload.clientGroups);
 });
 
 test('time edits use exact decimal arithmetic and retain full Go integer limits', () => {
@@ -598,12 +598,12 @@ test('time edits use exact decimal arithmetic and retain full Go integer limits'
   scenario = applyScenarioField(scenario, 'ingressPacketTravelTimeMs', '9223372036854.775807');
   scenario = applyScenarioField(scenario, 'seed', '-9223372036854775808');
   scenario = applyScenarioField(scenario, 'maxEvents', '18446744073709551615');
-  assert.equal(scenario.execution.durationNanoseconds, '9223372036854775807');
-  assert.equal(scenario.execution.snapshotIntervalNanoseconds, 1);
-  assert.equal(scenario.workload.defaults.packetGapNanoseconds, '9007199254740993');
-  assert.equal(scenario.resources.loadBalancer.ingress.packetTravelTimeNanoseconds, '9223372036854775807');
-  assert.equal(scenario.execution.seed, '-9223372036854775808');
-  assert.equal(scenario.execution.maxEvents, '18446744073709551615');
+  assert.equal(scenario.fixed.execution.durationNanoseconds, '9223372036854775807');
+  assert.equal(scenario.fixed.execution.snapshotIntervalNanoseconds, 1);
+  assert.equal(scenario.fixed.workload.defaults.packetGapNanoseconds, '9007199254740993');
+  assert.equal(scenario.states['0'].resources.loadBalancer.ingress.packetTravelTimeNanoseconds, '9223372036854775807');
+  assert.equal(scenario.fixed.execution.seed, '-9223372036854775808');
+  assert.equal(scenario.fixed.execution.maxEvents, '18446744073709551615');
 
   const fields = scenarioFormValues(scenario);
   assert.equal(fields.durationSeconds, '9223372036.854775807');
@@ -615,50 +615,50 @@ test('client totals scale existing groups deterministically without flattening s
   const scenario = mixedScenario();
   const before = structuredClone(scenario);
   const updated = applyScenarioField(scenario, 'clients', '17');
-  assert.deepEqual(updated.workload.clientGroups.map((group) => group.count), [9, 8]);
+  assert.deepEqual(updated.states['0'].workload.clientGroups.map((group) => group.count), [9, 8]);
   const expected = structuredClone(scenario);
-  expected.workload.clientGroups[0].count = 9;
+  expected.states['0'].workload.clientGroups[0].count = 9;
   assert.deepEqual(updated, expected);
   assert.deepEqual(scenario, before);
   assert.deepEqual(applyScenarioField(scenario, 'clients', '17'), updated);
 
-  scenario.workload.clientGroups[0].count = 12;
-  scenario.workload.clientGroups[1].count = 4;
+  scenario.states['0'].workload.clientGroups[0].count = 12;
+  scenario.states['0'].workload.clientGroups[1].count = 4;
   const proportional = applyScenarioField(scenario, 'clients', '8');
-  assert.deepEqual(proportional.workload.clientGroups.map((group) => group.count), [6, 2]);
+  assert.deepEqual(proportional.states['0'].workload.clientGroups.map((group) => group.count), [6, 2]);
 
   const empty = structuredClone(scenario);
-  for (const group of empty.workload.clientGroups) {
+  for (const group of empty.states['0'].workload.clientGroups) {
     group.count = 0;
     group.overrides = [];
   }
   const expanded = applyScenarioField(empty, 'clients', '3');
-  assert.deepEqual(expanded.workload.clientGroups.map((group) => group.count), [2, 1]);
-  assert.deepEqual(expanded.network.profiles, empty.network.profiles);
+  assert.deepEqual(expanded.states['0'].workload.clientGroups.map((group) => group.count), [2, 1]);
+  assert.deepEqual(expanded.fixed.network.profiles, empty.fixed.network.profiles);
 });
 
 test('count edits applied from the same baseline retain group ratios and custom backends', () => {
   const baseline = mixedScenario();
-  baseline.workload.clientGroups[0].overrides = [];
-  baseline.resources.backends[1].name = 'Keep the second backend';
-  baseline.resources.backends[1].network.fromLoadBalancer.queueCapacity = 19;
+  baseline.states['0'].workload.clientGroups[0].overrides = [];
+  baseline.states['0'].resources.backends[1].name = 'Keep the second backend';
+  baseline.states['0'].resources.backends[1].network.fromLoadBalancer.queueCapacity = 19;
   const before = structuredClone(baseline);
 
   const intermediateClients = applyScenarioField(baseline, 'clients', '1');
-  assert.deepEqual(intermediateClients.workload.clientGroups.map((group) => group.count), [1, 0]);
+  assert.deepEqual(intermediateClients.states['0'].workload.clientGroups.map((group) => group.count), [1, 0]);
   const finalClients = applyScenarioField(baseline, 'clients', '18');
-  assert.deepEqual(finalClients.workload.clientGroups.map((group) => group.count), [9, 9]);
+  assert.deepEqual(finalClients.states['0'].workload.clientGroups.map((group) => group.count), [9, 9]);
 
   const intermediateServers = applyScenarioField(baseline, 'servers', '1');
-  assert.equal(intermediateServers.resources.backends.length, 1);
+  assert.equal(intermediateServers.states['0'].resources.backends.length, 1);
   const finalServers = applyScenarioField(baseline, 'servers', '4');
-  assert.deepEqual(finalServers.resources.backends.slice(0, 2), baseline.resources.backends);
+  assert.deepEqual(finalServers.states['0'].resources.backends.slice(0, 2), baseline.states['0'].resources.backends);
   assert.deepEqual(baseline, before);
 });
 
 test('client resize refuses to erase explicit overrides and mixed gap edits apply to every group', () => {
   const scenario = mixedScenario();
-  scenario.workload.clientGroups[1].clientGapNanoseconds = 20;
+  scenario.states['0'].workload.clientGroups[1].clientGapNanoseconds = 20;
   const before = structuredClone(scenario);
   assert.throws(
     () => applyScenarioField(scenario, 'clients', '4'),
@@ -668,66 +668,66 @@ test('client resize refuses to erase explicit overrides and mixed gap edits appl
   assert.equal(scenarioFormValues(scenario).clientGapMs, '');
 
   const updated = applyScenarioField(scenario, 'clientGapMs', '0.000001');
-  assert.deepEqual(updated.workload.clientGroups.map((group) => group.clientGapNanoseconds), [1, 1]);
+  assert.deepEqual(updated.states['0'].workload.clientGroups.map((group) => group.clientGapNanoseconds), [1, 1]);
   const expected = structuredClone(scenario);
-  for (const group of expected.workload.clientGroups) group.clientGapNanoseconds = 1;
+  for (const group of expected.states['0'].workload.clientGroups) group.clientGapNanoseconds = 1;
   assert.deepEqual(updated, expected);
 });
 
 test('an empty workload gets a unique group and retains a manually chosen creation gap', () => {
   const scenario = scenarioFixture();
-  scenario.resources.loadBalancer.id = 'clients';
-  scenario.resources.backends = [{
+  scenario.fixed.loadBalancer.id = 'clients';
+  scenario.states['0'].resources.backends = [{
     id: 'clients-1', address: '10.0.0.1', port: 80,
-    network: { toLoadBalancer: {}, fromLoadBalancer: {} },
+    network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
   }];
   const before = structuredClone(scenario);
   const withGap = applyScenarioField(scenario, 'clientGapMs', '0.000001');
   const updated = applyScenarioField(withGap, 'clients', '2');
-  assert.equal(updated.workload.clientGroups.length, 1);
-  const group = updated.workload.clientGroups[0];
+  assert.equal(updated.states['0'].workload.clientGroups.length, 1);
+  const group = updated.states['0'].workload.clientGroups[0];
   assert.equal(group.id, 'clients-2');
   assert.equal(group.count, 2);
   assert.equal(group.clientGapNanoseconds, 1);
-  assert.deepEqual(group.network, { toLoadBalancer: {}, fromLoadBalancer: {} });
+  assert.deepEqual(group.network, { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} });
   assert.deepEqual(group.stream, {});
   assert.deepEqual(scenario, before);
 });
 
 test('backend resizing preserves configured prefixes and avoids resource and endpoint collisions', () => {
   const scenario = mixedScenario();
-  scenario.resources.loadBalancer.id = 'backend-1';
-  scenario.workload.clientGroups[0].id = 'backend-2';
-  scenario.resources.backends[0] = {
+  scenario.fixed.loadBalancer.id = 'backend-1';
+  scenario.states['0'].workload.clientGroups[0].id = 'backend-2';
+  scenario.states['0'].resources.backends[0] = {
     id: 'original', name: 'Keep this', address: '::ffff:a00:1', port: '80',
     network: { profile: 'slow-client', toLoadBalancer: { lossRate: 0.3 }, fromLoadBalancer: {} },
   };
-  scenario.resources.backends[1].address = '10.0.0.2';
-  scenario.resources.backends[1].id = 'another-original';
+  scenario.states['0'].resources.backends[1].address = '10.0.0.2';
+  scenario.states['0'].resources.backends[1].id = 'another-original';
   const before = structuredClone(scenario);
 
   const updated = applyScenarioField(scenario, 'servers', '4');
-  assert.deepEqual(updated.resources.backends.slice(0, 2), scenario.resources.backends);
-  assert.deepEqual(updated.resources.backends.slice(2).map((backend) => [backend.id, backend.address, backend.port]), [
+  assert.deepEqual(updated.states['0'].resources.backends.slice(0, 2), scenario.states['0'].resources.backends);
+  assert.deepEqual(updated.states['0'].resources.backends.slice(2).map((backend) => [backend.id, backend.address, backend.port]), [
     ['backend-3', '10.0.0.3', 80],
     ['backend-4', '10.0.0.4', 80],
   ]);
-  for (const backend of updated.resources.backends.slice(2)) {
-    assert.deepEqual(backend.network, { toLoadBalancer: {}, fromLoadBalancer: {} });
+  for (const backend of updated.states['0'].resources.backends.slice(2)) {
+    assert.deepEqual(backend.network, { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} });
   }
-  assert.deepEqual(updated.workload, scenario.workload);
-  assert.deepEqual(updated.network, scenario.network);
+  assert.deepEqual(updated.states['0'].workload, scenario.states['0'].workload);
+  assert.deepEqual(updated.fixed.network, scenario.fixed.network);
   assert.deepEqual(scenario, before);
 
   const trimmed = applyScenarioField(updated, 'servers', '1');
-  assert.deepEqual(trimmed.resources.backends, [scenario.resources.backends[0]]);
+  assert.deepEqual(trimmed.states['0'].resources.backends, [scenario.states['0'].resources.backends[0]]);
   const empty = applyScenarioField(updated, 'servers', '0');
-  assert.deepEqual(empty.resources.backends, []);
+  assert.deepEqual(empty.states['0'].resources.backends, []);
 
   const many = applyScenarioField(scenarioFixture(), 'servers', '300');
-  assert.equal(many.resources.backends[253].address, '10.0.0.254');
-  assert.equal(many.resources.backends[254].address, '10.0.1.1');
-  assert.equal(new Set(many.resources.backends.map((backend) => backend.address)).size, 300);
+  assert.equal(many.states['0'].resources.backends[253].address, '10.0.0.254');
+  assert.equal(many.states['0'].resources.backends[254].address, '10.0.1.1');
+  assert.equal(new Set(many.states['0'].resources.backends.map((backend) => backend.address)).size, 300);
 });
 
 test('field validation rejects overflow, subnanosecond values and malformed integers', () => {

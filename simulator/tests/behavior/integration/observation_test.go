@@ -13,27 +13,33 @@ import (
 	"load-balancer/scenario"
 )
 
-func observationScenario(t *testing.T, clients int) scenario.Normalized {
+func observationScenario(t *testing.T, clients int) scenario.ScenarioV2 {
 	t.Helper()
 	link := scenario.LinkConfig{BandwidthBitsPerSecond: 8_000_000, QueueCapacity: 32}
-	input := scenario.Scenario{
-		Version:   scenario.Version,
-		Execution: scenario.ExecutionConfig{Duration: time.Second, SnapshotInterval: 100 * time.Millisecond, Seed: 73, MaxEvents: 1_000_000},
-		Network:   scenario.NetworkConfig{Defaults: link},
-		Resources: scenario.ResourcesConfig{
-			LoadBalancer: scenario.LoadBalancerConfig{ID: "router", Algorithm: "random", Ingress: link, ForwardingBitsPerSecond: 8_000_000},
-			Backends:     []scenario.BackendConfig{{ID: "second", Address: "10.0.0.2", Port: 80}, {ID: "first", Address: "10.0.0.1", Port: 80}},
+	return scenario.ScenarioV2{Version: 2,
+		Fixed: scenario.FixedConfig{
+			Execution:    scenario.ExecutionConfig{Duration: time.Second, SnapshotInterval: 100 * time.Millisecond, Seed: 73, MaxEvents: 1_000_000},
+			LoadBalancer: scenario.LoadBalancerIdentity{ID: "router"}, Network: scenario.NetworkConfig{Defaults: link},
+			Workload: scenario.WorkloadDefaultsConfig{Defaults: scenario.StreamConfig{Bytes: 3000, PacketGap: 20 * time.Millisecond}},
 		},
-		Workload: scenario.WorkloadConfig{
-			Defaults:     scenario.StreamConfig{Bytes: 3000, PacketGap: 20 * time.Millisecond},
-			ClientGroups: []scenario.ClientGroup{{ID: "clients", Count: clients}},
-		},
+		States: map[string]scenario.StateConfig{"0": {
+			Resources: scenario.StateResourcesConfig{LoadBalancer: scenario.LoadBalancerStateConfig{Algorithm: "random", Ingress: link, ForwardingBitsPerSecond: 8_000_000}, Backends: []scenario.BackendStateConfig{{ID: "second", Address: "10.0.0.2", Port: 80}, {ID: "first", Address: "10.0.0.1", Port: 80}}},
+			Workload:  scenario.StateWorkloadConfig{ClientGroups: []scenario.ClientGroup{{ID: "clients", Count: clients}}},
+		}},
 	}
-	resolved, err := scenario.Normalize(input)
+}
+
+func observationWorld(t *testing.T, input scenario.ScenarioV2) *simulation.World {
+	t.Helper()
+	plan, err := scenario.CompileV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return resolved
+	world, err := simulation.NewTimeline(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return world
 }
 
 type observations struct {
@@ -64,7 +70,7 @@ func readObservations(world *simulation.World) observations {
 
 func TestWorldObservationPreservesValuesOrderingAndRandomSequences(t *testing.T) {
 	resolved := observationScenario(t, 6)
-	inspected, untouched := simulation.New(resolved), simulation.New(resolved)
+	inspected, untouched := observationWorld(t, resolved), observationWorld(t, resolved)
 	for _, world := range []*simulation.World{inspected, untouched} {
 		if err := world.Advance(context.Background(), 10*time.Millisecond); err != nil {
 			t.Fatal(err)
@@ -109,10 +115,10 @@ func TestWorldObservationPreservesValuesOrderingAndRandomSequences(t *testing.T)
 	if after := readObservations(inspected); !reflect.DeepEqual(after, before) {
 		t.Fatal("retained observation mutated the world")
 	}
-	if err := inspected.SpawnClients(3, "clients"); err != nil {
+	if err := inspected.SpawnClients(3, "clients"); !errors.Is(err, simulation.ErrTimelineManualMutation) {
 		t.Fatal(err)
 	}
-	if err := untouched.SpawnClients(3, "clients"); err != nil {
+	if err := untouched.SpawnClients(3, "clients"); !errors.Is(err, simulation.ErrTimelineManualMutation) {
 		t.Fatal(err)
 	}
 	for _, world := range []*simulation.World{inspected, untouched} {
@@ -131,8 +137,10 @@ func TestWorldObservationPreservesValuesOrderingAndRandomSequences(t *testing.T)
 
 func TestWorldAdvanceCancellationRetainsSameTimeOrder(t *testing.T) {
 	resolved := observationScenario(t, 0)
-	resolved.Backends = nil
-	world := simulation.New(resolved)
+	initial := resolved.States["0"]
+	initial.Resources.Backends = nil
+	resolved.States["0"] = initial
+	world := observationWorld(t, resolved)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var calls []int
@@ -166,9 +174,11 @@ func TestWorldAdvanceCancellationRetainsSameTimeOrder(t *testing.T) {
 
 func TestWorldEventLimitPreservesPendingCallbacks(t *testing.T) {
 	resolved := observationScenario(t, 0)
-	resolved.Backends = nil
-	resolved.Execution.MaxEvents = 2
-	world := simulation.New(resolved)
+	initial := resolved.States["0"]
+	initial.Resources.Backends = nil
+	resolved.States["0"] = initial
+	resolved.Fixed.Execution.MaxEvents = 2
+	world := observationWorld(t, resolved)
 	for index := 0; index < 3; index++ {
 		world.ScheduleAfter(0, func() {})
 	}

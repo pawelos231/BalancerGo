@@ -8,6 +8,12 @@ export interface ScenarioFormState {
   scenario: Scenario;
   values: ScenarioDraft;
   errors: FieldErrors;
+  selectedAt?: string;
+}
+
+// Selecting another existing state discards unfinished text for the old state.
+export function selectScenarioFormState(scenario: Scenario, selectedAt = '0'): ScenarioFormState {
+  return { scenario, selectedAt, values: scenarioFormValues(scenario, selectedAt), errors: {} };
 }
 
 const recoveryFields: readonly ScenarioField[] = [
@@ -30,15 +36,15 @@ export function editScenarioForm(
 
   function apply(name: ScenarioField, source: Scenario): boolean {
     try {
-      scenario = applyScenarioField(source, name, values[name]);
+      scenario = applyScenarioField(source, name, values[name], state.selectedAt ?? '0', state.scenario);
       delete errors[name];
 
       // Mode none disables fast retransmit; preserve an explicitly pending edit.
       if (name === 'congestionControl' && !('fastRetransmit' in errors)) {
-        values.fastRetransmit = scenarioFormValues(scenario).fastRetransmit;
+        values.fastRetransmit = scenarioFormValues(scenario, state.selectedAt ?? '0').fastRetransmit;
       }
       if (name === 'queuePolicy' || name === 'ingressQueuePolicy') {
-        const projected = scenarioFormValues(scenario);
+        const projected = scenarioFormValues(scenario, state.selectedAt ?? '0');
         const dependents = name === 'queuePolicy'
           ? ['congestionThresholdPercent', 'congestionSignalProbability'] as const
           : ['ingressCongestionThresholdPercent', 'ingressCongestionSignalProbability'] as const;
@@ -65,5 +71,5 @@ export function editScenarioForm(
     } while (appliedPendingEdit);
   }
 
-  return { scenario, values, errors };
+  return { scenario, values, errors, selectedAt: state.selectedAt };
 }

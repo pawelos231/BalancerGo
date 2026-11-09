@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"load-balancer/model"
+	"load-balancer/scenario"
 )
 
 // Each closing message is dropped once after crossing its access and ingress links.
@@ -14,18 +15,24 @@ func TestWorldClosingRecoversLostControls(t *testing.T) {
 	for _, lost := range []string{"client FIN", "backend FIN", "final ACK"} {
 		t.Run(lost, func(t *testing.T) {
 			definition := baseScenario()
-			definition.Execution.Duration = 15 * time.Second
-			definition.Resources.Backends = definition.Resources.Backends[:1]
-			definition.Workload.ClientGroups[0].Count = 1
-			definition.Workload.Defaults.Bytes = 2050
+			definition.Fixed.Execution.Duration = 15 * time.Second
+			editInitialState(&definition, func(state *scenario.StateConfig) {
+				state.Resources.Backends = state.Resources.Backends[:1]
+				state.Workload.ClientGroups[0].Count = 1
+			})
+			definition.Fixed.Workload.Defaults.Bytes = 2050
 			msl := 3 * time.Second
-			definition.TCP.Close.MSL = &msl
+			definition.Fixed.TCP.Close.MSL = &msl
 			closingIdle := 6 * time.Second
-			definition.Resources.LoadBalancer.ClosingIdleTimeout = &closingIdle
+			editInitialState(&definition, func(state *scenario.StateConfig) {
+				state.Resources.LoadBalancer.MappingTimeouts.ClosingIdleTimeout = &closingIdle
+			})
 			// Observing FIN selects the closing limit instead of this short established limit.
 			idle := 10 * time.Millisecond
-			definition.Resources.LoadBalancer.EstablishedIdleTimeout = &idle
-			world := New(normalizedRuntimeScenario(t, definition))
+			editInitialState(&definition, func(state *scenario.StateConfig) {
+				state.Resources.LoadBalancer.MappingTimeouts.EstablishedIdleTimeout = &idle
+			})
+			world := newTimelineWorld(t, definition)
 			discarded := false
 			backendFINs := 0
 			finalACKs := 0
@@ -75,11 +82,13 @@ func TestWorldClosingRecoversLostControls(t *testing.T) {
 // Reset is a connection outcome and only fails the still-unfinished payload attempt.
 func TestWorldResetTravelsThroughBalancer(t *testing.T) {
 	definition := baseScenario()
-	definition.Resources.Backends = definition.Resources.Backends[:1]
-	definition.Workload.ClientGroups[0].Count = 1
-	definition.Workload.Defaults.Bytes = 10000
-	definition.Workload.Defaults.PacketGap = 100 * time.Millisecond
-	world := New(normalizedRuntimeScenario(t, definition))
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.Backends = state.Resources.Backends[:1]
+		state.Workload.ClientGroups[0].Count = 1
+	})
+	definition.Fixed.Workload.Defaults.Bytes = 10000
+	definition.Fixed.Workload.Defaults.PacketGap = 100 * time.Millisecond
+	world := newTimelineWorld(t, definition)
 	runIngressUntil(t, world, 20*time.Millisecond)
 	client := world.clients[0].Client
 	if !client.IsHandshakeCompleted() {

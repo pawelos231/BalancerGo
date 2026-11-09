@@ -10,35 +10,35 @@ import (
 // Omitted settings keep immediate ACKs; explicit values survive the native document.
 func TestDelayedACKDefaultsAndDocumentRoundTrip(t *testing.T) {
 	input := exampleScenario()
-	resolved, err := scenario.Normalize(input)
+	resolved, err := scenario.NormalizeV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.TCP.DelayedACK.Enabled || resolved.TCP.DelayedACK.SegmentsPerACK != 2 ||
-		resolved.TCP.DelayedACK.MaxDelay != 40*time.Millisecond {
-		t.Fatalf("unexpected defaults: %+v", resolved.TCP.DelayedACK)
+	if resolved.Fixed.TCP.DelayedACK.Enabled || resolved.Fixed.TCP.DelayedACK.SegmentsPerACK != 2 ||
+		resolved.Fixed.TCP.DelayedACK.MaxDelay != 40*time.Millisecond {
+		t.Fatalf("unexpected defaults: %+v", resolved.Fixed.TCP.DelayedACK)
 	}
 
-	input.TCP.DelayedACK = scenario.DelayedACKConfig{
+	input.Fixed.TCP.DelayedACK = scenario.DelayedACKConfig{
 		Enabled:        pointer(true),
 		SegmentsPerACK: pointer(1),
 		MaxDelay:       pointer(40*time.Millisecond + time.Nanosecond),
 	}
-	data, err := scenario.EncodeDocument(input)
+	data, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocument(data)
+	restored, err := scenario.DecodeDocumentV2(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.Normalize(restored)
+	resolved, err = scenario.NormalizeV2(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resolved.TCP.DelayedACK.Enabled || resolved.TCP.DelayedACK.SegmentsPerACK != 1 ||
-		resolved.TCP.DelayedACK.MaxDelay != 40*time.Millisecond+time.Nanosecond {
-		t.Fatalf("delayed ACK settings changed during round trip: %+v", resolved.TCP.DelayedACK)
+	if !resolved.Fixed.TCP.DelayedACK.Enabled || resolved.Fixed.TCP.DelayedACK.SegmentsPerACK != 1 ||
+		resolved.Fixed.TCP.DelayedACK.MaxDelay != 40*time.Millisecond+time.Nanosecond {
+		t.Fatalf("delayed ACK settings changed during round trip: %+v", resolved.Fixed.TCP.DelayedACK)
 	}
 }
 
@@ -51,8 +51,8 @@ func TestDelayedACKValidation(t *testing.T) {
 		{MaxDelay: pointer(500*time.Millisecond + time.Nanosecond)},
 	} {
 		input := exampleScenario()
-		input.TCP.DelayedACK = invalid
-		if _, err := scenario.Normalize(input); err == nil {
+		input.Fixed.TCP.DelayedACK = invalid
+		if _, err := scenario.NormalizeV2(input); err == nil {
 			t.Fatalf("invalid ACK settings accepted: %+v", invalid)
 		}
 	}
@@ -61,23 +61,23 @@ func TestDelayedACKValidation(t *testing.T) {
 // A one-segment maximum is valid even when the configured initial window is larger.
 func TestMaximumCongestionWindowConfiguration(t *testing.T) {
 	input := exampleScenario()
-	input.TCP.CongestionControl.MaximumWindowSegments = pointer(1)
-	resolved, err := scenario.Normalize(input)
+	input.Fixed.TCP.CongestionControl.MaximumWindowSegments = pointer(1)
+	resolved, err := scenario.NormalizeV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.TCP.CongestionControl.MaximumWindowSegments != 1 {
+	if resolved.Fixed.TCP.CongestionControl.MaximumWindowSegments != 1 {
 		t.Fatal("maximum window was not retained")
 	}
 
-	input.TCP.CongestionControl.MaximumWindowSegments = pointer(-1)
-	if _, err := scenario.Normalize(input); err == nil {
+	input.Fixed.TCP.CongestionControl.MaximumWindowSegments = pointer(-1)
+	if _, err := scenario.NormalizeV2(input); err == nil {
 		t.Fatal("negative maximum window accepted")
 	}
-	input.TCP.CongestionControl.MaximumWindowSegments = pointer(1)
-	input.TCP.CongestionControl.Mode = pointer("none")
-	input.TCP.CongestionControl.FastRetransmit = pointer(false)
-	if _, err := scenario.Normalize(input); err == nil {
+	input.Fixed.TCP.CongestionControl.MaximumWindowSegments = pointer(1)
+	input.Fixed.TCP.CongestionControl.Mode = pointer("none")
+	input.Fixed.TCP.CongestionControl.FastRetransmit = pointer(false)
+	if _, err := scenario.NormalizeV2(input); err == nil {
 		t.Fatal("maximum window accepted without congestion control")
 	}
 }

@@ -16,10 +16,10 @@ func TestBackendCPUBackpressureAndDrops(t *testing.T) {
 	var confirmed [2]uint64
 	for index, cost := range []time.Duration{0, 10 * time.Microsecond} {
 		definition := hostTestScenario()
-		for i := range definition.Resources.Backends {
-			definition.Resources.Backends[i].Host = hostTestConfig(cost)
+		for i := range definition.States["0"].Resources.Backends {
+			editInitialState(&definition, func(state *scenario.StateConfig) { state.Resources.Backends[i].Host = hostTestConfig(cost) })
 		}
-		world := New(normalizedRuntimeScenario(t, definition))
+		world := newTimelineWorld(t, definition)
 		if err := world.Advance(context.Background(), world.EndTime()); err != nil {
 			t.Fatal(err)
 		}
@@ -48,8 +48,10 @@ func TestBackendCPUBackpressureAndDrops(t *testing.T) {
 // Both client packets and returning ACKs consume the same LB CPU budget.
 func TestLoadBalancerCPUUsesOneSharedPool(t *testing.T) {
 	definition := hostTestScenario()
-	definition.Resources.LoadBalancer.Host = hostTestConfig(10 * time.Microsecond)
-	world := New(normalizedRuntimeScenario(t, definition))
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Host = hostTestConfig(10 * time.Microsecond)
+	})
+	world := newTimelineWorld(t, definition)
 	if err := world.Advance(context.Background(), world.EndTime()); err != nil {
 		t.Fatal(err)
 	}
@@ -68,8 +70,8 @@ func TestLoadBalancerCPUUsesOneSharedPool(t *testing.T) {
 // Completion must recheck the original instance, rather than opening a new TCP state.
 func TestBackendCPUDoesNotDeliverToReplacementClient(t *testing.T) {
 	definition := baseScenario()
-	definition.Resources.Backends[0].Host = hostTestConfig(time.Millisecond)
-	world := New(normalizedRuntimeScenario(t, definition))
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Resources.Backends[0].Host = hostTestConfig(time.Millisecond) })
+	world := newTimelineWorld(t, definition)
 	if err := world.Advance(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
@@ -99,26 +101,30 @@ func hostTestConfig(cost time.Duration) scenario.HostConfig {
 	return scenario.HostConfig{Cores: &cores, PacketProcessingTime: &cost, QueueCapacity: &queue}
 }
 
-func hostTestScenario() scenario.Scenario {
+func hostTestScenario() scenario.ScenarioV2 {
 	definition := baseScenario()
-	definition.Execution.Duration = 5 * time.Millisecond
-	definition.Execution.MaxEvents = 5_000_000
-	definition.Network.Defaults.BandwidthBitsPerSecond = 100_000_000_000
-	definition.Network.Defaults.PacketTravelTime = 0
-	definition.Network.Defaults.QueueCapacity = 65536
-	definition.Resources.LoadBalancer.Ingress = definition.Network.Defaults
-	definition.Resources.LoadBalancer.ForwardingBitsPerSecond = 100_000_000_000
-	definition.Workload.ClientGroups[0].Count = 64
-	definition.Workload.Defaults.Bytes = 64 * 1024 * 1024
-	definition.Workload.Defaults.PacketGap = 0
+	definition.Fixed.Execution.Duration = 5 * time.Millisecond
+	definition.Fixed.Execution.MaxEvents = 5_000_000
+	definition.Fixed.Network.Defaults.BandwidthBitsPerSecond = 100_000_000_000
+	definition.Fixed.Network.Defaults.PacketTravelTime = 0
+	definition.Fixed.Network.Defaults.QueueCapacity = 65536
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Ingress = definition.Fixed.Network.Defaults
+
+		state.Resources.LoadBalancer.ForwardingBitsPerSecond = 100_000_000_000
+
+		state.Workload.ClientGroups[0].Count = 64
+	})
+	definition.Fixed.Workload.Defaults.Bytes = 64 * 1024 * 1024
+	definition.Fixed.Workload.Defaults.PacketGap = 0
 	// Loss recovery stays active while idle cleanup cannot end a stalled transfer.
 	mss := 1460
 	mode := "newReno"
 	sack := true
 	noIdle := time.Duration(0)
-	definition.TCP.MSSBytes = &mss
-	definition.TCP.CongestionControl.Mode = &mode
-	definition.TCP.SACKEnabled = &sack
-	definition.TCP.ClientIdleTimeout = &noIdle
+	definition.Fixed.TCP.MSSBytes = &mss
+	definition.Fixed.TCP.CongestionControl.Mode = &mode
+	definition.Fixed.TCP.SACKEnabled = &sack
+	definition.Fixed.TCP.ClientIdleTimeout = &noIdle
 	return definition
 }

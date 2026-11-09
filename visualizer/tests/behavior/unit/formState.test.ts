@@ -16,13 +16,13 @@ test('selecting Reno applies pending SACK and clears its error', () => {
   const rejected = editScenarioForm(original, 'sackEnabled', 'true');
   assert.match(rejected.errors.sackEnabled!, /SACK requires/);
   assert.equal(rejected.values.sackEnabled, 'true');
-  assert.equal(rejected.scenario.tcp?.sackEnabled, undefined);
+  assert.equal(rejected.scenario.fixed.tcp?.sackEnabled, undefined);
 
   const corrected = editScenarioForm(rejected, 'congestionControl', 'reno');
   assert.deepEqual(corrected.errors, {});
   assert.equal(corrected.values.sackEnabled, 'true');
-  assert.equal(corrected.scenario.tcp?.sackEnabled, true);
-  assert.equal(corrected.scenario.tcp?.congestionControl?.mode, 'reno');
+  assert.equal(corrected.scenario.fixed.tcp?.sackEnabled, true);
+  assert.equal(corrected.scenario.fixed.tcp?.congestionControl?.mode, 'reno');
   assert.equal(original.values.sackEnabled, 'false');
 });
 
@@ -34,7 +34,7 @@ test('disabling SACK applies pending fast-retransmit changes', () => {
 
   const corrected = editScenarioForm(rejected, 'sackEnabled', 'false');
   assert.deepEqual(corrected.errors, {});
-  assert.equal(corrected.scenario.tcp?.congestionControl?.fastRetransmit, false);
+  assert.equal(corrected.scenario.fixed.tcp?.congestionControl?.fastRetransmit, false);
   assert.equal(corrected.values.fastRetransmit, 'false');
 });
 
@@ -47,8 +47,8 @@ test('related pending choices resolve together after selecting a supported mode'
 
   const corrected = editScenarioForm(recovery, 'congestionControl', 'reno');
   assert.deepEqual(corrected.errors, {});
-  assert.equal(corrected.scenario.tcp?.sackEnabled, true);
-  assert.equal(corrected.scenario.tcp?.congestionControl?.fastRetransmit, true);
+  assert.equal(corrected.scenario.fixed.tcp?.sackEnabled, true);
+  assert.equal(corrected.scenario.fixed.tcp?.congestionControl?.fastRetransmit, true);
   assert.equal(corrected.values.fastRetransmit, 'true');
 });
 
@@ -59,11 +59,11 @@ test('the remaining SACK error names the dependency that is still missing', () =
 
   const supportedMode = editScenarioForm(rejected, 'congestionControl', 'reno');
   assert.equal(supportedMode.errors.sackEnabled, 'SACK requires fast retransmit to be enabled.');
-  assert.equal(supportedMode.scenario.tcp?.congestionControl?.fastRetransmit, false);
+  assert.equal(supportedMode.scenario.fixed.tcp?.congestionControl?.fastRetransmit, false);
 
   const corrected = editScenarioForm(supportedMode, 'fastRetransmit', 'true');
   assert.deepEqual(corrected.errors, {});
-  assert.equal(corrected.scenario.tcp?.sackEnabled, true);
+  assert.equal(corrected.scenario.fixed.tcp?.sackEnabled, true);
 });
 
 // Fixing transport dependencies must not hide an unrelated invalid numeric input.
@@ -73,8 +73,8 @@ test('recovering related fields preserves unrelated errors and precise native va
   const corrected = editScenarioForm(sack, 'congestionControl', 'reno');
   assert.deepEqual(Object.keys(corrected.errors), ['receiveBufferBytes']);
   assert.equal(corrected.values.receiveBufferBytes, '0');
-  assert.equal(corrected.scenario.tcp?.receiveBufferBytes, undefined);
-  assert.equal(corrected.scenario.execution.seed, '-9007199254740993');
+  assert.equal(corrected.scenario.fixed.tcp?.receiveBufferBytes, undefined);
+  assert.equal(corrected.scenario.fixed.execution.seed, '-9007199254740993');
 
   const validBuffer = editScenarioForm(corrected, 'receiveBufferBytes', '65535');
   assert.deepEqual(validBuffer.errors, {});
@@ -86,7 +86,7 @@ test('mode edits keep unresolved requested values and their errors', () => {
   const unchanged = editScenarioForm(rejected, 'congestionControl', 'none');
   assert.ok(unchanged.errors.fastRetransmit);
   assert.equal(unchanged.values.fastRetransmit, 'true');
-  assert.equal(unchanged.scenario.tcp?.congestionControl?.fastRetransmit, false);
+  assert.equal(unchanged.scenario.fixed.tcp?.congestionControl?.fastRetransmit, false);
 
   // An explicit timeout-only choice remains intact when no edit is pending.
   const timeoutOnly = editScenarioForm(formWithMode('none'), 'congestionControl', 'reno');
@@ -102,7 +102,7 @@ test('disabling SACK applies a pending mode and refreshes its dependent recovery
 
   const corrected = editScenarioForm(rejected, 'sackEnabled', 'false');
   assert.deepEqual(corrected.errors, {});
-  assert.equal(corrected.scenario.tcp?.congestionControl?.mode, 'none');
+  assert.equal(corrected.scenario.fixed.tcp?.congestionControl?.mode, 'none');
   assert.equal(corrected.values.congestionControl, 'none');
   assert.equal(corrected.values.fastRetransmit, 'false');
 });

@@ -17,12 +17,12 @@ function textFile(text: string, size = utf8.encode(text).byteLength): Pick<File,
 // A long display name exercises file limits without inventing extra scenario fields.
 function scenarioWithName(): Scenario {
   const scenario = scenarioFixture();
-  scenario.resources.backends = [{
+  scenario.states['0'].resources.backends = [{
     id: 'backend-1',
     name: '',
     address: '10.0.0.1',
     port: 80,
-    network: { toLoadBalancer: {}, fromLoadBalancer: {} },
+    network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
   }];
   return scenario;
 }
@@ -103,13 +103,13 @@ test('raw duplicate keys, unsafe integers and fractional tokens reach backend va
 
 test('pretty exports round trip the complete scenario with precise strings and explicit zero overrides', async () => {
   const scenario = scenarioWithName();
-  scenario.resources.backends[0].name = 'Serwer Żółć';
-  scenario.resources.backends[0].network.profile = 'old-profile';
-  scenario.network.profiles?.push({
+  scenario.states['0'].resources.backends[0].name = 'Serwer Żółć';
+  scenario.states['0'].resources.backends[0].network.profile = 'old-profile';
+  scenario.fixed.network.profiles?.push({
     id: 'zero-queue',
     config: { queueCapacity: 0, packetTravelTimeNanoseconds: 0, lossRate: 0 },
   });
-  scenario.workload.clientGroups = [{
+  scenario.states['0'].workload.clientGroups = [{
     id: 'clients',
     count: 1,
     startAtNanoseconds: 0,
@@ -146,7 +146,7 @@ test('pretty exports round trip the complete scenario with precise strings and e
 test('pretty JSON exactly at the UTF-8 limit keeps its trailing newline', () => {
   const scenario = scenarioWithName();
   const baseBytes = utf8.encode(`${JSON.stringify(scenario, null, 2)}\n`).byteLength;
-  scenario.resources.backends[0].name = 'x'.repeat(MAX_SCENARIO_BYTES - baseBytes);
+  scenario.states['0'].resources.backends[0].name = 'x'.repeat(MAX_SCENARIO_BYTES - baseBytes);
 
   const exported = serializeScenario(scenario);
 
@@ -158,7 +158,7 @@ test('compact fallback accepts exactly 2 MiB including multibyte text', async ()
   const scenario = scenarioWithName();
   const baseBytes = utf8.encode(JSON.stringify(scenario)).byteLength;
   const remaining = MAX_SCENARIO_BYTES - baseBytes;
-  scenario.resources.backends[0].name = 'ą'.repeat(Math.floor(remaining / 2))
+  scenario.states['0'].resources.backends[0].name = 'ą'.repeat(Math.floor(remaining / 2))
     + 'x'.repeat(remaining % 2);
 
   const exported = serializeScenario(scenario);
@@ -167,7 +167,7 @@ test('compact fallback accepts exactly 2 MiB including multibyte text', async ()
   assert.equal(exported, JSON.stringify(scenario));
   assert.deepEqual(JSON.parse(await readScenarioFile(textFile(exported))), scenario);
 
-  scenario.resources.backends[0].name += 'ą';
+  scenario.states['0'].resources.backends[0].name += 'ą';
   assert.throws(() => serializeScenario(scenario), /2 MiB export limit/);
 });
 

@@ -17,7 +17,7 @@ func TestWorldDelayedACKWaitsWithOneSegmentWindow(t *testing.T) {
 			var durations [2]time.Duration
 			for index, delayed := range []bool{false, true} {
 				definition := delayedACKWorldScenario(mode, delayed, 1)
-				world := New(normalizedRuntimeScenario(t, definition))
+				world := newTimelineWorld(t, definition)
 				if err := world.Advance(context.Background(), world.EndTime()); err != nil {
 					t.Fatal(err)
 				}
@@ -55,7 +55,7 @@ func TestWorldDelayedACKWaitsWithOneSegmentWindow(t *testing.T) {
 // A wider window supplies the second segment without waiting for the first ACK.
 func TestWorldDelayedACKGroupsPacketsWithRoomInWindow(t *testing.T) {
 	definition := delayedACKWorldScenario("reno", true, 4)
-	world := New(normalizedRuntimeScenario(t, definition))
+	world := newTimelineWorld(t, definition)
 	if err := world.Advance(context.Background(), world.EndTime()); err != nil {
 		t.Fatal(err)
 	}
@@ -69,13 +69,13 @@ func TestWorldDelayedACKGroupsPacketsWithRoomInWindow(t *testing.T) {
 	})
 }
 
-func delayedACKWorldScenario(mode string, enabled bool, windowSegments int) scenario.Scenario {
+func delayedACKWorldScenario(mode string, enabled bool, windowSegments int) scenario.ScenarioV2 {
 	definition := baseScenario()
-	definition.Workload.ClientGroups[0].Count = 1
-	definition.Workload.Defaults = scenario.StreamConfig{Bytes: 8 * model.SEGMENT_SIZE}
-	definition.Resources.Backends = definition.Resources.Backends[:1]
-	definition.TCP.CongestionControl.Mode = &mode
-	definition.TCP.CongestionControl.MaximumWindowSegments = &windowSegments
-	definition.TCP.DelayedACK.Enabled = &enabled
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 1 })
+	definition.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 8 * model.SEGMENT_SIZE}
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Resources.Backends = state.Resources.Backends[:1] })
+	definition.Fixed.TCP.CongestionControl.Mode = &mode
+	definition.Fixed.TCP.CongestionControl.MaximumWindowSegments = &windowSegments
+	definition.Fixed.TCP.DelayedACK.Enabled = &enabled
 	return definition
 }

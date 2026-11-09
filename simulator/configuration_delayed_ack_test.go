@@ -5,8 +5,7 @@ import (
 	"time"
 )
 
-// The CLI preserves default immediate ACKs and can pin a one-segment cwnd experiment.
-func TestDelayedACKCLIAndPublicConfiguration(t *testing.T) {
+func TestDelayedACKCLIConfiguration(t *testing.T) {
 	defaults, err := readTestConfiguration(t)
 	if err != nil {
 		t.Fatal(err)
@@ -22,24 +21,16 @@ func TestDelayedACKCLIAndPublicConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requested := configured.publicConfig()
-	prepared, err := preparePublicScenario(requested, defaults)
+	prepared, err := configured.prepareScenarioV2()
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved := prepared.resolved.TCP
+	resolved := prepared.plan.Fixed().TCP
 	if !resolved.DelayedACK.Enabled || resolved.DelayedACK.SegmentsPerACK != 2 ||
 		resolved.DelayedACK.MaxDelay != 40*time.Millisecond+time.Nanosecond ||
 		resolved.CongestionControl.MaximumWindowSegments != 1 {
 		t.Fatalf("configuration lost ACK timing or cwnd cap: %+v", resolved)
 	}
-	summary := scenarioSummary(prepared.resolved)
-	if !summary.DelayedACKEnabled || summary.DelayedACKSegments != 2 ||
-		summary.DelayedACKMaxDelayMs != requested.DelayedACKMaxDelayMs ||
-		summary.MaximumCongestionWindowSegments != 1 {
-		t.Fatal("form summary lost ACK timing or cwnd cap")
-	}
-
 	// Explicit zero timer and an unsupported segment threshold are rejected.
 	for _, flags := range [][]string{
 		{"-tcp-delayed-ack-max-delay", "0"},

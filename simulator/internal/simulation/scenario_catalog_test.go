@@ -14,24 +14,24 @@ import (
 )
 
 // catalogScenario shortens detached examples while keeping their network and arrival settings.
-func catalogScenario(t *testing.T, id string, duration time.Duration, payload int) scenario.Scenario {
+func catalogScenario(t *testing.T, id string, duration time.Duration, payload int) scenario.ScenarioV2 {
 	t.Helper()
 	path := filepath.Join("..", "..", "..", "examples", "scenarios", id+".json")
 	document, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := scenario.DecodeDocument(document)
+	input, err := scenario.DecodeDocumentV2(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	input.Execution.Duration = duration
-	input.Execution.SnapshotInterval = 50 * time.Millisecond
-	input.Execution.Speed = 0
-	input.Execution.MaxEvents = 1_000_000
-	input.Workload.Defaults.Bytes = payload
-	for index := range input.Workload.ClientGroups {
-		group := &input.Workload.ClientGroups[index]
+	input.Fixed.Execution.Duration = duration
+	input.Fixed.Execution.SnapshotInterval = 50 * time.Millisecond
+	input.Fixed.Execution.Speed = 0
+	input.Fixed.Execution.MaxEvents = 1_000_000
+	input.Fixed.Workload.Defaults.Bytes = payload
+	for index := range input.States["0"].Workload.ClientGroups {
+		group := &input.States["0"].Workload.ClientGroups[index]
 		if group.Stream.Bytes != nil && *group.Stream.Bytes > payload {
 			*group.Stream.Bytes = payload
 		}
@@ -46,13 +46,13 @@ func catalogScenario(t *testing.T, id string, duration time.Duration, payload in
 }
 
 // runCatalogScenario retains the model so tests can inspect individual physical paths.
-func runCatalogScenario(t *testing.T, input scenario.Scenario) *World {
+func runCatalogScenario(t *testing.T, input scenario.ScenarioV2) *World {
 	t.Helper()
-	s := New(normalizedRuntimeScenario(t, input))
+	s := newTimelineWorld(t, input)
 	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	if s.engine.Now() != input.Execution.Duration {
+	if s.engine.Now() != input.Fixed.Execution.Duration {
 		t.Fatal("catalog run did not reach its virtual horizon")
 	}
 	return s
@@ -100,7 +100,7 @@ func TestCatalogIngressBurst(t *testing.T) {
 			arrival := time.Duration(serialization) + access.PacketTravelTime
 			var first network.Stats
 			for run := 0; run < 2; run++ {
-				s := New(resolved)
+				s := newTimelineWorld(t, input)
 				if s.ingress.Stats() != (network.Stats{}) {
 					t.Fatal("a fresh model retained the previous burst")
 				}
@@ -148,7 +148,9 @@ func TestCatalogSlowACKPath(t *testing.T) {
 		}
 		dataLink := scenarioRuntimeLink(t, slow, LoadBalancerNodeID, BackendNodeID(backend.ID))
 		slowData += dataLink.Stats().DeliveredBytes
-		control.Resources.Backends[index].Network.ToLoadBalancer.BandwidthBitsPerSecond = scenarioRuntimeValue[int64](1_000_000_000)
+		editInitialState(&control, func(state *scenario.StateConfig) {
+			state.Resources.Backends[index].Network.ToLoadBalancer.BandwidthBitsPerSecond = scenarioRuntimeValue[int64](1_000_000_000)
+		})
 	}
 	fast := runCatalogScenario(t, control)
 	var fastData uint64
@@ -169,8 +171,10 @@ func TestCatalogLossyAccessReplays(t *testing.T) {
 		t.Fatal("the lossy example did not exercise both packet loss and successful streams")
 	}
 	control := scenarioFileRoundTrip(t, input)
-	for index := range control.Workload.ClientGroups {
-		control.Workload.ClientGroups[index].Network.ToLoadBalancer.LossRate = scenarioRuntimeValue(0.0)
+	for index := range control.States["0"].Workload.ClientGroups {
+		editInitialState(&control, func(state *scenario.StateConfig) {
+			state.Workload.ClientGroups[index].Network.ToLoadBalancer.LossRate = scenarioRuntimeValue(0.0)
+		})
 	}
 	clean := runCatalogScenario(t, control)
 	cleanOffered, cleanLost := catalogClientTraffic(t, clean)
@@ -204,7 +208,7 @@ func TestCatalogBlackholedBackend(t *testing.T) {
 // TestCatalogArrivalWaves checks lazy creation at each wave and skips the wave beyond the horizon.
 func TestCatalogArrivalWaves(t *testing.T) {
 	input := catalogScenario(t, "staggered-arrivals", 180*time.Second, 2050)
-	s := New(normalizedRuntimeScenario(t, input))
+	s := newTimelineWorld(t, input)
 	if s.createdClients != 0 || s.scheduledClients != 16 {
 		t.Fatal("future groups must reserve identities without constructing clients")
 	}
@@ -215,7 +219,7 @@ func TestCatalogArrivalWaves(t *testing.T) {
 		{at: 0, created: 1},
 		{at: 5 * time.Second, created: 5},
 		{at: 20 * time.Second, created: 9},
-		{at: input.Execution.Duration, created: 12},
+		{at: input.Fixed.Execution.Duration, created: 12},
 	}
 	for _, boundary := range boundaries {
 		if err := s.engine.RunUntil(boundary.at); err != nil {

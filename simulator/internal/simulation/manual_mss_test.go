@@ -14,11 +14,11 @@ func TestWorldUsesManualMSS(t *testing.T) {
 	for _, mssBytes := range []int{536, 1024, 1452, 1460, 8960} {
 		t.Run(fmt.Sprint(mssBytes), func(t *testing.T) {
 			definition := baseScenario()
-			definition.TCP.MSSBytes = &mssBytes
-			definition.Workload.Defaults.Bytes = 3000
+			definition.Fixed.TCP.MSSBytes = &mssBytes
+			definition.Fixed.Workload.Defaults.Bytes = 3000
 			windowSegments := 1
-			definition.TCP.CongestionControl.MaximumWindowSegments = &windowSegments
-			world := New(normalizedRuntimeScenario(t, definition))
+			definition.Fixed.TCP.CongestionControl.MaximumWindowSegments = &windowSegments
+			world := newTimelineWorld(t, definition)
 
 			if err := world.Advance(context.Background(), world.EndTime()); err != nil {
 				t.Fatal(err)
@@ -52,10 +52,10 @@ func TestWorldAppliesMSSAndCongestionTogether(t *testing.T) {
 	for _, mssBytes := range []int{536, model.MaxMSSBytes} {
 		t.Run(fmt.Sprint(mssBytes), func(t *testing.T) {
 			definition := baseScenario()
-			definition.TCP.MSSBytes = &mssBytes
+			definition.Fixed.TCP.MSSBytes = &mssBytes
 			thresholdBytes := uint64(2 * mssBytes)
-			definition.TCP.CongestionControl.InitialSlowStartThresholdBytes = &thresholdBytes
-			world := New(normalizedRuntimeScenario(t, definition))
+			definition.Fixed.TCP.CongestionControl.InitialSlowStartThresholdBytes = &thresholdBytes
+			world := newTimelineWorld(t, definition)
 
 			if err := world.Advance(context.Background(), world.EndTime()); err != nil {
 				t.Fatal(err)

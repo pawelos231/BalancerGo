@@ -36,38 +36,14 @@ func (service *nativeScenarioServiceStub) StartScenarioV2(
 }
 
 func scenarioHTTPDefinitionV2() scenario.ScenarioV2 {
-	old := scenarioHTTPDefinition()
-	lb := old.Resources.LoadBalancer
-	backends := make([]scenario.BackendStateConfig, len(old.Resources.Backends))
-	for index, backend := range old.Resources.Backends {
-		backends[index] = scenario.BackendStateConfig{
-			ID: backend.ID, Name: backend.Name, Address: backend.Address,
-			Port: backend.Port, Network: backend.Network, Host: backend.Host,
-		}
-	}
-	initial := scenario.StateConfig{
-		Resources: scenario.StateResourcesConfig{
-			LoadBalancer: scenario.LoadBalancerStateConfig{
-				Algorithm: lb.Algorithm, Host: lb.Host, Ingress: lb.Ingress,
-				ForwardingBitsPerSecond: lb.ForwardingBitsPerSecond,
-			},
-			Backends: backends,
-		},
-		Workload: scenario.StateWorkloadConfig{ClientGroups: old.Workload.ClientGroups},
-	}
+	base := scenarioHTTPDefinition()
+	initial := base.States["0"]
 	later := initial
 	later.Resources.LoadBalancer.Algorithm = "random"
 	later.Workload.ClientGroups = append([]scenario.ClientGroup(nil), initial.Workload.ClientGroups...)
 	later.Workload.ClientGroups[0].Count = 6
-	return scenario.ScenarioV2{
-		Version: scenario.VersionV2,
-		Fixed: scenario.FixedConfig{
-			Execution: old.Execution, TCP: old.TCP,
-			LoadBalancer: scenario.LoadBalancerIdentity{ID: lb.ID}, Network: old.Network,
-			Workload: scenario.WorkloadDefaultsConfig{Defaults: old.Workload.Defaults},
-		},
-		States: map[string]scenario.StateConfig{"0": initial, "500000000": later},
-	}
+	base.States["500000000"] = later
+	return base
 }
 
 func encodedHTTPScenarioV2(t *testing.T, definition scenario.ScenarioV2) []byte {
@@ -188,8 +164,8 @@ func TestScenarioV2ValidationAndDefaultsPreserveAllStates(t *testing.T) {
 	if defaults.Code != http.StatusOK || !bytes.Equal(bytes.TrimSpace(defaults.Body.Bytes()), document) {
 		t.Fatalf("native defaults = %d: %s", defaults.Code, defaults.Body.String())
 	}
-	legacy := requestScenarioAPI(handler, http.MethodGet, "/api/scenarios/defaults", "", nil)
-	if _, err := scenario.DecodeDocument(legacy.Body.Bytes()); legacy.Code != http.StatusOK || err != nil {
-		t.Fatalf("temporary browser defaults stopped working: %d %s", legacy.Code, legacy.Body.String())
+	unqualified := requestScenarioAPI(handler, http.MethodGet, "/api/scenarios/defaults", "", nil)
+	if _, err := scenario.DecodeDocumentV2(unqualified.Body.Bytes()); unqualified.Code != http.StatusOK || err != nil {
+		t.Fatalf("unqualified defaults must return native v2: %d %s", unqualified.Code, unqualified.Body.String())
 	}
 }

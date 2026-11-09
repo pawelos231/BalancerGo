@@ -13,37 +13,7 @@ import (
 
 const maxSafeDocumentInteger int64 = 1<<53 - 1
 
-// EncodeDocument preserves integer precision when a browser reads a scenario.
-// Unsafe integers become decimal strings; required nil collections become [].
-func EncodeDocument(input Scenario) ([]byte, error) {
-	value, err := encodeDocumentValue(reflect.ValueOf(input), "scenario")
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(value)
-}
-
-// EncodeNormalizedDocument exposes effective settings without expanding client groups.
-// This view uses exact integers but is not an importable Scenario document.
-func EncodeNormalizedDocument(input Normalized) ([]byte, error) {
-	value, err := encodeDocumentValue(reflect.ValueOf(input), "resolved")
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(value)
-}
-
-// DecodeDocument reads one strict scenario document without normalizing it.
-// Missing fields keep zero values; null is allowed only for optional pointer fields.
-func DecodeDocument(data []byte) (Scenario, error) {
-	var input Scenario
-	if err := decodeDocument(data, reflect.ValueOf(&input).Elem(), "scenario"); err != nil {
-		return Scenario{}, err
-	}
-	return input, nil
-}
-
-// decodeDocument shares strict token handling between document versions.
+// decodeDocument handles strict native scenario document tokens.
 func decodeDocument(data []byte, target reflect.Value, path string) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()

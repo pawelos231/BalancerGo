@@ -38,10 +38,10 @@ func TestCloseProjectionPreservesStateAndCumulativeRetries(t *testing.T) {
 // Effective shutdown limits and every created connection survive route cleanup.
 func TestResultRetainsConnectionAndCloseLimits(t *testing.T) {
 	definition := projectionScenario()
-	definition.Workload.ClientGroups[0].Count = 1
-	definition.Workload.Defaults = scenario.StreamConfig{Bytes: 64}
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 1 })
+	definition.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 64}
 	msl, wait, retries := 2*time.Millisecond, 3*time.Second, 0
-	definition.TCP.Close = scenario.CloseConfig{MSL: &msl, FinWaitTimeout: &wait, MaxFINRetries: &retries}
+	definition.Fixed.TCP.Close = scenario.CloseConfig{MSL: &msl, FinWaitTimeout: &wait, MaxFINRetries: &retries}
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, world.EndTime())
 	world.ClearConnections()
@@ -79,10 +79,10 @@ func TestResultRetainsConnectionAndCloseLimits(t *testing.T) {
 // Changing connection state uses a full live frame without topology revisions.
 func TestCloseStateUsesExistingTelemetryFrames(t *testing.T) {
 	definition := projectionScenario()
-	definition.Workload.ClientGroups[0].Count = 1
-	definition.Workload.Defaults = scenario.StreamConfig{Bytes: 64, PacketGap: time.Millisecond}
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 1 })
+	definition.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 64, PacketGap: time.Millisecond}
 	msl := 20 * time.Millisecond
-	definition.TCP.Close.MSL = &msl
+	definition.Fixed.TCP.Close.MSL = &msl
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, time.Millisecond)
 	projector := NewProjector("close")

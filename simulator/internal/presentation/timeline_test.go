@@ -18,37 +18,14 @@ func timelineProjectionWorld(t *testing.T) *simulation.World {
 // timelineProjectionDefinition provides independent state collections for each test.
 func timelineProjectionDefinition() scenario.ScenarioV2 {
 	base := projectionScenario()
-	initial := scenario.StateConfig{
-		Resources: scenario.StateResourcesConfig{
-			LoadBalancer: scenario.LoadBalancerStateConfig{
-				Algorithm:               base.Resources.LoadBalancer.Algorithm,
-				Ingress:                 base.Resources.LoadBalancer.Ingress,
-				ForwardingBitsPerSecond: base.Resources.LoadBalancer.ForwardingBitsPerSecond,
-			},
-			Backends: []scenario.BackendStateConfig{
-				{ID: "one", Name: "Old one", Address: "10.0.0.1", Port: 80},
-				{ID: "two", Name: "Old two", Address: "10.0.0.2", Port: 80},
-			},
-		},
-		Workload: scenario.StateWorkloadConfig{ClientGroups: base.Workload.ClientGroups},
-	}
+	initial := base.States["0"]
+	initial.Resources.Backends = []scenario.BackendStateConfig{{ID: "one", Name: "Old one", Address: "10.0.0.1", Port: 80}, {ID: "two", Name: "Old two", Address: "10.0.0.2", Port: 80}}
 	next := initial
 	next.Resources.Backends = append([]scenario.BackendStateConfig(nil), initial.Resources.Backends...)
 	next.Resources.Backends[0].Name = "New one"
 	next.Resources.Backends[1].Name = "New two"
-
-	return scenario.ScenarioV2{
-		Version: scenario.VersionV2,
-		Fixed: scenario.FixedConfig{
-			Execution:    base.Execution,
-			LoadBalancer: scenario.LoadBalancerIdentity{ID: base.Resources.LoadBalancer.ID},
-			Network:      base.Network,
-			Workload:     scenario.WorkloadDefaultsConfig{Defaults: base.Workload.Defaults},
-		},
-		States: map[string]scenario.StateConfig{
-			"0": initial, "250000000": next,
-		},
-	}
+	base.States = map[string]scenario.StateConfig{"0": initial, "250000000": next}
+	return base
 }
 
 func timelineProjectionFrom(t *testing.T, input scenario.ScenarioV2) *simulation.World {

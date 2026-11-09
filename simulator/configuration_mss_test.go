@@ -1,14 +1,16 @@
 package main
 
-import "testing"
+import (
+	"testing"
+)
 
-// CLI, the browser adapter and the native scenario keep the same manual payload cap.
+// CLI settings reach the native TCP profile without a form overlay.
 func TestManualMSSConfigurationRoundTrip(t *testing.T) {
 	defaults, err := readTestConfiguration(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if defaults.publicConfig().MSSBytes != 1024 {
+	if defaults.effectiveMSSBytes() != 1024 {
 		t.Fatal("the default MSS changed")
 	}
 
@@ -16,11 +18,11 @@ func TestManualMSSConfigurationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := preparePublicScenario(configured.publicConfig(), defaults)
+	prepared, err := configured.prepareScenarioV2()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prepared.resolved.TCP.MSSBytes != 1460 || scenarioSummary(prepared.resolved).MSSBytes != 1460 {
+	if prepared.plan.Fixed().TCP.MSSBytes != 1460 || scenarioSummaryV2(prepared.plan).MSSBytes != 1460 {
 		t.Fatal("MSS was lost between CLI, scenario and browser summary")
 	}
 
@@ -33,10 +35,5 @@ func TestManualMSSConfigurationRoundTrip(t *testing.T) {
 		if _, err := readTestConfiguration(t, flags...); err == nil {
 			t.Fatalf("invalid MSS accepted: %v", flags)
 		}
-	}
-	invalid := defaults.publicConfig()
-	invalid.MSSBytes = 0
-	if _, err := preparePublicScenario(invalid, defaults); err == nil {
-		t.Fatal("explicit zero MSS accepted from the browser")
 	}
 }

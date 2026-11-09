@@ -11,147 +11,6 @@ import (
 	"load-balancer/model"
 )
 
-// Normalize checks an input scenario and resolves its inherited settings.
-// The result owns its data; client groups stay compact.
-func Normalize(input Scenario) (Normalized, error) {
-	// Check shared settings before resolving individual backends and clients.
-	if input.Version != Version {
-		return Normalized{}, fmt.Errorf("version: unsupported version %d", input.Version)
-	}
-
-	if err := validateExecution(input.Execution); err != nil {
-		return Normalized{}, err
-	}
-
-	tcp, err := normalizeTCP(input.TCP)
-	if err != nil {
-		return Normalized{}, err
-	}
-
-	if err := validateLink(input.Network.Defaults, "network.defaults"); err != nil {
-		return Normalized{}, err
-	}
-
-	profiles, err := normalizeProfiles(input.Network)
-	if err != nil {
-		return Normalized{}, err
-	}
-
-	defaultStream, err := normalizeStream(input.Workload.Defaults, "workload.defaults")
-	if err != nil {
-		return Normalized{}, err
-	}
-
-	loadBalancer, err := normalizeLoadBalancer(
-		input.Resources.LoadBalancer,
-		input.Execution.Duration,
-		"resources.loadBalancer",
-		"resources.loadBalancer",
-	)
-	if err != nil {
-		return Normalized{}, err
-	}
-
-	backendCount := len(input.Resources.Backends)
-	if backendCount > MaxBackends {
-		return Normalized{}, fmt.Errorf(
-			"resources.backends: count must not exceed %d",
-			MaxBackends,
-		)
-	}
-
-	// Prepare independent output slices and registries for duplicate checks.
-	groupCount := len(input.Workload.ClientGroups)
-	result := Normalized{
-		Version:         Version,
-		Execution:       input.Execution,
-		TCP:             tcp,
-		NetworkDefaults: input.Network.Defaults,
-		LoadBalancer:    loadBalancer,
-		Backends:        make([]NormalizedBackend, 0, backendCount),
-		DefaultStream:   defaultStream,
-		ClientGroups:    make([]NormalizedClientGroup, 0, groupCount),
-	}
-
-	usedIDs := map[string]string{
-		input.Resources.LoadBalancer.ID: "resources.loadBalancer.id",
-	}
-	usedAddresses := make(map[string]string)
-
-	defaultLinks := DirectionalLinks{
-		ToLoadBalancer:   input.Network.Defaults,
-		FromLoadBalancer: input.Network.Defaults,
-	}
-
-	// Resolve each backend's links while keeping the original backend order.
-	for index, backend := range input.Resources.Backends {
-		path := fmt.Sprintf("resources.backends[%d]", index)
-
-		if err := registerID(usedIDs, backend.ID, path+".id"); err != nil {
-			return Normalized{}, err
-		}
-
-		key := endpointKey(backend.Address, backend.Port)
-		if err := validateAddress(backend, usedAddresses, path, key); err != nil {
-			return Normalized{}, err
-		}
-
-		networkPath := path + ".network"
-		links, err := resolveNetwork(defaultLinks, backend.Network, profiles, networkPath)
-		if err != nil {
-			return Normalized{}, err
-		}
-		host, err := normalizeHost(backend.Host, input.Execution.Duration, path+".host")
-		if err != nil {
-			return Normalized{}, err
-		}
-
-		result.Backends = append(result.Backends, NormalizedBackend{
-			ID:      backend.ID,
-			Name:    backend.Name,
-			Address: backend.Address,
-			Port:    backend.Port,
-			Network: links,
-			Host:    host,
-		})
-	}
-
-	// Resolve shared group settings without allocating one entry per client.
-	for index, group := range input.Workload.ClientGroups {
-		path := fmt.Sprintf("workload.clientGroups[%d]", index)
-
-		if err := registerID(usedIDs, group.ID, path+".id"); err != nil {
-			return Normalized{}, err
-		}
-
-		remainingClients := MaxClients - result.TotalClients
-		if group.Count < 0 || group.Count > remainingClients {
-			return Normalized{}, fmt.Errorf(
-				"%s.count: total clients must be in 0..%d",
-				path,
-				MaxClients,
-			)
-		}
-
-		resolvedGroup, err := normalizeGroup(
-			group,
-			group.Count,
-			input.Workload.Defaults,
-			defaultLinks,
-			profiles,
-			path,
-		)
-		if err != nil {
-			return Normalized{}, err
-		}
-
-		result.TotalClients += group.Count
-		result.ClientGroups = append(result.ClientGroups, resolvedGroup)
-	}
-
-	return result, nil
-}
-
 // validateExecution checks run limits, snapshot timing and real-time pacing.
 func validateExecution(config ExecutionConfig) error {
 	if config.Duration < 0 {
@@ -186,10 +45,7 @@ func validateExecution(config ExecutionConfig) error {
 }
 
 // validateLoadBalancer checks selection, forwarding and the independent input link.
-func validateLoadBalancer(config LoadBalancerConfig, path string) error {
-	if err := validateID(config.ID, path+".id"); err != nil {
-		return err
-	}
+func validateLoadBalancer(config LoadBalancerStateConfig, path string) error {
 
 	supportedAlgorithm := config.Algorithm == "roundRobin" || config.Algorithm == "random"
 	if !supportedAlgorithm {
@@ -557,18 +413,19 @@ func registerID(ids map[string]string, id, path string) error {
 // validateAddress checks the host and port, then rejects duplicate endpoints.
 // The caller supplies the comparison key for its contract version.
 func validateAddress(
-	backend BackendConfig,
+	address string,
+	port uint16,
 	addresses map[string]string,
 	path, comparisonKey string,
 ) error {
-	emptyHost := backend.Address == ""
-	hostHasWhitespace := strings.ContainsAny(backend.Address, " \t\r\n")
+	emptyHost := address == ""
+	hostHasWhitespace := strings.ContainsAny(address, " \t\r\n")
 
 	if emptyHost || hostHasWhitespace {
 		return fmt.Errorf("%s.address: must be a nonempty host without whitespace", path)
 	}
 
-	if backend.Port == 0 {
+	if port == 0 {
 		return fmt.Errorf("%s.port: must be in 1..65535", path)
 	}
 

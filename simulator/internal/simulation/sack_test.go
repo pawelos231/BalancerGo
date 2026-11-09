@@ -13,7 +13,7 @@ import (
 func TestWorldSACKRepairsTwoHolesBeforeWaitingForTheFirstRepairACK(t *testing.T) {
 	for _, mode := range []string{"reno", "newReno", "cubic"} {
 		t.Run(mode, func(t *testing.T) {
-			world := New(normalizedRuntimeScenario(t, sackIntegrationScenario(mode, true)))
+			world := newTimelineWorld(t, sackIntegrationScenario(mode, true))
 			attempts := make(map[uint64]int)
 			retryTimes := make(map[uint64]time.Duration)
 			var firstRepairACKAt time.Duration
@@ -90,7 +90,7 @@ func TestWorldSACKRepairsTwoHolesBeforeWaitingForTheFirstRepairACK(t *testing.T)
 // Without SACK, Reno sees only one missing position at a time.
 // The same finite stream repairs segment 2 quickly, then needs RTO for segment 4.
 func TestWorldSACKDisabledKeepsClassicRenoRecovery(t *testing.T) {
-	world := New(normalizedRuntimeScenario(t, sackIntegrationScenario("reno", false)))
+	world := newTimelineWorld(t, sackIntegrationScenario("reno", false))
 	attempts := make(map[uint64]int)
 	var secondRepairAt time.Duration
 	sawSACK := false
@@ -133,13 +133,15 @@ func TestWorldSACKCompletesSeededLossyAccessTransfers(t *testing.T) {
 	for _, mode := range []string{"reno", "newReno", "cubic"} {
 		t.Run(mode, func(t *testing.T) {
 			definition := sackIntegrationScenario(mode, true)
-			definition.Execution.Seed = 19
-			definition.Execution.Duration = 10 * time.Second
-			definition.Workload.ClientGroups[0].Count = 8
-			definition.Workload.Defaults.Bytes = 32 * model.SEGMENT_SIZE
+			definition.Fixed.Execution.Seed = 19
+			definition.Fixed.Execution.Duration = 10 * time.Second
+			editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 8 })
+			definition.Fixed.Workload.Defaults.Bytes = 32 * model.SEGMENT_SIZE
 			loss := 0.04
-			definition.Workload.ClientGroups[0].Network.ToLoadBalancer.LossRate = &loss
-			world := New(normalizedRuntimeScenario(t, definition))
+			editInitialState(&definition, func(state *scenario.StateConfig) {
+				state.Workload.ClientGroups[0].Network.ToLoadBalancer.LossRate = &loss
+			})
+			world := newTimelineWorld(t, definition)
 
 			runIngressUntil(t, world, world.EndTime())
 			var retries uint64
@@ -161,14 +163,14 @@ func TestWorldSACKCompletesSeededLossyAccessTransfers(t *testing.T) {
 }
 
 // Eight segments fill the initial window; a short TIME_WAIT lets tests observe full closure.
-func sackIntegrationScenario(mode string, enabled bool) scenario.Scenario {
+func sackIntegrationScenario(mode string, enabled bool) scenario.ScenarioV2 {
 	definition := congestionScenario()
 	initialSegments := 8
 	msl := 5 * time.Millisecond
-	definition.Workload.Defaults.Bytes = 8 * model.SEGMENT_SIZE
-	definition.TCP.CongestionControl.Mode = &mode
-	definition.TCP.CongestionControl.InitialWindowSegments = &initialSegments
-	definition.TCP.SACKEnabled = &enabled
-	definition.TCP.Close.MSL = &msl
+	definition.Fixed.Workload.Defaults.Bytes = 8 * model.SEGMENT_SIZE
+	definition.Fixed.TCP.CongestionControl.Mode = &mode
+	definition.Fixed.TCP.CongestionControl.InitialWindowSegments = &initialSegments
+	definition.Fixed.TCP.SACKEnabled = &enabled
+	definition.Fixed.TCP.Close.MSL = &msl
 	return definition
 }

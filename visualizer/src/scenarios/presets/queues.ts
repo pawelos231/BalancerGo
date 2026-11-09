@@ -12,9 +12,9 @@ export const queuePresets: readonly ScenarioPreset[] = [
       'Full queues tail-drop arriving packets; endpoint queues keep 1024 slots.',
     build(defaults) {
       const scenario = isolatedExperiment(defaults);
-      scenario.workload.clientGroups = [presetClientGroup('clients', 64)];
-      scenario.resources.loadBalancer.ingress.bandwidthBitsPerSecond = 1_000_000;
-      scenario.resources.loadBalancer.ingress.queueCapacity = 2;
+      scenario.states['0'].workload.clientGroups = [presetClientGroup('clients', 64)];
+      scenario.states['0'].resources.loadBalancer.ingress.bandwidthBitsPerSecond = 1_000_000;
+      scenario.states['0'].resources.loadBalancer.ingress.queueCapacity = 2;
 
       return scenario;
     },
@@ -28,9 +28,9 @@ export const queuePresets: readonly ScenarioPreset[] = [
       'An incoming packet must start immediately or it is dropped.',
     build(defaults) {
       const scenario = isolatedExperiment(defaults);
-      scenario.workload.clientGroups = [presetClientGroup('clients', 64)];
-      scenario.resources.loadBalancer.ingress.bandwidthBitsPerSecond = 1_000_000;
-      scenario.resources.loadBalancer.ingress.queueCapacity = 0;
+      scenario.states['0'].workload.clientGroups = [presetClientGroup('clients', 64)];
+      scenario.states['0'].resources.loadBalancer.ingress.bandwidthBitsPerSecond = 1_000_000;
+      scenario.states['0'].resources.loadBalancer.ingress.queueCapacity = 0;
 
       return scenario;
     },

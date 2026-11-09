@@ -42,10 +42,10 @@ func TestWorldCongestionStrategiesRecoverSamePayload(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			definition := congestionScenario()
 			initialSegments := 8
-			definition.TCP.CongestionControl.Mode = &test.mode
-			definition.TCP.CongestionControl.InitialWindowSegments = &initialSegments
-			definition.TCP.CongestionControl.FastRetransmit = &test.fastRetransmit
-			world := New(normalizedRuntimeScenario(t, definition))
+			definition.Fixed.TCP.CongestionControl.Mode = &test.mode
+			definition.Fixed.TCP.CongestionControl.InitialWindowSegments = &initialSegments
+			definition.Fixed.TCP.CongestionControl.FastRetransmit = &test.fastRetransmit
+			world := newTimelineWorld(t, definition)
 
 			droppedFirst := false
 			var retriedAt time.Duration

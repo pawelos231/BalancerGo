@@ -14,24 +14,24 @@ import (
 // Older documents use the shared limits, while zero explicitly disables FIN retries.
 func TestCloseDefaultsAndExactDocumentRoundTrip(t *testing.T) {
 	input := exampleScenario()
-	resolved, err := scenario.Normalize(input)
+	resolved, err := scenario.NormalizeV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defaults := model.DefaultCloseConfig()
-	if resolved.TCP.Close.MSL != defaults.MSL || resolved.TCP.Close.FinWaitTimeout != defaults.FinWaitTimeout ||
-		resolved.TCP.Close.MaxFINRetries != defaults.MaxFINRetries {
-		t.Fatalf("older scenario lost close defaults: %+v", resolved.TCP.Close)
+	if resolved.Fixed.TCP.Close.MSL != defaults.MSL || resolved.Fixed.TCP.Close.FinWaitTimeout != defaults.FinWaitTimeout ||
+		resolved.Fixed.TCP.Close.MaxFINRetries != defaults.MaxFINRetries {
+		t.Fatalf("older scenario lost close defaults: %+v", resolved.Fixed.TCP.Close)
 	}
-	if input.TCP.Close.MSL != nil || input.TCP.Close.MaxFINRetries != nil {
+	if input.Fixed.TCP.Close.MSL != nil || input.Fixed.TCP.Close.MaxFINRetries != nil {
 		t.Fatal("normalization modified the input")
 	}
 
-	input.TCP.Close = scenario.CloseConfig{
+	input.Fixed.TCP.Close = scenario.CloseConfig{
 		MSL:            pointer(time.Duration(9_007_199_254_740_993)),
 		FinWaitTimeout: pointer(2 * time.Second), MaxFINRetries: pointer(0),
 	}
-	document, err := scenario.EncodeDocument(input)
+	document, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,17 +39,17 @@ func TestCloseDefaultsAndExactDocumentRoundTrip(t *testing.T) {
 		!bytes.Contains(document, []byte(`"maxFINRetries":0`)) {
 		t.Fatalf("document lost exact duration or zero retries: %s", document)
 	}
-	restored, err := scenario.DecodeDocument(document)
+	restored, err := scenario.DecodeDocumentV2(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.Normalize(restored)
+	resolved, err = scenario.NormalizeV2(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.TCP.Close.MSL != *input.TCP.Close.MSL || resolved.TCP.Close.FinWaitTimeout != 2*time.Second ||
-		resolved.TCP.Close.MaxFINRetries != 0 {
-		t.Fatalf("close settings changed on import: %+v", resolved.TCP.Close)
+	if resolved.Fixed.TCP.Close.MSL != *input.Fixed.TCP.Close.MSL || resolved.Fixed.TCP.Close.FinWaitTimeout != 2*time.Second ||
+		resolved.Fixed.TCP.Close.MaxFINRetries != 0 {
+		t.Fatalf("close settings changed on import: %+v", resolved.Fixed.TCP.Close)
 	}
 }
 
@@ -69,18 +69,18 @@ func TestCloseLimits(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := exampleScenario()
-			input.TCP.Close = test.config
-			if _, err := scenario.Normalize(input); err == nil || !strings.Contains(err.Error(), "tcp.close."+test.path) {
+			input.Fixed.TCP.Close = test.config
+			if _, err := scenario.NormalizeV2(input); err == nil || !strings.Contains(err.Error(), "tcp.close."+test.path) {
 				t.Fatalf("wanted close validation error, got %v", err)
 			}
 		})
 	}
 	input := exampleScenario()
-	input.TCP.Close = scenario.CloseConfig{
+	input.Fixed.TCP.Close = scenario.CloseConfig{
 		MSL:            pointer(time.Duration(math.MaxInt64 / 2)),
 		FinWaitTimeout: pointer(time.Duration(math.MaxInt64)), MaxFINRetries: pointer(30),
 	}
-	if _, err := scenario.Normalize(input); err != nil {
+	if _, err := scenario.NormalizeV2(input); err != nil {
 		t.Fatalf("valid timer boundaries rejected: %v", err)
 	}
 }

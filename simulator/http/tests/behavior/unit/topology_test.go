@@ -2,7 +2,6 @@ package httpserver_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 
 	"load-balancer/http"
 	"load-balancer/internal/contract"
-	"load-balancer/scenario"
 )
 
 // Publication detaches both the owner's document and each reader's byte slice.
@@ -60,18 +58,6 @@ func TestPublicationDetachedDocumentAndFailedReplacement(t *testing.T) {
 type topologyServiceStub struct {
 	document json.RawMessage
 	reads    int
-}
-
-func (service *topologyServiceStub) Defaults() scenario.Scenario {
-	return scenario.Scenario{}
-}
-
-func (service *topologyServiceStub) StartScenario(
-	context.Context,
-	scenario.Scenario,
-	scenario.Normalized,
-) (contract.RunReceipt, error) {
-	return contract.RunReceipt{}, nil
 }
 
 func (service *topologyServiceStub) CurrentRun() *contract.RunRecord {

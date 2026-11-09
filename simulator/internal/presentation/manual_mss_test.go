@@ -6,7 +6,7 @@ import "testing"
 func TestResultReportsManualMSS(t *testing.T) {
 	definition := projectionScenario()
 	mssBytes := 1460
-	definition.TCP.MSSBytes = &mssBytes
+	definition.Fixed.TCP.MSSBytes = &mssBytes
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, world.EndTime())
 

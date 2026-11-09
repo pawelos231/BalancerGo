@@ -16,27 +16,25 @@ import (
 func runnerTrafficWorld(t *testing.T, bandwidth int64, travel time.Duration, maxEvents uint64) *simulationworld.World {
 	t.Helper()
 	link := scenario.LinkConfig{BandwidthBitsPerSecond: bandwidth, PacketTravelTime: travel, QueueCapacity: 16}
-	definition := scenario.Scenario{
-		Version: scenario.Version,
-		Execution: scenario.ExecutionConfig{
-			Duration: 150 * time.Millisecond, SnapshotInterval: time.Hour,
-			Seed: 1, MaxEvents: maxEvents,
-		},
-		Network: scenario.NetworkConfig{Defaults: link},
-		Resources: scenario.ResourcesConfig{LoadBalancer: scenario.LoadBalancerConfig{
-			ID: "lb", Algorithm: "roundRobin", ForwardingBitsPerSecond: 1_000_000_000,
-			Ingress: scenario.LinkConfig{BandwidthBitsPerSecond: 1_000_000_000, QueueCapacity: 16},
-		}},
-		Workload: scenario.WorkloadConfig{
-			Defaults:     scenario.StreamConfig{Bytes: 0},
-			ClientGroups: []scenario.ClientGroup{{ID: "traffic", Count: 1}},
-		},
+	definition := scenarioRuntimeDefinition()
+	definition.Fixed.Execution = scenario.ExecutionConfig{
+		Duration: 150 * time.Millisecond, SnapshotInterval: time.Hour,
+		Seed: 1, MaxEvents: maxEvents,
 	}
-	resolved, err := scenario.Normalize(definition)
+	definition.Fixed.Network.Defaults = link
+	initial := definition.States["0"]
+	initial.Resources.Backends = nil
+	initial.Resources.LoadBalancer.ForwardingBitsPerSecond = 1_000_000_000
+	initial.Resources.LoadBalancer.Ingress = scenario.LinkConfig{
+		BandwidthBitsPerSecond: 1_000_000_000, QueueCapacity: 16,
+	}
+	initial.Workload.ClientGroups = []scenario.ClientGroup{{ID: "traffic", Count: 1}}
+	definition.States["0"] = initial
+	resolved, err := scenario.CompileV2(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return simulationworld.New(resolved)
+	return newScenarioSimulation(resolved)
 }
 
 // A 150 ms virtual run finishes before its one-hour real refresh interval.
@@ -54,7 +52,7 @@ func TestRunnerTrafficFinalSnapshotIncludesAllBatches(t *testing.T) {
 		frames[world.Now()] = frame{client: client, balancer: balancer}
 		return nil
 	}
-	if err := runWorld(context.Background(), world, nil, publish, nil); err != nil {
+	if err := runWorld(context.Background(), world, publish); err != nil {
 		t.Fatal(err)
 	}
 	if len(frames) != 1 {
@@ -99,7 +97,7 @@ func TestRunnerTrafficWaitsForCompleteTimestamp(t *testing.T) {
 // still sample completed work at the engine's actual failure time.
 func TestRunnerTrafficFailureSamplesItsActualPartialTime(t *testing.T) {
 	world := runnerTrafficWorld(t, 6_400, 0, 3)
-	err := runWorld(context.Background(), world, nil, nil, nil)
+	err := runWorld(context.Background(), world, nil)
 	if !errors.Is(err, engine.ErrEventLimit) {
 		t.Fatalf("run error = %v, want event limit", err)
 	}

@@ -1,29 +1,23 @@
 package main
 
-import (
-	"testing"
-)
+import "testing"
 
-// The old form and native summary carry both explicit SACK choices unchanged.
-func TestConfigurationSACKRoundTrip(t *testing.T) {
-	defaults := legacyTestConfiguration()
-	if defaults.publicConfig().SACKEnabled {
-		t.Fatal("SACK should be opt-in for existing configurations")
-	}
-
-	for _, enabled := range []bool{false, true} {
-		requested := defaults.publicConfig()
-		requested.SACKEnabled = enabled
-
-		prepared, err := preparePublicScenario(requested, defaults)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resolved := prepared.resolved
-
-		if *prepared.definition.TCP.SACKEnabled != enabled ||
-			resolved.TCP.SACKEnabled != enabled || scenarioSummary(resolved).SACKEnabled != enabled {
-			t.Fatalf("SACK enabled=%v was lost by a configuration adapter", enabled)
-		}
+func TestSACKCLIProfileReachesNativeTCP(t *testing.T) {
+	for _, mode := range []string{"reno", "newReno", "cubic"} {
+		t.Run(mode, func(t *testing.T) {
+			configured, err := readTestConfiguration(t, "-sack-enabled", "-tcp-congestion-control", mode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := configured.prepareScenarioV2()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !prepared.plan.Fixed().TCP.SACKEnabled {
+				t.Fatal("native TCP lost the SACK flag")
+			}
+		})
 	}
 }
+
+// The old form and native summary carry both explicit SACK choices unchanged.

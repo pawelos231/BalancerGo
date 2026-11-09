@@ -1,6 +1,6 @@
 # Reference experiments
 
-These eight version-1 scenarios form a small comparison matrix for the L4
+These eight version-2 scenarios form a small comparison matrix for the L4
 simulator. Find them in the frontend under **Reference experiments**, or import
 the JSON files directly. Each preset builds the same document regardless of
 the backend's CLI defaults.

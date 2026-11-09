@@ -13,30 +13,30 @@ import (
 func TestECNConfigurationAndDocument(t *testing.T) {
 	for _, enabled := range []*bool{nil, pointer(false), pointer(true)} {
 		input := exampleScenario()
-		input.TCP.ECNEnabled = enabled
-		data, err := scenario.EncodeDocument(input)
+		input.Fixed.TCP.ECNEnabled = enabled
+		data, err := scenario.EncodeDocumentV2(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		restored, err := scenario.DecodeDocument(data)
+		restored, err := scenario.DecodeDocumentV2(data)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if enabled != nil && (!bytes.Contains(data, []byte("ECNenabled")) ||
-			restored.TCP.ECNEnabled == nil || *restored.TCP.ECNEnabled != *enabled) {
+			restored.Fixed.TCP.ECNEnabled == nil || *restored.Fixed.TCP.ECNEnabled != *enabled) {
 			t.Fatal("document changed the explicit ECN setting")
 		}
-		resolved, err := scenario.Normalize(restored)
-		if err != nil || resolved.TCP.ECNEnabled != (enabled != nil && *enabled) {
-			t.Fatalf("ECN normalization = %v, err=%v", resolved.TCP.ECNEnabled, err)
+		resolved, err := scenario.NormalizeV2(restored)
+		if err != nil || resolved.Fixed.TCP.ECNEnabled != (enabled != nil && *enabled) {
+			t.Fatalf("ECN normalization = %v, err=%v", resolved.Fixed.TCP.ECNEnabled, err)
 		}
 	}
 
 	// A sender advertising ECN must have an algorithm that can reduce its window.
 	input := exampleScenario()
-	input.TCP.ECNEnabled = pointer(true)
-	input.TCP.CongestionControl.Mode = pointer("none")
-	if _, err := scenario.Normalize(input); err == nil || !strings.Contains(err.Error(), "tcp.ECNenabled") {
+	input.Fixed.TCP.ECNEnabled = pointer(true)
+	input.Fixed.TCP.CongestionControl.Mode = pointer("none")
+	if _, err := scenario.NormalizeV2(input); err == nil || !strings.Contains(err.Error(), "tcp.ECNenabled") {
 		t.Fatalf("ECN without congestion control: %v", err)
 	}
 }
@@ -44,27 +44,29 @@ func TestECNConfigurationAndDocument(t *testing.T) {
 // Profiles inherit queue settings, while an explicit zero disables signal selection.
 func TestCongestionPolicyInheritancePreservesZeroProbability(t *testing.T) {
 	input := exampleScenario()
-	input.Network.Defaults.QueuePolicy = "threshold"
-	input.Network.Defaults.CongestionThresholdPercent = 80
-	input.Network.Defaults.CongestionSignalProbability = 0.25
-	input.Network.Profiles = []scenario.LinkProfile{{
+	input.Fixed.Network.Defaults.QueuePolicy = "threshold"
+	input.Fixed.Network.Defaults.CongestionThresholdPercent = 80
+	input.Fixed.Network.Defaults.CongestionSignalProbability = 0.25
+	input.Fixed.Network.Profiles = []scenario.LinkProfile{{
 		ID:     "early",
 		Config: scenario.LinkPatch{CongestionThresholdPercent: pointer(25.0)},
 	}}
-	input.Resources.Backends[0].Network = scenario.EndpointNetworkConfig{
-		Profile:          "early",
-		FromLoadBalancer: scenario.LinkPatch{CongestionSignalProbability: pointer(0.0)},
-	}
-	resolved, err := scenario.Normalize(input)
+	editInitialState(&input, func(state *scenario.StateConfig) {
+		state.Resources.Backends[0].Network = scenario.EndpointNetworkConfig{
+			Profile:          "early",
+			FromLoadBalancer: scenario.LinkPatch{CongestionSignalProbability: pointer(0.0)},
+		}
+	})
+	resolved, err := scenario.NormalizeV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	links := resolved.Backends[0].Network
+	links := resolved.States[0].Backends[0].Network
 	if links.ToLoadBalancer.QueuePolicy != "threshold" || links.ToLoadBalancer.CongestionThresholdPercent != 25 ||
 		links.ToLoadBalancer.CongestionSignalProbability != 0.25 || links.FromLoadBalancer.CongestionSignalProbability != 0 {
 		t.Fatalf("inherited queue settings = %+v", links)
 	}
-	if input.Network.Defaults.CongestionThresholdPercent != 80 || input.Network.Defaults.CongestionSignalProbability != 0.25 {
+	if input.Fixed.Network.Defaults.CongestionThresholdPercent != 80 || input.Fixed.Network.Defaults.CongestionSignalProbability != 0.25 {
 		t.Fatal("normalization changed the input defaults")
 	}
 }
@@ -72,12 +74,16 @@ func TestCongestionPolicyInheritancePreservesZeroProbability(t *testing.T) {
 // Turning signaling off with p=0 must survive validation, saving and reloading.
 func TestQueuePolicyZeroSettingsSurviveDocumentRoundTrip(t *testing.T) {
 	input := exampleScenario()
-	input.Network.Defaults.CongestionThresholdPercent = 0
-	input.Network.Defaults.CongestionSignalProbability = 0
-	input.Resources.LoadBalancer.Ingress.CongestionThresholdPercent = 0
-	input.Resources.LoadBalancer.Ingress.CongestionSignalProbability = 0
+	input.Fixed.Network.Defaults.CongestionThresholdPercent = 0
+	input.Fixed.Network.Defaults.CongestionSignalProbability = 0
+	editInitialState(&input, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Ingress.CongestionThresholdPercent = 0
+	})
+	editInitialState(&input, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Ingress.CongestionSignalProbability = 0
+	})
 
-	data, err := scenario.EncodeDocument(input)
+	data, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,12 +92,12 @@ func TestQueuePolicyZeroSettingsSurviveDocumentRoundTrip(t *testing.T) {
 		t.Fatalf("explicit zero settings disappeared from the saved scenario: %s", data)
 	}
 
-	restored, err := scenario.DecodeDocument(data)
+	restored, err := scenario.DecodeDocumentV2(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.Network.Defaults.CongestionSignalProbability != 0 ||
-		restored.Resources.LoadBalancer.Ingress.CongestionSignalProbability != 0 {
+	if restored.Fixed.Network.Defaults.CongestionSignalProbability != 0 ||
+		restored.States["0"].Resources.LoadBalancer.Ingress.CongestionSignalProbability != 0 {
 		t.Fatal("reloading changed the disabled signal probability")
 	}
 }
@@ -112,8 +118,8 @@ func TestCongestionPolicyValidation(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := exampleScenario()
-			test.edit(&input.Network.Defaults)
-			if _, err := scenario.Normalize(input); err == nil {
+			test.edit(&input.Fixed.Network.Defaults)
+			if _, err := scenario.NormalizeV2(input); err == nil {
 				t.Fatal("invalid queue policy was accepted")
 			}
 		})

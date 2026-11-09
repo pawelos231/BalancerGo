@@ -15,7 +15,7 @@ func TestNormalizeV2ChecksTimelineBounds(t *testing.T) {
 		name string
 		edit func(*scenario.ScenarioV2)
 	}{
-		{"wrong version", func(input *scenario.ScenarioV2) { input.Version = scenario.Version }},
+		{"wrong version", func(input *scenario.ScenarioV2) { input.Version = 1 }},
 		{"missing zero", func(input *scenario.ScenarioV2) { delete(input.States, "0") }},
 		{"nil states", func(input *scenario.ScenarioV2) { input.States = nil }},
 		{"zero duration", func(input *scenario.ScenarioV2) { input.Fixed.Execution.Duration = 0 }},

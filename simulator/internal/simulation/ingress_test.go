@@ -14,16 +14,22 @@ import (
 )
 
 // ingressTestConfiguration keeps packet timings exact and retries out of range.
-func ingressTestConfiguration() scenario.Scenario {
+func ingressTestConfiguration() scenario.ScenarioV2 {
 	cfg := baseScenario()
-	cfg.Workload.ClientGroups[0].Count = 1
-	cfg.Resources.Backends = cfg.Resources.Backends[:1]
-	cfg.Workload.Defaults.Bytes = 0
-	cfg.Network.Defaults.BandwidthBitsPerSecond = 8_000
-	cfg.Resources.LoadBalancer.ForwardingBitsPerSecond = math.MaxInt64
-	cfg.Network.Defaults.PacketTravelTime = 3 * time.Millisecond
-	cfg.Execution.Duration = 500 * time.Millisecond
-	cfg.Resources.LoadBalancer.Ingress = scenario.LinkConfig{BandwidthBitsPerSecond: 4_000, PacketTravelTime: 7 * time.Millisecond, QueueCapacity: 16}
+	editInitialState(&cfg, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups[0].Count = 1
+		state.Resources.Backends = state.Resources.Backends[:1]
+	})
+	cfg.Fixed.Workload.Defaults.Bytes = 0
+	cfg.Fixed.Network.Defaults.BandwidthBitsPerSecond = 8_000
+	editInitialState(&cfg, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.ForwardingBitsPerSecond = math.MaxInt64
+	})
+	cfg.Fixed.Network.Defaults.PacketTravelTime = 3 * time.Millisecond
+	cfg.Fixed.Execution.Duration = 500 * time.Millisecond
+	editInitialState(&cfg, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Ingress = scenario.LinkConfig{BandwidthBitsPerSecond: 4_000, PacketTravelTime: 7 * time.Millisecond, QueueCapacity: 16}
+	})
 	return cfg
 }
 
@@ -77,7 +83,7 @@ func ingressClientAccessDeliveries(s *World) uint64 {
 // TestIngressDelaysBothClientAndBackendPackets checks both real sender callbacks.
 func TestIngressDelaysBothClientAndBackendPackets(t *testing.T) {
 	cfg := ingressTestConfiguration()
-	s := New(normalizedRuntimeScenario(t, cfg))
+	s := newTimelineWorld(t, cfg)
 	srv := s.lb.GetServers()[0]
 
 	// A SYN has 40 wire bytes: 40 ms access transmission plus 3 ms travel.
@@ -156,13 +162,15 @@ func TestIngressClientBurstUsesOneFiniteFIFO(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			cfg := ingressTestConfiguration()
-			cfg.Workload.ClientGroups[0].Count = 3
-			cfg.Network.Defaults.BandwidthBitsPerSecond = 320_000
-			cfg.Network.Defaults.PacketTravelTime = 0
-			cfg.Execution.Duration = 10 * time.Millisecond
-			cfg.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = 8_000
-			cfg.Resources.LoadBalancer.Ingress.QueueCapacity = capacity
-			s := New(normalizedRuntimeScenario(t, cfg))
+			editInitialState(&cfg, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 3 })
+			cfg.Fixed.Network.Defaults.BandwidthBitsPerSecond = 320_000
+			cfg.Fixed.Network.Defaults.PacketTravelTime = 0
+			cfg.Fixed.Execution.Duration = 10 * time.Millisecond
+			editInitialState(&cfg, func(state *scenario.StateConfig) {
+				state.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = 8_000
+				state.Resources.LoadBalancer.Ingress.QueueCapacity = capacity
+			})
+			s := newTimelineWorld(t, cfg)
 
 			// Private access links deliver all three SYNs at 1 ms; ingress needs 40 ms each.
 			if err := runWorld(context.Background(), s); err != nil {
@@ -196,22 +204,26 @@ func TestIngressClientBurstUsesOneFiniteFIFO(t *testing.T) {
 // TestIngressQueuesShareOneReceiver checks isolation without multiplying bandwidth.
 func TestIngressQueuesShareOneReceiver(t *testing.T) {
 	cfg := ingressTestConfiguration()
-	cfg.Network.Defaults.BandwidthBitsPerSecond = 320_000
-	cfg.Network.Defaults.PacketTravelTime = 0
-	cfg.Resources.LoadBalancer.Ingress = scenario.LinkConfig{
-		BandwidthBitsPerSecond: 8_000,
-		QueueCapacity:          1,
-	}
+	cfg.Fixed.Network.Defaults.BandwidthBitsPerSecond = 320_000
+	cfg.Fixed.Network.Defaults.PacketTravelTime = 0
+	editInitialState(&cfg, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Ingress = scenario.LinkConfig{
+			BandwidthBitsPerSecond: 8_000,
+			QueueCapacity:          1,
+		}
+	})
 	definition := cfg
-	definition.Workload.ClientGroups = []scenario.ClientGroup{
-		{ID: "initial", Count: 2},
-		{
-			ID:      "later",
-			Count:   2,
-			StartAt: 43 * time.Millisecond,
-		},
-	}
-	s := New(normalizedRuntimeScenario(t, definition))
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups = []scenario.ClientGroup{
+			{ID: "initial", Count: 2},
+			{
+				ID:      "later",
+				Count:   2,
+				StartAt: 43 * time.Millisecond,
+			},
+		}
+	})
+	s := newTimelineWorld(t, definition)
 
 	// Two initial SYNs share one transmitter: one starts and the other waits.
 	runIngressUntil(t, s, time.Millisecond)
@@ -335,8 +347,8 @@ func assertIngressSnapshots(t *testing.T, s *World) {
 // TestIngressLossPreventsLBReception distinguishes ingress loss from access loss.
 func TestIngressLossPreventsLBReception(t *testing.T) {
 	cfg := ingressTestConfiguration()
-	cfg.Resources.LoadBalancer.Ingress.LossRate = 1
-	s := New(normalizedRuntimeScenario(t, cfg))
+	editInitialState(&cfg, func(state *scenario.StateConfig) { state.Resources.LoadBalancer.Ingress.LossRate = 1 })
+	s := newTimelineWorld(t, cfg)
 	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +439,7 @@ func TestIngressPreservesClientIdentityAcrossBothHops(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			s := New(normalizedRuntimeScenario(t, ingressTestConfiguration()))
+			s := newTimelineWorld(t, ingressTestConfiguration())
 			runIngressUntil(t, s, test.closeAt)
 			old := firstIngressClient(t, s)
 			replacement := replaceIngressClient(t, s, old)
@@ -465,16 +477,18 @@ func TestIngressPreservesClientIdentityAcrossBothHops(t *testing.T) {
 // TestIngressFrozenWorkAndFreshRun checks all unfinished link states together.
 func TestIngressFrozenWorkAndFreshRun(t *testing.T) {
 	cfg := ingressTestConfiguration()
-	cfg.Workload.ClientGroups[0].Count = 3
-	cfg.Network.Defaults.BandwidthBitsPerSecond = 320_000
-	cfg.Network.Defaults.PacketTravelTime = 0
-	cfg.Execution.Duration = 45 * time.Millisecond
-	cfg.Resources.LoadBalancer.Ingress = scenario.LinkConfig{
-		BandwidthBitsPerSecond: 8_000,
-		PacketTravelTime:       10 * time.Millisecond,
-		QueueCapacity:          2,
-	}
-	s := New(normalizedRuntimeScenario(t, cfg))
+	editInitialState(&cfg, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 3 })
+	cfg.Fixed.Network.Defaults.BandwidthBitsPerSecond = 320_000
+	cfg.Fixed.Network.Defaults.PacketTravelTime = 0
+	cfg.Fixed.Execution.Duration = 45 * time.Millisecond
+	editInitialState(&cfg, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Ingress = scenario.LinkConfig{
+			BandwidthBitsPerSecond: 8_000,
+			PacketTravelTime:       10 * time.Millisecond,
+			QueueCapacity:          2,
+		}
+	})
+	s := newTimelineWorld(t, cfg)
 	if err := runWorld(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +514,7 @@ func TestIngressFrozenWorkAndFreshRun(t *testing.T) {
 	assertIngressSnapshots(t, s)
 
 	// A fresh simulation owns new queues, links and counters before it starts.
-	fresh := New(normalizedRuntimeScenario(t, cfg))
+	fresh := newTimelineWorld(t, cfg)
 	if fresh.ingress == s.ingress || fresh.engine == s.engine {
 		t.Fatal("a fresh simulation reused the old model graph")
 	}

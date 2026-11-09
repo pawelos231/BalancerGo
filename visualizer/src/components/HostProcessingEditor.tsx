@@ -7,6 +7,7 @@ import Grid from '@mui/material/Grid';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import type { Scenario } from '../scenarios/types';
+import { selectedScenarioState } from '../scenarios/draft';
 import {
   backendHostTarget, commonBackendHostValues, hostErrorKey, hostFields,
   hostValues, scenarioHost, validateHostValue,
@@ -15,6 +16,7 @@ import type { HostEdits, HostField, HostTarget, HostValues } from '../scenarios/
 
 interface HostProcessingEditorProps {
   scenario: Scenario;
+  selectedAt: string;
   edits: HostEdits;
   disabled: boolean;
   onChange: (target: HostTarget, field: HostField, raw: string) => void;
@@ -34,13 +36,13 @@ const help: Record<HostField, string> = {
 
 // Shared controls apply only on the explicit button; individual edits stay per backend.
 export default function HostProcessingEditor({
-  scenario, edits, disabled, onChange, onApplyAll,
+  scenario, selectedAt, edits, disabled, onChange, onApplyAll,
 }: HostProcessingEditorProps) {
-  const backends = scenario.resources.backends;
+  const backends = selectedScenarioState(scenario, selectedAt).resources.backends;
   const [selected, setSelected] = useState(backends[0]?.id ?? '');
   const [shared, setShared] = useState<Partial<HostValues>>({});
   const selectedID = backends.some(backend => backend.id === selected) ? selected : backends[0]?.id ?? '';
-  const common = commonBackendHostValues(scenario);
+  const common = commonBackendHostValues(scenario, selectedAt);
   const sharedValues = { ...common, ...shared };
   const different = backends.filter(backend => {
     const current = hostValues(backend.host);
@@ -54,7 +56,7 @@ export default function HostProcessingEditor({
     : 'Backends currently share the same effective settings.';
 
   function fields(target: HostTarget, title: string) {
-    const values = { ...hostValues(scenarioHost(scenario, target)), ...edits.values[target] };
+    const values = { ...hostValues(scenarioHost(scenario, target, selectedAt)), ...edits.values[target] };
     const active = Number(values.packetProcessingTimeUs) > 0;
     const rate = active ? Number(values.cores) * 1_000_000 / Number(values.packetProcessingTimeUs) : 0;
     const invalid = hostFields.some(field => validateHostValue(field, values[field]));

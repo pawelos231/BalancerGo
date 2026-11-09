@@ -1,43 +1,9 @@
 package main
 
 import (
-	"math"
-	"testing"
-
 	"load-balancer/scenario"
+	"testing"
 )
-
-func TestConfigurationECNAndQueuePolicyRoundTrip(t *testing.T) {
-	defaults := legacyTestConfiguration()
-	requested := defaults.publicConfig()
-	if requested.ECNEnabled {
-		t.Fatal("ECN must be opt-in")
-	}
-	requested.ECNEnabled = true
-	requested.QueuePolicy = "threshold"
-	requested.CongestionThresholdPercent = 80
-	requested.CongestionSignalProbability = 1
-	requested.IngressQueuePolicy = "threshold"
-	// Explicit zero threshold and probability must not be replaced with defaults.
-	requested.IngressCongestionThresholdPercent = 0
-	requested.IngressCongestionSignalProbability = 0
-	prepared, err := preparePublicScenario(requested, defaults)
-	if err != nil {
-		t.Fatal(err)
-	}
-	summary := scenarioSummary(prepared.resolved)
-	if !*prepared.definition.TCP.ECNEnabled || !summary.ECNEnabled ||
-		summary.QueuePolicy != "threshold" || summary.CongestionThresholdPercent != 80 ||
-		summary.CongestionSignalProbability != 1 || summary.IngressQueuePolicy != "threshold" ||
-		summary.IngressCongestionThresholdPercent != 0 || summary.IngressCongestionSignalProbability != 0 {
-		t.Fatalf("ECN or queue settings were lost: %+v", summary)
-	}
-	requested.CongestionControl = "none"
-	requested.FastRetransmit = false
-	if _, err := preparePublicScenario(requested, defaults); err == nil {
-		t.Fatal("ECN with mode none was accepted")
-	}
-}
 
 func TestECNAndQueueCLIFlags(t *testing.T) {
 	defaults, err := readTestConfiguration(t)
@@ -70,10 +36,5 @@ func TestECNAndQueueCLIFlags(t *testing.T) {
 		if _, err := readTestConfiguration(t, flags...); err == nil {
 			t.Fatalf("accepted invalid flags %v", flags)
 		}
-	}
-	requested := defaults.publicConfig()
-	requested.CongestionThresholdPercent = math.Inf(1)
-	if _, err := preparePublicScenario(requested, defaults); err == nil {
-		t.Fatal("accepted infinite form threshold")
 	}
 }

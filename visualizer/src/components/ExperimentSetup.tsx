@@ -1,8 +1,8 @@
 import { Alert, Button, Card, CardContent, CardHeader, Stack } from '@mui/material';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { scenarioFormValues } from '../scenarios/draft';
+import { retainResourceIds, scenarioFormValues } from '../scenarios/draft';
 import type { ScenarioDraft, ScenarioField } from '../scenarios/draft';
-import { editScenarioForm } from '../scenarios/formState';
+import { editScenarioForm, selectScenarioFormState } from '../scenarios/formState';
 import type { FieldErrors } from '../scenarios/formState';
 import { applyHostToAllBackends, editHostField, emptyHostEdits, retainHostEdits } from '../scenarios/host';
 import type { HostEdits, HostField, HostTarget, HostValues } from '../scenarios/host';
@@ -43,6 +43,8 @@ function ExperimentSetup({
   onRefreshCurrent,
   onStart,
 }: ExperimentSetupProps) {
+  const [selectedAt, setSelectedAt] = useState('0');
+  const selectedAtRef = useRef('0');
   const [defaults, setDefaults] = useState<Scenario | null>(null);
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [values, setValues] = useState<ScenarioDraft | null>(null);
@@ -110,6 +112,7 @@ function ExperimentSetup({
   async function validateAndApply(
     load: (signal: AbortSignal) => Promise<ValidatedScenario>,
     onApplied: (result: ValidatedScenario) => void,
+    replaceDocument = false,
   ) {
     if (validationRef.current || pending) return;
     const controller = new AbortController();
@@ -120,10 +123,14 @@ function ExperimentSetup({
 
     try {
       const result = await load(controller.signal);
-      const nextValues = scenarioFormValues(result.scenario);
+      const nextAt = result.scenario.states[selectedAtRef.current] ? selectedAtRef.current : '0';
+      const nextValues = scenarioFormValues(result.scenario, nextAt);
       if (controller.signal.aborted || validationRef.current !== controller) return;
 
+      if (!replaceDocument && scenarioRef.current) retainResourceIds(result.scenario, scenarioRef.current);
       countEditRef.current = null;
+      selectedAtRef.current = nextAt;
+      setSelectedAt(nextAt);
       setNativeScenario(result.scenario);
       setFormValues(nextValues);
       errorsRef.current = {};
@@ -163,6 +170,7 @@ function ExperimentSetup({
         });
         setFileNotice({ severity: 'success', message: `Loaded preset: ${selected.title}.` });
       },
+      true,
     );
   }
 
@@ -177,6 +185,7 @@ function ExperimentSetup({
         setApplied(null);
         setFileNotice({ severity: 'success', message: `Imported ${file.name}. Ready for Start.` });
       },
+      true,
     );
   }
 
@@ -235,7 +244,7 @@ function ExperimentSetup({
     const baseline = countEditRef.current?.baseline ?? current;
 
     const next = editScenarioForm(
-      { scenario: current, values: requested, errors: errorsRef.current },
+      { scenario: current, values: requested, errors: errorsRef.current, selectedAt: selectedAtRef.current },
       name, raw, baseline,
     );
     setNativeScenario(next.scenario);
@@ -243,9 +252,23 @@ function ExperimentSetup({
     errorsRef.current = next.errors;
     setFieldErrors(next.errors);
     if (name === 'servers') {
-      hostEditsRef.current = retainHostEdits(next.scenario, hostEditsRef.current);
+      hostEditsRef.current = retainHostEdits(next.scenario, hostEditsRef.current, false, selectedAtRef.current);
       setHostEdits(hostEditsRef.current);
     }
+  }
+
+  function selectState(at: string) {
+    const current = scenarioRef.current;
+    if (!current?.states[at] || validationRef.current || pending) return;
+    selectedAtRef.current = at;
+    setSelectedAt(at);
+    countEditRef.current = null;
+    errorsRef.current = {};
+    setFieldErrors({});
+    hostEditsRef.current = emptyHostEdits();
+    setHostEdits(hostEditsRef.current);
+    setHostRevision(revision => revision + 1);
+    setFormValues(selectScenarioFormState(current, at).values);
   }
 
   function hasInvalidSettings() {
@@ -261,7 +284,7 @@ function ExperimentSetup({
     setNativeScenario(next);
     hostEditsRef.current = edits;
     setHostEdits(edits);
-    const projected = scenarioFormValues(next);
+    const projected = scenarioFormValues(next, selectedAtRef.current);
     for (const name of Object.keys(errorsRef.current) as ScenarioField[]) {
       projected[name] = valuesRef.current?.[name] ?? projected[name];
     }
@@ -271,14 +294,14 @@ function ExperimentSetup({
   function changeHostField(target: HostTarget, field: HostField, raw: string) {
     const current = scenarioRef.current;
     if (!current || validationRef.current || pending) return;
-    const next = editHostField(current, hostEditsRef.current, target, field, raw);
+    const next = editHostField(current, hostEditsRef.current, target, field, raw, selectedAtRef.current);
     updateHosts(next.scenario, next.edits);
   }
 
   function applyHostToAll(values: HostValues) {
     const current = scenarioRef.current;
     if (!current || validationRef.current || pending) return;
-    updateHosts(applyHostToAllBackends(current, values), retainHostEdits(current, hostEditsRef.current, true));
+    updateHosts(applyHostToAllBackends(current, values, selectedAtRef.current), retainHostEdits(current, hostEditsRef.current, true, selectedAtRef.current));
   }
 
   // Intermediate count digits must not erase group proportions or custom backends.
@@ -336,6 +359,8 @@ function ExperimentSetup({
       {scenario && values ? (
         <SimulationForm
           scenario={scenario}
+          selectedAt={selectedAt}
+          onSelectState={selectState}
           values={values}
           errors={fieldErrors}
           connected={connected}

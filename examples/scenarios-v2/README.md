@@ -2,11 +2,11 @@
 
 These are runnable version-2 timeline examples for the CLI and HTTP API.
 Every state is validated and compiled before Start, then applied atomically at
-its virtual timestamp. The existing frontend still uses version 1 until E1.14;
-its temporary boundary adapter remains separate from native v2 execution.
+its virtual timestamp. The frontend, library, import/export, CLI and HTTP API
+use this same contract; version 1 is rejected without a conversion fallback.
 
 From `simulator/`, run `go run . -scenario ../examples/scenarios-v2/burst-and-recovery.json`.
-Use `GET /api/scenarios/defaults?version=2` for native HTTP defaults and POST a full
+Use `GET /api/scenarios/defaults` for native HTTP defaults and POST a full
 v2 document to `/api/scenarios/validate` or `/api/simulations`.
 
 `scenario.DecodeDocumentV2` and `scenario.EncodeDocumentV2` check document syntax.
@@ -82,8 +82,8 @@ or a checkpoint/resume format.
 
 ## Timeline runtime rules
 
-The native CLI and HTTP timeline runtime implements these rules. A temporary
-HTTP input adapter also serves the existing v1 browser until E1.14.
+The frontend submits the complete document to the same native CLI and HTTP
+timeline runtime, which implements these rules.
 
 - `fixed`, including the LB ID, is immutable throughout a run. A retained backend
   keeps its ID, address, port and role; its display `name` may change. IDs cannot
@@ -199,7 +199,7 @@ existing clients, and removing a backend does not instantly clear remote TCP sta
 
 E1.5 supplies atomic execution; E1.6 through E1.12 implement the resource handlers,
 address reservations and generator progress described below.
-CLI and HTTP execute the full compiled plan; the current frontend still submits v1.
+CLI, HTTP and frontend Start execute the full compiled plan.
 
 ## Internal execution boundary (E1.5)
 
@@ -233,8 +233,8 @@ documents remain unchanged. If several commits occur between samples, the next
 sample describes the latest complete state.
 
 Manual `SetAlgorithm` and `SpawnClients` are blocked for timeline worlds. Stop
-still clears pending events, including future configuration commits. CLI/HTTP
-admission supports v2; frontend migration remains scheduled for E1.14.
+still clears pending events, including future configuration commits. CLI, HTTP
+and frontend admission use the same version-2 timeline.
 
 ## Mutable directed links (E1.6)
 
@@ -360,8 +360,8 @@ the backend's hidden physical state or local TCP counters.
 Availability and admission edits can share one atomic commit with membership,
 names, CPU, network and mapping policy. Generic backend metrics expose physical
 availability, administrative drain and LB-observed health separately, including
-the interval where a crashed backend is still observed healthy. Existing v1
-server fields and frontend hydration remain compatible until the v2 UI migration.
+the interval where a crashed backend is still observed healthy. The frontend
+hydrates these values from the same native timeline run.
 
 ## Frontend validation
 
@@ -381,8 +381,12 @@ Timestamp sorting and integer arithmetic use `bigint` internally, while the DTO
 retains JSON-compatible numbers and decimal strings. Invalid Unicode surrogate
 escapes are replaced with U+FFFD, matching Go's JSON reader.
 
-The existing form, file import and Start still use v1. This module is the v2
-validation foundation; runtime admission supports v2 and UI migration follows in E1.14.
+The form, file import/export and Start use these validators and the same native
+version-2 document. An existing-state selector orders exact timestamps numerically;
+edits target fixed settings or the selected state and preserve all other states.
+The current editor does not create, delete or retime states. New resource IDs
+are reserved against every state, and late groups cannot start in the past.
+Shrinking Count retains overrides for clients born under earlier budgets.
 
 `validation/cases.json` supplies the same valid and invalid inputs to Go and
 TypeScript tests. Each case edits a fresh copy of `static.json`; optional text

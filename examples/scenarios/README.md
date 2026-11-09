@@ -1,7 +1,7 @@
 # Scenario files
 
-These UTF-8 JSON files are native version-1 scenarios accepted by the backend.
-Twenty-eight match the UI preset factories; one extra file demonstrates nested
+These 35 UTF-8 JSON files use the native version-2 scenario contract accepted by
+the frontend, CLI and HTTP API. Thirty-four match the UI preset factories; one extra file demonstrates nested
 overrides. The library supports search, category filters and six cards per page.
 Ordinary presets use seed 1, a 50-million-event limit, 100 real ms snapshots,
 1 ms endpoint travel time, 1024 waiting slots and zero random loss unless their
@@ -85,7 +85,7 @@ keep delayed start times and the behavior being tested in mind.
 
 ## Delayed acknowledgements
 
-`tcp.delayedAck` contains `enabled` (default false), `segmentsPerACK` (1 or 2,
+`fixed.tcp.delayedAck` contains `enabled` (default false), `segmentsPerACK` (1 or 2,
 default 2) and `maxDelayNanoseconds` (positive, at most 500 ms; default 40 ms).
 Ordinary data ACKs wait for that segment count or the timer from the first
 arrival. Gaps, duplicates, closing packets and fresh congestion feedback get
@@ -93,7 +93,7 @@ prompt responses. The receiver never reads the client's remaining workload;
 a final solitary segment is acknowledged by the timer.
 
 The **Delayed ACK with a one-segment window** preset sets
-`tcp.congestionControl.maximumWindowSegments` to 1 and leaves the receive
+`fixed.tcp.congestionControl.maximumWindowSegments` to 1 and leaves the receive
 window at 65,535 B. This is an actual cwnd ceiling, not a small rwnd or merely
 an initial window. Zero removes the ceiling; a positive ceiling requires a
 congestion-control algorithm. Disable delayed ACK in the form to compare rates:
@@ -114,7 +114,7 @@ for negotiation, ECE/CWR and congestion responses; inspect the forward links for
 ECN marks, queue drops and early congestion drops. Large streams can remain
 unfinished at the horizon.
 
-Native TCP settings use the exact field `tcp.ECNenabled`. It defaults to false
+Native TCP settings use the exact field `fixed.tcp.ECNenabled`. It defaults to false
 and requires Reno, NewReno, Tahoe or CUBIC. Queue settings are independent:
 `queuePolicy` is `tailDrop` (also the behavior of an omitted/empty policy) or
 `threshold`; `congestionThresholdPercent` ranges from 0 to 100, and
@@ -154,17 +154,19 @@ enables signaling; an explicit probability of zero disables early signals.
 2. In **Scenario files**, choose **Import JSON** and select one of these files.
    Import sends the original file text to backend validation before browser JSON
    parsing. A successful import replaces the draft; an error preserves it.
-3. Review the form and the **Native scenario** preview. **Validate draft** refreshes
+3. Select an existing state timestamp, then review the form and the **Native scenario** preview. **Validate draft** refreshes
    validation and the **Effective configuration** preview without starting a run.
 4. Click the single **Start simulation** button when ready. Import, validation
    and preset selection never start an experiment.
 5. **Export JSON** downloads the current native draft, including edits, profiles,
-   groups and individual overrides. It exports the draft rather than the active
+   all states, groups and individual overrides. It exports the draft rather than the active
    run's original document or the resolved preview.
 
 Files must contain one complete JSON scenario and fit within **2 MiB of UTF-8
 bytes**. Correct invalid form inputs before validating or exporting. The native
-document is the format for import, export and Start. Effective configuration is
+document is the format for import, export and Start. Version 1 is rejected without
+a conversion fallback. The form edits only fixed settings or the selected state
+and preserves every other timestamp. State creation and removal are later editor features. Effective configuration is
 a read-only view of inherited values for backends, groups and explicit client
 overrides; it is not an import format. Groups remain compact rather than expanding
 into a list of every client.
@@ -212,8 +214,8 @@ sender pause to 0.1 ms. Backend 2 changes only LB-to-backend bandwidth to
 
 ## Reproduce and interpret a run
 
-Keep the exported native document, seed, code revision and Go/model version.
-If runtime commands are used, replay them at the same virtual times. Compare
+Keep the exported full timeline, seed, code revision and Go/model version.
+Configuration changes use saved `states`; the only manual runtime control is Stop. Compare
 virtual results such as completions, simulated lifetimes and per-hop counters.
 Wall time and packets/events per real second vary with the machine, background
 load, pacing and snapshot work; the same seed does not make those timings equal.

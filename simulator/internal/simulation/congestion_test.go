@@ -9,12 +9,15 @@ import (
 )
 
 // congestionScenario keeps enough payload waiting to expose the sender's window.
-func congestionScenario() scenario.Scenario {
+func congestionScenario() scenario.ScenarioV2 {
 	definition := baseScenario()
-	definition.Execution.Duration = 2 * time.Second
-	definition.Resources.Backends = definition.Resources.Backends[:1]
-	definition.Workload.ClientGroups = []scenario.ClientGroup{{ID: "clients", Count: 1}}
-	definition.Workload.Defaults = scenario.StreamConfig{Bytes: 12 * model.SEGMENT_SIZE}
+	definition.Fixed.Execution.Duration = 2 * time.Second
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.Backends = state.Resources.Backends[:1]
+
+		state.Workload.ClientGroups = []scenario.ClientGroup{{ID: "clients", Count: 1}}
+	})
+	definition.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 12 * model.SEGMENT_SIZE}
 	return definition
 }
 
@@ -45,11 +48,11 @@ func TestWorldCongestionModeLimitsInitialBurst(t *testing.T) {
 			definition := congestionScenario()
 			// This test isolates the initial window before timeout-only recovery.
 			fastRetransmit := false
-			definition.TCP.CongestionControl.FastRetransmit = &fastRetransmit
+			definition.Fixed.TCP.CongestionControl.FastRetransmit = &fastRetransmit
 			if mode == "none" {
-				definition.TCP.CongestionControl.Mode = &mode
+				definition.Fixed.TCP.CongestionControl.Mode = &mode
 			}
-			world := New(normalizedRuntimeScenario(t, definition))
+			world := newTimelineWorld(t, definition)
 			droppedFirst := false
 			runtime := interceptCongestionTraffic(t, world, func(packet model.Packet) bool {
 				if packet.Size > 0 && !droppedFirst {
@@ -86,10 +89,10 @@ func TestWorldCongestionModeLimitsInitialBurst(t *testing.T) {
 func TestWorldRenoLossUpdatesStateBeforeRetryAndCompletes(t *testing.T) {
 	definition := congestionScenario()
 	fastRetransmit := false
-	definition.TCP.CongestionControl.FastRetransmit = &fastRetransmit
+	definition.Fixed.TCP.CongestionControl.FastRetransmit = &fastRetransmit
 	initialSegments := 8
-	definition.TCP.CongestionControl.InitialWindowSegments = &initialSegments
-	world := New(normalizedRuntimeScenario(t, definition))
+	definition.Fixed.TCP.CongestionControl.InitialWindowSegments = &initialSegments
+	world := newTimelineWorld(t, definition)
 	droppedFirst := false
 	var retryState model.CongestionState
 	var capturedRetry bool
@@ -115,7 +118,7 @@ func TestWorldRenoLossUpdatesStateBeforeRetryAndCompletes(t *testing.T) {
 		t.Fatal("the retry ran before its timeout")
 	}
 
-	runIngressUntil(t, world, definition.Execution.Duration)
+	runIngressUntil(t, world, definition.Fixed.Execution.Duration)
 	if !capturedRetry || retryState.CongestionWindowBytes != model.SEGMENT_SIZE ||
 		retryState.SlowStartThresholdBytes != 4*model.SEGMENT_SIZE ||
 		retryState.BytesInFlight != 8*model.SEGMENT_SIZE {

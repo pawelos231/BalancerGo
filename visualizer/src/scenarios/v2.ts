@@ -8,8 +8,7 @@ export function parseScenarioV2(document: string): ScenarioV2 {
   return validateScenarioV2(parseExactJSON(document));
 }
 
-// Check the whole document and return an independent typed copy, ready for a future Start.
-// Runtime admission and migration of the existing form remain later stages.
+// Check the whole document and return an independent typed copy for Start.
 export function validateScenarioV2(input: unknown): ScenarioV2 {
   const scenario = decodeScenarioV2(input);
   checkScenarioV2(scenario);

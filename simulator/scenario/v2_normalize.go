@@ -122,7 +122,7 @@ func normalizeStateV2(
 ) (NormalizedState, error) {
 	path := documentMapPath("states", strconv.FormatInt(int64(at), 10))
 	lbPath := path + ".resources.loadBalancer"
-	loadBalancer, err := normalizeStateLoadBalancer(input.Resources.LoadBalancer, fixed, lbPath)
+	loadBalancer, err := normalizeLoadBalancer(input.Resources.LoadBalancer, fixed.LoadBalancer.ID, fixed.Execution.Duration, lbPath)
 	if err != nil {
 		return NormalizedState{}, err
 	}
@@ -149,9 +149,8 @@ func normalizeStateV2(
 		if err := registerID(usedIDs, backend.ID, backendPath+".id"); err != nil {
 			return NormalizedState{}, err
 		}
-		endpoint := BackendConfig{Address: backend.Address, Port: backend.Port}
 		key := endpointKeyV2(backend.Address, backend.Port)
-		if err := validateAddress(endpoint, usedAddresses, backendPath, key); err != nil {
+		if err := validateAddress(backend.Address, backend.Port, usedAddresses, backendPath, key); err != nil {
 			return NormalizedState{}, err
 		}
 		if err := identities.backend(backend, backendPath, stateIndex); err != nil {
@@ -196,27 +195,6 @@ func normalizeStateV2(
 		result.ClientGroups = append(result.ClientGroups, resolved)
 	}
 	return result, nil
-}
-
-// normalizeStateLoadBalancer shares the existing LB checks with the v1 input.
-// Only the location of mapping-timeout fields differs between the two contracts.
-func normalizeStateLoadBalancer(
-	input LoadBalancerStateConfig,
-	fixed FixedConfig,
-	path string,
-) (NormalizedLoadBalancerConfig, error) {
-	settings := LoadBalancerConfig{
-		ID:                      fixed.LoadBalancer.ID,
-		Algorithm:               input.Algorithm,
-		Host:                    input.Host,
-		Ingress:                 input.Ingress,
-		ForwardingBitsPerSecond: input.ForwardingBitsPerSecond,
-		HalfOpenIdleTimeout:     input.MappingTimeouts.HalfOpenIdleTimeout,
-		EstablishedIdleTimeout:  input.MappingTimeouts.EstablishedIdleTimeout,
-		ClosingIdleTimeout:      input.MappingTimeouts.ClosingIdleTimeout,
-		ResetIdleTimeout:        input.MappingTimeouts.ResetIdleTimeout,
-	}
-	return normalizeLoadBalancer(settings, fixed.Execution.Duration, path, path+".mappingTimeouts")
 }
 
 // normalizeBackendState resolves links, CPU and availability afresh for this state.

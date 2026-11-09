@@ -19,31 +19,31 @@ import (
 
 // scenarioServiceStub records admission without creating a simulation model.
 type scenarioServiceStub struct {
-	definition    scenario.Scenario
+	definition    scenario.ScenarioV2
 	record        *contract.RunRecord
 	startError    error
 	startCalls    int
 	defaultsCalls int
 	currentCalls  int
 	startContext  context.Context
-	input         scenario.Scenario
-	resolved      scenario.Normalized
+	input         scenario.ScenarioV2
+	resolved      scenario.NormalizedV2
 }
 
-func (service *scenarioServiceStub) Defaults() scenario.Scenario {
+func (service *scenarioServiceStub) DefaultsV2() scenario.ScenarioV2 {
 	service.defaultsCalls++
 	return service.definition
 }
 
-func (service *scenarioServiceStub) StartScenario(
+func (service *scenarioServiceStub) StartScenarioV2(
 	ctx context.Context,
-	input scenario.Scenario,
-	resolved scenario.Normalized,
+	input scenario.ScenarioV2,
+	plan *scenario.CompiledV2,
 ) (contract.RunReceipt, error) {
 	service.startCalls++
 	service.startContext = ctx
 	service.input = input
-	service.resolved = resolved
+	service.resolved, _ = scenario.NormalizeV2(input)
 	return contract.RunReceipt{RunID: "run-17"}, service.startError
 }
 
@@ -53,47 +53,27 @@ func (service *scenarioServiceStub) CurrentRun() *contract.RunRecord {
 }
 
 // scenarioHTTPDefinition includes multiple compact client groups and backends.
-func scenarioHTTPDefinition() scenario.Scenario {
-	link := scenario.LinkConfig{
-		BandwidthBitsPerSecond: 1_000_000_000,
-		PacketTravelTime:       time.Millisecond,
-		QueueCapacity:          4,
-	}
-	return scenario.Scenario{
-		Version: scenario.Version,
-		Execution: scenario.ExecutionConfig{
-			Duration:         time.Second,
-			SnapshotInterval: 100 * time.Millisecond,
-			Seed:             17,
-			MaxEvents:        100_000,
+func scenarioHTTPDefinition() scenario.ScenarioV2 {
+	link := scenario.LinkConfig{BandwidthBitsPerSecond: 1_000_000_000, PacketTravelTime: time.Millisecond, QueueCapacity: 4}
+	return scenario.ScenarioV2{Version: 2,
+		Fixed: scenario.FixedConfig{
+			Execution:    scenario.ExecutionConfig{Duration: time.Second, SnapshotInterval: 100 * time.Millisecond, Seed: 17, MaxEvents: 100_000},
+			LoadBalancer: scenario.LoadBalancerIdentity{ID: "lb"}, Network: scenario.NetworkConfig{Defaults: link},
+			Workload: scenario.WorkloadDefaultsConfig{Defaults: scenario.StreamConfig{Packets: 1, Bytes: -1}},
 		},
-		Network: scenario.NetworkConfig{Defaults: link},
-		Resources: scenario.ResourcesConfig{
-			LoadBalancer: scenario.LoadBalancerConfig{
-				ID:                      "lb",
-				Algorithm:               "roundRobin",
-				Ingress:                 link,
-				ForwardingBitsPerSecond: 1_000_000_000,
+		States: map[string]scenario.StateConfig{"0": {
+			Resources: scenario.StateResourcesConfig{
+				LoadBalancer: scenario.LoadBalancerStateConfig{Algorithm: "roundRobin", Ingress: link, ForwardingBitsPerSecond: 1_000_000_000},
+				Backends:     []scenario.BackendStateConfig{{ID: "a", Address: "10.0.0.1", Port: 80}, {ID: "b", Address: "10.0.0.2", Port: 80}},
 			},
-			Backends: []scenario.BackendConfig{
-				{ID: "a", Address: "10.0.0.1", Port: 80},
-				{ID: "b", Address: "10.0.0.2", Port: 80},
-			},
-		},
-		Workload: scenario.WorkloadConfig{
-			Defaults: scenario.StreamConfig{Packets: 1, Bytes: -1},
-			ClientGroups: []scenario.ClientGroup{
-				{ID: "first", Count: 3},
-				{ID: "second", Count: 2},
-			},
-		},
+			Workload: scenario.StateWorkloadConfig{ClientGroups: []scenario.ClientGroup{{ID: "first", Count: 3}, {ID: "second", Count: 2}}},
+		}},
 	}
 }
 
-// encodedHTTPScenario uses the public exact-integer format for request fixtures.
-func encodedHTTPScenario(t *testing.T, definition scenario.Scenario) []byte {
+func encodedHTTPScenario(t *testing.T, definition scenario.ScenarioV2) []byte {
 	t.Helper()
-	document, err := scenario.EncodeDocument(definition)
+	document, err := scenario.EncodeDocumentV2(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,9 +104,9 @@ func requestScenarioAPI(
 // TestScenarioValidatePreservesExactDocument checks canonical JSON and compact totals.
 func TestScenarioValidatePreservesExactDocument(t *testing.T) {
 	definition := scenarioHTTPDefinition()
-	definition.Execution.Seed = math.MinInt64 + 1
-	definition.Execution.MaxEvents = math.MaxUint64
-	definition.Network.Defaults.PacketTravelTime += 7 * time.Nanosecond
+	definition.Fixed.Execution.Seed = math.MinInt64 + 1
+	definition.Fixed.Execution.MaxEvents = math.MaxUint64
+	definition.Fixed.Network.Defaults.PacketTravelTime += 7 * time.Nanosecond
 	document := encodedHTTPScenario(t, definition)
 	service := &scenarioServiceStub{definition: scenarioHTTPDefinition()}
 	response := requestScenarioAPI(
@@ -156,17 +136,17 @@ func TestScenarioValidatePreservesExactDocument(t *testing.T) {
 	if result.Summary != wantSummary {
 		t.Fatalf("summary = %+v, want %+v", result.Summary, wantSummary)
 	}
-	decoded, err := scenario.DecodeDocument(result.Scenario)
+	decoded, err := scenario.DecodeDocumentV2(result.Scenario)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Execution.Seed != definition.Execution.Seed {
+	if decoded.Fixed.Execution.Seed != definition.Fixed.Execution.Seed {
 		t.Fatal("HTTP validation rounded a signed integer")
 	}
-	if decoded.Execution.MaxEvents != definition.Execution.MaxEvents {
+	if decoded.Fixed.Execution.MaxEvents != definition.Fixed.Execution.MaxEvents {
 		t.Fatal("HTTP validation rounded an unsigned integer")
 	}
-	if decoded.Network.Defaults.PacketTravelTime != definition.Network.Defaults.PacketTravelTime {
+	if decoded.Fixed.Network.Defaults.PacketTravelTime != definition.Fixed.Network.Defaults.PacketTravelTime {
 		t.Fatal("HTTP validation rounded a duration")
 	}
 	if !bytes.Equal(encodedHTTPScenario(t, decoded), document) {
@@ -174,11 +154,11 @@ func TestScenarioValidatePreservesExactDocument(t *testing.T) {
 	}
 
 	// The effective view resolves inheritance without replacing the exportable input.
-	resolved, err := scenario.Normalize(definition)
+	resolved, err := scenario.NormalizeV2(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedResolved, err := scenario.EncodeNormalizedDocument(resolved)
+	expectedResolved, err := scenario.EncodeNormalizedDocumentV2(resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,23 +166,27 @@ func TestScenarioValidatePreservesExactDocument(t *testing.T) {
 		t.Fatalf("resolved view differs from the checked runtime settings: %s", result.Resolved)
 	}
 	var view struct {
-		Execution struct {
-			Seed      string `json:"seed"`
-			MaxEvents string `json:"maxEvents"`
-		} `json:"execution"`
-		ClientGroups []struct {
-			Stream struct {
-				Bytes int `json:"bytes"`
-			} `json:"stream"`
-		} `json:"clientGroups"`
+		Fixed struct {
+			Execution struct {
+				Seed      string `json:"seed"`
+				MaxEvents string `json:"maxEvents"`
+			} `json:"execution"`
+		} `json:"fixed"`
+		States []struct {
+			ClientGroups []struct {
+				Stream struct {
+					Bytes int `json:"bytes"`
+				} `json:"stream"`
+			} `json:"clientGroups"`
+		} `json:"states"`
 	}
 	if err := json.Unmarshal(result.Resolved, &view); err != nil {
 		t.Fatal(err)
 	}
-	if view.Execution.Seed != "-9223372036854775807" || view.Execution.MaxEvents != "18446744073709551615" {
+	if view.Fixed.Execution.Seed != "-9223372036854775807" || view.Fixed.Execution.MaxEvents != "18446744073709551615" {
 		t.Fatal("the effective view rounded native integer limits")
 	}
-	if len(view.ClientGroups) != 2 || view.ClientGroups[0].Stream.Bytes != 1024 {
+	if len(view.States[0].ClientGroups) != 2 || view.States[0].ClientGroups[0].Stream.Bytes != 1024 {
 		t.Fatal("the effective view must resolve stream bytes and retain compact groups")
 	}
 	if service.startCalls != 0 || service.currentCalls != 0 || service.defaultsCalls != 0 {
@@ -237,7 +221,7 @@ func TestScenarioStartPassesValidatedSettings(t *testing.T) {
 	if service.startCalls != 1 || service.resolved.TotalClients != 5 {
 		t.Fatal("start did not pass the normalized scenario exactly once")
 	}
-	if service.resolved.ClientGroups[0].Stream.Bytes != 1024 {
+	if service.resolved.States[0].ClientGroups[0].Stream.Bytes != 1024 {
 		t.Fatal("HTTP admission passed unresolved stream settings")
 	}
 	if service.startContext.Value(contextMarker{}) != "admission" {
@@ -300,7 +284,7 @@ func TestScenarioRejectsInvalidRequests(t *testing.T) {
 		{
 			name:        "invalid settings",
 			contentType: "application/json",
-			body:        "{}",
+			body:        `{"version":2}`,
 			status:      http.StatusUnprocessableEntity,
 		},
 		{
@@ -339,7 +323,7 @@ func TestScenarioRejectsInvalidRequests(t *testing.T) {
 // TestScenarioStartAcceptsLargerDocuments bypasses the compact WebSocket limit.
 func TestScenarioStartAcceptsLargerDocuments(t *testing.T) {
 	definition := scenarioHTTPDefinition()
-	group := &definition.Workload.ClientGroups[0]
+	group := &definition.States["0"].Workload.ClientGroups[0]
 	group.Count = 1000
 	for index := 0; index < group.Count; index++ {
 		payloadBytes := index
@@ -365,7 +349,7 @@ func TestScenarioStartAcceptsLargerDocuments(t *testing.T) {
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("large scenario rejected: %d %s", response.Code, response.Body.String())
 	}
-	if service.startCalls != 1 || len(service.resolved.ClientGroups[0].Overrides) != 1000 {
+	if service.startCalls != 1 || len(service.resolved.States[0].ClientGroups[0].Overrides) != 1000 {
 		t.Fatal("large request did not reach admission with all individual overrides")
 	}
 }
@@ -442,7 +426,7 @@ func TestScenarioReadRoutesReturnExactDocuments(t *testing.T) {
 	if defaults.Code != http.StatusOK {
 		t.Fatalf("defaults status = %d: %s", defaults.Code, defaults.Body.String())
 	}
-	decoded, err := scenario.DecodeDocument(defaults.Body.Bytes())
+	decoded, err := scenario.DecodeDocumentV2(defaults.Body.Bytes())
 	if err != nil || !bytes.Equal(encodedHTTPScenario(t, decoded), document) {
 		t.Fatalf("defaults did not return the direct scenario: %s", defaults.Body.String())
 	}
@@ -474,7 +458,7 @@ func TestScenarioReadRoutesReturnExactDocuments(t *testing.T) {
 // TestScenarioReadFailuresReturnCompleteJSON checks response encoding before headers.
 func TestScenarioReadFailuresReturnCompleteJSON(t *testing.T) {
 	definition := scenarioHTTPDefinition()
-	definition.Execution.Speed = math.NaN()
+	definition.Fixed.Execution.Speed = math.NaN()
 	service := &scenarioServiceStub{
 		definition: definition,
 		record: &contract.RunRecord{

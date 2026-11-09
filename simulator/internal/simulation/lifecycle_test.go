@@ -10,16 +10,18 @@ import (
 
 // lifecycleScenario completes the handshake, then waits 30 seconds before data.
 // With client idle cleanup disabled, each test can isolate another owner's timer.
-func lifecycleScenario() scenario.Scenario {
+func lifecycleScenario() scenario.ScenarioV2 {
 	definition := baseScenario()
-	definition.Execution.Duration = 40 * time.Second
-	definition.Resources.Backends = definition.Resources.Backends[:1]
-	definition.Workload.ClientGroups[0].Count = 1
-	definition.Workload.Defaults.Bytes = 10 * model.SEGMENT_SIZE
-	definition.Workload.Defaults.PacketGap = 30 * time.Second
+	definition.Fixed.Execution.Duration = 40 * time.Second
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.Backends = state.Resources.Backends[:1]
+		state.Workload.ClientGroups[0].Count = 1
+	})
+	definition.Fixed.Workload.Defaults.Bytes = 10 * model.SEGMENT_SIZE
+	definition.Fixed.Workload.Defaults.PacketGap = 30 * time.Second
 
 	disabled := time.Duration(0)
-	definition.TCP.ClientIdleTimeout = &disabled
+	definition.Fixed.TCP.ClientIdleTimeout = &disabled
 	return definition
 }
 
@@ -29,10 +31,12 @@ func TestClientStopLeavesBackendAndBalancerToTheirOwnTimers(t *testing.T) {
 	definition := lifecycleScenario()
 	backendIdle := time.Second
 	balancerIdle := 6 * time.Second
-	definition.TCP.BackendEstablishedIdleTimeout = &backendIdle
-	definition.Resources.LoadBalancer.EstablishedIdleTimeout = &balancerIdle
+	definition.Fixed.TCP.BackendEstablishedIdleTimeout = &backendIdle
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.MappingTimeouts.EstablishedIdleTimeout = &balancerIdle
+	})
 
-	world := New(normalizedRuntimeScenario(t, definition))
+	world := newTimelineWorld(t, definition)
 	runIngressUntil(t, world, 20*time.Millisecond)
 	client := world.clients[0].Client
 	backend := world.lb.GetServers()[0]
@@ -66,9 +70,11 @@ func TestClientStopLeavesBackendAndBalancerToTheirOwnTimers(t *testing.T) {
 func TestBalancerIdleTimeoutDoesNotStopEitherEndpoint(t *testing.T) {
 	definition := lifecycleScenario()
 	balancerIdle := time.Second
-	definition.Resources.LoadBalancer.EstablishedIdleTimeout = &balancerIdle
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.MappingTimeouts.EstablishedIdleTimeout = &balancerIdle
+	})
 
-	world := New(normalizedRuntimeScenario(t, definition))
+	world := newTimelineWorld(t, definition)
 	runIngressUntil(t, world, 20*time.Millisecond)
 	client := world.clients[0].Client
 	backend := world.lb.GetServers()[0]
@@ -91,9 +97,9 @@ func TestBalancerIdleTimeoutDoesNotStopEitherEndpoint(t *testing.T) {
 func TestBackendStopDoesNotImmediatelyTerminateItsClient(t *testing.T) {
 	definition := lifecycleScenario()
 	clientIdle := time.Second
-	definition.TCP.ClientIdleTimeout = &clientIdle
+	definition.Fixed.TCP.ClientIdleTimeout = &clientIdle
 
-	world := New(normalizedRuntimeScenario(t, definition))
+	world := newTimelineWorld(t, definition)
 	runIngressUntil(t, world, 20*time.Millisecond)
 	client := world.clients[0].Client
 	backend := world.lb.GetServers()[0]
@@ -120,7 +126,7 @@ func TestBackendStopDoesNotImmediatelyTerminateItsClient(t *testing.T) {
 
 // Clearing the LB's table is a local operation, rather than a remote shutdown.
 func TestClearingBalancerRoutesKeepsBothEndpointsAlive(t *testing.T) {
-	world := New(normalizedRuntimeScenario(t, lifecycleScenario()))
+	world := newTimelineWorld(t, lifecycleScenario())
 	runIngressUntil(t, world, 20*time.Millisecond)
 	client := world.clients[0].Client
 	backend := world.lb.GetServers()[0]
@@ -139,8 +145,8 @@ func TestClearingBalancerRoutesKeepsBothEndpointsAlive(t *testing.T) {
 func TestClientCrashDoesNotEraseItsTravellingSYN(t *testing.T) {
 	definition := lifecycleScenario()
 	handshakeTimeout := time.Second
-	definition.TCP.BackendHalfOpenIdleTimeout = &handshakeTimeout
-	world := New(normalizedRuntimeScenario(t, definition))
+	definition.Fixed.TCP.BackendHalfOpenIdleTimeout = &handshakeTimeout
+	world := newTimelineWorld(t, definition)
 	runIngressUntil(t, world, 0)
 	client := world.clients[0].Client
 	backend := world.lb.GetServers()[0]
@@ -165,7 +171,7 @@ func TestClientCrashDoesNotEraseItsTravellingSYN(t *testing.T) {
 // The backend's SYN+ACK leaves at about 2 ms and arrives at the client after 4 ms.
 // Killing the backend between those times must not erase the already-sent reply.
 func TestBackendCrashDoesNotEraseItsTravellingSYNACK(t *testing.T) {
-	world := New(normalizedRuntimeScenario(t, lifecycleScenario()))
+	world := newTimelineWorld(t, lifecycleScenario())
 	runIngressUntil(t, world, 2500*time.Microsecond)
 	client := world.clients[0].Client
 	backend := world.lb.GetServers()[0]
@@ -186,15 +192,15 @@ func TestBackendCrashDoesNotEraseItsTravellingSYNACK(t *testing.T) {
 // The LB initially still selects a crashed backend, then excludes it after a probe timeout.
 func TestBalancerLearnsBackendFailureThroughItsProbe(t *testing.T) {
 	definition := lifecycleScenario()
-	definition.Workload.ClientGroups[0].Count = 0
-	world := New(normalizedRuntimeScenario(t, definition))
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Workload.ClientGroups[0].Count = 2
+		state.Workload.ClientGroups[0].ClientGap = 1600 * time.Millisecond
+	})
+	world := newTimelineWorld(t, definition)
 	backend := world.lb.GetServers()[0]
 	backend.Shutdown()
 
 	// No probe has timed out yet, so physical failure alone cannot change selection.
-	if err := world.SpawnClients(1, "clients"); err != nil {
-		t.Fatal(err)
-	}
 	runIngressUntil(t, world, 10*time.Millisecond)
 	if lifecycleRouteCount(world) != 1 {
 		t.Fatal("the LB learned the backend's failure before observing a probe timeout")
@@ -202,9 +208,6 @@ func TestBalancerLearnsBackendFailureThroughItsProbe(t *testing.T) {
 
 	// The first probe starts at 1 s and expires at 1.5 s; later clients get no route.
 	runIngressUntil(t, world, 1600*time.Millisecond)
-	if err := world.SpawnClients(1, "clients"); err != nil {
-		t.Fatal(err)
-	}
 	runIngressUntil(t, world, 1610*time.Millisecond)
 	if len(world.clients) != 2 || lifecycleRouteCount(world) != 1 {
 		t.Fatal("the LB kept selecting the backend after its failed health probe")
@@ -242,9 +245,12 @@ func TestBalancerIgnoresInvalidClosingControls(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			definition := lifecycleScenario()
 			shortCloseLimit := time.Second
-			definition.Resources.LoadBalancer.ClosingIdleTimeout = &shortCloseLimit
-			definition.Resources.LoadBalancer.ResetIdleTimeout = &shortCloseLimit
-			world := New(normalizedRuntimeScenario(t, definition))
+			editInitialState(&definition, func(state *scenario.StateConfig) {
+				state.Resources.LoadBalancer.MappingTimeouts.ClosingIdleTimeout = &shortCloseLimit
+
+				state.Resources.LoadBalancer.MappingTimeouts.ResetIdleTimeout = &shortCloseLimit
+			})
+			world := newTimelineWorld(t, definition)
 			runIngressUntil(t, world, time.Second)
 			client := world.clients[0].Client
 			backend := world.lb.GetServers()[0]
@@ -269,8 +275,10 @@ func TestBalancerIgnoresInvalidClosingControls(t *testing.T) {
 func TestBalancerResetObservationDoesNotValidateEndpointSequence(t *testing.T) {
 	definition := lifecycleScenario()
 	resetIdle := time.Second
-	definition.Resources.LoadBalancer.ResetIdleTimeout = &resetIdle
-	world := New(normalizedRuntimeScenario(t, definition))
+	editInitialState(&definition, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.MappingTimeouts.ResetIdleTimeout = &resetIdle
+	})
+	world := newTimelineWorld(t, definition)
 	runIngressUntil(t, world, time.Second)
 	client := world.clients[0].Client
 	backend := world.lb.GetServers()[0]
@@ -296,15 +304,18 @@ func TestBalancerClosingPoliciesIgnoreEndpointRTOAndMSL(t *testing.T) {
 		t.Run(endpointLimit.String(), func(t *testing.T) {
 			for _, flag := range []model.Flag{model.FlagFIN | model.FlagACK, model.FlagRST | model.FlagACK} {
 				definition := lifecycleScenario()
-				definition.TCP.Close.MSL = &endpointLimit
-				definition.TCP.Close.FinWaitTimeout = &endpointLimit
-				definition.TCP.RTO.InitialTimeout = &endpointLimit
-				definition.TCP.RTO.MinimumTimeout = &endpointLimit
-				definition.TCP.RTO.MaximumTimeout = &endpointLimit
+				definition.Fixed.TCP.Close.MSL = &endpointLimit
+				definition.Fixed.TCP.Close.FinWaitTimeout = &endpointLimit
+				definition.Fixed.TCP.RTO.InitialTimeout = &endpointLimit
+				definition.Fixed.TCP.RTO.MinimumTimeout = &endpointLimit
+				definition.Fixed.TCP.RTO.MaximumTimeout = &endpointLimit
 				mappingIdle := 6 * time.Second
-				definition.Resources.LoadBalancer.ClosingIdleTimeout = &mappingIdle
-				definition.Resources.LoadBalancer.ResetIdleTimeout = &mappingIdle
-				world := New(normalizedRuntimeScenario(t, definition))
+				editInitialState(&definition, func(state *scenario.StateConfig) {
+					state.Resources.LoadBalancer.MappingTimeouts.ClosingIdleTimeout = &mappingIdle
+
+					state.Resources.LoadBalancer.MappingTimeouts.ResetIdleTimeout = &mappingIdle
+				})
+				world := newTimelineWorld(t, definition)
 				runIngressUntil(t, world, time.Second)
 				client := world.clients[0].Client
 				backend := world.lb.GetServers()[0]
@@ -336,20 +347,23 @@ func TestBalancerClosingTimeoutControlsFINRetryRoute(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			definition := lifecycleScenario()
-			definition.Execution.Duration = 8 * time.Second
-			definition.Resources.Backends = baseScenario().Resources.Backends
-			definition.Resources.LoadBalancer.ClosingIdleTimeout = &test.timeout
-			definition.Workload.Defaults.Bytes = 2050
-			definition.Workload.Defaults.PacketGap = 0
+			definition.Fixed.Execution.Duration = 8 * time.Second
+			editInitialState(&definition, func(state *scenario.StateConfig) {
+				state.Resources.Backends = baseScenario().States["0"].Resources.Backends
+
+				state.Resources.LoadBalancer.MappingTimeouts.ClosingIdleTimeout = &test.timeout
+			})
+			definition.Fixed.Workload.Defaults.Bytes = 2050
+			definition.Fixed.Workload.Defaults.PacketGap = 0
 			finWait := time.Second
-			definition.TCP.Close.FinWaitTimeout = &finWait
+			definition.Fixed.TCP.Close.FinWaitTimeout = &finWait
 
 			// Keep RTO at 6 s after the handshake and data RTT measurements.
 			retryDelay := 6 * time.Second
-			definition.TCP.RTO.InitialTimeout = &retryDelay
-			definition.TCP.RTO.MinimumTimeout = &retryDelay
-			definition.TCP.RTO.MaximumTimeout = &retryDelay
-			world := New(normalizedRuntimeScenario(t, definition))
+			definition.Fixed.TCP.RTO.InitialTimeout = &retryDelay
+			definition.Fixed.TCP.RTO.MinimumTimeout = &retryDelay
+			definition.Fixed.TCP.RTO.MaximumTimeout = &retryDelay
+			world := newTimelineWorld(t, definition)
 			backend := world.lb.GetServers()[0]
 
 			// Lose the first FIN after it crosses the LB and before reaching the backend.
@@ -391,11 +405,11 @@ func TestBalancerClosingTimeoutControlsFINRetryRoute(t *testing.T) {
 // Stop is the deliberate exception: it stops every endpoint and all queued work.
 func TestWorldStopCancelsEndpointTimersAndNetworkWork(t *testing.T) {
 	definition := lifecycleScenario()
-	definition.Workload.ClientGroups[0].Count = 3
-	definition.Network.Defaults.BandwidthBitsPerSecond = 8000
-	definition.Network.Defaults.PacketTravelTime = time.Second
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 3 })
+	definition.Fixed.Network.Defaults.BandwidthBitsPerSecond = 8000
+	definition.Fixed.Network.Defaults.PacketTravelTime = time.Second
 
-	world := New(normalizedRuntimeScenario(t, definition))
+	world := newTimelineWorld(t, definition)
 	runIngressUntil(t, world, 0)
 	if world.PendingEvents() == 0 {
 		t.Fatal("the fixture did not create any scheduled work")

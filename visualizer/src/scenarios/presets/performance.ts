@@ -13,39 +13,39 @@ export const performancePresets: readonly ScenarioPreset[] = [
     build(defaults) {
       const scenario = isolatedExperiment(defaults);
 
-      scenario.execution = {
+      scenario.fixed.execution = {
         durationNanoseconds: 1_000_000,
         snapshotIntervalNanoseconds: 100_000_000,
         seed: 1,
         speed: 0,
         maxEvents: 20_000_000,
       };
-      scenario.network.defaults = {
+      scenario.fixed.network.defaults = {
         bandwidthBitsPerSecond: 80_000_000_000_000,
         packetTravelTimeNanoseconds: 0,
         queueCapacity: 4096,
         lossRate: 0,
       };
-      scenario.network.profiles = [
+      scenario.fixed.network.profiles = [
         {
           id: 'limits-backend',
           config: { bandwidthBitsPerSecond: 800_000_000_000_000 },
         },
       ];
-      scenario.resources.loadBalancer.ingress = {
+      scenario.states['0'].resources.loadBalancer.ingress = {
         bandwidthBitsPerSecond: '80000000000000000',
         packetTravelTimeNanoseconds: 0,
         queueCapacity: 131_072,
         lossRate: 0,
       };
-      scenario.resources.loadBalancer.forwardingBitsPerSecond = '80000000000000000';
-      scenario.resources.backends = presetBackends(100);
+      scenario.states['0'].resources.loadBalancer.forwardingBitsPerSecond = '80000000000000000';
+      scenario.states['0'].resources.backends = presetBackends(100);
 
-      for (const backend of scenario.resources.backends) {
+      for (const backend of scenario.states['0'].resources.backends) {
         backend.network.profile = 'limits-backend';
       }
 
-      scenario.workload.clientGroups = [presetClientGroup('clients', 50_000)];
+      scenario.states['0'].workload.clientGroups = [presetClientGroup('clients', 50_000)];
 
       return scenario;
     },

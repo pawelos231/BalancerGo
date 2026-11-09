@@ -10,12 +10,12 @@ import (
 // The CLI report and topology frame expose the same ACK counts and effective cap.
 func TestDelayedACKReportAndTopology(t *testing.T) {
 	definition := projectionScenario()
-	definition.Execution.Duration = time.Second
-	definition.Workload.ClientGroups[0].Count = 1
-	definition.Workload.Defaults = scenario.StreamConfig{Bytes: 4096}
+	definition.Fixed.Execution.Duration = time.Second
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 1 })
+	definition.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 4096}
 	enabled, capSegments := true, 1
-	definition.TCP.DelayedACK.Enabled = &enabled
-	definition.TCP.CongestionControl.MaximumWindowSegments = &capSegments
+	definition.Fixed.TCP.DelayedACK.Enabled = &enabled
+	definition.Fixed.TCP.CongestionControl.MaximumWindowSegments = &capSegments
 	world := projectionWorld(t, definition)
 	advanceProjection(t, world, world.EndTime())
 

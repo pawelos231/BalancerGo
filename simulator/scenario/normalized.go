@@ -2,20 +2,6 @@ package scenario
 
 import "time"
 
-// Normalized is the checked configuration with profiles and overrides resolved.
-// It keeps compact client groups instead of allocating all clients upfront.
-type Normalized struct {
-	Version         int                          `json:"version"`
-	Execution       ExecutionConfig              `json:"execution"`
-	TCP             NormalizedTCPConfig          `json:"tcp"`
-	NetworkDefaults LinkConfig                   `json:"networkDefaults"`
-	LoadBalancer    NormalizedLoadBalancerConfig `json:"loadBalancer"`
-	Backends        []NormalizedBackend          `json:"backends"`
-	DefaultStream   StreamConfig                 `json:"defaultStream"`
-	ClientGroups    []NormalizedClientGroup      `json:"clientGroups"`
-	TotalClients    int                          `json:"totalClients"`
-}
-
 // NormalizedTCPConfig holds the effective transport settings after validation.
 // Optional input settings have already been replaced by concrete defaults.
 type NormalizedTCPConfig struct {
@@ -88,7 +74,7 @@ type DirectionalLinks struct {
 	FromLoadBalancer LinkConfig `json:"fromLoadBalancer"`
 }
 
-// NormalizedBackend is produced from BackendConfig after validation.
+// NormalizedBackend contains checked endpoint, host and resolved link settings.
 // Its settings already include defaults, the selected profile and overrides.
 type NormalizedBackend struct {
 	ID      string               `json:"id"`

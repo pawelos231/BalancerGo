@@ -1,90 +1,91 @@
 import type { ScenarioPreset } from '../scenarioPresetTypes.ts';
-import type { Scenario, ScenarioClientGroup } from '../types.ts';
+import type { ScenarioV2, V2ClientGroup } from '../v2Types.ts';
 
 const fastBitsPerSecond = 1_000_000_000;
 const slowBitsPerSecond = 10_000_000;
 
 // Network presets share duration and payload; remaining settings start from Go defaults.
-function smallExperiment(defaults: Scenario): Scenario {
+function smallExperiment(defaults: ScenarioV2): ScenarioV2 {
   const scenario = structuredClone(defaults);
-  if (scenario.tcp) {
-    delete scenario.tcp.mssBytes;
-    delete scenario.tcp.ECNenabled;
-    delete scenario.tcp.delayedAck;
-    if (scenario.tcp.congestionControl) delete scenario.tcp.congestionControl.maximumWindowSegments;
+  scenario.states = { '0': scenario.states['0'] };
+  if (scenario.fixed.tcp) {
+    delete scenario.fixed.tcp.mssBytes;
+    delete scenario.fixed.tcp.ECNenabled;
+    delete scenario.fixed.tcp.delayedAck;
+    if (scenario.fixed.tcp.congestionControl) delete scenario.fixed.tcp.congestionControl.maximumWindowSegments;
   }
-  for (const link of [scenario.network.defaults, scenario.resources.loadBalancer.ingress]) {
+  for (const link of [scenario.fixed.network.defaults, scenario.states['0'].resources.loadBalancer.ingress]) {
     delete link.queuePolicy;
     delete link.congestionThresholdPercent;
     delete link.congestionSignalProbability;
   }
-  scenario.execution.durationNanoseconds = 180_000_000_000;
-  scenario.execution.speed = 1;
-  scenario.network.defaults.bandwidthBitsPerSecond = fastBitsPerSecond;
-  scenario.network.profiles = [];
-  scenario.resources.loadBalancer.ingress.bandwidthBitsPerSecond = fastBitsPerSecond;
-  scenario.resources.loadBalancer.forwardingBitsPerSecond = fastBitsPerSecond;
-  delete scenario.resources.loadBalancer.host;
-  scenario.resources.backends = [1, 2].map((index) => ({
+  scenario.fixed.execution.durationNanoseconds = 180_000_000_000;
+  scenario.fixed.execution.speed = 1;
+  scenario.fixed.network.defaults.bandwidthBitsPerSecond = fastBitsPerSecond;
+  scenario.fixed.network.profiles = [];
+  scenario.states['0'].resources.loadBalancer.ingress.bandwidthBitsPerSecond = fastBitsPerSecond;
+  scenario.states['0'].resources.loadBalancer.forwardingBitsPerSecond = fastBitsPerSecond;
+  delete scenario.states['0'].resources.loadBalancer.host;
+  scenario.states['0'].resources.backends = [1, 2].map((index) => ({
     id: `backend-${index}`,
     name: `Backend ${index}`,
     address: `10.0.0.${index}`,
     port: 80,
-    network: { toLoadBalancer: {}, fromLoadBalancer: {} },
+    network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
   }));
-  scenario.workload.defaults.bytes = 1_073_741_824;
-  scenario.workload.defaults.packetGapNanoseconds = 0;
-  scenario.workload.clientGroups = [clientGroup('clients', 16)];
+  scenario.fixed.workload.defaults.bytes = 1_073_741_824;
+  scenario.fixed.workload.defaults.packetGapNanoseconds = 0;
+  scenario.states['0'].workload.clientGroups = [clientGroup('clients', 16)];
   return scenario;
 }
 
-function clientGroup(id: string, count: number, profile?: string): ScenarioClientGroup {
+function clientGroup(id: string, count: number, profile?: string): V2ClientGroup {
   return {
     id,
     count,
     startAtNanoseconds: 0,
     clientGapNanoseconds: 0,
-    network: { profile, toLoadBalancer: {}, fromLoadBalancer: {} },
+    network: { profile: profile ?? '', toLoadBalancer: {}, fromLoadBalancer: {} },
     stream: {},
   };
 }
 
 // Very high bitrates expose the engine's one-nanosecond serialization floor.
-function throughputExperiment(defaults: Scenario): Scenario {
+function throughputExperiment(defaults: ScenarioV2): ScenarioV2 {
   const scenario = smallExperiment(defaults);
-  scenario.execution = {
+  scenario.fixed.execution = {
     durationNanoseconds: 5_000_000,
     snapshotIntervalNanoseconds: 100_000_000,
     seed: 1,
     speed: 0,
     maxEvents: 50_000_000,
   };
-  scenario.network.defaults = {
+  scenario.fixed.network.defaults = {
     bandwidthBitsPerSecond: 80_000_000_000_000,
     packetTravelTimeNanoseconds: 0,
     queueCapacity: 4096,
     lossRate: 0,
   };
-  scenario.network.profiles = [{
+  scenario.fixed.network.profiles = [{
     id: 'throughput-backend',
     config: { bandwidthBitsPerSecond: 800_000_000_000_000 },
   }];
-  scenario.resources.loadBalancer.algorithm = 'roundRobin';
-  scenario.resources.loadBalancer.forwardingBitsPerSecond = 8_000_000_000_000_000;
-  scenario.resources.loadBalancer.ingress = {
+  scenario.states['0'].resources.loadBalancer.algorithm = 'roundRobin';
+  scenario.states['0'].resources.loadBalancer.forwardingBitsPerSecond = 8_000_000_000_000_000;
+  scenario.states['0'].resources.loadBalancer.ingress = {
     bandwidthBitsPerSecond: 8_000_000_000_000_000,
     packetTravelTimeNanoseconds: 0,
     queueCapacity: 4096,
     lossRate: 0,
   };
-  scenario.resources.backends = Array.from({ length: 5 }, (_, index) => ({
+  scenario.states['0'].resources.backends = Array.from({ length: 5 }, (_, index) => ({
     id: `backend-${index + 1}`,
     name: `Backend ${index + 1}`,
     address: `10.0.0.${index + 1}`,
     port: 80,
     network: { profile: 'throughput-backend', toLoadBalancer: {}, fromLoadBalancer: {} },
   }));
-  scenario.workload.clientGroups = [clientGroup('clients', 50)];
+  scenario.states['0'].workload.clientGroups = [clientGroup('clients', 50)];
   return scenario;
 }
 
@@ -97,11 +98,11 @@ export const baselinePresets: readonly ScenarioPreset[] = [
     description: 'Two groups of 8 clients: 10 Mbit/s and 1 Gbit/s access links. Two fast backends.',
     build(defaults) {
       const scenario = smallExperiment(defaults);
-      scenario.network.profiles = [{
+      scenario.fixed.network.profiles = [{
         id: 'slow-client',
         config: { bandwidthBitsPerSecond: slowBitsPerSecond },
       }];
-      scenario.workload.clientGroups = [
+      scenario.states['0'].workload.clientGroups = [
         clientGroup('slow-clients', 8, 'slow-client'),
         clientGroup('fast-clients', 8),
       ];
@@ -115,11 +116,11 @@ export const baselinePresets: readonly ScenarioPreset[] = [
     description: '16 fast clients and two backends with 10 Mbit/s and 1 Gbit/s links.',
     build(defaults) {
       const scenario = smallExperiment(defaults);
-      scenario.network.profiles = [{
+      scenario.fixed.network.profiles = [{
         id: 'slow-backend',
         config: { bandwidthBitsPerSecond: slowBitsPerSecond },
       }];
-      scenario.resources.backends[0].network.profile = 'slow-backend';
+      scenario.states['0'].resources.backends[0].network.profile = 'slow-backend';
       return scenario;
     },
   },
@@ -130,8 +131,8 @@ export const baselinePresets: readonly ScenarioPreset[] = [
     description: '32 fast clients share a 10 Mbit/s LB receiver. Output budget stays at 1 Gbit/s.',
     build(defaults) {
       const scenario = smallExperiment(defaults);
-      scenario.workload.clientGroups = [clientGroup('clients', 32)];
-      scenario.resources.loadBalancer.ingress.bandwidthBitsPerSecond = slowBitsPerSecond;
+      scenario.states['0'].workload.clientGroups = [clientGroup('clients', 32)];
+      scenario.states['0'].resources.loadBalancer.ingress.bandwidthBitsPerSecond = slowBitsPerSecond;
       return scenario;
     },
   },
@@ -142,8 +143,8 @@ export const baselinePresets: readonly ScenarioPreset[] = [
     description: '32 fast clients share a 10 Mbit/s forwarding budget. Input limit stays at 1 Gbit/s.',
     build(defaults) {
       const scenario = smallExperiment(defaults);
-      scenario.workload.clientGroups = [clientGroup('clients', 32)];
-      scenario.resources.loadBalancer.forwardingBitsPerSecond = slowBitsPerSecond;
+      scenario.states['0'].workload.clientGroups = [clientGroup('clients', 32)];
+      scenario.states['0'].resources.loadBalancer.forwardingBitsPerSecond = slowBitsPerSecond;
       return scenario;
     },
   },

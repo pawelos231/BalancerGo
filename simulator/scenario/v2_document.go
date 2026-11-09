@@ -30,7 +30,7 @@ func EncodeNormalizedDocumentV2(input NormalizedV2) ([]byte, error) {
 }
 
 // DecodeDocumentV2 reads a strict v2 document without resolving its timeline.
-// Ordinary missing fields retain zero values, as in the v1 document reader.
+// Ordinary missing fields retain their Go zero values for later validation.
 func DecodeDocumentV2(data []byte) (ScenarioV2, error) {
 	var input ScenarioV2
 	if err := decodeDocument(data, reflect.ValueOf(&input).Elem(), "scenario"); err != nil {

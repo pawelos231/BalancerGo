@@ -1,6 +1,6 @@
 import type {
   ExactInteger,
-  Scenario,
+  ScenarioExecution,
   ScenarioCloseConfig,
   ScenarioCongestionConfig,
   ScenarioDelayedACKConfig,
@@ -17,11 +17,11 @@ export type V2HostConfig = NullablePatch<ScenarioHostConfig>;
 export type V2StreamPatch = NullablePatch<ScenarioStream>;
 
 // Fixed settings stay constant; state keys are exact decimal virtual nanoseconds.
-// This contract is validated locally but is not yet accepted by the runtime.
+// The same document is used by files, the form and runtime admission.
 export interface ScenarioV2 {
   version: ExactInteger;
   fixed: {
-    execution: Scenario['execution'];
+    execution: ScenarioExecution;
     tcp: V2TCPConfig;
     loadBalancer: { id: string };
     network: V2NetworkConfig;

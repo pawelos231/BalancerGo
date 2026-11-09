@@ -14,19 +14,19 @@ test('delayed ACK defaults and edits preserve exact virtual durations', () => {
   assert.equal(fields.delayedAckEnabled, 'false');
   assert.equal(fields.delayedAckSegments, '2');
   assert.equal(fields.delayedAckMaxDelayMs, '40');
-  assert.equal(original.tcp, undefined);
+  assert.deepEqual(original.fixed.tcp, {});
 
   let edited = applyScenarioField(original, 'delayedAckEnabled', 'true');
   edited = applyScenarioField(edited, 'delayedAckMaxDelayMs', '40.000001');
   edited = applyScenarioField(edited, 'delayedAckSegments', '1');
-  assert.deepEqual(edited.tcp?.delayedAck, {
+  assert.deepEqual(edited.fixed.tcp?.delayedAck, {
     enabled: true,
     maxDelayNanoseconds: 40_000_001,
     segmentsPerACK: 1,
   });
   const restored = JSON.parse(serializeScenario(edited));
   assert.equal(scenarioFormValues(restored).delayedAckMaxDelayMs, '40.000001');
-  assert.deepEqual(edited.network, original.network);
+  assert.deepEqual(edited.fixed.network, original.fixed.network);
 });
 
 // Zero is invalid for delay/threshold, but the cwnd cap uses zero as uncapped.
@@ -47,7 +47,7 @@ test('ACK limits reject invalid values and correcting a field clears its error',
   assert.ok(rejected.errors.delayedAckMaxDelayMs);
   const corrected = editScenarioForm(rejected, 'delayedAckMaxDelayMs', '40');
   assert.deepEqual(corrected.errors, {});
-  assert.equal(corrected.scenario.tcp?.delayedAck?.maxDelayNanoseconds, 40_000_000);
+  assert.equal(corrected.scenario.fixed.tcp?.delayedAck?.maxDelayNanoseconds, 40_000_000);
 });
 
 // An actual cwnd cap needs a congestion-control algorithm; rwnd is a different limit.
@@ -55,7 +55,7 @@ test('the optional cwnd cap preserves zero and reconciles a pending mode change'
   const original = scenarioFixture();
   assert.equal(scenarioFormValues(original).maximumCongestionWindowSegments, '0');
   const capped = applyScenarioField(original, 'maximumCongestionWindowSegments', '1');
-  assert.equal(capped.tcp?.congestionControl?.maximumWindowSegments, 1);
+  assert.equal(capped.fixed.tcp?.congestionControl?.maximumWindowSegments, 1);
   const cappedState = {
     scenario: capped,
     values: scenarioFormValues(capped),
@@ -65,27 +65,27 @@ test('the optional cwnd cap preserves zero and reconciles a pending mode change'
   assert.match(pendingNone.errors.congestionControl!, /maximum congestion window requires/);
   const uncapped = editScenarioForm(pendingNone, 'maximumCongestionWindowSegments', '0');
   assert.deepEqual(uncapped.errors, {});
-  assert.equal(uncapped.scenario.tcp?.congestionControl?.mode, 'none');
-  assert.equal(uncapped.scenario.tcp?.congestionControl?.maximumWindowSegments, 0);
+  assert.equal(uncapped.scenario.fixed.tcp?.congestionControl?.mode, 'none');
+  assert.equal(uncapped.scenario.fixed.tcp?.congestionControl?.maximumWindowSegments, 0);
 });
 
 test('the one-segment preset fixes cwnd and other presets keep delayed ACK disabled', () => {
   const defaults = scenarioFixture();
-  defaults.tcp = {
+  defaults.fixed.tcp = {
     delayedAck: { enabled: true },
     congestionControl: { maximumWindowSegments: 1 },
   };
   for (const preset of scenarioPresets) {
     const scenario = preset.build(defaults);
     if (preset.id === 'delayed-ack-small-window') {
-      assert.equal(scenario.tcp?.delayedAck?.enabled, true);
-      assert.equal(scenario.tcp.delayedAck.maxDelayNanoseconds, 40_000_000);
-      assert.equal(scenario.tcp.congestionControl?.maximumWindowSegments, 1);
-      assert.equal(scenario.tcp.congestionControl?.initialWindowSegments, 1);
-      assert.equal(scenario.tcp.receiveBufferBytes, 65535);
+      assert.equal(scenario.fixed.tcp?.delayedAck?.enabled, true);
+      assert.equal(scenario.fixed.tcp.delayedAck.maxDelayNanoseconds, 40_000_000);
+      assert.equal(scenario.fixed.tcp.congestionControl?.maximumWindowSegments, 1);
+      assert.equal(scenario.fixed.tcp.congestionControl?.initialWindowSegments, 1);
+      assert.equal(scenario.fixed.tcp.receiveBufferBytes, 65535);
       continue;
     }
-    assert.notEqual(scenario.tcp?.delayedAck?.enabled, true, preset.id);
-    assert.equal(scenario.tcp?.congestionControl?.maximumWindowSegments, undefined, preset.id);
+    assert.notEqual(scenario.fixed.tcp?.delayedAck?.enabled, true, preset.id);
+    assert.equal(scenario.fixed.tcp?.congestionControl?.maximumWindowSegments, undefined, preset.id);
   }
 });

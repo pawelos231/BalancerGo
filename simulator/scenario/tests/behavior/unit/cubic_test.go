@@ -28,30 +28,30 @@ func TestCubicOptionsSurviveDocumentRoundTrip(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input := exampleScenario()
-			input.TCP.CongestionControl = scenario.CongestionConfig{
+			input.Fixed.TCP.CongestionControl = scenario.CongestionConfig{
 				Mode:                 pointer("cubic"),
 				CubicFastConvergence: test.fastConvergence,
 				FastRetransmit:       test.fastRetransmit,
 			}
-			document, err := scenario.EncodeDocument(input)
+			document, err := scenario.EncodeDocumentV2(input)
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, err := scenario.DecodeDocument(document)
+			restored, err := scenario.DecodeDocumentV2(document)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			// Omission and false remain distinct until normalization fills defaults.
-			if (restored.TCP.CongestionControl.CubicFastConvergence == nil) !=
+			if (restored.Fixed.TCP.CongestionControl.CubicFastConvergence == nil) !=
 				(test.fastConvergence == nil) {
 				t.Fatal("native JSON changed whether fast convergence was configured")
 			}
-			resolved, err := scenario.Normalize(restored)
+			resolved, err := scenario.NormalizeV2(restored)
 			if err != nil {
 				t.Fatal(err)
 			}
-			config := resolved.TCP.CongestionControl
+			config := resolved.Fixed.TCP.CongestionControl
 			if config.Mode != "cubic" || config.CubicFastConvergence != test.wantConvergence ||
 				config.FastRetransmit != test.wantRetransmit {
 				t.Fatalf("resolved CUBIC settings = %+v", config)

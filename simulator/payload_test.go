@@ -11,16 +11,28 @@ import (
 )
 
 // payloadScenario spaces segments apart so reception and its ACK can be inspected separately.
-func payloadScenario() scenario.Scenario {
+func payloadScenario() scenario.ScenarioV2 {
 	input := scenarioRuntimeDefinition()
-	input.Resources.Backends = input.Resources.Backends[:1]
-	input.Network.Defaults.BandwidthBitsPerSecond = 1_000_000_000
-	input.Network.Defaults.PacketTravelTime = time.Millisecond
-	input.Resources.LoadBalancer.Ingress = input.Network.Defaults
-	input.Resources.LoadBalancer.Ingress.PacketTravelTime = 0
-	input.Workload.Defaults.Bytes = 2050
-	input.Workload.Defaults.PacketGap = 10 * time.Millisecond
-	input.Execution.Duration = 2 * time.Second
+	{
+		initialState := input.States["0"]
+		initialState.Resources.Backends = initialState.Resources.Backends[:1]
+		input.States["0"] = initialState
+	}
+	input.Fixed.Network.Defaults.BandwidthBitsPerSecond = 1_000_000_000
+	input.Fixed.Network.Defaults.PacketTravelTime = time.Millisecond
+	{
+		initialState := input.States["0"]
+		initialState.Resources.LoadBalancer.Ingress = input.Fixed.Network.Defaults
+		input.States["0"] = initialState
+	}
+	{
+		initialState := input.States["0"]
+		initialState.Resources.LoadBalancer.Ingress.PacketTravelTime = 0
+		input.States["0"] = initialState
+	}
+	input.Fixed.Workload.Defaults.Bytes = 2050
+	input.Fixed.Workload.Defaults.PacketGap = 10 * time.Millisecond
+	input.Fixed.Execution.Duration = 2 * time.Second
 	return input
 }
 
@@ -42,9 +54,9 @@ func TestPayloadProgressIncludesUnfinishedTransfers(t *testing.T) {
 	input := payloadScenario()
 	// This test observes cleanup within 60 ms; use an explicit short TIME_WAIT profile.
 	msl := 5 * time.Millisecond
-	input.TCP.Close.MSL = &msl
-	resolved := normalizedRuntimeScenario(t, input)
-	s := simulation.New(resolved)
+	input.Fixed.TCP.Close.MSL = &msl
+	resolved := compiledRuntimeScenario(t, input)
+	s := newScenarioSimulation(resolved)
 	publisher := presentation.NewProjector("payload-run")
 	runIngressUntil(t, s, 5*time.Millisecond)
 	first := payloadTelemetry(t, publisher, s)
@@ -98,7 +110,7 @@ func TestPayloadProgressIncludesUnfinishedTransfers(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertPayloadProgress(t, s, 2050, 2050)
-	fresh := simulation.New(resolved)
+	fresh := newScenarioSimulation(resolved)
 	assertPayloadProgress(t, fresh, 0, 0)
 }
 
@@ -113,7 +125,7 @@ func TestPayloadSnapshotLifecycle(t *testing.T) {
 	}
 
 	input := payloadScenario()
-	input.Execution.Speed = 0
+	input.Fixed.Execution.Speed = 0
 	receipt := startTelemetryScenario(t, h, input)
 	finished := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
@@ -125,8 +137,8 @@ func TestPayloadSnapshotLifecycle(t *testing.T) {
 	stopTelemetryScenario(t, h)
 
 	// A new run ends before handshake completion and must start its own counters at zero.
-	input.Execution.Duration = time.Microsecond
-	input.Execution.SnapshotInterval = time.Microsecond
+	input.Fixed.Execution.Duration = time.Microsecond
+	input.Fixed.Execution.SnapshotInterval = time.Microsecond
 	second := startTelemetryScenario(t, h, input)
 	fresh := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
 		return snapshot.Simulation.RunID == second.RunID && snapshot.Simulation.Status == "finished"

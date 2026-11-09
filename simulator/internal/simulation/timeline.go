@@ -282,16 +282,10 @@ func (s *World) applyBackendState(change backendStateChange) {
 // CurrentConfiguration returns the last committed v2 state, never a future declaration.
 // Like other world observations, it belongs to the engine's owner goroutine.
 func (s *World) CurrentConfiguration() (scenario.NormalizedState, bool) {
-	if s.timeline == nil {
-		return scenario.NormalizedState{}, false
-	}
 	state, err := s.timeline.plan.StateAt(s.timeline.committedAt)
 	return state, err == nil
 }
 
 func (s *World) configurationRevision() uint64 {
-	if s.timeline == nil {
-		return 0
-	}
 	return s.timeline.revision
 }

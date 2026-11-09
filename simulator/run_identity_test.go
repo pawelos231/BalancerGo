@@ -14,12 +14,12 @@ import (
 // A new controller represents a backend restart. Its first run must not reuse
 // the previous controller's first ID, even for exactly the same scenario.
 func TestRunIdentitySurvivesControllerRestart(t *testing.T) {
-	input := legacyTestConfiguration().scenarioDefinition()
-	resolved, err := scenario.Normalize(input)
+	input := testConfiguration().scenarioDefinitionV2()
+	resolved, err := scenario.CompileV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := scenario.EncodeDocument(input)
+	document, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestRunIdentitySurvivesControllerRestart(t *testing.T) {
 
 		// Also start a second run on each controller, after releasing its first run.
 		for range 2 {
-			receipt, err := control.startScenario(context.Background(), document, resolved)
+			receipt, err := control.startTimeline(context.Background(), document, resolved)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -47,7 +47,7 @@ func TestRunIdentitySurvivesControllerRestart(t *testing.T) {
 			if !reflect.DeepEqual(request.experiment, record.Experiment) {
 				t.Fatal("the simulation owner received different experiment metadata")
 			}
-			assertInteractiveExperiment(t, document, resolved.Execution.Speed, record.Experiment)
+			assertInteractiveExperiment(t, document, resolved.Fixed().Execution.Speed, record.Experiment)
 			control.finishRun()
 		}
 	}

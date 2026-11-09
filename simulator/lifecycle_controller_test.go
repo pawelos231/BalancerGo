@@ -12,9 +12,9 @@ import (
 
 func TestLifecycleFinishedResetKeepsOriginalObservation(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Speed, input.Execution.Duration = 0, 100*time.Millisecond
-	input.Workload.Defaults.Bytes = 0
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Speed, input.Fixed.Execution.Duration = 0, 100*time.Millisecond
+	input.Fixed.Workload.Defaults.Bytes = 0
 	receipt := startTelemetryScenario(t, h, input)
 	ended := readLifecycleEnd(t, h.socket, receipt.RunID)
 	assertLifecycleMeasurement(t, ended, contract.SimulationFinished)
@@ -36,9 +36,13 @@ func TestLifecycleFinishedResetKeepsOriginalObservation(t *testing.T) {
 
 func TestLifecycleFailedRunPreservesFailureMeasurement(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinition()
-	input.Execution.Speed, input.Execution.MaxEvents = 0, 1
-	input.Workload.ClientGroups[0].Count = 1
+	input := h.defaults.scenarioDefinitionV2()
+	input.Fixed.Execution.Speed, input.Fixed.Execution.MaxEvents = 0, 1
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups[0].Count = 1
+		input.States["0"] = initialState
+	}
 	receipt := startTelemetryScenario(t, h, input)
 	ended := readLifecycleEnd(t, h.socket, receipt.RunID)
 	assertLifecycleMeasurement(t, ended, contract.SimulationFailed)
@@ -58,9 +62,13 @@ func TestLifecycleStopBeforeCreationHasNoForeignMeasurement(t *testing.T) {
 			h := newScenarioHarness(t)
 			var previousRunID string
 			if retainFinished {
-				input := h.defaults.scenarioDefinition()
-				input.Execution.Speed, input.Execution.Duration = 0, time.Millisecond
-				input.Workload.ClientGroups[0].Count = 0
+				input := h.defaults.scenarioDefinitionV2()
+				input.Fixed.Execution.Speed, input.Fixed.Execution.Duration = 0, time.Millisecond
+				{
+					initialState := input.States["0"]
+					initialState.Workload.ClientGroups[0].Count = 0
+					input.States["0"] = initialState
+				}
 				previousRunID = startTelemetryScenario(t, h, input).RunID
 				readLifecycleEnd(t, h.socket, previousRunID)
 			}
@@ -68,10 +76,10 @@ func TestLifecycleStopBeforeCreationHasNoForeignMeasurement(t *testing.T) {
 			// Queue Start and Stop under the admission lock, before the owner can create B.
 			replies := make(chan contract.CommandResultFrame, 1)
 			h.control.mu.Lock()
-			receipt, err := h.control.enqueueStart(startRequest{legacy: &runtimeCommand{Payload: []byte(`{}`)}}, nil)
+			receipt, err := h.control.enqueueStart(startRequest{command: &runtimeCommand{Payload: []byte(`{}`)}}, nil)
 			if err == nil {
 				if retainFinished && h.control.current.RunID != previousRunID {
-					t.Error("reserved legacy Start discarded the previous record before creation")
+					t.Error("reserved WebSocket Start discarded the previous record before creation")
 				}
 				err = h.control.enqueueStop(runtimeCommand{
 					runID: receipt.RunID, commandID: "stop-reserved",

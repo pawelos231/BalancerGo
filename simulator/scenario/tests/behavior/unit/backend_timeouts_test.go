@@ -11,36 +11,36 @@ import (
 func TestBackendTimeoutDefaultsAndDocumentOverrides(t *testing.T) {
 	// Old documents expire incomplete handshakes after 5 s; established idle cleanup is off.
 	input := exampleScenario()
-	resolved, err := scenario.Normalize(input)
+	resolved, err := scenario.NormalizeV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.TCP.BackendHalfOpenIdleTimeout != 5*time.Second ||
-		resolved.TCP.BackendEstablishedIdleTimeout != 0 {
-		t.Fatalf("backend defaults = %+v", resolved.TCP)
+	if resolved.Fixed.TCP.BackendHalfOpenIdleTimeout != 5*time.Second ||
+		resolved.Fixed.TCP.BackendEstablishedIdleTimeout != 0 {
+		t.Fatalf("backend defaults = %+v", resolved.Fixed.TCP)
 	}
-	if input.TCP.BackendHalfOpenIdleTimeout != nil || input.TCP.BackendEstablishedIdleTimeout != nil {
+	if input.Fixed.TCP.BackendHalfOpenIdleTimeout != nil || input.Fixed.TCP.BackendEstablishedIdleTimeout != nil {
 		t.Fatal("normalization changed the requested document")
 	}
 
 	// Explicit zero disables the handshake limit; idle cleanup keeps nanosecond precision.
-	input.TCP.BackendHalfOpenIdleTimeout = pointer(time.Duration(0))
-	input.TCP.BackendEstablishedIdleTimeout = pointer(1234567 * time.Nanosecond)
-	document, err := scenario.EncodeDocument(input)
+	input.Fixed.TCP.BackendHalfOpenIdleTimeout = pointer(time.Duration(0))
+	input.Fixed.TCP.BackendEstablishedIdleTimeout = pointer(1234567 * time.Nanosecond)
+	document, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocument(document)
+	restored, err := scenario.DecodeDocumentV2(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.Normalize(restored)
+	resolved, err = scenario.NormalizeV2(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.TCP.BackendHalfOpenIdleTimeout != 0 ||
-		resolved.TCP.BackendEstablishedIdleTimeout != 1234567*time.Nanosecond {
-		t.Fatalf("backend overrides = %+v", resolved.TCP)
+	if resolved.Fixed.TCP.BackendHalfOpenIdleTimeout != 0 ||
+		resolved.Fixed.TCP.BackendEstablishedIdleTimeout != 1234567*time.Nanosecond {
+		t.Fatalf("backend overrides = %+v", resolved.Fixed.TCP)
 	}
 }
 
@@ -66,9 +66,9 @@ func TestBackendTimeoutsRejectNegativeDurations(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
 			input := exampleScenario()
-			test.set(&input.TCP)
+			test.set(&input.Fixed.TCP)
 
-			_, err := scenario.Normalize(input)
+			_, err := scenario.NormalizeV2(input)
 			if err == nil || !strings.Contains(err.Error(), test.path) {
 				t.Fatalf("expected %s error, got %v", test.path, err)
 			}

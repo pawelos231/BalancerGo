@@ -12,8 +12,8 @@ import (
 // Explicit LB route cleanup and a later backend stop retain the client's measured RTT.
 func TestResultRetainsClientTimingAfterRouteCleanupAndBackendStop(t *testing.T) {
 	definition := projectionScenario()
-	definition.Workload.ClientGroups[0].Count = 1
-	definition.Workload.Defaults = scenario.StreamConfig{
+	editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 1 })
+	definition.Fixed.Workload.Defaults = scenario.StreamConfig{
 		Bytes:     64,
 		PacketGap: time.Millisecond,
 	}
@@ -63,7 +63,7 @@ func TestResultRetainsClientTimingAfterRouteCleanupAndBackendStop(t *testing.T) 
 func TestResultRecordsSACKConfiguration(t *testing.T) {
 	definition := projectionScenario()
 	enabled := true
-	definition.TCP.SACKEnabled = &enabled
+	definition.Fixed.TCP.SACKEnabled = &enabled
 	world := projectionWorld(t, definition)
 
 	if !world.Info().SACKEnabled || !BuildResult(world, 0).TCP.SACKEnabled {
@@ -168,11 +168,16 @@ func TestResultReportsEffectiveTimerConfiguration(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			definition := projectionScenario()
-			definition.TCP = test.tcp
-			definition.Resources.LoadBalancer.HalfOpenIdleTimeout = test.halfOpen
-			definition.Resources.LoadBalancer.EstablishedIdleTimeout = test.established
-			definition.Resources.LoadBalancer.ClosingIdleTimeout = test.closing
-			definition.Resources.LoadBalancer.ResetIdleTimeout = test.reset
+			definition.Fixed.TCP = test.tcp
+			editInitialState(&definition, func(state *scenario.StateConfig) {
+				state.Resources.LoadBalancer.MappingTimeouts.HalfOpenIdleTimeout = test.halfOpen
+
+				state.Resources.LoadBalancer.MappingTimeouts.EstablishedIdleTimeout = test.established
+
+				state.Resources.LoadBalancer.MappingTimeouts.ClosingIdleTimeout = test.closing
+
+				state.Resources.LoadBalancer.MappingTimeouts.ResetIdleTimeout = test.reset
+			})
 			world := projectionWorld(t, definition)
 
 			// No advancement is needed: effective settings exist before clients start.

@@ -43,8 +43,8 @@ test('validation and Start send the direct document without rounding integer str
     assert.deepEqual(call.options?.headers, { 'Content-Type': 'application/json' });
     const body = JSON.parse(call.options?.body as string);
     assert.deepEqual(body, scenario);
-    assert.equal(body.execution.seed, '-9007199254740993');
-    assert.equal(body.execution.maxEvents, '18446744073709551615');
+    assert.equal(body.fixed.execution.seed, '-9007199254740993');
+    assert.equal(body.fixed.execution.maxEvents, '18446744073709551615');
     assert.equal('scenario' in body, false);
   }
 });
@@ -93,11 +93,11 @@ test('file validation sends original JSON tokens and never starts a run', async 
     assert.equal(options?.method, 'POST');
     assert.deepEqual(options?.headers, { 'Content-Type': 'application/json' });
     requests.push(options?.body as string);
-    return Response.json({ error: 'scenario.execution.seed: invalid token' }, { status: 400 });
+    return Response.json({ error: 'scenario.fixed.execution.seed: invalid token' }, { status: 400 });
   });
 
   for (const document of documents) {
-    await assert.rejects(api.validateDocument(document), /scenario.execution.seed: invalid token/);
+    await assert.rejects(api.validateDocument(document), /scenario.fixed.execution.seed: invalid token/);
   }
   assert.deepEqual(requests, documents);
 });
@@ -107,12 +107,13 @@ test('validation retains native data and a separate exact resolved preview', asy
   const summary = { totalClients: 0, backendCount: 0, clientGroupCount: 0 };
   const resolved = {
     version: scenario.version,
-    execution: scenario.execution,
-    networkDefaults: scenario.network.defaults,
-    loadBalancer: scenario.resources.loadBalancer,
-    backends: [],
-    defaultStream: { ...scenario.workload.defaults, bytes: 99 * 1024 },
-    clientGroups: [],
+    fixed: {
+      execution: scenario.fixed.execution, tcp: {}, loadBalancer: scenario.fixed.loadBalancer,
+      networkDefaults: scenario.fixed.network.defaults,
+      defaultStream: { ...scenario.fixed.workload.defaults, bytes: 99 * 1024 },
+    },
+    states: [{ atNanoseconds: 0, loadBalancer: scenario.states['0'].resources.loadBalancer,
+      backends: [], clientGroups: [], totalClients: 0 }],
     totalClients: 0,
   };
   const api = new ScenarioApi('http://backend.test', async () => Response.json({ scenario, summary, resolved }));
@@ -120,9 +121,9 @@ test('validation retains native data and a separate exact resolved preview', asy
   const validated = await api.validateDocument(JSON.stringify(scenario));
   assert.deepEqual(validated.scenario, scenario);
   assert.deepEqual(validated.resolved, resolved);
-  assert.equal(validated.scenario.workload.defaults.bytes, -1);
-  assert.equal(validated.resolved?.defaultStream.bytes, 99 * 1024);
-  assert.equal(validated.resolved?.execution.seed, '-9007199254740993');
+  assert.equal(validated.scenario.fixed.workload.defaults.bytes, -1);
+  assert.equal(validated.resolved?.fixed.defaultStream.bytes, 99 * 1024);
+  assert.equal(validated.resolved?.fixed.execution.seed, '-9007199254740993');
 
   const invalid = new ScenarioApi('http://backend.test', async () => (
     Response.json({ scenario, summary, resolved: { totalClients: 0 } })
@@ -130,12 +131,12 @@ test('validation retains native data and a separate exact resolved preview', asy
   await assert.rejects(invalid.validate(scenario), /unexpected response/);
 });
 
-test('validation and Start retain authoritative zero queue scalars for legacy and explicit inputs', async () => {
+test('validation and Start retain authoritative zero queue scalars for omitted and explicit inputs', async () => {
   const requested = scenarioFixture();
-  requested.network.defaults.congestionThresholdPercent = 0;
-  requested.network.defaults.congestionSignalProbability = 0;
-  requested.resources.loadBalancer.ingress.congestionThresholdPercent = 0;
-  requested.resources.loadBalancer.ingress.congestionSignalProbability = 0;
+  requested.fixed.network.defaults.congestionThresholdPercent = 0;
+  requested.fixed.network.defaults.congestionSignalProbability = 0;
+  requested.states['0'].resources.loadBalancer.ingress.congestionThresholdPercent = 0;
+  requested.states['0'].resources.loadBalancer.ingress.congestionSignalProbability = 0;
   const canonical = structuredClone(requested);
   const summary = { totalClients: 0, backendCount: 0, clientGroupCount: 0 };
   let startedScenario;
@@ -149,10 +150,10 @@ test('validation and Start retain authoritative zero queue scalars for legacy an
   await api.start(validated.scenario);
   assert.deepEqual(startedScenario, canonical);
 
-  const legacy = await api.validateDocument(JSON.stringify(scenarioFixture()));
-  assert.deepEqual(legacy.scenario, canonical);
-  assert.equal(legacy.scenario.network.defaults.congestionThresholdPercent, 0);
-  assert.equal(legacy.scenario.resources.loadBalancer.ingress.congestionSignalProbability, 0);
+  const inherited = await api.validateDocument(JSON.stringify(scenarioFixture()));
+  assert.deepEqual(inherited.scenario, canonical);
+  assert.equal(inherited.scenario.fixed.network.defaults.congestionThresholdPercent, 0);
+  assert.equal(inherited.scenario.states['0'].resources.loadBalancer.ingress.congestionSignalProbability, 0);
 });
 
 test('topology definitions use their separate endpoint and retain the revision token', async () => {
@@ -199,4 +200,24 @@ test('request cancellation reaches fetch and does not become a timeout message',
   controller.abort(reason);
   await assert.rejects(request, (error: unknown) => error === reason);
   assert.equal(requestSignal?.aborted, true);
+});
+
+
+test('scenario responses reject version one and an invalid later state', async () => {
+  const v1 = { version: 1, execution: {}, network: {}, resources: {}, workload: {} };
+  const late = scenarioFixture();
+  late.states['10'] = structuredClone(late.states['0']);
+  late.states['10'].resources.loadBalancer.forwardingBitsPerSecond = 0;
+  for (const scenario of [v1, late]) {
+    const defaults = new ScenarioApi('http://backend.test', async () => Response.json(scenario));
+    await assert.rejects(defaults.defaults(), /unexpected response/);
+    const validate = new ScenarioApi('http://backend.test', async () => Response.json({
+      scenario, summary: { totalClients: 0, backendCount: 0, clientGroupCount: 0 },
+    }));
+    await assert.rejects(validate.validate(scenarioFixture()), /unexpected response/);
+    const current = new ScenarioApi('http://backend.test', async () => Response.json({
+      runId: 'run-invalid', status: 'running', scenario, experiment: experimentFixture(),
+    }));
+    await assert.rejects(current.current(), /unexpected response/);
+  }
 });

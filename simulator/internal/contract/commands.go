@@ -40,8 +40,8 @@ type SpawnClientMsg struct {
 	GroupID string `json:"groupId,omitempty"`
 }
 
-// SimulationConfig is the legacy frontend experiment form. Process options such
-// as tracing and headless mode are deliberately absent.
+// SimulationConfig is a read-only summary in telemetry. Native scenario documents
+// are the only accepted configuration for starting a run.
 type SimulationConfig struct {
 	Clients                         int     `json:"clients"`
 	Servers                         int     `json:"servers"`

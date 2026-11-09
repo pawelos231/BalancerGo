@@ -1,23 +1,26 @@
 package simulation
 
 import (
-	"load-balancer/model"
-	"load-balancer/scenario"
 	"testing"
 	"time"
+
+	"load-balancer/model"
+	"load-balancer/scenario"
 )
 
 // payloadScenario spaces segments apart so reception and its ACK can be inspected separately.
-func payloadScenario() scenario.Scenario {
+func payloadScenario() scenario.ScenarioV2 {
 	input := scenarioRuntimeDefinition()
-	input.Resources.Backends = input.Resources.Backends[:1]
-	input.Network.Defaults.BandwidthBitsPerSecond = 1_000_000_000
-	input.Network.Defaults.PacketTravelTime = time.Millisecond
-	input.Resources.LoadBalancer.Ingress = input.Network.Defaults
-	input.Resources.LoadBalancer.Ingress.PacketTravelTime = 0
-	input.Workload.Defaults.Bytes = 2050
-	input.Workload.Defaults.PacketGap = 10 * time.Millisecond
-	input.Execution.Duration = 2 * time.Second
+	editInitialState(&input, func(state *scenario.StateConfig) { state.Resources.Backends = state.Resources.Backends[:1] })
+	input.Fixed.Network.Defaults.BandwidthBitsPerSecond = 1_000_000_000
+	input.Fixed.Network.Defaults.PacketTravelTime = time.Millisecond
+	editInitialState(&input, func(state *scenario.StateConfig) {
+		state.Resources.LoadBalancer.Ingress = input.Fixed.Network.Defaults
+		state.Resources.LoadBalancer.Ingress.PacketTravelTime = 0
+	})
+	input.Fixed.Workload.Defaults.Bytes = 2050
+	input.Fixed.Workload.Defaults.PacketGap = 10 * time.Millisecond
+	input.Fixed.Execution.Duration = 2 * time.Second
 	return input
 }
 
@@ -32,7 +35,7 @@ func assertNativePayloadProgress(t *testing.T, world *World, received, acknowled
 
 // Losing ACK=2051 leaves only the final two bytes unconfirmed until their retry.
 func TestPayloadProgressAfterLostFinalACK(t *testing.T) {
-	s := New(normalizedRuntimeScenario(t, payloadScenario()))
+	s := newTimelineWorld(t, payloadScenario())
 	backend := s.lb.GetServers()[0]
 	returnLink := scenarioRuntimeLink(t, s, BackendNodeID(backend.ID), LoadBalancerNodeID)
 	discardedACK := false
@@ -86,8 +89,8 @@ func TestPayloadProgressAfterLostFinalACK(t *testing.T) {
 func TestSmallReceiveWindowCompletesAfterLostACK(t *testing.T) {
 	input := payloadScenario()
 	capacity := 64
-	input.TCP.ReceiveBufferBytes = &capacity
-	world := New(normalizedRuntimeScenario(t, input))
+	input.Fixed.TCP.ReceiveBufferBytes = &capacity
+	world := newTimelineWorld(t, input)
 	backend := world.lb.GetServers()[0]
 	returnLink := scenarioRuntimeLink(t, world, BackendNodeID(backend.ID), LoadBalancerNodeID)
 
@@ -119,7 +122,7 @@ func TestSmallReceiveWindowCompletesAfterLostACK(t *testing.T) {
 	}
 
 	// The complete 2050-byte stream fits into 33 segments, plus one retransmission.
-	runIngressUntil(t, world, input.Execution.Duration)
+	runIngressUntil(t, world, input.Fixed.Execution.Duration)
 	assertNativePayloadProgress(t, world, 2050, 2050)
 	transfer := world.clients[0].Client.GetTransferState()
 	if transfer.Status != model.TransferSucceeded || transfer.DataRetransmissions != 1 {
@@ -138,11 +141,11 @@ func TestSmallReceiveWindowCompletesAfterLostACK(t *testing.T) {
 // Later segments wait on the backend until one retransmission fills the first gap.
 func TestSlidingWindowRecoversMissingFirstSegment(t *testing.T) {
 	input := payloadScenario()
-	input.Workload.Defaults.Bytes = 3 * model.SEGMENT_SIZE
-	input.Workload.Defaults.PacketGap = 0
+	input.Fixed.Workload.Defaults.Bytes = 3 * model.SEGMENT_SIZE
+	input.Fixed.Workload.Defaults.PacketGap = 0
 	capacity := 4 * model.SEGMENT_SIZE
-	input.TCP.ReceiveBufferBytes = &capacity
-	world := New(normalizedRuntimeScenario(t, input))
+	input.Fixed.TCP.ReceiveBufferBytes = &capacity
+	world := newTimelineWorld(t, input)
 
 	// Create the client, then intercept its data while retaining both physical hops.
 	runIngressUntil(t, world, 0)

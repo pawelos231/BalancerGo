@@ -1,7 +1,6 @@
 package simulation
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -19,8 +18,7 @@ import (
 type runtimeClientGroup struct {
 	Config         scenario.NormalizedClientGroup
 	AddressBase    int
-	ReservedCount  int
-	NextIndex      int // v1 reserves ahead; v2 advances this index at birth.
+	NextIndex      int // Advances only when this client is born.
 	Born           int
 	Present        bool
 	LastBornAt     time.Duration
@@ -49,11 +47,6 @@ type runtimeClient struct {
 // The remaining arrivals form a chain, rather than one upfront event per client.
 func (s *World) initializeClients(reservations []clientGroupReservation) {
 	groups := s.configuration.ClientGroups
-	if reservations == nil {
-		for _, group := range groups {
-			reservations = append(reservations, clientGroupReservation{group.ID, group.Count})
-		}
-	}
 	sort.Slice(reservations, func(i, j int) bool {
 		return reservations[i].ID < reservations[j].ID
 	})
@@ -62,7 +55,7 @@ func (s *World) initializeClients(reservations []clientGroupReservation) {
 	nextAddress := 1
 	for _, reservation := range reservations {
 		group := &runtimeClientGroup{
-			AddressBase: nextAddress, ReservedCount: reservation.Count,
+			AddressBase: nextAddress,
 		}
 		s.clientGroups[reservation.ID] = group
 		s.clientGroupOrder = append(s.clientGroupOrder, group)
@@ -74,23 +67,9 @@ func (s *World) initializeClients(reservations []clientGroupReservation) {
 		group.Config = config
 		group.Present = true
 		s.scheduledClients += config.Count
-		if s.timeline != nil {
-			continue
-		}
-		// v1 reserves initial indices before independent manual spawn batches.
-		group.NextIndex = config.Count
-		s.scheduleClientBatch(
-			group,
-			0,
-			group.Config.Count,
-			group.AddressBase,
-			group.Config.StartAt,
-		)
 	}
-	if s.timeline != nil {
-		for _, group := range s.clientGroupOrder {
-			s.planClientArrival(group, 0)
-		}
+	for _, group := range s.clientGroupOrder {
+		s.planClientArrival(group, 0)
 	}
 }
 
@@ -153,8 +132,8 @@ func (s *World) birthClient(group *runtimeClientGroup, index, address int) {
 	s.startClient(config, group.Config.ID, index, address)
 }
 
-// clientSettings also handles v1 manual slots beyond the original birth budget.
-// Callers already own the slot reservation; sparse overrides do not impose Count.
+// clientSettings resolves a reserved lifetime slot independently of the current
+// birth budget; retained clients can outlive a later reduction in Count.
 func clientSettings(group scenario.NormalizedClientGroup, index int) scenario.ClientConfig {
 	config := scenario.ClientConfig{
 		ID:      "client/" + group.ID + "/" + strconv.Itoa(index),
@@ -164,30 +143,6 @@ func clientSettings(group scenario.NormalizedClientGroup, index int) scenario.Cl
 		config.Network, config.Stream = override.Network, override.Stream
 	}
 	return config
-}
-
-// scheduleClientBatch creates each client at its own virtual arrival time.
-// The address range is reserved already, including clients beyond the end time.
-func (s *World) scheduleClientBatch(
-	group *runtimeClientGroup,
-	firstIndex, count, firstAddress int,
-	startAt time.Duration,
-) {
-	if count == 0 {
-		return
-	}
-
-	nextIndex := firstIndex
-	var arrival func()
-	arrival = func() {
-		address := firstAddress + nextIndex - firstIndex
-		s.birthClient(group, nextIndex, address)
-		nextIndex++
-		if nextIndex-firstIndex < count {
-			s.engine.ScheduleAfter(group.Config.ClientGap, arrival)
-		}
-	}
-	s.engine.ScheduleAt(startAt, arrival)
 }
 
 // startClient creates two private links and starts the configured TCP stream.
@@ -285,33 +240,5 @@ func (s *World) startClient(
 	cl.EstablishConnection()
 }
 
-// SpawnClients adds a batch to one group's settings, starting at the current time.
-// Multiple groups require an explicit groupId so profiles are never guessed.
-func (s *World) SpawnClients(count int, groupID string) error {
-	if s.timeline != nil {
-		return ErrTimelineManualMutation
-	}
-
-	invalidCount := count < 1 || count > 10000
-	addressRangeExceeded := s.scheduledClients > scenario.MaxClients-count
-	if invalidCount || addressRangeExceeded {
-		return errors.New("spawn count must be 1..10000 and fit the client address range")
-	}
-
-	if groupID == "" {
-		if len(s.clientGroups) != 1 {
-			return errors.New("spawn groupId is required unless the scenario has exactly one client group")
-		}
-		groupID = s.clientGroupOrder[0].Config.ID
-	}
-
-	if group, ok := s.clientGroups[groupID]; ok {
-		firstIndex := group.NextIndex
-		firstAddress := s.scheduledClients + 1
-		group.NextIndex += count
-		s.scheduledClients += count
-		s.scheduleClientBatch(group, firstIndex, count, firstAddress, s.engine.Now())
-		return nil
-	}
-	return fmt.Errorf("unknown client group: %s", groupID)
-}
+// SpawnClients rejects changes outside the admitted scenario timeline.
+func (*World) SpawnClients(int, string) error { return ErrTimelineManualMutation }

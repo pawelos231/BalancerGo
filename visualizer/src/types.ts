@@ -101,21 +101,12 @@ export interface LoadBalancerState {
 
 export type AlgorithmName = 'roundRobin' | 'random';
 
-export type SimulationCommand =
-  | {
-      Type: CommandType.SetAlgorithm;
-      Payload: { Name: string };
-    }
-  | {
-      Type: CommandType.SpawnClient;
-      Payload: { Count: number; groupId?: string };
-    }
-  | {
-      Type: CommandType.StopSimulation;
-      Payload: Record<string, never>;
-    };
+export type SimulationCommand = {
+  Type: CommandType.StopSimulation;
+  Payload: Record<string, never>;
+};
 
-// Form field names remain shared with the native scenario adapter; these are not live settings.
+// Form field names remain used by the scenario form; these are not live settings.
 export interface SimulationConfig {
   clients: number;
   servers: number;

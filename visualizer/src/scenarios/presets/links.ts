@@ -17,7 +17,7 @@ export const linkPresets: readonly ScenarioPreset[] = [
 
       uploadLimited.network.toLoadBalancer.bandwidthBitsPerSecond = 10_000_000;
       downloadLimited.network.fromLoadBalancer.bandwidthBitsPerSecond = 10_000_000;
-      scenario.workload.clientGroups = [uploadLimited, downloadLimited];
+      scenario.states['0'].workload.clientGroups = [uploadLimited, downloadLimited];
 
       return scenario;
     },
@@ -34,7 +34,7 @@ export const linkPresets: readonly ScenarioPreset[] = [
       const nearClients = presetClientGroup('near-clients', 8);
       const farClients = presetClientGroup('far-clients', 8);
 
-      scenario.network.profiles = [
+      scenario.fixed.network.profiles = [
         {
           id: 'near-client',
           config: { packetTravelTimeNanoseconds: 100_000 },
@@ -46,7 +46,7 @@ export const linkPresets: readonly ScenarioPreset[] = [
       ];
       nearClients.network.profile = 'near-client';
       farClients.network.profile = 'far-client';
-      scenario.workload.clientGroups = [nearClients, farClients];
+      scenario.states['0'].workload.clientGroups = [nearClients, farClients];
 
       return scenario;
     },
@@ -61,7 +61,7 @@ export const linkPresets: readonly ScenarioPreset[] = [
     build(defaults) {
       const scenario = isolatedExperiment(defaults);
 
-      for (const backend of scenario.resources.backends) {
+      for (const backend of scenario.states['0'].resources.backends) {
         backend.network.toLoadBalancer.bandwidthBitsPerSecond = 64_000;
       }
 

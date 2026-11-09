@@ -268,23 +268,8 @@ func (s *World) addOutput(
 	return output
 }
 
-// SetAlgorithm switches selection without resetting the algorithm RNG.
-func (s *World) SetAlgorithm(name string) error {
-	if s.timeline != nil {
-		return ErrTimelineManualMutation
-	}
-
-	switch name {
-	case "roundRobin":
-		s.lb.SetAlgorithm(&algorithms.RoundRobin{})
-	case "random":
-		s.lb.SetAlgorithm(&algorithms.Random{RNG: s.algorithmRNG})
-	default:
-		return fmt.Errorf("unknown algorithm: %s", name)
-	}
-	s.algorithm = name
-	return nil
-}
+// SetAlgorithm rejects changes outside the admitted scenario timeline.
+func (*World) SetAlgorithm(string) error { return ErrTimelineManualMutation }
 
 func (s *World) Now() time.Duration     { return s.engine.Now() }
 func (s *World) EndTime() time.Duration { return s.engine.EndTime() }
@@ -297,7 +282,7 @@ func (s *World) ScheduleAfter(delay time.Duration, callback func()) engine.Event
 	return s.engine.ScheduleAfter(delay, callback)
 }
 
-// AddBackend connects a backend using the same event and network wiring as New.
+// AddBackend connects a backend using the world's event and network wiring.
 func (s *World) AddBackend(config scenario.NormalizedBackend) { s.addBackend(config) }
 
 // StopBackend represents a silent crash; only this backend's local state is cleared.

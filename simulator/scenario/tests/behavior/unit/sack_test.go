@@ -12,33 +12,33 @@ import (
 func TestSACKDefaultsAndDocumentRoundTrip(t *testing.T) {
 	for _, requested := range []*bool{nil, pointer(false), pointer(true)} {
 		input := exampleScenario()
-		input.TCP.SACKEnabled = requested
+		input.Fixed.TCP.SACKEnabled = requested
 
-		encoded, err := scenario.EncodeDocument(input)
+		encoded, err := scenario.EncodeDocumentV2(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		restored, err := scenario.DecodeDocument(encoded)
+		restored, err := scenario.DecodeDocumentV2(encoded)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		// Omission inherits false without adding an override to the document.
 		if requested == nil {
-			if restored.TCP.SACKEnabled != nil || bytes.Contains(encoded, []byte("sackEnabled")) {
+			if restored.Fixed.TCP.SACKEnabled != nil || bytes.Contains(encoded, []byte("sackEnabled")) {
 				t.Fatal("an omitted SACK setting became an explicit override")
 			}
-		} else if restored.TCP.SACKEnabled == nil || *restored.TCP.SACKEnabled != *requested {
+		} else if restored.Fixed.TCP.SACKEnabled == nil || *restored.Fixed.TCP.SACKEnabled != *requested {
 			t.Fatal("the explicit SACK choice changed during the round trip")
 		}
 
-		resolved, err := scenario.Normalize(restored)
+		resolved, err := scenario.NormalizeV2(restored)
 		if err != nil {
 			t.Fatal(err)
 		}
 		want := requested != nil && *requested
-		if resolved.TCP.SACKEnabled != want {
-			t.Fatalf("SACK enabled = %v, want %v", resolved.TCP.SACKEnabled, want)
+		if resolved.Fixed.TCP.SACKEnabled != want {
+			t.Fatalf("SACK enabled = %v, want %v", resolved.Fixed.TCP.SACKEnabled, want)
 		}
 	}
 }
@@ -48,10 +48,10 @@ func TestSACKSupportedRecoveryProfiles(t *testing.T) {
 	for _, mode := range []string{"reno", "newReno", "cubic", "tahoe", "none"} {
 		t.Run(mode, func(t *testing.T) {
 			input := exampleScenario()
-			input.TCP.SACKEnabled = pointer(true)
-			input.TCP.CongestionControl.Mode = pointer(mode)
+			input.Fixed.TCP.SACKEnabled = pointer(true)
+			input.Fixed.TCP.CongestionControl.Mode = pointer(mode)
 
-			_, err := scenario.Normalize(input)
+			_, err := scenario.NormalizeV2(input)
 			wantValid := mode == "reno" || mode == "newReno" || mode == "cubic"
 			if wantValid {
 				if err != nil {
@@ -65,9 +65,9 @@ func TestSACKSupportedRecoveryProfiles(t *testing.T) {
 
 	// Disabling fast recovery cannot silently retain SACK recovery.
 	input := exampleScenario()
-	input.TCP.SACKEnabled = pointer(true)
-	input.TCP.CongestionControl.FastRetransmit = pointer(false)
-	if _, err := scenario.Normalize(input); err == nil || !strings.Contains(err.Error(), "tcp.sackEnabled") {
+	input.Fixed.TCP.SACKEnabled = pointer(true)
+	input.Fixed.TCP.CongestionControl.FastRetransmit = pointer(false)
+	if _, err := scenario.NormalizeV2(input); err == nil || !strings.Contains(err.Error(), "tcp.sackEnabled") {
 		t.Fatalf("expected a SACK dependency error, got %v", err)
 	}
 }
