@@ -7,7 +7,8 @@ not discover them as runnable scenarios.
 
 `scenario.DecodeDocumentV2` and `scenario.EncodeDocumentV2` check document syntax.
 `scenario.NormalizeV2` additionally validates the whole timeline and resolves
-each state independently. E1.3 will add frontend types. Successful validation
+each state independently. The frontend has matching types and local validation.
+Successful validation
 does not enable execution; timeline transitions are implemented in later phases.
 
 | File | Intended experiment | Target application payload |
@@ -132,8 +133,10 @@ check semantic validity; the same checks also cover directly constructed Go valu
 Normalization requires positive duration, a state at zero, and state times strictly
 below duration. It checks setting ranges, enum values, profile references, duplicate
 IDs/endpoints, retained identities, insertion times and run-wide client reservations.
-Equivalent IP spellings and host casing identify the same backend endpoint; the
-original address spelling is preserved. A later error rejects the whole timeline,
+Equivalent IP spellings and ASCII host casing identify the same backend endpoint.
+Other Unicode characters remain literal and case-sensitive; this v2 policy avoids
+depending on the browser's or Go compiler's Unicode version. The original address
+spelling is preserved. A later error rejects the whole timeline,
 without returning partially usable states or creating runtime objects.
 
 `NormalizedV2.Fixed` holds shared resolved settings; `States` contains full states
@@ -153,3 +156,30 @@ birth budget; later runtime updates must also handle existing clients beyond it.
 Client start times beyond the run duration and large arrival gaps are allowed;
 they may produce no arrivals during the run. Generator progress, overflow-safe
 replanning and state differences belong to E1.4/E1.12, not document normalization.
+
+## Frontend validation
+
+`visualizer/src/scenarios/v2.ts` exposes two entry points:
+
+- `parseScenarioV2(text)` checks raw JSON before a browser can round number tokens
+  or replace duplicate keys. Use it for imported documents.
+- `validateScenarioV2(input)` checks an existing object and returns a detached,
+  typed document. Large integers in an existing object must already be strings;
+  validation cannot recover digits lost before it was called.
+
+Both check the complete timeline using the backend's limits and identity rules.
+They fill ordinary missing fields with Go zero values and preserve optional
+null/zero distinctions. TCP, link, CPU and stream defaults are considered when
+validating dependencies; the returned document is not a resolved runtime snapshot.
+Timestamp sorting and integer arithmetic use `bigint` internally, while the DTO
+retains JSON-compatible numbers and decimal strings. Invalid Unicode surrogate
+escapes are replaced with U+FFFD, matching Go's JSON reader.
+
+The existing form, file import and Start still use v1. This module is the v2
+validation foundation; runtime admission follows in E1.13 and UI migration in E1.14.
+
+`validation/cases.json` supplies the same valid and invalid inputs to Go and
+TypeScript tests. Each case edits a fresh copy of `static.json`; optional text
+replacements preserve ambiguous raw tokens such as duplicate keys and exponents.
+Negative cases also check the intended error field. Add shared cases whenever
+a rule changes so the two implementations remain aligned.

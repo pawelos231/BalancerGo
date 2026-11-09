@@ -2,6 +2,8 @@ package scenario
 
 import (
 	"fmt"
+	"net"
+	"strconv"
 	"time"
 )
 
@@ -56,7 +58,7 @@ func (identities *timelineIdentities) backend(
 		return err
 	}
 
-	endpoint := endpointKey(backend.Address, backend.Port)
+	endpoint := endpointKeyV2(backend.Address, backend.Port)
 	if !firstVisit && identity.endpoint != endpoint {
 		return fmt.Errorf("%s: retained backend address and port must not change", path)
 	}
@@ -98,4 +100,20 @@ func (identities *timelineIdentities) group(
 	identities.reservedClients += additionalSlots
 	identity.clientSlots += additionalSlots
 	return identity.clientSlots, nil
+}
+
+// V2 folds only ASCII letters so hostname identity does not depend on Unicode versions.
+// Other characters remain literal; equivalent IPv6 spellings still identify the same IP.
+func endpointKeyV2(address string, port uint16) string {
+	bytes := []byte(address)
+	for index, character := range bytes {
+		if character >= 'A' && character <= 'Z' {
+			bytes[index] += 'a' - 'A'
+		}
+	}
+	host := string(bytes)
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	}
+	return net.JoinHostPort(host, strconv.Itoa(int(port)))
 }

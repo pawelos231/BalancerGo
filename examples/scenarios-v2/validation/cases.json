@@ -1,0 +1,314 @@
+{
+  "base": "../static.json",
+  "cases": [
+    {
+      "name": "complete static example",
+      "valid": true
+    },
+    {
+      "name": "null optional fields select defaults",
+      "valid": true,
+      "changes": [
+        { "path": ["fixed", "tcp", "mssBytes"], "value": null },
+        { "path": ["states", "0", "resources", "backends", "0", "physicalAvailable"], "value": null },
+        { "path": ["states", "0", "resources", "backends", "0", "administrativeState"], "value": null }
+      ]
+    },
+    {
+      "name": "large exact timestamps and integer strings",
+      "valid": true,
+      "changes": [
+        { "path": ["fixed", "execution", "durationNanoseconds"], "value": "9007199254740994" },
+        { "path": ["fixed", "execution", "seed"], "value": "-9007199254740993" },
+        { "path": ["fixed", "execution", "maxEvents"], "value": "18446744073709551615" },
+        {
+          "path": ["states", "9007199254740993"],
+          "value": {
+            "resources": {
+              "loadBalancer": {
+                "algorithm": "roundRobin",
+                "ingress": { "bandwidthBitsPerSecond": 1000000 },
+                "forwardingBitsPerSecond": 1000000
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "historical client override after count reduction",
+      "valid": true,
+      "changes": [
+        {
+          "path": ["states", "1"],
+          "value": {
+            "resources": {
+              "loadBalancer": {
+                "algorithm": "random",
+                "ingress": { "bandwidthBitsPerSecond": 1000000 },
+                "forwardingBitsPerSecond": 1000000
+              }
+            },
+            "workload": {
+              "clientGroups": [{ "id": "clients", "count": 1, "overrides": [{ "index": 3 }] }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "equivalent IPv6 endpoints retain identity",
+      "valid": true,
+      "changes": [
+        { "path": ["states", "0", "resources", "backends", "0", "address"], "value": "2001:0db8:0:0:0:0:0:1" },
+        {
+          "path": ["states", "1"],
+          "value": {
+            "resources": {
+              "loadBalancer": {
+                "algorithm": "roundRobin",
+                "ingress": { "bandwidthBitsPerSecond": 1000000 },
+                "forwardingBitsPerSecond": 1000000
+              },
+              "backends": [{ "id": "backend-1", "address": "2001:db8::1", "port": 80 }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "state at the duration is rejected",
+      "valid": false,
+      "errorField": "states",
+      "changes": [
+        { "path": ["states", "10000000000"], "value": {} }
+      ]
+    },
+    {
+      "name": "invalid late state rejects the timeline",
+      "valid": false,
+      "errorField": "algorithm",
+      "changes": [
+        {
+          "path": ["states", "1"],
+          "value": {
+            "resources": {
+              "loadBalancer": {
+                "algorithm": "unknown",
+                "ingress": { "bandwidthBitsPerSecond": 1000000 },
+                "forwardingBitsPerSecond": 1000000
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "unknown network profile",
+      "valid": false,
+      "errorField": "profile",
+      "changes": [
+        { "path": ["states", "0", "resources", "backends", "0", "network", "profile"], "value": "missing" }
+      ]
+    },
+    {
+      "name": "removed backend identity cannot return",
+      "valid": false,
+      "errorField": "backend",
+      "changes": [
+        {
+          "path": ["states", "1"],
+          "value": {
+            "resources": {
+              "loadBalancer": {
+                "algorithm": "roundRobin",
+                "ingress": { "bandwidthBitsPerSecond": 1000000 },
+                "forwardingBitsPerSecond": 1000000
+              }
+            }
+          }
+        },
+        {
+          "path": ["states", "2"],
+          "value": {
+            "resources": {
+              "loadBalancer": {
+                "algorithm": "roundRobin",
+                "ingress": { "bandwidthBitsPerSecond": 1000000 },
+                "forwardingBitsPerSecond": 1000000
+              },
+              "backends": [{ "id": "backend-1", "address": "10.0.0.1", "port": 80 }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "removed group does not release client reservations",
+      "valid": false,
+      "errorField": "count",
+      "changes": [
+        { "path": ["states", "0", "workload", "clientGroups", "0", "count"], "value": 16777215 },
+        {
+          "path": ["states", "1"],
+          "value": {
+            "resources": {
+              "loadBalancer": {
+                "algorithm": "roundRobin",
+                "ingress": { "bandwidthBitsPerSecond": 1000000 },
+                "forwardingBitsPerSecond": 1000000
+              }
+            },
+            "workload": {
+              "clientGroups": [{ "id": "replacement", "count": 1, "startAtNanoseconds": 1 }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "SACK cannot use Tahoe",
+      "valid": false,
+      "errorField": "sackEnabled",
+      "changes": [
+        { "path": ["fixed", "tcp", "congestionControl", "mode"], "value": "tahoe" }
+      ]
+    },
+    {
+      "name": "ECN requires congestion control",
+      "valid": false,
+      "errorField": "ECNenabled",
+      "changes": [
+        { "path": ["fixed", "tcp", "sackEnabled"], "value": false },
+        { "path": ["fixed", "tcp", "ECNenabled"], "value": true },
+        { "path": ["fixed", "tcp", "congestionControl", "mode"], "value": "none" },
+        { "path": ["fixed", "tcp", "congestionControl", "fastRetransmit"], "value": false }
+      ]
+    },
+    {
+      "name": "unknown state fields are rejected",
+      "valid": false,
+      "errorField": "tcp",
+      "changes": [
+        { "path": ["states", "0", "tcp"], "value": {} }
+      ]
+    },
+    {
+      "name": "escaped duplicate fields are rejected before overwrite",
+      "valid": false,
+      "errorField": "version",
+      "replacements": [
+        { "from": "\"version\":2", "to": "\"version\":2,\"\\u0076ersion\":2" }
+      ]
+    },
+    {
+      "name": "unsafe unquoted integers are rejected",
+      "valid": false,
+      "errorField": "maxEvents",
+      "replacements": [
+        { "from": "\"maxEvents\":1000000", "to": "\"maxEvents\":9007199254740993" }
+      ]
+    },
+    {
+      "name": "integer exponent tokens are rejected",
+      "valid": false,
+      "errorField": "durationNanoseconds",
+      "replacements": [
+        { "from": "\"durationNanoseconds\":10000000000", "to": "\"durationNanoseconds\":1e10" }
+      ]
+    },
+    {
+      "name": "integer fractional tokens are rejected even when integral",
+      "valid": false,
+      "errorField": "durationNanoseconds",
+      "replacements": [
+        { "from": "\"durationNanoseconds\":10000000000", "to": "\"durationNanoseconds\":10000000000.0" }
+      ]
+    },
+    {
+      "name": "unpaired surrogate addresses collapse to the same endpoint",
+      "valid": false,
+      "errorField": "address",
+      "replacements": [
+        { "from": "\"address\":\"10.0.0.1\"", "to": "\"address\":\"\\ud800\"" },
+        { "from": "\"address\":\"10.0.0.2\"", "to": "\"address\":\"\\ud801\"" }
+      ]
+    },
+    {
+      "name": "unpaired surrogates preserve a retained endpoint after replacement",
+      "valid": true,
+      "changes": [
+        {
+          "path": ["states", "1"],
+          "value": {
+            "resources": {
+              "loadBalancer": {
+                "algorithm": "roundRobin",
+                "ingress": { "bandwidthBitsPerSecond": 1000000 },
+                "forwardingBitsPerSecond": 1000000
+              },
+              "backends": [{ "id": "backend-1", "address": "retained-address", "port": 80 }]
+            }
+          }
+        }
+      ],
+      "replacements": [
+        { "from": "\"address\":\"10.0.0.1\"", "to": "\"address\":\"\\ud800\"" },
+        { "from": "\"address\":\"retained-address\"", "to": "\"address\":\"\\ud801\"" }
+      ]
+    },
+    {
+      "name": "Unicode host identity is independent of runtime Unicode versions",
+      "valid": true,
+      "changes": [
+        { "path": ["states", "0", "resources", "backends", "0", "address"], "value": "\u1c89" },
+        { "path": ["states", "0", "resources", "backends", "1", "address"], "value": "\u1c8a" }
+      ]
+    },
+    {
+      "name": "retained Unicode hostname change is not ASCII case folding",
+      "valid": false,
+      "errorField": "retained backend address and port",
+      "changes": [
+        { "path": ["states", "0", "resources", "backends", "0", "address"], "value": "\u1c89" },
+        {
+          "path": ["states", "1"],
+          "value": {
+            "resources": {
+              "loadBalancer": {
+                "algorithm": "roundRobin",
+                "ingress": { "bandwidthBitsPerSecond": 1000000 },
+                "forwardingBitsPerSecond": 1000000
+              },
+              "backends": [{ "id": "backend-1", "address": "\u1c8a", "port": 80 }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "an exponent in an IPv4 tail remains a literal hostname",
+      "valid": true,
+      "changes": [
+        { "path": ["states", "0", "resources", "backends", "0", "address"], "value": "::ffff:1e-7.2.3.4" },
+        { "path": ["states", "0", "resources", "backends", "1", "address"], "value": "0.2.3.4" }
+      ]
+    },
+    {
+      "name": "IPv4 mapped IPv6 is the same endpoint as IPv4",
+      "valid": false,
+      "errorField": "address",
+      "changes": [
+        { "path": ["states", "0", "resources", "backends", "0", "address"], "value": "::ffff:192.0.2.1" },
+        { "path": ["states", "0", "resources", "backends", "1", "address"], "value": "192.0.2.1" }
+      ]
+    },
+    {
+      "name": "signed negative zero is accepted",
+      "valid": true,
+      "replacements": [
+        { "from": "\"seed\":1", "to": "\"seed\":-0" }
+      ]
+    }
+  ]
+}

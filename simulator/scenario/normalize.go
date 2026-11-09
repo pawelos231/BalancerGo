@@ -91,7 +91,8 @@ func Normalize(input Scenario) (Normalized, error) {
 			return Normalized{}, err
 		}
 
-		if err := validateAddress(backend, usedAddresses, path); err != nil {
+		key := endpointKey(backend.Address, backend.Port)
+		if err := validateAddress(backend, usedAddresses, path, key); err != nil {
 			return Normalized{}, err
 		}
 
@@ -551,8 +552,12 @@ func registerID(ids map[string]string, id, path string) error {
 }
 
 // validateAddress checks the host and port, then rejects duplicate endpoints.
-// Host casing and equivalent IP spellings use the same comparison key.
-func validateAddress(backend BackendConfig, addresses map[string]string, path string) error {
+// The caller supplies the comparison key for its contract version.
+func validateAddress(
+	backend BackendConfig,
+	addresses map[string]string,
+	path, comparisonKey string,
+) error {
 	emptyHost := backend.Address == ""
 	hostHasWhitespace := strings.ContainsAny(backend.Address, " \t\r\n")
 
@@ -564,17 +569,16 @@ func validateAddress(backend BackendConfig, addresses map[string]string, path st
 		return fmt.Errorf("%s.port: must be in 1..65535", path)
 	}
 
-	address := endpointKey(backend.Address, backend.Port)
-	if previous, exists := addresses[address]; exists {
+	if previous, exists := addresses[comparisonKey]; exists {
 		return fmt.Errorf(
 			"%s.address: endpoint %q already used by %s",
 			path,
-			address,
+			comparisonKey,
 			previous,
 		)
 	}
 
-	addresses[address] = path
+	addresses[comparisonKey] = path
 	return nil
 }
 

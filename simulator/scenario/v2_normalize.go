@@ -150,7 +150,8 @@ func normalizeStateV2(
 			return NormalizedState{}, err
 		}
 		endpoint := BackendConfig{Address: backend.Address, Port: backend.Port}
-		if err := validateAddress(endpoint, usedAddresses, backendPath); err != nil {
+		key := endpointKeyV2(backend.Address, backend.Port)
+		if err := validateAddress(endpoint, usedAddresses, backendPath, key); err != nil {
 			return NormalizedState{}, err
 		}
 		if err := identities.backend(backend, backendPath, stateIndex); err != nil {
