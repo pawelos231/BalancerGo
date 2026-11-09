@@ -111,6 +111,7 @@ type HostState struct {
 	QueueDroppedPackets             uint64        `json:"queueDroppedPackets"`
 	DiscardedPackets                uint64        `json:"discardedPackets"`
 	BusyTimeSeconds                 float64       `json:"busyTimeSeconds"`
+	AvailableCoreTimeSeconds        float64       `json:"availableCoreTimeSeconds"`
 	ObservedTimeSeconds             float64       `json:"observedTimeSeconds"`
 	MeanQueueWaitSeconds            float64       `json:"meanQueueWaitSeconds"`
 	MaxQueueWaitSeconds             float64       `json:"maxQueueWaitSeconds"`

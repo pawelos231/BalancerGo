@@ -39,6 +39,11 @@ func (s *Server) SetHostConfig(config host.Config) {
 
 func (s *Server) HostStats() host.Stats { return s.processor.Stats() }
 
+// PrepareHostConfig edits CPU limits while preserving packet work and TCP state.
+func (s *Server) PrepareHostConfig(config host.Config) host.PreparedConfig {
+	return s.processor.PrepareConfig(config)
+}
+
 func (s *Server) SetReceiveBufferBytes(capacity int) {
 	s.transport.SetReceiveBufferBytes(capacity)
 }

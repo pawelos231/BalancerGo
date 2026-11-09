@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"time"
 
+	"load-balancer/host"
 	"load-balancer/network"
 	"load-balancer/scenario"
 	"load-balancer/server"
@@ -34,10 +35,17 @@ type configurationCommit struct {
 	links             []linkConfigurationChange
 	forwardingChanged bool
 	forwarding        network.PreparedForwardingConfig
+	hosts             []hostConfigurationChange
 }
 
 type backendNameChange struct {
 	id, name string
+}
+
+type hostConfigurationChange struct {
+	backendID string // Empty selects the shared LB CPU.
+	config    host.Config
+	prepared  host.PreparedConfig
 }
 
 // Link settings are resolved first, then bound to existing links before the run.
@@ -48,7 +56,7 @@ type linkConfigurationChange struct {
 }
 
 // NewTimeline prepares a world only after every transition has a supported executor.
-// Backend names, links and shared LB network limits have prepared executors.
+// Backend names and mutable network/CPU limits have prepared executors.
 func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("simulation: compiled timeline is required")
@@ -71,13 +79,20 @@ func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	for _, backend := range world.lb.GetServers() {
 		world.timeline.backends[backend.ID] = backend
 	}
-	world.prepareNetworkCommits(commits)
+	world.prepareResourceCommits(commits)
 
 	// Register all configuration events before any packet or arrival is executed.
 	for _, commit := range commits {
 		world.engine.ScheduleConfigurationAt(commit.at, func() {
 			world.commitConfiguration(commit)
 		})
+		if len(commit.hosts) > 0 {
+			world.engine.ScheduleAt(commit.at, func() {
+				for _, change := range commit.hosts {
+					change.prepared.Resume()
+				}
+			})
+		}
 	}
 	return world, nil
 }
@@ -110,6 +125,11 @@ func prepareConfigurationCommits(
 			names:         make([]backendNameChange, 0, len(transition.Backends.Updated)),
 		}
 		if update := transition.LoadBalancer; update != nil {
+			if update.HostChanged {
+				commit.hosts = append(commit.hosts, hostConfigurationChange{
+					config: configuredHost(update.Config.Host),
+				})
+			}
 			if update.IngressChanged {
 				commit.links = append(commit.links, linkConfigurationChange{
 					id: "link/infrastructure/ingress", config: update.Config.Ingress,
@@ -118,6 +138,11 @@ func prepareConfigurationCommits(
 			commit.forwardingChanged = update.ForwardingChanged
 		}
 		for _, update := range transition.Backends.Updated {
+			if update.HostChanged {
+				commit.hosts = append(commit.hosts, hostConfigurationChange{
+					backendID: update.Config.ID, config: configuredHost(update.Config.Host),
+				})
+			}
 			if update.NameChanged {
 				commit.names = append(commit.names, backendNameChange{
 					id: update.Config.ID, name: update.Config.Name,
@@ -148,8 +173,8 @@ func checkSupportedTransition(transition scenario.Transition) error {
 		return fmt.Errorf("%w at %s: %s", ErrUnsupportedTimelineChange, transition.At, feature)
 	}
 	if update := transition.LoadBalancer; update != nil {
-		if update.HostChanged || update.AlgorithmChanged || update.TimeoutsChanged {
-			return unsupported("load balancer CPU, algorithm or mapping timeouts")
+		if update.AlgorithmChanged || update.TimeoutsChanged {
+			return unsupported("load balancer algorithm or mapping timeouts")
 		}
 	}
 	if len(transition.Backends.Added) != 0 || len(transition.Backends.Removed) != 0 {
@@ -160,22 +185,30 @@ func checkSupportedTransition(transition scenario.Transition) error {
 		return unsupported("client generators")
 	}
 	for _, update := range transition.Backends.Updated {
-		if update.HostChanged || update.AvailabilityChanged || update.AdmissionChanged {
-			return unsupported("backend CPU, availability or admission policy")
+		if update.AvailabilityChanged || update.AdmissionChanged {
+			return unsupported("backend availability or admission policy")
 		}
 	}
 	return nil
 }
 
-// prepareNetworkCommits binds checked limits and any new ECN stream before Advance.
+// prepareResourceCommits binds checked limits and any new ECN stream before Advance.
 // Existing streams are retained when later edits disable and re-enable signaling.
-func (s *World) prepareNetworkCommits(commits []configurationCommit) {
+func (s *World) prepareResourceCommits(commits []configurationCommit) {
 	links := make(map[string]*network.Link, len(s.links))
 	for _, link := range s.links {
 		links[link.ID] = link.Link
 	}
 	for commitIndex := range commits {
 		commit := &commits[commitIndex]
+		for changeIndex := range commit.hosts {
+			change := &commit.hosts[changeIndex]
+			if change.backendID == "" {
+				change.prepared = s.lb.PrepareHostConfig(change.config)
+			} else {
+				change.prepared = s.timeline.backends[change.backendID].PrepareHostConfig(change.config)
+			}
+		}
 		if commit.forwardingChanged {
 			commit.forwarding = s.egress.PrepareForwardingConfig(
 				commit.configuration.LoadBalancer.ForwardingBitsPerSecond,
@@ -222,6 +255,9 @@ func timelineConfiguration(plan *scenario.CompiledV2, state scenario.NormalizedS
 // commitConfiguration runs to completion as one configuration-priority event.
 // Publish the new configuration and its generation only after every edit is applied.
 func (s *World) commitConfiguration(commit configurationCommit) {
+	for _, change := range commit.hosts {
+		change.prepared.Apply()
+	}
 	for _, change := range commit.links {
 		change.prepared.Apply()
 	}

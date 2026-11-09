@@ -10,6 +10,7 @@ import {
 } from '@mui/material';
 import type { HostState, ServerStateWithClients } from '../types';
 import { formatBytes, formatNumber } from '../topology/format';
+import { showHostCPUWork } from '../topology/telemetry';
 import HelpTooltip from './HelpTooltip';
 
 interface BackendMetricProps {
@@ -101,7 +102,10 @@ function BackendCard({ server, clients, host }: ServerStateWithClients & { host?
           {host && (
             <Stack spacing={0.5}>
               <Typography variant="subtitle2">Host processing</Typography>
-              {host.enabled ? (
+              {!host.enabled && (
+                <Typography variant="body2" color="text.secondary">New packets bypass CPU</Typography>
+              )}
+              {showHostCPUWork(host) && (
                 <>
                   <Typography variant="body2">
                     Busy cores: {host.busyCores} / {host.cores}
@@ -112,7 +116,7 @@ function BackendCard({ server, clients, host }: ServerStateWithClients & { host?
                     {' · '}Drops: {formatNumber(host.queueDroppedPackets, 0)}
                   </Typography>
                 </>
-              ) : <Typography variant="body2" color="text.secondary">CPU model disabled</Typography>}
+              )}
             </Stack>
           )}
 

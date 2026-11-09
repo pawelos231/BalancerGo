@@ -177,6 +177,123 @@ func TestTimelineSharedNetworkEditRefreshesTopologyConfiguration(t *testing.T) {
 	}
 }
 
+// Host-only commits refresh cached settings and keep CPU history through bypass.
+func TestTimelineHostEditRefreshesTopologyConfiguration(t *testing.T) {
+	for _, resource := range []string{"loadBalancer", "backend"} {
+		t.Run(resource, func(t *testing.T) {
+			input := timelineProjectionDefinition()
+			nodeID := simulation.LoadBalancerNodeID
+			if resource == "backend" {
+				nodeID = simulation.BackendNodeID("one")
+			}
+			withHost := func(cores, queue int, cost time.Duration) scenario.StateConfig {
+				state := input.States["0"]
+				state.Resources.Backends = append(
+					[]scenario.BackendStateConfig(nil), state.Resources.Backends...,
+				)
+				host := scenario.HostConfig{
+					Cores: &cores, QueueCapacity: &queue, PacketProcessingTime: &cost,
+				}
+				if resource == "loadBalancer" {
+					state.Resources.LoadBalancer.Host = host
+				} else {
+					state.Resources.Backends[0].Host = host
+				}
+				return state
+			}
+			input.States["0"] = withHost(2, 4, 300*time.Millisecond)
+			input.States["250000000"] = withHost(1, 1, 0)
+			input.States["375000000"] = withHost(3, 7, 2*time.Millisecond)
+
+			world := timelineProjectionFrom(t, input)
+			advanceProjection(t, world, 0)
+			projector := NewProjector("host-settings")
+			first := project(t, projector, world)
+			oldDocument := jsonProjection(t, first.Document)
+			assertHostDefinition(t, first.Document, nodeID, 1, 2, 300_000, 4)
+
+			advanceProjection(t, world, 250*time.Millisecond-time.Nanosecond)
+			if before := project(t, projector, world); before.Document != nil ||
+				before.Topology.Revision != "1" {
+				t.Fatal("a future CPU change invalidated definitions before its boundary")
+			}
+
+			advanceProjection(t, world, 250*time.Millisecond)
+			frame, definition, err := BuildSnapshot(world, projector, RunState{
+				Status: "running", RunID: "host-settings",
+			})
+			if err != nil || definition == nil || definition.Revision != "2" ||
+				frame.Topology.Revision != "2" {
+				t.Fatalf("CPU bypass did not publish one coherent definition: %v", err)
+			}
+			assertHostDefinition(t, definition, nodeID, 0, 1, 0, 1)
+			foundLive := false
+			for _, node := range frame.Topology.Nodes {
+				if node.ID != nodeID {
+					continue
+				}
+				foundLive = true
+				if node.Metrics["hostBusyCores"] == 0 ||
+					node.Metrics["hostBusyTimeSeconds"] <= 0 ||
+					node.Metrics["hostAvailableCoreTimeSeconds"] <= 0 ||
+					node.Metrics["hostUtilization"] <= 0 {
+					t.Fatalf("bypass hid retiring jobs or their CPU history: %+v", node.Metrics)
+				}
+			}
+			if !foundLive {
+				t.Fatalf("CPU sample is missing node %q", nodeID)
+			}
+			events := world.EventsExecuted()
+			if repeated := project(t, projector, world); repeated.Document != nil ||
+				repeated.Topology.Revision != "2" || world.EventsExecuted() != events {
+				t.Fatal("reading the CPU commit changed its revision or executed work")
+			}
+
+			advanceProjection(t, world, 375*time.Millisecond)
+			reenabled := project(t, projector, world)
+			if reenabled.Document == nil || reenabled.Document.Revision != "3" ||
+				reenabled.Topology.Revision != "3" {
+				t.Fatal("re-enabling finite CPU did not refresh the cached definition")
+			}
+			assertHostDefinition(t, reenabled.Document, nodeID, 1, 3, 2_000, 7)
+			if jsonProjection(t, first.Document) != oldDocument ||
+				project(t, projector, world).Document != nil {
+				t.Fatal("CPU commits mutated an old document or invalidated the new cache")
+			}
+		})
+	}
+}
+
+func assertHostDefinition(
+	t *testing.T,
+	document *contract.TopologyDocument,
+	nodeID string,
+	enabled, cores, costUs, queue float64,
+) {
+	t.Helper()
+	for _, node := range document.Nodes {
+		if node.ID != nodeID {
+			continue
+		}
+		values := make(map[string]float64)
+		for _, metric := range node.Metrics {
+			if metric.Value != nil {
+				values[metric.Key] = *metric.Value
+			}
+		}
+		for key, want := range map[string]float64{
+			"hostCPUEnabled": enabled, "hostCores": cores,
+			"hostPacketProcessingTimeUs": costUs, "hostQueueCapacity": queue,
+		} {
+			if got, exists := values[key]; !exists || got != want {
+				t.Fatalf("CPU definition %s/%s = %v, want %v", nodeID, key, got, want)
+			}
+		}
+		return
+	}
+	t.Fatalf("CPU definition is missing node %q", nodeID)
+}
+
 // Backend names and the frame revision become visible together after one configuration event.
 func TestTimelineCommitPublishesOneCompleteDefinitionBeforeItsSnapshot(t *testing.T) {
 	world := timelineProjectionWorld(t)

@@ -82,6 +82,8 @@ export interface HostState {
   processedPackets: number;
   queueDroppedPackets: number;
   utilization: number;
+  busyTimeSeconds?: number;
+  availableCoreTimeSeconds?: number;
 }
 
 export interface ServerStateWithClients {

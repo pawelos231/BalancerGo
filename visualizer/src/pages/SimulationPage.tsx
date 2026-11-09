@@ -13,7 +13,7 @@ import HelpTooltip from '../components/HelpTooltip';
 import PayloadProgress from '../components/PayloadProgress';
 import TransferResults from '../components/TransferResults';
 import type { LoadBalancerState } from '../types';
-import { nodeHostState } from '../topology/telemetry';
+import { nodeHostState, showHostCPUWork } from '../topology/telemetry';
 import { formatNumber } from '../topology/format';
 
 interface SimulationPageProps {
@@ -80,14 +80,15 @@ function SimulationPage({ data }: SimulationPageProps) {
           </Stack>
           {lbHost && (
             <Typography variant="body2" sx={{ mt: 1 }}>
-              {lbHost.enabled ? (
+              {!lbHost.enabled && 'New packets bypass CPU. '}
+              {showHostCPUWork(lbHost) && (
                 <>
                   CPU: {lbHost.busyCores}/{lbHost.cores} cores busy
                   {' · '}Run mean: {formatNumber(lbHost.utilization * 100)}%
                   {' · '}Queue: {lbHost.queuedPackets}/{lbHost.queueCapacity}
                   {' · '}CPU drops: {formatNumber(lbHost.queueDroppedPackets, 0)}
                 </>
-              ) : 'CPU model disabled'}
+              )}
             </Typography>
           )}
         </CardContent>

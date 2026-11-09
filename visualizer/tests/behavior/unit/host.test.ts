@@ -8,7 +8,7 @@ import {
 import { applyScenarioField } from '../../../src/scenarios/draft.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
 import { scenarioFixture } from '../../scenarioFixture.ts';
-import { nodeHostState } from '../../../src/topology/telemetry.ts';
+import { nodeHostState, showHostCPUWork } from '../../../src/topology/telemetry.ts';
 import { formatMetric } from '../../../src/topology/format.ts';
 
 function backendsScenario() {
@@ -131,4 +131,30 @@ test('host telemetry retains occupancy and formats virtual utilization as a perc
   assert.equal(host.queueDroppedPackets, 12);
   assert.equal(formatMetric({ key: 'hostUtilization', label: 'CPU', value: host.utilization }), '87.5%');
   assert.equal(nodeHostState(undefined), undefined);
+});
+
+test('zero-cost host telemetry retains earlier utilization and retiring work', () => {
+  const values = {
+    hostCPUEnabled: 0, hostCores: 1, hostBusyCores: 2,
+    hostUtilization: 2 / 3, hostBusyTimeSeconds: 2, hostAvailableCoreTimeSeconds: 3,
+  };
+  const host = nodeHostState({
+    id: 'backend/one', kind: 'backend', label: 'One',
+    metrics: Object.entries(values).map(([key, value]) => ({ key, label: key, value })),
+  });
+  assert.ok(host);
+  assert.equal(host.enabled, false);
+  assert.equal(host.busyCores, 2);
+  assert.equal(host.availableCoreTimeSeconds, 3);
+  assert.equal(host.busyTimeSeconds, 2);
+  assert.equal(showHostCPUWork(host), true);
+  assert.equal(showHostCPUWork({ ...host, busyCores: 0 }), true);
+
+  const legacy = nodeHostState({
+    id: 'backend/one', kind: 'backend', label: 'One',
+    metrics: [{ key: 'hostCPUEnabled', label: 'CPU', value: 0 }],
+  });
+  assert.ok(legacy);
+  assert.equal(legacy.availableCoreTimeSeconds, undefined);
+  assert.equal(showHostCPUWork(legacy), false);
 });

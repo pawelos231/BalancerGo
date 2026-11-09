@@ -13,3 +13,8 @@ func (lb *LoadBalancer) SetHostConfig(config host.Config) {
 }
 
 func (lb *LoadBalancer) HostStats() host.Stats { return lb.processor.Stats() }
+
+// PrepareHostConfig edits CPU limits while preserving packet work and counters.
+func (lb *LoadBalancer) PrepareHostConfig(config host.Config) host.PreparedConfig {
+	return lb.processor.PrepareConfig(config)
+}

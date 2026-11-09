@@ -341,6 +341,33 @@ unsafe unquoted numbers, fractional integers and unknown fields are rejected.
 `scenario.EncodeDocument` and `DecodeDocument` handle this transport boundary;
 the model and normalizer continue using native Go types.
 
+### Mutable virtual CPUs
+
+Each LB and backend host has `cores`, `packetProcessingTimeNanoseconds` and
+`queueCapacity`. A zero packet cost processes new packets immediately. A positive
+cost uses virtual cores and a waiting FIFO; capacity counts waiting packets only.
+
+Version-2 scenario states can change these settings together with network limits.
+Every state is checked before execution. A transition commits before ordinary
+events at its timestamp; queued work resumes after the complete configuration
+has been applied. It keeps its FIFO order, counters and endpoint state.
+
+An active packet keeps its original completion time when cost or cores change.
+After a core reduction, excess active jobs finish on retiring cores; queued jobs
+start only when fewer jobs are active than the new core count. Growing the pool
+starts additional waiters. Reducing the FIFO limit retains admitted work and
+rejects new waiting packets while full. Setting cost to zero releases queued
+packets in FIFO order, while old active jobs finish at their original deadlines.
+A later positive cost enables finite CPU processing again.
+
+CPU utilization divides cumulative busy core time by cumulative available core
+time, reported as `availableCoreTimeSeconds`. Available capacity is integrated
+over the host's full lifetime, including idle intervals and periods with zero
+packet cost. During core retirement it is `max(configured cores, active jobs)`;
+this accounts for the capacity still occupied by old jobs. Earlier CPU use remains
+visible after cost becomes zero. For example, two busy cores for 1 s followed by
+one idle core for 1 s give 2 / 3 utilization.
+
 ## Scenario HTTP API
 
 All routes use the same `scenario.Normalize` rules, including profiles and
@@ -570,7 +597,8 @@ are maximum capacities, not guaranteed generation rates: clients may send only
 within the receive and congestion windows. Reno reacts through duplicate ACKs
 and fast recovery, with RTO as a fallback. Drop and retry results describe
 this simplified transport, not a validated TCP
-response to overload. LB packet handlers still have zero modeled CPU cost.
+response to overload. LB packet handlers have zero modeled CPU cost by default;
+the host configuration can assign a positive cost.
 
 The frontend has separate **LB ingress** settings for bandwidth, packet travel
 time, slots per input queue and loss. Headless `Ingress` includes the shared

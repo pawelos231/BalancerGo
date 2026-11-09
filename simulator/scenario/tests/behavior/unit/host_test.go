@@ -84,7 +84,11 @@ func TestHostValidation(t *testing.T) {
 		t.Fatal("accepted CPU counters that cannot represent the experiment horizon")
 	}
 	input.Resources.LoadBalancer.Host.PacketProcessingTime = pointer(time.Duration(0))
+	if _, err := scenario.Normalize(input); err == nil {
+		t.Fatal("disabled CPU must still validate its configured core-time integral")
+	}
+	input.Resources.LoadBalancer.Host.Cores = pointer(1)
 	if _, err := scenario.Normalize(input); err != nil {
-		t.Fatalf("disabled CPU must not reject unused time counters: %v", err)
+		t.Fatalf("a representable disabled CPU capacity was rejected: %v", err)
 	}
 }

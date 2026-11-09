@@ -28,6 +28,7 @@ func hostState(state host.Stats) *contract.HostState {
 		QueueDroppedPackets:             state.QueueDroppedPackets,
 		DiscardedPackets:                state.DiscardedPackets,
 		BusyTimeSeconds:                 state.BusyTime.Seconds(),
+		AvailableCoreTimeSeconds:        state.AvailableCoreTime.Seconds(),
 		ObservedTimeSeconds:             state.ObservedTime.Seconds(),
 		MeanQueueWaitSeconds:            meanWait,
 		MaxQueueWaitSeconds:             state.MaxQueueWait.Seconds(),
@@ -35,8 +36,8 @@ func hostState(state host.Stats) *contract.HostState {
 	}
 }
 
-// appendHostMetrics keeps disabled CPUs cheap while exposing enabled host queues.
-// Configuration is static; sampling reads counters without advancing the model.
+// appendHostMetrics retains retiring work and CPU history after a switch to zero cost.
+// Sampling reads counters without advancing the model.
 func appendHostMetrics(metrics []nodeMetric, state host.Stats) []nodeMetric {
 	enabled := 0.0
 	if state.Enabled {
@@ -46,7 +47,9 @@ func appendHostMetrics(metrics []nodeMetric, state host.Stats) []nodeMetric {
 		key: "hostCPUEnabled", label: "CPU model enabled (1 = yes)",
 		value: enabled, static: true,
 	})
-	if !state.Enabled {
+	if !state.Enabled && state.BusyCores == 0 && state.BusyTime == 0 &&
+		state.QueuedPackets == 0 && state.MaxQueuedPackets == 0 &&
+		state.QueueDroppedPackets == 0 && state.DiscardedPackets == 0 {
 		return metrics
 	}
 	meanWaitMs := 0.0
@@ -62,6 +65,14 @@ func appendHostMetrics(metrics []nodeMetric, state host.Stats) []nodeMetric {
 		nodeMetric{"hostQueuedPackets", "Packets waiting for CPU", "packets", float64(state.QueuedPackets), false},
 		nodeMetric{"hostMaxQueuedPackets", "Peak CPU queue", "packets", float64(state.MaxQueuedPackets), false},
 		nodeMetric{"hostUtilization", "CPU utilization (virtual run mean)", "ratio", state.Utilization(), false},
+		nodeMetric{
+			key: "hostBusyTimeSeconds", label: "Cumulative occupied core time", unit: "s",
+			value: state.BusyTime.Seconds(),
+		},
+		nodeMetric{
+			key: "hostAvailableCoreTimeSeconds", label: "Cumulative available core time", unit: "s",
+			value: state.AvailableCoreTime.Seconds(),
+		},
 		nodeMetric{"hostQueueDroppedPackets", "CPU queue drops", "packets", float64(state.QueueDroppedPackets), false},
 		nodeMetric{"hostProcessedPackets", "Packets processed by CPU", "packets", float64(state.ProcessedPackets), false},
 		nodeMetric{"hostMeanQueueWaitMs", "Mean CPU queue wait (started packets)", "ms", meanWaitMs, false},

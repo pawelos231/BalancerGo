@@ -36,11 +36,14 @@ func (config Config) Validate(duration time.Duration) error {
 		return fmt.Errorf("observation duration must not be negative")
 	}
 
-	// Zero cost bypasses cores and queues, so their time counters stay at zero.
-	if config.PacketProcessingTime == 0 || duration == 0 {
+	if duration == 0 {
 		return nil
 	}
-	maximumParallelWork := max(config.Cores, config.QueueCapacity)
+	// Configured capacity accrues even while packet processing is bypassed.
+	maximumParallelWork := config.Cores
+	if config.PacketProcessingTime > 0 {
+		maximumParallelWork = max(maximumParallelWork, config.QueueCapacity)
+	}
 	if int64(maximumParallelWork) > math.MaxInt64/int64(duration) {
 		return fmt.Errorf("cores or queue capacity are too large for this duration")
 	}
@@ -66,18 +69,18 @@ type Stats struct {
 	QueueDroppedPackets uint64
 	DiscardedPackets    uint64 // Accepted work abandoned by failure or stop, rather than queue overflow.
 
-	ObservedTime   time.Duration
-	BusyTime       time.Duration // Sum of time spent on all cores, including unfinished packets.
-	QueueWaitTotal time.Duration
-	MaxQueueWait   time.Duration // Includes the oldest packet still waiting in the FIFO.
+	ObservedTime      time.Duration
+	BusyTime          time.Duration // Sum across busy cores, including unfinished packets.
+	AvailableCoreTime time.Duration // Integral of max(configured cores, retiring active jobs).
+	QueueWaitTotal    time.Duration
+	MaxQueueWait      time.Duration // Includes the oldest packet still waiting in the FIFO.
 }
 
-// Utilization is the share of configured core-time used during ObservedTime.
+// Utilization is the share of available core-time used across the host's lifetime.
 // Two cores busy for 10 us each during a 20-us observation give 50% utilization.
 func (stats Stats) Utilization() float64 {
-	if !stats.Enabled || stats.Cores < 1 || stats.ObservedTime <= 0 {
+	if stats.AvailableCoreTime <= 0 {
 		return 0
 	}
-	capacity := float64(stats.Cores) * float64(stats.ObservedTime)
-	return min(1, max(0, float64(stats.BusyTime)/capacity))
+	return min(1, max(0, float64(stats.BusyTime)/float64(stats.AvailableCoreTime)))
 }

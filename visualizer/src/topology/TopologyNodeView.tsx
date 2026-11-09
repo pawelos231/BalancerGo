@@ -11,7 +11,7 @@ import { formatMetric, formatNumber, kindLabel } from './format';
 import { nodeHeight, NODE_WIDTH } from './layout';
 import TopologyTrafficRates from './TopologyTrafficRates';
 import type { TopologyIngress, TopologyNode } from './types';
-import { nodeHostState } from './telemetry';
+import { nodeHostState, showHostCPUWork } from './telemetry';
 
 export type FlowTopologyNode = Node<{
   node: TopologyNode;
@@ -54,11 +54,14 @@ function LoadBalancerInputs({ ingress }: { ingress: TopologyIngress }) {
 function HostProcessing({ node }: { node: TopologyNode }) {
   const host = nodeHostState(node);
   if (!host) return null;
-  if (!host.enabled) {
+  if (!showHostCPUWork(host)) {
     return <Typography variant="caption" color="text.secondary">CPU model disabled</Typography>;
   }
   return (
     <Stack spacing={0.25} sx={{ mt: 1, pt: 0.75, borderTop: '1px solid', borderColor: 'divider' }}>
+      {!host.enabled && (
+        <Typography variant="caption" color="text.secondary">New packets bypass CPU</Typography>
+      )}
       <Typography variant="caption" fontWeight={600}>
         CPU: {formatNumber(host.busyCores)} / {formatNumber(host.cores)} cores busy
       </Typography>

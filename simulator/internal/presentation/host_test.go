@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"load-balancer/host"
 	"load-balancer/scenario"
 )
 
@@ -35,5 +36,33 @@ func TestHostCountersAreProjectedWithoutChangingTheWorld(t *testing.T) {
 	}
 	if !found || world.EventsExecuted() != before {
 		t.Fatal("projecting CPU state lost a node or advanced the simulation")
+	}
+}
+
+func TestHostProjectionRetainsCPUHistoryAfterBypass(t *testing.T) {
+	state := host.Stats{
+		Cores: 1, BusyCores: 2, ProcessedPackets: 3,
+		BusyTime: 2 * time.Second, AvailableCoreTime: 3 * time.Second,
+		ObservedTime: 2 * time.Second,
+	}
+	projected := hostState(state)
+	if projected.Enabled || projected.AvailableCoreTimeSeconds != 3 ||
+		projected.BusyTimeSeconds != 2 || projected.Utilization != 2.0/3.0 {
+		t.Fatalf("disabled host lost earlier CPU work: %+v", projected)
+	}
+
+	metrics := appendHostMetrics(nil, state)
+	values := make(map[string]float64, len(metrics))
+	for _, metric := range metrics {
+		values[metric.key] = metric.value
+	}
+	if values["hostCPUEnabled"] != 0 || values["hostBusyCores"] != 2 ||
+		values["hostUtilization"] != 2.0/3.0 || values["hostAvailableCoreTimeSeconds"] != 3 {
+		t.Fatalf("topology lost retiring CPU work: %+v", values)
+	}
+
+	state.BusyCores = 0
+	if len(appendHostMetrics(nil, state)) <= 1 {
+		t.Fatal("completed CPU history disappeared after retiring jobs finished")
 	}
 }

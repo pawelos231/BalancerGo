@@ -6,6 +6,49 @@
       "valid": true
     },
     {
+      "name": "zero cost still bounds lifetime core capacity",
+      "valid": false,
+      "errorField": "host",
+      "changes": [
+        { "path": ["fixed", "execution", "durationNanoseconds"], "value": "9223372036854775807" },
+        { "path": ["states", "0", "resources", "loadBalancer", "host"], "value": { "cores": 2 } }
+      ]
+    },
+    {
+      "name": "zero cost does not reserve waiting core time",
+      "valid": true,
+      "changes": [
+        { "path": ["fixed", "execution", "durationNanoseconds"], "value": "9223372036854775807" },
+        { "path": ["states", "0", "resources", "loadBalancer", "host"], "value": {} },
+        { "path": ["states", "0", "resources", "backends", "0", "host"], "value": {} },
+        { "path": ["states", "0", "resources", "backends", "1", "host"], "value": {} }
+      ]
+    },
+    {
+      "name": "late CPU growth validates the entire duration",
+      "valid": false,
+      "errorField": "host",
+      "changes": [
+        { "path": ["fixed", "execution", "durationNanoseconds"], "value": "9223372036854775807" },
+        { "path": ["states", "0", "resources", "loadBalancer", "host"], "value": {} },
+        { "path": ["states", "0", "resources", "backends", "0", "host"], "value": {} },
+        { "path": ["states", "0", "resources", "backends", "1", "host"], "value": {} },
+        {
+          "path": ["states", "9223372036854775806"],
+          "value": {
+            "resources": {
+              "loadBalancer": {
+                "algorithm": "roundRobin",
+                "ingress": { "bandwidthBitsPerSecond": 1000000 },
+                "forwardingBitsPerSecond": 1000000,
+                "host": { "cores": 2, "packetProcessingTimeNanoseconds": 1, "queueCapacity": 0 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "null optional fields select defaults",
       "valid": true,
       "changes": [

@@ -15,7 +15,17 @@ export function nodeHostState(node?: TopologyNode): HostState | undefined {
     processedPackets: value('hostProcessedPackets'),
     queueDroppedPackets: value('hostQueueDroppedPackets'),
     utilization: value('hostUtilization'),
+    busyTimeSeconds: node.metrics.find(metric => metric.key === 'hostBusyTimeSeconds')?.value,
+    availableCoreTimeSeconds: node.metrics.find(
+      metric => metric.key === 'hostAvailableCoreTimeSeconds',
+    )?.value,
   };
+}
+
+// Retiring work and earlier CPU usage stay visible when new packets bypass the CPU.
+export function showHostCPUWork(host: HostState): boolean {
+  return host.enabled || host.busyCores > 0 || host.utilization > 0 ||
+    host.queuedPackets > 0 || host.maxQueuedPackets > 0 || host.queueDroppedPackets > 0;
 }
 
 // LinkRole separates the resource that owns each waiting queue.

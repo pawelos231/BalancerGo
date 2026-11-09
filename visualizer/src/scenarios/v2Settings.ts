@@ -58,7 +58,7 @@ export function validateLink(config: ScenarioLinkConfig, path: string): void {
   validateFraction(config.congestionSignalProbability ?? 0, 1, `${path}.congestionSignalProbability`);
 }
 
-// CPU cost zero bypasses cores; positive cost also requires safe cumulative time counters.
+// Configured capacity accrues at zero cost; positive cost also bounds waiting time.
 export function validateHost(config: V2HostConfig | undefined, duration: bigint, path: string): void {
   const cores = BigInt(config?.cores ?? 1);
   const cost = BigInt(config?.packetProcessingTimeNanoseconds ?? 0);
@@ -74,8 +74,8 @@ export function validateHost(config: V2HostConfig | undefined, duration: bigint,
     throw new Error(`${path}.queueCapacity: must be in 0..1000000`);
   }
 
-  const maximumParallelWork = cores > queue ? cores : queue;
-  if (cost > 0n && duration > 0n && maximumParallelWork > INT64_MAX / duration) {
+  const maximumParallelWork = cost > 0n && queue > cores ? queue : cores;
+  if (duration > 0n && maximumParallelWork > INT64_MAX / duration) {
     throw new Error(`${path}: cores or queue capacity are too large for this duration`);
   }
 }

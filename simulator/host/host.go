@@ -6,7 +6,7 @@ import (
 	"load-balancer/engine"
 )
 
-// Host processes callbacks on a fixed number of virtual cores.
+// Host processes callbacks on a configurable pool of virtual cores.
 // All calls belong to the engine's owner; modeled cores do not create goroutines.
 type Host struct {
 	engine *engine.Engine
@@ -17,6 +17,8 @@ type Host struct {
 	queueHead int
 	active    map[*packetWork]struct{}
 	stopped   bool
+	pumping   bool
+	pumpEvent engine.EventID
 
 	createdAt   time.Duration
 	accountedAt time.Duration
@@ -55,24 +57,28 @@ func (h *Host) Submit(onProcessed func()) bool {
 	if h.stopped {
 		return false
 	}
+	// A same-time arrival may precede a pending pump after capacity grows.
+	// Existing waiters must take the available capacity first.
+	h.pump()
+	if h.stopped {
+		return false
+	}
 	h.stats.OfferedPackets++
 
 	// Bypass avoids adding zero-time events or changing existing packet ordering.
-	if h.config.PacketProcessingTime == 0 {
+	if h.config.PacketProcessingTime == 0 && !h.pumping {
 		h.stats.AcceptedPackets++
-		h.stats.StartedPackets++
-		h.stats.ProcessedPackets++
-		onProcessed()
+		h.bypass(packetWork{queuedAt: h.engine.Now(), onProcessed: onProcessed})
 		return true
 	}
 
 	work := packetWork{queuedAt: h.engine.Now(), onProcessed: onProcessed}
-	if len(h.active) < h.config.Cores {
+	if h.queued() == 0 && len(h.active) < h.config.Cores && !h.pumping {
 		h.stats.AcceptedPackets++
 		h.start(work)
 		return true
 	}
-	if h.queued() >= h.config.QueueCapacity {
+	if h.config.PacketProcessingTime > 0 && h.queued() >= h.config.QueueCapacity {
 		h.stats.QueueDroppedPackets++
 		return false
 	}
@@ -86,10 +92,7 @@ func (h *Host) Submit(onProcessed func()) bool {
 // start reserves a core before scheduling the packet's completion.
 func (h *Host) start(work packetWork) {
 	h.accountBusyTime()
-	h.stats.StartedPackets++
-	wait := h.engine.Now() - work.queuedAt
-	h.stats.QueueWaitTotal += wait
-	h.stats.MaxQueueWait = max(h.stats.MaxQueueWait, wait)
+	h.accountStart(work)
 	h.active[&work] = struct{}{}
 
 	// A zero event ID means this work remains in service beyond the experiment end.
@@ -111,10 +114,41 @@ func (h *Host) complete(work *packetWork) {
 	work.completion = 0
 
 	// A callback may submit another packet or stop this host. FIFO waiters get first use.
-	if h.queued() > 0 {
+	h.pump()
+	onProcessed()
+}
+
+func (h *Host) accountStart(work packetWork) {
+	h.stats.StartedPackets++
+	wait := h.engine.Now() - work.queuedAt
+	h.stats.QueueWaitTotal += wait
+	h.stats.MaxQueueWait = max(h.stats.MaxQueueWait, wait)
+}
+
+func (h *Host) bypass(work packetWork) {
+	h.accountStart(work)
+	h.stats.ProcessedPackets++
+	work.onProcessed()
+}
+
+// pump uses current settings only for work that has not started yet.
+// Reentrant submissions join the FIFO while bypass callbacks are being flushed.
+func (h *Host) pump() {
+	if h.stopped || h.pumping {
+		return
+	}
+	h.pumping = true
+	defer func() { h.pumping = false }()
+	for !h.stopped && h.queued() > 0 {
+		if h.config.PacketProcessingTime == 0 {
+			h.bypass(h.pop())
+			continue
+		}
+		if len(h.active) >= h.config.Cores {
+			return
+		}
 		h.start(h.pop())
 	}
-	onProcessed()
 }
 
 func (h *Host) queued() int {
@@ -150,7 +184,9 @@ func (h *Host) pop() packetWork {
 // accountBusyTime closes the interval before the number of occupied cores changes.
 func (h *Host) accountBusyTime() {
 	now := h.engine.Now()
-	h.stats.BusyTime += (now - h.accountedAt) * time.Duration(len(h.active))
+	elapsed := now - h.accountedAt
+	h.stats.BusyTime += elapsed * time.Duration(len(h.active))
+	h.stats.AvailableCoreTime += elapsed * time.Duration(max(h.config.Cores, len(h.active)))
 	h.accountedAt = now
 }
 
@@ -170,6 +206,7 @@ func (h *Host) Stats() Stats {
 	stats.QueuedPackets = h.queued()
 	stats.ObservedTime = now - h.createdAt
 	stats.BusyTime += (now - h.accountedAt) * time.Duration(stats.BusyCores)
+	stats.AvailableCoreTime += (now - h.accountedAt) * time.Duration(max(stats.Cores, stats.BusyCores))
 	if stats.QueuedPackets > 0 {
 		stats.MaxQueueWait = max(stats.MaxQueueWait, now-h.queue[h.queueHead].queuedAt)
 	}
@@ -185,6 +222,8 @@ func (h *Host) DiscardPending() {
 	h.accountBusyTime()
 	h.stats.MaxQueueWait = h.Stats().MaxQueueWait
 	h.stats.DiscardedPackets += uint64(len(h.active) + h.queued())
+	h.engine.Cancel(h.pumpEvent)
+	h.pumpEvent = 0
 	for work := range h.active {
 		h.engine.Cancel(work.completion)
 		work.onProcessed = nil
