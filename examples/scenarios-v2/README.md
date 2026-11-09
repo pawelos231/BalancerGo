@@ -155,7 +155,47 @@ birth budget; later runtime updates must also handle existing clients beyond it.
 
 Client start times beyond the run duration and large arrival gaps are allowed;
 they may produce no arrivals during the run. Generator progress, overflow-safe
-replanning and state differences belong to E1.4/E1.12, not document normalization.
+replanning belongs to E1.12; state differences are prepared by the E1.4 compiler.
+
+## Compiled transitions and configuration lookup
+
+`scenario.CompileV2(input)` first validates and normalizes the entire document.
+It returns a private `CompiledV2` plan or an error, without creating a world,
+clients or engine events. An invalid later state returns no partially usable plan.
+
+The plan exposes:
+
+- `Fixed()` for shared TCP, execution and default settings.
+- `TotalClients()` for the run-wide reserved client slots.
+- `StateAt(t)` for a full desired configuration, with `0 <= t <= duration`.
+- `Transitions()` for nonempty changes after the initial state at zero.
+
+All returned collections are independent copies, including individual client
+overrides and transition payloads. `StateAt` selects the latest declaration at
+or before the query. For `burst-and-recovery.json`, a query at 4 s returns the
+state declared at 2 s; its `At` stays 2 s. Querying the terminal time returns the
+last declared configuration. This is a planned configuration, not live traffic
+or a prediction of clients still connected at that time.
+
+Transitions compare backends and groups by stable ID and sort each operation list
+by ID. Changing declaration order or equivalent backend endpoint spelling creates
+no runtime update. Sparse overrides are compared by index without expanding groups
+into individual clients. Identical declarations and redundant default-equivalent
+overrides need no execution event, but remain visible through `StateAt`.
+Other differences in resolved settings are preserved; the compiler does not try
+to prove every pair of configurations behaviorally equivalent.
+
+Each transition contains optional LB changes, added/updated/removed backends and
+added/updated/stopped generators. Component flags distinguish links, CPU, policy
+and metadata edits. A group's `ReplanArrivals` is true only when `Count` or
+`ClientGap` changes. `LinksChanged` includes group and individual client links;
+`StreamChanged` concerns future clients. Stopping a generator does not remove its
+existing clients, and removing a backend does not instantly clear remote TCP state.
+
+E1.5 and later stages will apply these instructions atomically through the engine.
+Address ranges, actual generator progress and birth-time arithmetic remain E1.12;
+their reservation must use each group's maximum count across the entire run.
+CLI, HTTP and the current frontend still reject or do not submit runnable v2.
 
 ## Frontend validation
 

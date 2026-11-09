@@ -49,6 +49,15 @@ func TestScenarioV2ExamplesRoundTrip(t *testing.T) {
 			if len(resolved.States) != len(input.States) || resolved.States[0].At != 0 {
 				t.Fatal("normalized example lost its initial state or transitions")
 			}
+
+			// Compilation prepares instructions, while the existing runtime still rejects v2.
+			plan, err := scenario.CompileV2(input)
+			if err != nil {
+				t.Fatalf("example failed timeline compilation: %v", err)
+			}
+			if _, err := plan.StateAt(input.Fixed.Execution.Duration); err != nil {
+				t.Fatalf("compiled example cannot describe its terminal configuration: %v", err)
+			}
 		})
 	}
 }
