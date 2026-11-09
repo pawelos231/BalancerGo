@@ -144,8 +144,14 @@ func TestTimelineRejectsUnsupportedChangesBeforeConstruction(t *testing.T) {
 		name string
 		edit func(*scenario.StateConfig)
 	}{
-		{"LB settings", func(state *scenario.StateConfig) {
-			state.Resources.LoadBalancer.ForwardingBitsPerSecond = 100
+		{"LB CPU", func(state *scenario.StateConfig) {
+			state.Resources.LoadBalancer.Host.Cores = scenarioRuntimeValue(2)
+		}},
+		{"LB algorithm", func(state *scenario.StateConfig) {
+			state.Resources.LoadBalancer.Algorithm = "random"
+		}},
+		{"LB mapping timeouts", func(state *scenario.StateConfig) {
+			state.Resources.LoadBalancer.MappingTimeouts.ResetIdleTimeout = scenarioRuntimeValue(time.Second)
 		}},
 		{"backend CPU", func(state *scenario.StateConfig) {
 			state.Resources.Backends[0].Host.Cores = scenarioRuntimeValue(2)

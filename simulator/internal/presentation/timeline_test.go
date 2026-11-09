@@ -103,6 +103,80 @@ func TestTimelineBackendLinkEditRefreshesTopologyConfiguration(t *testing.T) {
 	}
 }
 
+// Each shared-limit edit refreshes retained definitions before its first sample.
+func TestTimelineSharedNetworkEditRefreshesTopologyConfiguration(t *testing.T) {
+	for _, resource := range []string{"ingress", "forwarding"} {
+		t.Run(resource, func(t *testing.T) {
+			input := timelineProjectionDefinition()
+			next := input.States["250000000"]
+			next.Resources.Backends = input.States["0"].Resources.Backends
+			if resource == "ingress" {
+				next.Resources.LoadBalancer.Ingress = scenario.LinkConfig{
+					BandwidthBitsPerSecond: 5_000_000, PacketTravelTime: 3 * time.Millisecond,
+					QueueCapacity: 5, LossRate: 0.25, QueuePolicy: "threshold",
+					CongestionThresholdPercent: 70, CongestionSignalProbability: 0.5,
+				}
+			} else {
+				next.Resources.LoadBalancer.ForwardingBitsPerSecond = 5_000_000
+			}
+			input.States["250000000"] = next
+			world := timelineProjectionFrom(t, input)
+			advanceProjection(t, world, 0)
+			projector := NewProjector("shared-limits")
+			first := project(t, projector, world)
+			oldDocument := jsonProjection(t, first.Document)
+
+			advanceProjection(t, world, 250*time.Millisecond)
+			frame, definition, err := BuildSnapshot(world, projector, RunState{
+				Status: "running", RunID: "shared-limits",
+			})
+			if err != nil || definition == nil || definition.Revision != "2" || frame.Topology.Revision != "2" {
+				t.Fatalf("the shared-limit edit did not publish a coherent definition: %v", err)
+			}
+			config := next.Resources.LoadBalancer.Ingress
+			want := contract.TopologyLinkConfig{
+				BandwidthBitsPerSecond: config.BandwidthBitsPerSecond,
+				PacketTravelTimeMs:     float64(config.PacketTravelTime) / float64(time.Millisecond),
+				QueueCapacity:          config.QueueCapacity, LossRate: config.LossRate,
+				QueuePolicy: config.QueuePolicy, CongestionThresholdPercent: config.CongestionThresholdPercent,
+				CongestionSignalProbability: config.CongestionSignalProbability,
+			}
+			if definition.Ingress.Config != want || len(definition.Ingress.Queues) != 2 {
+				t.Fatalf("the shared ingress definition retained old limits: %+v", definition.Ingress)
+			}
+			for index, queue := range definition.Ingress.Queues {
+				if queue.Capacity != config.QueueCapacity || queue.ID != first.Document.Ingress.Queues[index].ID {
+					t.Fatal("the input definition lost its capacity or stable identity")
+				}
+			}
+			found := false
+			for _, metric := range definition.Nodes[0].Metrics {
+				if metric.Key == "forwardingBitsPerSecond" {
+					found = metric.Value != nil &&
+						*metric.Value == float64(next.Resources.LoadBalancer.ForwardingBitsPerSecond)
+				}
+			}
+			if !found || len(definition.Nodes) != len(first.Document.Nodes) ||
+				len(definition.Links) != len(first.Document.Links) {
+				t.Fatal("the forwarding definition is stale or shared limits changed graph membership")
+			}
+			for index, node := range definition.Nodes {
+				if node.ID != first.Document.Nodes[index].ID {
+					t.Fatal("the shared-limit edit changed a retained node ID")
+				}
+			}
+			for index, link := range definition.Links {
+				if link.ID != first.Document.Links[index].ID {
+					t.Fatal("the shared-limit edit changed a retained link ID")
+				}
+			}
+			if jsonProjection(t, first.Document) != oldDocument || project(t, projector, world).Document != nil {
+				t.Fatal("publishing limits mutated the old document or invalidated the new cache")
+			}
+		})
+	}
+}
+
 // Backend names and the frame revision become visible together after one configuration event.
 func TestTimelineCommitPublishesOneCompleteDefinitionBeforeItsSnapshot(t *testing.T) {
 	world := timelineProjectionWorld(t)

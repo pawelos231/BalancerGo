@@ -200,9 +200,10 @@ CLI, HTTP and the current frontend still reject or do not submit runnable v2.
 ## Internal execution boundary (E1.5)
 
 `simulation.NewTimeline(plan)` prepares an internal world only after checking the
-entire compiled plan. E1.5 introduced backend display-name changes; E1.6 also
-supports backend link edits. This allows real execution and publication tests without silently
-ignoring unfinished CPU, LB, membership or generator changes. Such transitions
+entire compiled plan. E1.5 introduced backend display-name changes; E1.6 added
+backend link edits, and E1.7 adds shared LB ingress and forwarding limits.
+This allows real execution and publication tests without silently ignoring
+unfinished CPU, LB policy, membership or generator changes. Such transitions
 return `ErrUnsupportedTimelineChange` before any world is constructed. Initial
 physical unavailability or drain is also rejected until those handlers exist.
 
@@ -251,8 +252,29 @@ arrivals without re-marking already admitted packets. A newly enabled probabilis
 policy receives a separate seeded stream; disabling and re-enabling it resumes
 that stream rather than resetting it.
 
-Client-group link updates are integrated with generator changes in E1.12. Changes
-to the shared LB input and forwarding budget remain E1.7.
+Client-group link updates are integrated with generator changes in E1.12.
+
+## Shared LB network limits (E1.7)
+
+The internal timeline can change the shared ingress link's bandwidth, travel,
+loss and queue policy, including ECN signaling. Both input FIFOs use that one
+physical link, with a separate waiting capacity for each input. Shrinking the
+capacity keeps admitted packets and rejects new waiting work while a FIFO is full.
+Active transmission and travel keep their starting settings; queued packets use
+the settings current when their transmission starts.
+
+All LB outputs share the forwarding limit. A rate edit preserves the budget
+reservation already in progress. Each later dispatch reserves its packet's cost
+at the current rate, preserving FIFO order and historical accounting. A large
+rate cut can reserve the remaining horizon, including when the new duration
+would exceed the duration type's range. Restoring the rate does not shorten that
+existing reservation.
+
+Ingress, forwarding and backend edits at one timestamp are prepared before the
+run and applied in one configuration event. Applying settings processes no packet
+handlers. A fresh topology definition publishes the current shared limits and
+input capacities under the same resource IDs before the first snapshot using them.
+CLI and HTTP execution of version 2 remains deferred to E1.13.
 
 ## Frontend validation
 

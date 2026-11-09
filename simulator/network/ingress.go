@@ -1,5 +1,7 @@
 package network
 
+import "math/rand"
+
 // Ingress merges separate input FIFOs onto one physical incoming link.
 // Its queues and link belong to the engine's single owner.
 type Ingress struct {
@@ -51,6 +53,11 @@ func (ingress *Ingress) AddInput() *Input {
 // Config returns the shared link's limits; QueueCapacity applies to each input.
 func (ingress *Ingress) Config() Config {
 	return ingress.link.Config()
+}
+
+// PrepareConfig checks shared link settings without changing either input FIFO.
+func (ingress *Ingress) PrepareConfig(config Config, congestionRNG *rand.Rand) PreparedConfig {
+	return ingress.link.PrepareConfig(config, congestionRNG)
 }
 
 // Transmit admits a packet or drops it when this input's waiting FIFO is full.

@@ -28,10 +28,12 @@ type timelineRuntime struct {
 // configurationCommit holds data prepared before the engine starts.
 // Applying it performs assignments only, without validation or observer callbacks.
 type configurationCommit struct {
-	at            time.Duration
-	configuration scenario.Normalized
-	names         []backendNameChange
-	links         []linkConfigurationChange
+	at                time.Duration
+	configuration     scenario.Normalized
+	names             []backendNameChange
+	links             []linkConfigurationChange
+	forwardingChanged bool
+	forwarding        network.PreparedForwardingConfig
 }
 
 type backendNameChange struct {
@@ -46,7 +48,7 @@ type linkConfigurationChange struct {
 }
 
 // NewTimeline prepares a world only after every transition has a supported executor.
-// Backend names and links can change; other resource handlers arrive in later stages.
+// Backend names, links and shared LB network limits have prepared executors.
 func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("simulation: compiled timeline is required")
@@ -69,7 +71,7 @@ func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	for _, backend := range world.lb.GetServers() {
 		world.timeline.backends[backend.ID] = backend
 	}
-	world.prepareLinkCommits(commits)
+	world.prepareNetworkCommits(commits)
 
 	// Register all configuration events before any packet or arrival is executed.
 	for _, commit := range commits {
@@ -107,6 +109,14 @@ func prepareConfigurationCommits(
 			configuration: timelineConfiguration(plan, state),
 			names:         make([]backendNameChange, 0, len(transition.Backends.Updated)),
 		}
+		if update := transition.LoadBalancer; update != nil {
+			if update.IngressChanged {
+				commit.links = append(commit.links, linkConfigurationChange{
+					id: "link/infrastructure/ingress", config: update.Config.Ingress,
+				})
+			}
+			commit.forwardingChanged = update.ForwardingChanged
+		}
 		for _, update := range transition.Backends.Updated {
 			if update.NameChanged {
 				commit.names = append(commit.names, backendNameChange{
@@ -137,8 +147,10 @@ func checkSupportedTransition(transition scenario.Transition) error {
 	unsupported := func(feature string) error {
 		return fmt.Errorf("%w at %s: %s", ErrUnsupportedTimelineChange, transition.At, feature)
 	}
-	if transition.LoadBalancer != nil {
-		return unsupported("load balancer settings")
+	if update := transition.LoadBalancer; update != nil {
+		if update.HostChanged || update.AlgorithmChanged || update.TimeoutsChanged {
+			return unsupported("load balancer CPU, algorithm or mapping timeouts")
+		}
 	}
 	if len(transition.Backends.Added) != 0 || len(transition.Backends.Removed) != 0 {
 		return unsupported("backend membership")
@@ -155,23 +167,33 @@ func checkSupportedTransition(transition scenario.Transition) error {
 	return nil
 }
 
-// prepareLinkCommits binds checked settings and any new ECN random stream before Advance.
+// prepareNetworkCommits binds checked limits and any new ECN stream before Advance.
 // Existing streams are retained when later edits disable and re-enable signaling.
-func (s *World) prepareLinkCommits(commits []configurationCommit) {
+func (s *World) prepareNetworkCommits(commits []configurationCommit) {
 	links := make(map[string]*network.Link, len(s.links))
 	for _, link := range s.links {
 		links[link.ID] = link.Link
 	}
 	for commitIndex := range commits {
-		for changeIndex := range commits[commitIndex].links {
-			change := &commits[commitIndex].links[changeIndex]
+		commit := &commits[commitIndex]
+		if commit.forwardingChanged {
+			commit.forwarding = s.egress.PrepareForwardingConfig(
+				commit.configuration.LoadBalancer.ForwardingBitsPerSecond,
+			)
+		}
+		for changeIndex := range commit.links {
+			change := &commit.links[changeIndex]
 			config := configuredLink(change.config)
 			var signalingRNG *rand.Rand
 			if config.QueuePolicy == "threshold" &&
 				config.CongestionSignalProbability > 0 && config.CongestionSignalProbability < 1 {
 				signalingRNG = s.resourceRNG(change.id + "/congestion")
 			}
-			change.prepared = links[change.id].PrepareConfig(config, signalingRNG)
+			if change.id == "link/infrastructure/ingress" {
+				change.prepared = s.ingress.PrepareConfig(config, signalingRNG)
+			} else {
+				change.prepared = links[change.id].PrepareConfig(config, signalingRNG)
+			}
 		}
 	}
 }
@@ -202,6 +224,9 @@ func timelineConfiguration(plan *scenario.CompiledV2, state scenario.NormalizedS
 func (s *World) commitConfiguration(commit configurationCommit) {
 	for _, change := range commit.links {
 		change.prepared.Apply()
+	}
+	if commit.forwardingChanged {
+		commit.forwarding.Apply()
 	}
 	for _, change := range commit.names {
 		s.timeline.backends[change.id].Name = change.name

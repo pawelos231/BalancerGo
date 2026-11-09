@@ -45,11 +45,10 @@ type ForwardingStats struct {
 
 // egressPacket keeps one waiting packet and its stable admission order.
 type egressPacket struct {
-	sizeBytes      int
-	onArrival      func()
-	forwardingCost time.Duration
-	queuedAt       time.Duration
-	sequence       uint64
+	sizeBytes int
+	onArrival func()
+	queuedAt  time.Duration
+	sequence  uint64
 }
 
 // Output is one LB exit, e.g. the path to backend 1.
@@ -79,6 +78,26 @@ func NewEgress(e *engine.Engine, forwardingBitsPerSecond int64) *Egress {
 			ForwardingBitsPerSecond: forwardingBitsPerSecond,
 		},
 	}
+}
+
+// PreparedForwardingConfig holds a checked shared-limit edit.
+type PreparedForwardingConfig struct {
+	egress                  *Egress
+	forwardingBitsPerSecond int64
+}
+
+// PrepareForwardingConfig checks a future limit without changing existing grants.
+func (e *Egress) PrepareForwardingConfig(bitsPerSecond int64) PreparedForwardingConfig {
+	if bitsPerSecond <= 0 {
+		panic("network: forwarding bandwidth must be positive bits per second")
+	}
+	return PreparedForwardingConfig{egress: e, forwardingBitsPerSecond: bitsPerSecond}
+}
+
+// Apply preserves the current reservation, queues, ordering and historical counters.
+func (update PreparedForwardingConfig) Apply() {
+	update.egress.forwardingBitsPerSecond = update.forwardingBitsPerSecond
+	update.egress.stats.ForwardingBitsPerSecond = update.forwardingBitsPerSecond
 }
 
 // AddOutput registers an existing link, e.g. LB -> backend, as an LB output.
@@ -125,7 +144,7 @@ func (output *Output) TransmitECN(sizeBytes int, state ECNState, onArrival func(
 	}
 	validateECNState(state)
 	serializationDuration(sizeBytes, output.link.config.BandwidthBitsPerSecond)
-	forwardingCost := serializationDuration(sizeBytes, output.egress.forwardingBitsPerSecond)
+	serializationDuration(sizeBytes, output.egress.forwardingBitsPerSecond)
 
 	// An immediate transmission does not consume a waiting slot, even at zero.
 	linkFree := output.link.Ready() && output.queued() == 0
@@ -168,11 +187,10 @@ func (output *Output) TransmitECN(sizeBytes int, state ECNState, onArrival func(
 	output.egress.nextSequence++
 	output.egress.stats.QueuedPackets++
 	output.queue = append(output.queue, egressPacket{
-		sizeBytes:      sizeBytes,
-		onArrival:      func() { onArrival(marked) },
-		forwardingCost: forwardingCost,
-		queuedAt:       output.egress.engine.Now(),
-		sequence:       output.egress.nextSequence,
+		sizeBytes: sizeBytes,
+		onArrival: func() { onArrival(marked) },
+		queuedAt:  output.egress.engine.Now(),
+		sequence:  output.egress.nextSequence,
 	})
 
 	// Starting synchronously preserves the existing link event order.
@@ -270,7 +288,7 @@ func (e *Egress) dispatch() {
 		e.stats.QueuedPackets--
 		e.stats.ForwardedPackets++
 		e.stats.ForwardedBytes += uint64(packet.sizeBytes)
-		e.reserveBudget(packet.forwardingCost)
+		e.reserveBudget(packet.sizeBytes)
 	}
 }
 
@@ -285,10 +303,11 @@ func (e *Egress) budgetBlocked() bool {
 }
 
 // reserveBudget runs alongside link serialization and never accumulates idle credit.
-func (e *Egress) reserveBudget(cost time.Duration) {
+func (e *Egress) reserveBudget(sizeBytes int) {
 	now := e.engine.Now()
 	remaining := e.engine.EndTime() - now
-	e.grantBeyondEnd = cost > remaining
+	cost, representable := trySerializationDuration(sizeBytes, e.forwardingBitsPerSecond)
+	e.grantBeyondEnd = !representable || cost > remaining
 	if e.grantBeyondEnd {
 		// The flag keeps the budget blocked without adding an overflowing duration.
 		e.nextGrantAt = e.engine.EndTime()
