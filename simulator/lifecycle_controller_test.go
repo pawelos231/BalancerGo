@@ -12,7 +12,7 @@ import (
 
 func TestLifecycleFinishedResetKeepsOriginalObservation(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Speed, input.Fixed.Execution.Duration = 0, 100*time.Millisecond
 	input.Fixed.Workload.Defaults.Bytes = 0
 	receipt := startTelemetryScenario(t, h, input)
@@ -36,7 +36,7 @@ func TestLifecycleFinishedResetKeepsOriginalObservation(t *testing.T) {
 
 func TestLifecycleFailedRunPreservesFailureMeasurement(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Speed, input.Fixed.Execution.MaxEvents = 0, 1
 	{
 		initialState := input.States["0"]
@@ -62,7 +62,7 @@ func TestLifecycleStopBeforeCreationHasNoForeignMeasurement(t *testing.T) {
 			h := newScenarioHarness(t)
 			var previousRunID string
 			if retainFinished {
-				input := h.defaults.scenarioDefinitionV2()
+				input := h.defaults.scenarioDefinition()
 				input.Fixed.Execution.Speed, input.Fixed.Execution.Duration = 0, time.Millisecond
 				{
 					initialState := input.States["0"]

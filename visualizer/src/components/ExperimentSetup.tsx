@@ -9,7 +9,7 @@ import type { HostEdits, HostField, HostTarget, HostValues } from '../scenarios/
 import { readScenarioFile, serializeScenario } from '../scenarios/files';
 import { scenarioPresets } from '../scenarios/presets';
 import { scenarioApi } from '../scenarios/runtimeApi';
-import { validateScenarioV2 } from '../scenarios/v2';
+import { validateScenario } from '../scenarios/validation';
 import type { CurrentSimulation, Scenario, ValidatedScenario } from '../scenarios/types';
 import type { SimulationMetadata } from '../types';
 import ScenarioLibrary from './ScenarioLibrary';
@@ -114,7 +114,7 @@ function ExperimentSetup({
       const notice = stagedHosts
         ? 'Common backend CPU inputs have not been applied. Use Apply to all backends on the form to update those settings.'
         : null;
-      onPreviewChange(validateScenarioV2(scenario), notice);
+      onPreviewChange(validateScenario(scenario), notice);
     } catch (failure) {
       onPreviewChange(null, failure instanceof Error ? failure.message : 'The draft is not a valid complete scenario.');
     }

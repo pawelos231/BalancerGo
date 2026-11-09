@@ -7,15 +7,15 @@ import (
 	"time"
 )
 
-// CompileV2 validates the whole document, then prepares changes between full states.
+// Compile validates the whole document, then prepares changes between full states.
 // It does not create clients, schedule events or modify a running simulation.
-func CompileV2(input ScenarioV2) (*CompiledV2, error) {
-	resolved, err := NormalizeV2(input)
+func Compile(input Scenario) (*Compiled, error) {
+	resolved, err := Normalize(input)
 	if err != nil {
 		return nil, err
 	}
 
-	plan := &CompiledV2{
+	plan := &Compiled{
 		scenario:    resolved,
 		transitions: make([]Transition, 0, len(resolved.States)-1),
 	}
@@ -31,18 +31,18 @@ func CompileV2(input ScenarioV2) (*CompiledV2, error) {
 }
 
 // Fixed returns run-wide settings, such as TCP and execution limits, by value.
-func (plan *CompiledV2) Fixed() NormalizedFixedConfig {
+func (plan *Compiled) Fixed() NormalizedFixedConfig {
 	return plan.scenario.Fixed
 }
 
 // TotalClients returns reserved client slots across the entire run, not active clients.
-func (plan *CompiledV2) TotalClients() int {
+func (plan *Compiled) TotalClients() int {
 	return plan.scenario.TotalClients
 }
 
 // StateAt returns the desired configuration, including declarations with no changes.
 // At 15 s, states at 0, 10 and 20 s select 10 s. The terminal time is also allowed.
-func (plan *CompiledV2) StateAt(at time.Duration) (NormalizedState, error) {
+func (plan *Compiled) StateAt(at time.Duration) (NormalizedState, error) {
 	if plan == nil || len(plan.scenario.States) == 0 {
 		return NormalizedState{}, fmt.Errorf("scenario: timeline has not been compiled")
 	}
@@ -61,7 +61,7 @@ func (plan *CompiledV2) StateAt(at time.Duration) (NormalizedState, error) {
 
 // Transitions returns independent instructions for all nonempty changes after time zero.
 // Empty declarations remain available through StateAt without scheduling needless work.
-func (plan *CompiledV2) Transitions() []Transition {
+func (plan *Compiled) Transitions() []Transition {
 	result := make([]Transition, len(plan.transitions))
 	for index, transition := range plan.transitions {
 		result[index] = cloneTransition(transition)

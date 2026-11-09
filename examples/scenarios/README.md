@@ -1,8 +1,10 @@
 # Scenario files
 
-These 38 UTF-8 JSON files use the native version-2 scenario contract accepted by
-the frontend, CLI and HTTP API. Thirty-seven match the UI preset factories; one extra file demonstrates nested
-overrides. The library supports search, category filters and six cards per page.
+These 40 UTF-8 JSON files use the native `scenarioVersion: 2` contract accepted by
+the frontend, CLI and HTTP API. Thirty-seven match the UI preset factories; one
+file demonstrates nested overrides, and two demonstrate the [timeline contract](CONTRACT.md). Telemetry uses
+`snapshotVersion: 1` and reports use `reportVersion: 1`; these are independent
+contracts. The library supports search, category filters and six cards per page.
 Ordinary presets use seed 1, a 50-million-event limit, 100 real ms snapshots,
 1 ms endpoint travel time, 1024 waiting slots and zero random loss unless their
 experiment changes that property. Each file records its own settings; later CLI
@@ -63,7 +65,7 @@ at 90 s; the 24 burst clients and 60 staggered clients already born continue
 their streams. There are 92 births in total, while the conservative run-wide
 reservation remains 152 slots. The final planned topology shows only the
 remaining baseline generator; live topology can still show the removed groups'
-clients. See the [timeline contract](../scenarios-v2/README.md#client-generators-and-access-links-e112)
+clients. See the [timeline contract](CONTRACT.md#client-generators-and-access-links-e112)
 for the execution rules.
 
 The **Reference experiments** category adds a fixed 2 x 2 x 2 matrix: backend 2
@@ -188,9 +190,10 @@ enables signaling; an explicit probability of zero disables early signals.
 
 Files must contain one complete JSON scenario and fit within **2 MiB of UTF-8
 bytes**. Correct invalid form inputs before validating or exporting. The native
-document is the format for import, export and Start. Version 1 is rejected without
-a conversion fallback. The form edits only fixed settings or the selected state
-and preserves every other timestamp. State creation and removal are later editor features. Effective configuration is
+document is the format for import, export and Start. Other `scenarioVersion`
+values and the generic `version` field are rejected. The form edits only fixed
+settings or the selected state and preserves every other timestamp. State creation
+and removal are later editor features. Effective configuration is
 a read-only view of inherited values for backends, groups and explicit client
 overrides; it is not an import format. Groups remain compact rather than expanding
 into a list of every client.

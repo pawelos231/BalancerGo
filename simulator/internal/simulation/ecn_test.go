@@ -11,7 +11,7 @@ import (
 
 // Only backend-facing links congest. ACK return paths remain unconstrained,
 // so CE feedback can slow clients without losing the transfer's payload.
-func ecnScenario() scenario.ScenarioV2 {
+func ecnScenario() scenario.Scenario {
 	input := baseScenario()
 	input.Fixed.Execution.Duration = 10 * time.Second
 	input.Fixed.Execution.MaxEvents = 1_000_000

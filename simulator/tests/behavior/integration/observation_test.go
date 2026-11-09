@@ -13,10 +13,10 @@ import (
 	"load-balancer/scenario"
 )
 
-func observationScenario(t *testing.T, clients int) scenario.ScenarioV2 {
+func observationScenario(t *testing.T, clients int) scenario.Scenario {
 	t.Helper()
 	link := scenario.LinkConfig{BandwidthBitsPerSecond: 8_000_000, QueueCapacity: 32}
-	return scenario.ScenarioV2{Version: 2,
+	return scenario.Scenario{ScenarioVersion: 2,
 		Fixed: scenario.FixedConfig{
 			Execution:    scenario.ExecutionConfig{Duration: time.Second, SnapshotInterval: 100 * time.Millisecond, Seed: 73, MaxEvents: 1_000_000},
 			LoadBalancer: scenario.LoadBalancerIdentity{ID: "router"}, Network: scenario.NetworkConfig{Defaults: link},
@@ -29,9 +29,9 @@ func observationScenario(t *testing.T, clients int) scenario.ScenarioV2 {
 	}
 }
 
-func observationWorld(t *testing.T, input scenario.ScenarioV2) *simulation.World {
+func observationWorld(t *testing.T, input scenario.Scenario) *simulation.World {
 	t.Helper()
-	plan, err := scenario.CompileV2(input)
+	plan, err := scenario.Compile(input)
 	if err != nil {
 		t.Fatal(err)
 	}

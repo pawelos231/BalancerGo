@@ -1,4 +1,4 @@
-import type { ScenarioV2 } from './v2Types.ts';
+import type { Scenario } from './types.ts';
 
 // Categories describe the main variable, rather than promising a measured outcome.
 export const presetCategories = [
@@ -23,5 +23,5 @@ export interface ScenarioPreset {
   category: ScenarioPresetCategory;
   title: string;
   description: string;
-  build: (defaults: ScenarioV2) => ScenarioV2;
+  build: (defaults: Scenario) => Scenario;
 }

@@ -69,7 +69,7 @@ func TestWorldDelayedACKGroupsPacketsWithRoomInWindow(t *testing.T) {
 	})
 }
 
-func delayedACKWorldScenario(mode string, enabled bool, windowSegments int) scenario.ScenarioV2 {
+func delayedACKWorldScenario(mode string, enabled bool, windowSegments int) scenario.Scenario {
 	definition := baseScenario()
 	editInitialState(&definition, func(state *scenario.StateConfig) { state.Workload.ClientGroups[0].Count = 1 })
 	definition.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 8 * model.SEGMENT_SIZE}

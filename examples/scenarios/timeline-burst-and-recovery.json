@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "scenarioVersion": 2,
   "fixed": {
     "execution": {
       "durationNanoseconds": 12000000000,

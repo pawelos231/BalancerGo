@@ -50,7 +50,7 @@ var (
 type startRequest struct {
 	runID      string
 	command    *runtimeCommand
-	plan       *scenario.CompiledV2
+	plan       *scenario.Compiled
 	experiment contract.ExperimentContext
 }
 
@@ -108,7 +108,7 @@ func (c *runController) submit(ctx context.Context, command runtimeCommand) erro
 func (c *runController) startTimeline(
 	ctx context.Context,
 	document []byte,
-	plan *scenario.CompiledV2,
+	plan *scenario.Compiled,
 ) (runReceipt, error) {
 	if plan == nil {
 		return runReceipt{}, errors.New("compiled scenario is required")

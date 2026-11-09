@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+const (
+	CurrentReportVersion       = 1
+	CurrentSeriesReportVersion = 1
+)
+
 // LinkConfig preserves the CLI's PascalCase fields and nanosecond duration.
 type LinkConfig struct {
 	BandwidthBitsPerSecond      int64
@@ -286,11 +291,11 @@ type SimulationResult struct {
 // ExperimentReport packages one CLI run with its input and build information.
 // Failed or cancelled execution still includes the work completed so far.
 type ExperimentReport struct {
-	Version  int                `json:"version"`
-	Status   string             `json:"status"`
-	Error    string             `json:"error,omitempty"`
-	Manifest ExperimentManifest `json:"manifest"`
-	Result   SimulationResult   `json:"result"`
+	ReportVersion int                `json:"reportVersion"`
+	Status        string             `json:"status"`
+	Error         string             `json:"error,omitempty"`
+	Manifest      ExperimentManifest `json:"manifest"`
+	Result        SimulationResult   `json:"result"`
 }
 
 // ExperimentManifest adds the importable scenario to the context shared by CLI and live runs.
@@ -329,11 +334,11 @@ type ExperimentBuild struct {
 // ExperimentSeriesReport indexes independent runs of one base scenario.
 // Manifest keeps the base input; each run report stores its actual seed.
 type ExperimentSeriesReport struct {
-	Version  int                   `json:"version"`
-	Status   string                `json:"status"`
-	Error    string                `json:"error,omitempty"`
-	Manifest ExperimentManifest    `json:"manifest"`
-	Runs     []ExperimentSeriesRun `json:"runs"`
+	ReportVersion int                   `json:"reportVersion"`
+	Status        string                `json:"status"`
+	Error         string                `json:"error,omitempty"`
+	Manifest      ExperimentManifest    `json:"manifest"`
+	Runs          []ExperimentSeriesRun `json:"runs"`
 }
 
 // ExperimentSeriesRun records progress without retaining a simulation's state.

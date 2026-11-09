@@ -1,5 +1,5 @@
 import dagre from '@dagrejs/dagre';
-import type { TopologyGraph, TopologySelection } from './types';
+import type { TopologySelection } from './types';
 
 export const NODE_WIDTH = 240;
 export const NODE_HEIGHT = 200;
@@ -47,7 +47,10 @@ export function nodeHeight(kind: string): number {
 }
 
 // Bound layout and rendering while keeping selected elements reachable.
-export function visibleGraph(graph: TopologyGraph, selection: TopologySelection): TopologyGraph {
+export function visibleGraph<Graph extends Structure>(
+  graph: Graph,
+  selection: TopologySelection,
+): Graph {
   const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
   const visibleIds = new Set<string>();
 
@@ -128,7 +131,7 @@ export function visibleGraph(graph: TopologyGraph, selection: TopologySelection)
 }
 
 // Exclude live values so statistics updates cannot trigger another layout.
-export function structureKey(graph: TopologyGraph): string {
+export function structureKey(graph: Structure): string {
   const structure: Structure = {
     nodes: graph.nodes.map(({ id, kind }) => ({ id, kind })),
     links: graph.links.map(({ id, source, target }) => ({ id, source, target })),

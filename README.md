@@ -146,13 +146,13 @@ remain in the final state; reaching that time does not imply successful completi
 
 ### Run a full JSON scenario from CLI
 
-The CLI runs native version-2 scenario files, including every timed state.
-The frontend, library, import/export and API use the same version-2 contract.
+The CLI runs scenario files marked `scenarioVersion: 2`, including every timed state.
+The frontend, library, import/export and API use this same configuration contract.
 From the repository root, for example in PowerShell:
 
 ```powershell
 cd simulator
-$scenario = '../examples/scenarios-v2/burst-and-recovery.json'
+$scenario = '../examples/scenarios/timeline-burst-and-recovery.json'
 go run . -scenario $scenario -output run.json
 ```
 
@@ -162,7 +162,7 @@ speed. The runner uses the same strict decoder, validation and compiler as
 the scenario API, including decimal strings for integers outside JavaScript's
 safe range. Profiles, directional links, groups and individual overrides remain
 part of the full configuration. Every state is checked before creating the world;
-an invalid later state rejects the whole run. Version-1 scenario documents are rejected at every input boundary.
+an invalid later state rejects the whole run. Documents using the old generic `version` field are rejected at every input boundary.
 
 With `-output`, the report goes into that file and stdout stays empty. Omit
 `-output` to print the report as one JSON document to stdout. Output and trace
@@ -176,11 +176,11 @@ when their values equal the defaults. For a single run, process flags `-scenario
 and `-output` requires `-scenario`. The older `-headless -clients ...` command
 continues to print its original result format.
 
-The version-1 report groups the result with information needed to repeat it:
+The report uses `reportVersion: 1` and groups results with information needed to repeat them:
 
 | Field      | Meaning                                                            |
 | ---------- | ------------------------------------------------------------------ |
-| `version`  | Report schema version, currently `1`.                              |
+| `reportVersion` | Report schema version, currently `1`.                              |
 | `status`   | Runner outcome: `finished`, `failed` or `cancelled`.               |
 | `error`    | Error message for a failed or cancelled run, when present.         |
 | `manifest` | Model, input, effective execution settings and build metadata.     |
@@ -221,7 +221,7 @@ the same measurement boundary as the interactive UI run.
 From `simulator/`, provide the scenario, an ordered seed list and a new directory:
 
 ```powershell
-$scenario = '../examples/scenarios-v2/burst-and-recovery.json'
+$scenario = '../examples/scenarios/timeline-burst-and-recovery.json'
 go run . -scenario $scenario -seeds '1,2,3' -output-dir runs-001
 ```
 
@@ -242,7 +242,7 @@ Invalid options, seeds or input are rejected before creating it.
 The runner updates `index.json` as it progresses and prints the final index as
 one JSON document to stdout. The index contains:
 
-- `version`, overall `status`, and an optional `error`;
+- `reportVersion`, overall `status`, and an optional `error`;
 - `manifest`, identifying the original base scenario and executable;
 - ordered `runs`, each with an `id`, exact decimal-string `seed`, and `status`;
 - a relative `report` path only after that run's report was saved successfully,
@@ -299,25 +299,30 @@ published port.
 
 ## Scenario configuration foundation
 
-`simulator/scenario/` defines version 2 of the scenario configuration:
+`simulator/scenario/` defines the current scenario configuration, identified by `scenarioVersion: 2`:
 
 | Part        | Contents                                                           |
 | ----------- | ------------------------------------------------------------------ |
 | `fixed` | Run-wide execution, TCP, LB identity, link profiles and stream defaults. |
 | `states` | Complete resource and workload configurations keyed by decimal nanoseconds, including `"0"`. |
 
-`scenario.NormalizeV2` resolves profiles and overrides into independent states,
+`scenario.Normalize` resolves profiles and overrides into independent states,
 validates identifiers and settings, and resolves stream sizes. Patch fields use
 pointers so an explicit zero differs from an omitted value. Groups remain compact;
 normalization does not allocate one object for every configured client.
-`scenario.CompileV2` validates the entire document and prepares all transitions.
+`scenario.Compile` validates the entire document and prepares all transitions.
+
+Version fields describe their own documents: `scenarioVersion: 2` for configuration,
+`snapshotVersion: 1` for live telemetry, and `reportVersion: 1` for single-run or
+series reports. Scenario APIs and source files have no version suffixes because
+only one configuration format is supported. The numeric versions are independent.
 
 The runtime consumes the compiled plan's fixed settings and current state directly.
 Each client gets its own access
 and return link when it arrives; each backend also has its own pair. Groups,
 profiles and individual overrides can assign different settings in each direction.
-CLI flags create a one-state v2 document. Runnable timeline examples are in
-[examples/scenarios-v2](examples/scenarios-v2/README.md). The frontend edits and submits that same native document. Every scenario requires
+CLI flags create a one-state scenario document. Runnable timeline examples are in
+[scenario contract](examples/scenarios/CONTRACT.md). The frontend edits and submits that same native document. Every scenario requires
 a positive duration; no legacy format or conversion fallback is accepted.
 
 Access links feed two LB input FIFOs: one for clients and one for backends.
@@ -328,7 +333,7 @@ the common input; `scenario.DefaultIngressConfig()` supplies its Go defaults.
 Each output has one FIFO, configured by the destination's
 `network.fromLoadBalancer.queueCapacity`, falling back to `fixed.network.defaults`.
 
-Native v2 runs reject manual `setAlgorithm` and `spawnClient` commands at admission,
+Scenario runs reject manual `setAlgorithm` and `spawnClient` commands at admission,
 including while Start is pending. Configuration changes belong in `states`; Stop
 remains available. The form has no manual algorithm or client-spawn controls.
 
@@ -337,7 +342,7 @@ Scenario duration fields have explicit `Nanoseconds` JSON names and retain nativ
 and decimal strings outside ±(2^53−1), for example `"18446744073709551615"`
 for a large event limit. Integer strings are accepted for all integer fields;
 unsafe unquoted numbers, fractional integers and unknown fields are rejected.
-`scenario.EncodeDocumentV2` and `DecodeDocumentV2` handle this transport boundary;
+`scenario.EncodeDocument` and `DecodeDocument` handle this transport boundary;
 the model and normalizer continue using native Go types.
 
 ### Mutable virtual CPUs
@@ -346,7 +351,7 @@ Each LB and backend host has `cores`, `packetProcessingTimeNanoseconds` and
 `queueCapacity`. A zero packet cost processes new packets immediately. A positive
 cost uses virtual cores and a waiting FIFO; capacity counts waiting packets only.
 
-Version-2 scenario states can change these settings together with network limits.
+Scenario states can change these settings together with network limits.
 Every state is checked before execution. A transition commits before ordinary
 events at its timestamp; queued work resumes after the complete configuration
 has been applied. It keeps its FIFO order, counters and endpoint state.
@@ -369,13 +374,13 @@ one idle core for 1 s give 2 / 3 utilization.
 
 ## Scenario HTTP API
 
-Native requests use `scenario.CompileV2`, including all later states, profiles and
+Native requests use `scenario.Compile`, including all later states, profiles and
 directional overrides. POST requests require `Content-Type: application/json`
 and one complete scenario object, with a maximum body of 2 MiB.
 
 | Method | Route                               | Result                                                                                       |
 | ------ | ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| GET    | `/api/scenarios/defaults`           | Native v2 scenario derived from the Go/CLI settings.                                        |
+| GET    | `/api/scenarios/defaults`           | Scenario document derived from the Go/CLI settings.                                        |
 | POST   | `/api/scenarios/validate`           | Canonical scenario, counts and resolved effective configuration; no model is created.        |
 | POST   | `/api/simulations`                  | `202` with `runId` and `status: "accepted"`.                                                 |
 | GET    | `/api/simulations/current`          | Run ID, lifecycle status and full canonical admitted scenario; `404` when none exists.       |
@@ -390,7 +395,7 @@ does not stop them. WS snapshots identify their run with `simulation.runId`.
 The current document remains available after completion or failure and reconnect;
 **Stop and clear** removes it. WebSocket experiment hashes identify this same full
 canonical source. Headless pacing changes do not edit its requested speed or hash.
-Every scenario route accepts only version 2 and validates the full timeline.
+Every scenario route requires `scenarioVersion: 2` and validates the full timeline.
 
 For example, with Docker Compose running:
 
@@ -449,7 +454,7 @@ only 11.25 GB of wire traffic by 90 s, so demand remains at recovery. The arriva
 case's baseline clients each need over 400 s to send 1 GiB through their 20 Mbit/s
 access links. These 180-second experiments pin TCP, seed and disabled idle
 timeouts. A group's `count` is its lifetime birth budget, rather than another
-batch at every state. See the [timeline examples](examples/scenarios-v2/README.md)
+batch at every state. See the [timeline examples](examples/scenarios/CONTRACT.md)
 and the [small measured timeline benchmark](perf_results.md#e116-timeline-presets-and-runtime-cost-2026-11-09).
 
 The **Simulator throughput** preset measures the simulator's real execution rate:
@@ -511,15 +516,18 @@ Open **Planned topology** to inspect the last valid applied scenario before Star
 Files, applied presets and valid form edits update this view; invalid or unapplied
 form input keeps the previous valid plan visible with a warning. This is separate
 from **Live topology**, which displays the current run's measurements.
-Enter any virtual time from zero through the run duration in seconds, with up to
-nine decimal places, or use **Previous state** and **Next state**. Lookup uses exact
-nanoseconds and selects the latest declared state at or before that instant.
+The timestamp slider selects only states declared in the configuration. Its
+positions use indices while the timestamp keys retain exact nanoseconds, even
+outside JavaScript's safe integer range. A single-state scenario has a disabled
+slider at its only timestamp.
 
 The plan shows shared LB ingress and forwarding limits, CPU resources, backend
 physical/administrative settings, effective links in each direction, and client
 generator timing, stream settings and lifetime birth budgets. Groups remain
-compact even for 50,000 clients; the slot selector lists only explicit overrides,
-including configured reserved slots outside a reduced current budget. A budget
+compact even for 50,000 clients. The graph uses the same canvas, directional
+arrows, selection, pan and zoom as Live topology. Group defaults and sparse slot
+overrides remain separate; reserved slots outside a reduced budget have no
+asserted client paths. Select a node or link to inspect exact settings. A budget
 does not count active connections or mean every client is born at each state.
 Existing clients may survive a budget decrease or group removal. The preview
 does not create a model or predict traffic, drops, active clients or observed health.
@@ -546,7 +554,7 @@ The browser retrieves graph structure separately from frequent measurements:
 - HTTP `/api/simulations/current/topology` supplies node identities, addresses,
   metric descriptions, physical link settings, input queue capacities and backend
   identities. The owner caches one encoded definition before publishing its metrics.
-- WebSocket frames have `type: "simulationSnapshot"` and `version: 1`. They carry
+- WebSocket frames have `type: "simulationSnapshot"` and `snapshotVersion: 1`. They carry
   lifecycle metadata, the live algorithm, backend counters and routed client IDs,
   node metric values and measured traffic, and link/input queue counters.
   They contain neither `simulation.config` nor graph labels, addresses or link settings.
@@ -978,7 +986,7 @@ Stopping a backend clears its local state without ending remote clients or
 migrating their active TCP streams. Packets emitted before the sender stops can
 still arrive; FIN/RST take effect at the receiver only when delivered.
 
-Version-2 timeline states can add and remove backends by stable ID. Inserted
+Timeline states can add and remove backends by stable ID. Inserted
 backends create their CPU and directed links at that timestamp. Removal stops
 local TCP and CPU work, retires both physical paths and excludes the backend
 from new selection and health probes. Existing clients keep their TCP state;
@@ -988,16 +996,16 @@ reports and traffic sampling, while the current graph omits the removed node
 and its links. Membership, CPU, network and policy edits at one timestamp
 publish as one configuration revision.
 
-Version-2 states also separate physical failure/recovery from administrative
+Timeline states also separate physical failure/recovery from administrative
 drain and LB-observed health. `physicalAvailable: false` clears local TCP and CPU
 work while keeping counters, links, remote clients and pinned mappings. Recovery
 permits local work again; the LB learns failure and recovery through probes.
 `administrativeState: "drain"` blocks new mappings while existing traffic and
 probes continue. Neither recovery nor probes clear drain. Backend topology metrics
-show all three signals independently. See the [v2 execution notes](examples/scenarios-v2/README.md)
+show all three signals independently. See the [timeline execution notes](examples/scenarios/CONTRACT.md)
 for initial, insertion and full-state default semantics.
 
-The internal version-2 runtime also executes all client-generator transitions.
+The timeline runtime also executes all client-generator transitions.
 A group's `count` is its lifetime birth budget. Reductions pause future births;
 growth resumes with the next unused index. Removing the group stops its generator
 while existing TCP streams and access links continue. Network edits update both
@@ -1006,8 +1014,8 @@ Address ranges use every group's maximum budget across the full plan, sorted by
 ID, so later insertion and growth cannot move or reuse another client's address.
 `ScheduledClients` reports current planned births, including those already born
 from removed groups; it is separate from the plan's address reservation bound.
-CLI and HTTP execute these complete version-2 timelines. See the
-[client-generator execution rules](examples/scenarios-v2/README.md#client-generators-and-access-links-e112)
+CLI and HTTP execute these complete timelines. See the
+[client-generator execution rules](examples/scenarios/CONTRACT.md#client-generators-and-access-links-e112)
 for timing, overrides and metric details.
 
 Backend cleanup is configured under `tcp`:
@@ -1256,4 +1264,4 @@ Dependencies, build output, runtime traces, and local repository backups are
 excluded from Git by the root `.gitignore`.
 
 
-Current benchmark scripts require native scenario version 2, including archived campaign inputs. Historical version-1 archives remain unchanged and require their original simulator revision; replay does not convert them.
+Current benchmark scripts require `scenarioVersion: 2`, including archived campaign inputs. Historical archives retain their original field names and require their matching simulator and tools; replay does not convert them.

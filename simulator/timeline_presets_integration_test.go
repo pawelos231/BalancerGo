@@ -17,13 +17,13 @@ import (
 // Keep the catalog's links, hosts, TCP and budgets, but move 30/90 s to
 // 100/300 ms, use 8 MiB streams and a 600 ms horizon. The trickle uses an
 // exact 10 ms gap: twenty births precede removal at 300 ms, the next is canceled.
-func shortTimelinePreset(t *testing.T, id string) scenario.ScenarioV2 {
+func shortTimelinePreset(t *testing.T, id string) scenario.Scenario {
 	t.Helper()
 	document, err := os.ReadFile(filepath.Join("..", "examples", "scenarios", id+".json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := scenario.DecodeDocumentV2(document)
+	input, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestTimelinePresetsExecuteEveryPhaseThroughHTTPAndCLI(t *testing.T) {
 			}
 
 			input := shortTimelinePreset(t, id)
-			document, err := scenario.EncodeDocumentV2(input)
+			document, err := scenario.EncodeDocument(input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -200,7 +200,7 @@ func TestTimelinePresetInvalidRecoveryIsRejectedBeforeAdmission(t *testing.T) {
 	recovery := input.States["300000000"]
 	recovery.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = -1
 	input.States["300000000"] = recovery
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}

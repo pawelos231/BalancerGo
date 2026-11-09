@@ -13,7 +13,7 @@ import (
 )
 
 // trafficTestDefinition makes a one-byte transmission take exactly 100 ms.
-func trafficTestDefinition() scenario.ScenarioV2 {
+func trafficTestDefinition() scenario.Scenario {
 	definition := baseScenario()
 	editInitialState(&definition, func(state *scenario.StateConfig) {
 		state.Workload.ClientGroups[0].Count = 0

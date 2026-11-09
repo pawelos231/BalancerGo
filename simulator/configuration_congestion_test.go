@@ -113,7 +113,7 @@ func TestCongestionCLIFlags(t *testing.T) {
 	}
 }
 
-// CUBIC settings use the same native/flat paths, including disabled fast convergence.
+// CUBIC settings use the same CLI and public summary paths, including disabled fast convergence.
 func TestCubicFastConvergenceCLIFlag(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"-tcp-congestion-control", "cubic", "-tcp-cubic-fast-convergence=false"},

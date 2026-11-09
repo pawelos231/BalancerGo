@@ -13,7 +13,7 @@ import (
 func TestTCPReceiveBufferDefaultsAndLimits(t *testing.T) {
 	// Existing documents omit TCP settings and retain the default capacity.
 	input := exampleScenario()
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestTCPReceiveBufferDefaultsAndLimits(t *testing.T) {
 	// A tiny positive buffer is valid; zero must not become an unlimited buffer.
 	for _, capacity := range []int{1, 64, 65535, 0, -1, 65536} {
 		input.Fixed.TCP.ReceiveBufferBytes = pointer(capacity)
-		resolved, err := scenario.NormalizeV2(input)
+		resolved, err := scenario.Normalize(input)
 		valid := capacity >= 1 && capacity <= 65535
 		if !valid {
 			if err == nil || !strings.Contains(err.Error(), "tcp.receiveBufferBytes") {
@@ -45,7 +45,7 @@ func TestTCPReceiveBufferDefaultsAndLimits(t *testing.T) {
 func TestTCPTimerDefaultsAndExplicitOverrides(t *testing.T) {
 	// Older scenarios inherit adaptive RTO: initially 1 s, bounded to 200 ms..60 s.
 	input := exampleScenario()
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,15 +80,15 @@ func TestTCPTimerDefaultsAndExplicitOverrides(t *testing.T) {
 	})
 
 	// Import/export must preserve false and zero rather than replace them with defaults.
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocumentV2(document)
+	restored, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.NormalizeV2(restored)
+	resolved, err = scenario.Normalize(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,52 +108,52 @@ func TestTCPTimerValidation(t *testing.T) {
 	// Invalid timers cannot reach the engine; zero is allowed only for idle cleanup.
 	cases := []struct {
 		name   string
-		change func(*scenario.ScenarioV2)
+		change func(*scenario.Scenario)
 		path   string
 	}{
 		{
 			name:   "unknown mode",
-			change: func(s *scenario.ScenarioV2) { s.Fixed.TCP.RTO.Mode = pointer("fast") },
+			change: func(s *scenario.Scenario) { s.Fixed.TCP.RTO.Mode = pointer("fast") },
 			path:   "tcp.rto.mode",
 		},
 		{
 			name:   "empty mode",
-			change: func(s *scenario.ScenarioV2) { s.Fixed.TCP.RTO.Mode = pointer("") },
+			change: func(s *scenario.Scenario) { s.Fixed.TCP.RTO.Mode = pointer("") },
 			path:   "tcp.rto.mode",
 		},
 		{
 			name:   "zero initial",
-			change: func(s *scenario.ScenarioV2) { s.Fixed.TCP.RTO.InitialTimeout = pointer(time.Duration(0)) },
+			change: func(s *scenario.Scenario) { s.Fixed.TCP.RTO.InitialTimeout = pointer(time.Duration(0)) },
 			path:   "tcp.rto",
 		},
 		{
 			name:   "negative minimum",
-			change: func(s *scenario.ScenarioV2) { s.Fixed.TCP.RTO.MinimumTimeout = pointer(-time.Second) },
+			change: func(s *scenario.Scenario) { s.Fixed.TCP.RTO.MinimumTimeout = pointer(-time.Second) },
 			path:   "tcp.rto",
 		},
 		{
 			name:   "zero maximum",
-			change: func(s *scenario.ScenarioV2) { s.Fixed.TCP.RTO.MaximumTimeout = pointer(time.Duration(0)) },
+			change: func(s *scenario.Scenario) { s.Fixed.TCP.RTO.MaximumTimeout = pointer(time.Duration(0)) },
 			path:   "tcp.rto",
 		},
 		{
 			name:   "minimum above initial",
-			change: func(s *scenario.ScenarioV2) { s.Fixed.TCP.RTO.MinimumTimeout = pointer(2 * time.Second) },
+			change: func(s *scenario.Scenario) { s.Fixed.TCP.RTO.MinimumTimeout = pointer(2 * time.Second) },
 			path:   "tcp.rto",
 		},
 		{
 			name:   "initial above maximum",
-			change: func(s *scenario.ScenarioV2) { s.Fixed.TCP.RTO.InitialTimeout = pointer(61 * time.Second) },
+			change: func(s *scenario.Scenario) { s.Fixed.TCP.RTO.InitialTimeout = pointer(61 * time.Second) },
 			path:   "tcp.rto",
 		},
 		{
 			name:   "negative client idle",
-			change: func(s *scenario.ScenarioV2) { s.Fixed.TCP.ClientIdleTimeout = pointer(-time.Second) },
+			change: func(s *scenario.Scenario) { s.Fixed.TCP.ClientIdleTimeout = pointer(-time.Second) },
 			path:   "tcp.clientIdle",
 		},
 		{
 			name: "negative half-open idle",
-			change: func(s *scenario.ScenarioV2) {
+			change: func(s *scenario.Scenario) {
 				editInitialState(s, func(state *scenario.StateConfig) {
 					state.Resources.LoadBalancer.MappingTimeouts.HalfOpenIdleTimeout = pointer(-time.Second)
 				})
@@ -162,7 +162,7 @@ func TestTCPTimerValidation(t *testing.T) {
 		},
 		{
 			name: "negative established idle",
-			change: func(s *scenario.ScenarioV2) {
+			change: func(s *scenario.Scenario) {
 				editInitialState(s, func(state *scenario.StateConfig) {
 					state.Resources.LoadBalancer.MappingTimeouts.EstablishedIdleTimeout = pointer(-time.Second)
 				})
@@ -174,7 +174,7 @@ func TestTCPTimerValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			input := exampleScenario()
 			test.change(&input)
-			_, err := scenario.NormalizeV2(input)
+			_, err := scenario.Normalize(input)
 			if err == nil || !strings.Contains(err.Error(), test.path) {
 				t.Fatalf("expected %s error, got %v", test.path, err)
 			}
@@ -186,11 +186,11 @@ func TestTCPReceiveBufferSurvivesDocumentRoundTrip(t *testing.T) {
 	input := exampleScenario()
 	input.Fixed.TCP.ReceiveBufferBytes = pointer(64)
 
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocumentV2(document)
+	restored, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,11 +199,11 @@ func TestTCPReceiveBufferSurvivesDocumentRoundTrip(t *testing.T) {
 	}
 
 	// The resolved view exposes the effective value rather than an optional patch.
-	resolved, err := scenario.NormalizeV2(restored)
+	resolved, err := scenario.Normalize(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err = scenario.EncodeNormalizedDocumentV2(resolved)
+	document, err = scenario.EncodeNormalizedDocument(resolved)
 	if err != nil {
 		t.Fatal(err)
 	}

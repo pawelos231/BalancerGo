@@ -53,7 +53,7 @@ func TestStopResultsStayOnSubmittingWebSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer other.Close()
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Duration = time.Hour
 	input.Fixed.Execution.Speed = 1
 	input.Fixed.Execution.SnapshotInterval = time.Hour

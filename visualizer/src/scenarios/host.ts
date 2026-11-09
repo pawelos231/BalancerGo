@@ -1,5 +1,4 @@
-import type { ExactInteger, Scenario, ScenarioHostConfig } from './types.ts';
-import type { V2HostConfig } from './v2Types.ts';
+import type { ExactInteger, Scenario, ScenarioHostConfig, ScenarioHostPatch } from './types.ts';
 import { retainResourceIds, selectedScenarioState } from './draft.ts';
 
 export type HostField = 'cores' | 'packetProcessingTimeUs' | 'queueCapacity';
@@ -31,7 +30,7 @@ function microseconds(value: ExactInteger): string {
   return `${nanoseconds / 1000n}${fraction ? `.${fraction}` : ''}`;
 }
 
-export function hostValues(host?: V2HostConfig): HostValues {
+export function hostValues(host?: ScenarioHostPatch): HostValues {
   return {
     cores: String(host?.cores ?? 1),
     packetProcessingTimeUs: microseconds(host?.packetProcessingTimeNanoseconds ?? 0),
@@ -72,20 +71,20 @@ export function hostErrorKey(target: string, field: HostField): string {
   return `${target}/${field}`;
 }
 
-export function scenarioHost(scenario: Scenario, target: HostTarget, selectedAt = '0'): V2HostConfig | undefined {
+export function scenarioHost(scenario: Scenario, target: HostTarget, selectedAt = '0'): ScenarioHostPatch | undefined {
   return target === 'loadBalancer'
     ? selectedScenarioState(scenario, selectedAt).resources.loadBalancer.host
     : selectedScenarioState(scenario, selectedAt).resources.backends.find(backend => backendHostTarget(backend.id) === target)?.host;
 }
 
-function targetHost(scenario: Scenario, target: HostTarget, selectedAt = '0'): { host?: V2HostConfig } {
+function targetHost(scenario: Scenario, target: HostTarget, selectedAt = '0'): { host?: ScenarioHostPatch } {
   if (target === 'loadBalancer') return selectedScenarioState(scenario, selectedAt).resources.loadBalancer;
   const backend = selectedScenarioState(scenario, selectedAt).resources.backends.find(entry => backendHostTarget(entry.id) === target);
   if (!backend) throw new Error(`Backend ${target} no longer exists.`);
   return backend;
 }
 
-function assignHostField(host: V2HostConfig, field: HostField, value: ExactInteger) {
+function assignHostField(host: ScenarioHostPatch, field: HostField, value: ExactInteger) {
   if (field === 'packetProcessingTimeUs') host.packetProcessingTimeNanoseconds = value;
   else host[field] = value;
 }

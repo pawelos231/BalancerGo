@@ -53,11 +53,11 @@ func TestTransferSecondsAndOptionalFailureWireFormat(t *testing.T) {
 
 func TestIdleSnapshotWireFormat(t *testing.T) {
 	snapshot := contract.SimulationSnapshot{
-		Type:      "simulationSnapshot",
-		Version:   1,
-		Mode:      contract.LBModeNAT,
-		Algorithm: "RoundRobin",
-		Servers:   []contract.TelemetryServer{},
+		Type:            "simulationSnapshot",
+		SnapshotVersion: contract.CurrentSnapshotVersion,
+		Mode:            contract.LBModeNAT,
+		Algorithm:       "RoundRobin",
+		Servers:         []contract.TelemetryServer{},
 		Simulation: contract.SimulationMetadata{
 			Status:    "idle",
 			Algorithm: "roundRobin",
@@ -72,7 +72,7 @@ func TestIdleSnapshotWireFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"type":"simulationSnapshot","version":1,"mode":"NAT","algorithm":"RoundRobin","servers":[],"simulation":{"status":"idle","algorithm":"roundRobin","virtualTimeSeconds":0},"topology":{"revision":"0","nodes":[],"links":[]}}`
+	want := `{"type":"simulationSnapshot","snapshotVersion":1,"mode":"NAT","algorithm":"RoundRobin","servers":[],"simulation":{"status":"idle","algorithm":"roundRobin","virtualTimeSeconds":0},"topology":{"revision":"0","nodes":[],"links":[]}}`
 	if string(encoded) != want {
 		t.Fatalf("idle snapshot changed:\n%s\nwant:\n%s", encoded, want)
 	}

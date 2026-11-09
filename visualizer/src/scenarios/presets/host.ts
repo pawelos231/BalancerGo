@@ -1,4 +1,4 @@
-import type { ScenarioV2 } from '../v2Types.ts';
+import type { Scenario } from '../types.ts';
 import type { ScenarioHostConfig } from '../types.ts';
 import type { ScenarioPreset } from '../scenarioPresetTypes.ts';
 import { isolatedExperiment } from './base.ts';
@@ -9,7 +9,7 @@ function cpu(cores: number, microseconds: number, queueCapacity = 128): Scenario
   return { cores, packetProcessingTimeNanoseconds: microseconds * 1000, queueCapacity };
 }
 
-function hostExperiment(defaults: ScenarioV2): ScenarioV2 {
+function hostExperiment(defaults: Scenario): Scenario {
   const scenario = isolatedExperiment(defaults);
   scenario.states['0'].resources.loadBalancer.host = idealHost();
   for (const backend of scenario.states['0'].resources.backends) backend.host = idealHost();

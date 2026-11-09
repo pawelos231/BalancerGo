@@ -1,6 +1,13 @@
-import type { ExactInteger, ResolvedLinks, ScenarioLinkConfig, ScenarioStream } from './types.ts';
-import type { ScenarioV2, V2HostConfig, V2MappingTimeouts } from './v2Types.ts';
-import { applyStreamPatch, resolveNetwork } from './v2Settings.ts';
+import type {
+  ExactInteger,
+  ResolvedLinks,
+  Scenario,
+  ScenarioHostPatch,
+  ScenarioLinkConfig,
+  ScenarioMappingTimeouts,
+  ScenarioStream,
+} from './types.ts';
+import { applyStreamPatch, resolveNetwork } from './settings.ts';
 
 export interface PlannedHost {
   cores: ExactInteger;
@@ -42,28 +49,16 @@ export interface PlannedTopology {
   atNanoseconds: string;
   stateAtNanoseconds: string;
   durationNanoseconds: string;
-  previousAtNanoseconds: string | null;
-  nextAtNanoseconds: string | null;
   loadBalancer: {
     id: string;
     algorithm: string;
     host: PlannedHost;
     ingress: ScenarioLinkConfig;
     forwardingBitsPerSecond: ExactInteger;
-    mappingTimeouts: V2MappingTimeouts;
+    mappingTimeouts: ScenarioMappingTimeouts;
   };
   backends: PlannedBackend[];
   clientGroups: PlannedClientGroup[];
-}
-
-// Seconds stay decimal throughout: 0.000000001 becomes exactly one nanosecond.
-export function parseVirtualSeconds(text: string): bigint {
-  const trimmed = text.trim();
-  if (!/^(?:\d+(?:\.\d{0,9})?|\.\d{1,9})$/.test(trimmed)) {
-    throw new Error('Enter nonnegative seconds with at most 9 decimal places.');
-  }
-  const [seconds, fraction = ''] = trimmed.split('.');
-  return BigInt(seconds || '0') * 1_000_000_000n + BigInt(fraction.padEnd(9, '0'));
 }
 
 export function formatVirtualSeconds(nanoseconds: bigint | ExactInteger): string {
@@ -74,30 +69,28 @@ export function formatVirtualSeconds(nanoseconds: bigint | ExactInteger): string
   return fraction ? `${seconds}.${fraction}` : seconds.toString();
 }
 
+// Slider positions are indices; the original timestamp strings keep every nanosecond.
+export function plannedStateTimes(scenario: Pick<Scenario, 'states'>): string[] {
+  return Object.keys(scenario.states).sort((left, right) => {
+    const a = BigInt(left);
+    const b = BigInt(right);
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+}
+
 // The caller supplies a fully validated document; every selected state is complete.
 // Work scales with declared groups and overrides, never with their client budgets.
-export function projectPlannedTopology(scenario: ScenarioV2, atNanoseconds: bigint): PlannedTopology {
+export function projectPlannedTopology(scenario: Scenario, atNanoseconds: bigint): PlannedTopology {
   const duration = BigInt(scenario.fixed.execution.durationNanoseconds);
   if (atNanoseconds < 0n || atNanoseconds > duration) {
     throw new Error(`Virtual time must be between 0 and ${formatVirtualSeconds(duration)} seconds.`);
   }
 
-  const times = Object.keys(scenario.states).sort((left, right) => {
-    const a = BigInt(left);
-    const b = BigInt(right);
-    return a < b ? -1 : a > b ? 1 : 0;
-  });
+  const times = plannedStateTimes(scenario);
   let selectedAt = times[0];
-  let previousAt: string | null = null;
-  let nextAt: string | null = null;
   for (const time of times) {
-    const declaredAt = BigInt(time);
-    if (declaredAt <= atNanoseconds) selectedAt = time;
-    if (declaredAt < atNanoseconds) previousAt = time;
-    if (declaredAt > atNanoseconds) {
-      nextAt = time;
-      break;
-    }
+    if (BigInt(time) > atNanoseconds) break;
+    selectedAt = time;
   }
 
   const state = scenario.states[selectedAt];
@@ -113,8 +106,6 @@ export function projectPlannedTopology(scenario: ScenarioV2, atNanoseconds: bigi
     atNanoseconds: atNanoseconds.toString(),
     stateAtNanoseconds: selectedAt,
     durationNanoseconds: duration.toString(),
-    previousAtNanoseconds: previousAt,
-    nextAtNanoseconds: nextAt,
     loadBalancer: {
       id: fixed.loadBalancer.id,
       algorithm: loadBalancer.algorithm,
@@ -155,7 +146,7 @@ export function projectPlannedTopology(scenario: ScenarioV2, atNanoseconds: bigi
   };
 }
 
-function resolveHost(host: V2HostConfig | undefined): PlannedHost {
+function resolveHost(host: ScenarioHostPatch | undefined): PlannedHost {
   return {
     cores: host?.cores ?? 1,
     packetProcessingTimeNanoseconds: host?.packetProcessingTimeNanoseconds ?? 0,

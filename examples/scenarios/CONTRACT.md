@@ -1,24 +1,26 @@
-# Version 2 scenario contract examples
+# Scenario contract
 
-These are runnable version-2 timeline examples for the CLI and HTTP API.
+These runnable timeline examples use `scenarioVersion: 2` for the CLI and HTTP API.
 Every state is validated and compiled before Start, then applied atomically at
 its virtual timestamp. The frontend, library, import/export, CLI and HTTP API
-use this same contract; version 1 is rejected without a conversion fallback.
+use this same contract. Other scenario versions and the old generic `version` field
+are rejected. Telemetry uses `snapshotVersion: 1`; reports use `reportVersion: 1`.
+These version numbers belong to separate contracts.
 
-From `simulator/`, run `go run . -scenario ../examples/scenarios-v2/burst-and-recovery.json`.
+From `simulator/`, run `go run . -scenario ../examples/scenarios/timeline-burst-and-recovery.json`.
 Use `GET /api/scenarios/defaults` for native HTTP defaults and POST a full
-v2 document to `/api/scenarios/validate` or `/api/simulations`.
+scenario document to `/api/scenarios/validate` or `/api/simulations`.
 
-`scenario.DecodeDocumentV2` and `scenario.EncodeDocumentV2` check document syntax.
-`scenario.NormalizeV2` additionally validates the whole timeline and resolves
+`scenario.DecodeDocument` and `scenario.EncodeDocument` check document syntax.
+`scenario.Normalize` additionally validates the whole timeline and resolves
 each state independently. The frontend has matching types and local validation.
 The internal `simulation.NewTimeline` runtime executes all compiled transitions,
 including client generators. CLI and HTTP use this same executor.
 
 | File | Intended experiment | Target application payload |
 | --- | --- | --- |
-| [static.json](static.json) | One state, two backends, four clients born 250 ms apart. | 4 × 262,144 B = 1 MiB. |
-| [burst-and-recovery.json](burst-and-recovery.json) | Eight baseline clients; at 2 s add a 16-client burst, reduce shared LB limits to 5 Mbit/s and drain backend 2; at 6 s restore capacity and admission. | 24 × 1,048,576 B = 24 MiB. |
+| [timeline-static.json](timeline-static.json) | One state, two backends, four clients born 250 ms apart. | 4 × 262,144 B = 1 MiB. |
+| [timeline-burst-and-recovery.json](timeline-burst-and-recovery.json) | Eight baseline clients; at 2 s add a 16-client burst, reduce shared LB limits to 5 Mbit/s and drain backend 2; at 6 s restore capacity and admission. | 24 × 1,048,576 B = 24 MiB. |
 
 Targets exclude protocol headers and retransmissions; completion before the
 horizon is not guaranteed. Both examples explicitly set execution, TCP, link,
@@ -26,27 +28,27 @@ host, stream and mapping-timeout settings. Empty endpoint/stream patches inherit
 the document's fixed defaults, rather than undocumented values from another state.
 
 The library also supplies three longer, directly runnable timeline examples in
-[`../scenarios/`](../scenarios/README.md):
+[the catalog](README.md):
 
-- [Arrival burst and stop](../scenarios/timeline-arrival-burst.json): add generators
+- [Arrival burst and stop](timeline-arrival-burst.json): add generators
   at 30 s, then remove them at 90 s. Existing clients continue after removal.
-- [Shared LB capacity recovery](../scenarios/timeline-lb-capacity.json): reduce
+- [Shared LB capacity recovery](timeline-lb-capacity.json): reduce
   ingress and forwarding together at 30 s, then restore both at 90 s.
-- [CPU bottleneck and scale-up](../scenarios/timeline-cpu-scaling.json): enable
+- [CPU bottleneck and scale-up](timeline-cpu-scaling.json): enable
   one LB core at 10 µs/packet at 30 s, then provide four cores at 90 s.
 
 These use the same full-state contract and retain finite traffic throughout both
 transitions. Their `count` values are lifetime generator budgets. Repeating a
 count does not repeat births; removing a group stops only future births, retains
 born clients, and does not release the group's run-wide address reservation.
-The [catalog guide](../scenarios/README.md) documents timings, profiles, budgets
+The [catalog guide](README.md) documents timings, profiles, budgets
 and the distinction between planned generators and live clients.
 
 ## Document shape and units
 
 | JSON path | Contents |
 | --- | --- |
-| `version` | Exactly `2`. |
+| `scenarioVersion` | Exactly `2`. |
 | `fixed.execution` | Duration, real-time snapshot interval, seed, playback speed and event limit. |
 | `fixed.tcp` | Run-wide TCP parameters, timers, receive buffer and congestion control. |
 | `fixed.loadBalancer` | Immutable `id` only. |
@@ -139,28 +141,28 @@ timeline runtime, which implements these rules.
   administrative selection set. Physical unavailability does not automatically
   inform the LB: transport and configured observation mechanisms must reveal it.
 
-In `burst-and-recovery.json`, the retained baseline group's eight births are not
+In `timeline-burst-and-recovery.json`, the retained baseline group's eight births are not
 repeated at 2 s. The new burst group starts at its insertion time with gap zero.
 Its 16-client budget is repeated at 6 s, so recovery does not create another burst.
 Backend 2 remains physically available throughout its temporary administrative drain.
 
 ## Validation boundary
 
-The document reader checks version 2, strict JSON shape/field types, unknown and
+The document reader checks `scenarioVersion: 2`, strict JSON shape/field types, unknown and
 duplicate fields, canonical timestamp spelling, and exact integer transport.
-Ordinary omitted fields keep zero values. Call `NormalizeV2` after decoding to
+Ordinary omitted fields keep zero values. Call `Normalize` after decoding to
 check semantic validity; the same checks also cover directly constructed Go values.
 
 Normalization requires positive duration, a state at zero, and state times strictly
 below duration. It checks setting ranges, enum values, profile references, duplicate
 IDs/endpoints, retained identities, insertion times and run-wide client reservations.
 Equivalent IP spellings and ASCII host casing identify the same backend endpoint.
-Other Unicode characters remain literal and case-sensitive; this v2 policy avoids
+Other Unicode characters remain literal and case-sensitive; this identity policy avoids
 depending on the browser's or Go compiler's Unicode version. The original address
 spelling is preserved. A later error rejects the whole timeline,
 without returning partially usable states or creating runtime objects.
 
-`NormalizedV2.Fixed` holds shared resolved settings; `States` contains full states
+`Normalized.Fixed` holds shared resolved settings; `States` contains full states
 sorted by `At`, not compiled transition actions. State `TotalClients` sums its
 declared group budgets. Run-wide `TotalClients` reserves the sum of each distinct
 group's maximum declared count, bounded by `MaxClients`. Reducing a count or
@@ -181,8 +183,8 @@ remaining horizon before adding a gap, preventing duration overflow.
 
 ## Compiled transitions and configuration lookup
 
-`scenario.CompileV2(input)` first validates and normalizes the entire document.
-It returns a private `CompiledV2` plan or an error, without creating a world,
+`scenario.Compile(input)` first validates and normalizes the entire document.
+It returns a private `Compiled` plan or an error, without creating a world,
 clients or engine events. An invalid later state returns no partially usable plan.
 
 The plan exposes:
@@ -194,7 +196,7 @@ The plan exposes:
 
 All returned collections are independent copies, including individual client
 overrides and transition payloads. `StateAt` selects the latest declaration at
-or before the query. For `burst-and-recovery.json`, a query at 4 s returns the
+or before the query. For `timeline-burst-and-recovery.json`, a query at 4 s returns the
 state declared at 2 s; its `At` stays 2 s. Querying the terminal time returns the
 last declared configuration. This is a planned configuration, not live traffic
 or a prediction of clients still connected at that time.
@@ -382,11 +384,11 @@ hydrates these values from the same native timeline run.
 
 ## Frontend validation
 
-`visualizer/src/scenarios/v2.ts` exposes two entry points:
+`visualizer/src/scenarios/validation.ts` exposes two entry points:
 
-- `parseScenarioV2(text)` checks raw JSON before a browser can round number tokens
+- `parseScenario(text)` checks raw JSON before a browser can round number tokens
   or replace duplicate keys. Use it for imported documents.
-- `validateScenarioV2(input)` checks an existing object and returns a detached,
+- `validateScenario(input)` checks an existing object and returns a detached,
   typed document. Large integers in an existing object must already be strings;
   validation cannot recover digits lost before it was called.
 
@@ -406,7 +408,7 @@ are reserved against every state, and late groups cannot start in the past.
 Shrinking Count retains overrides for clients born under earlier budgets.
 
 `validation/cases.json` supplies the same valid and invalid inputs to Go and
-TypeScript tests. Each case edits a fresh copy of `static.json`; optional text
+TypeScript tests. Each case edits a fresh copy of `timeline-static.json`; optional text
 replacements preserve ambiguous raw tokens such as duplicate keys and exponents.
 Negative cases also check the intended error field. Add shared cases whenever
 a rule changes so the two implementations remain aligned.

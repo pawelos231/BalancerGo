@@ -2,7 +2,7 @@ package presentation
 
 import "testing"
 
-// A native scenario's effective MSS is retained in the exported result.
+// A scenario's effective MSS is retained in the exported result.
 func TestResultReportsManualMSS(t *testing.T) {
 	definition := projectionScenario()
 	mssBytes := 1460

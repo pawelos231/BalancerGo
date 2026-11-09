@@ -6,7 +6,7 @@ import (
 	"load-balancer/scenario"
 )
 
-// hostInput keeps explicit zero cost and queue capacity in the native document.
+// hostInput keeps explicit zero cost and queue capacity in the scenario document.
 func hostInput(config scenario.NormalizedHostConfig) *scenario.HostConfig {
 	return &scenario.HostConfig{
 		Cores:                &config.Cores,

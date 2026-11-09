@@ -1,5 +1,4 @@
-import { Divider, Grid, MenuItem, Stack, TextField, Typography } from '@mui/material';
-import { useState } from 'react';
+import { Divider, Grid, Stack, Typography } from '@mui/material';
 import { formatVirtualSeconds } from '../scenarios/plannedTopology';
 import type { PlannedClientGroup, PlannedHost, PlannedTopology } from '../scenarios/plannedTopology';
 import type { ExactInteger, ResolvedLinks, ScenarioLinkConfig, ScenarioStream } from '../scenarios/types';
@@ -10,9 +9,17 @@ import { Fact, QueuePolicyFacts } from './TopologyFacts';
 const integer = (value: ExactInteger) => BigInt(value).toLocaleString('en-US');
 const seconds = (value: ExactInteger) => `${formatVirtualSeconds(value)} s`;
 
-function PlannedResourceDetails({ plan, selection }: { plan: PlannedTopology; selection: string }) {
+interface PlannedResourceDetailsProps {
+  plan: PlannedTopology;
+  selection: string;
+  slotIndex?: ExactInteger;
+}
+
+function PlannedResourceDetails({ plan, selection, slotIndex }: PlannedResourceDetailsProps) {
   const group = plan.clientGroups.find(item => `group:${item.id}` === selection);
-  if (group) return <GeneratorDetails key={group.id} group={group} />;
+  if (group) {
+    return <GeneratorDetails group={group} slotIndex={slotIndex} />;
+  }
 
   const backend = plan.backends.find(item => `backend:${item.id}` === selection);
   if (backend) {
@@ -46,7 +53,7 @@ function PlannedResourceDetails({ plan, selection }: { plan: PlannedTopology; se
         />
       </Stack>
       <HostDetails host={lb.host} />
-      <LinkDetails title="Shared ingress (RX)" link={lb.ingress} />
+      <PlannedLinkDetails title="Shared ingress (RX)" link={lb.ingress} />
       <Typography variant="caption" color="text.secondary">
         Both client-side and backend-side input queues share this RX bandwidth. Each side has
         the configured waiting capacity. Travel and loss apply once after shared RX transmission.
@@ -56,9 +63,12 @@ function PlannedResourceDetails({ plan, selection }: { plan: PlannedTopology; se
   );
 }
 
-function GeneratorDetails({ group }: { group: PlannedClientGroup }) {
-  const [overrideIndex, setOverrideIndex] = useState('');
-  const override = group.overrides.find(item => String(item.index) === overrideIndex);
+function GeneratorDetails({ group, slotIndex }: {
+  group: PlannedClientGroup;
+  slotIndex?: ExactInteger;
+}) {
+  // The selected diagram node is the sole source of the inspected slot.
+  const override = group.overrides.find(item => String(item.index) === String(slotIndex));
   return (
     <Stack spacing={2}>
       <Typography variant="h6" component="h2">Client generator: {group.id}</Typography>
@@ -72,22 +82,6 @@ function GeneratorDetails({ group }: { group: PlannedClientGroup }) {
         The budget is cumulative across the run, not births repeated at this state. This view
         does not determine which slots have been created or which connections remain active.
       </Typography>
-      {group.overrides.length > 0 && (
-        <TextField
-          select
-          label="Generator defaults or configured slot"
-          value={override ? overrideIndex : ''}
-          onChange={event => setOverrideIndex(event.target.value)}
-          fullWidth
-        >
-          <MenuItem value="">Group defaults (slots without an override)</MenuItem>
-          {group.overrides.map(item => (
-            <MenuItem key={String(item.index)} value={String(item.index)}>
-              Slot {item.index}{item.reserved ? ' · configured reserved slot (outside current budget)' : ''}
-            </MenuItem>
-          ))}
-        </TextField>
-      )}
       <Typography variant="subtitle2">
         {override ? `Effective settings for slot ${override.index}` : 'Effective group defaults'}
       </Typography>
@@ -143,10 +137,10 @@ function NetworkDetails({ network, endpoint }: { network: ResolvedLinks; endpoin
       <Divider />
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 6 }}>
-          <LinkDetails title={`${endpoint} → LB`} link={network.toLoadBalancer} />
+          <PlannedLinkDetails title={`${endpoint} → LB`} link={network.toLoadBalancer} />
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
-          <LinkDetails title={`LB → ${endpoint}`} link={network.fromLoadBalancer} />
+          <PlannedLinkDetails title={`LB → ${endpoint}`} link={network.fromLoadBalancer} />
         </Grid>
       </Grid>
       <Typography variant="caption" color="text.secondary">
@@ -157,7 +151,7 @@ function NetworkDetails({ network, endpoint }: { network: ResolvedLinks; endpoin
   );
 }
 
-function LinkDetails({ title, link }: { title: string; link: ScenarioLinkConfig }) {
+export function PlannedLinkDetails({ title, link }: { title: string; link: ScenarioLinkConfig }) {
   return (
     <Stack spacing={1}>
       <Typography variant="subtitle2">{title}</Typography>

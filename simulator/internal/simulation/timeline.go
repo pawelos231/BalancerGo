@@ -19,7 +19,7 @@ var ErrTimelineManualMutation = errors.New(
 
 // timelineRuntime tracks only committed settings, not future desired states.
 type timelineRuntime struct {
-	plan        *scenario.CompiledV2
+	plan        *scenario.Compiled
 	committedAt time.Duration
 	revision    uint64
 }
@@ -70,7 +70,7 @@ type linkConfigurationChange struct {
 }
 
 // NewTimeline prepares a world from a completely checked configuration timeline.
-func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
+func NewTimeline(plan *scenario.Compiled) (*World, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("simulation: compiled timeline is required")
 	}
@@ -113,7 +113,7 @@ func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 
 // prepareConfigurationCommits describes all edits before creating runtime resources.
 // Compiled plans have already checked the entire document, including late states.
-func prepareConfigurationCommits(plan *scenario.CompiledV2) ([]configurationCommit, error) {
+func prepareConfigurationCommits(plan *scenario.Compiled) ([]configurationCommit, error) {
 	transitions := plan.Transitions()
 	commits := make([]configurationCommit, 0, len(transitions))
 	for _, transition := range transitions {
@@ -279,7 +279,7 @@ func (s *World) applyBackendState(change backendStateChange) {
 	s.lb.SetBackendDraining(backend, change.draining)
 }
 
-// CurrentConfiguration returns the last committed v2 state, never a future declaration.
+// CurrentConfiguration returns the last committed scenario state, never a future declaration.
 // Like other world observations, it belongs to the engine's owner goroutine.
 func (s *World) CurrentConfiguration() (scenario.NormalizedState, bool) {
 	state, err := s.timeline.plan.StateAt(s.timeline.committedAt)

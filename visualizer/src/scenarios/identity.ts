@@ -1,5 +1,5 @@
-import type { BackendStateV2, V2ClientGroup } from './v2Types.ts';
-import { endpointKey } from './v2Values.ts';
+import type { ScenarioBackendState, ScenarioClientGroup } from './types.ts';
+import { endpointKey } from './values.ts';
 
 const maxClients = 16_777_215n;
 
@@ -18,7 +18,7 @@ export class TimelineIdentities {
   private reservedClients = 0n;
 
   // Retaining backend-1 may change its name or links, but never its endpoint.
-  backend(backend: BackendStateV2, path: string, stateIndex: number): void {
+  backend(backend: ScenarioBackendState, path: string, stateIndex: number): void {
     const { identity, firstVisit } = this.visit(backend.id, 'backend', path, stateIndex);
     const endpoint = endpointKey(backend.address, backend.port);
 
@@ -29,7 +29,7 @@ export class TimelineIdentities {
   }
 
   // A count change from 10 to 1 still reserves slots 0..9 for earlier clients.
-  group(group: V2ClientGroup, at: bigint, path: string, stateIndex: number): bigint {
+  group(group: ScenarioClientGroup, at: bigint, path: string, stateIndex: number): bigint {
     const { identity, firstVisit } = this.visit(group.id, 'client group', path, stateIndex);
     const startAt = BigInt(group.startAtNanoseconds);
 

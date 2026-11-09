@@ -1,5 +1,5 @@
 import type { ScenarioPreset } from '../scenarioPresetTypes.ts';
-import type { ScenarioV2 } from '../v2Types.ts';
+import type { Scenario } from '../types.ts';
 import { isolatedExperiment } from './base.ts';
 
 // Only backend 2 changes; backend 1 keeps its 4 ms base RTT and 1 Gbit/s links.
@@ -20,11 +20,11 @@ const streamCases = [
 
 // Keep clients, LB limits and execution settings identical across the matrix.
 function referenceScenario(
-  defaults: ScenarioV2,
+  defaults: Scenario,
   backendTravelTime: number,
   returnBitsPerSecond: number,
   streamBytes: number,
-): ScenarioV2 {
+): Scenario {
   const scenario = isolatedExperiment(defaults);
   scenario.fixed.execution.durationNanoseconds = 60_000_000_000;
   scenario.fixed.workload.defaults.bytes = streamBytes;

@@ -12,19 +12,19 @@ import (
 
 // exampleTimeline keeps the same valid defaults as the static scenario fixture.
 // Each call owns its slices, so editing one state cannot change another state.
-func exampleTimeline() scenario.ScenarioV2 { return exampleScenario() }
+func exampleTimeline() scenario.Scenario { return exampleScenario() }
 
 // Times 2 and 10 must follow numeric order, not JSON key order or string sorting.
-func TestNormalizeV2OrdersFullStatesNumerically(t *testing.T) {
+func TestNormalizeOrdersFullStatesNumerically(t *testing.T) {
 	input := exampleTimeline()
 	input.States["10"] = exampleTimeline().States["0"]
 	input.States["2"] = exampleTimeline().States["0"]
 
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.Version != scenario.VersionV2 || len(resolved.States) != 3 {
+	if resolved.ScenarioVersion != scenario.CurrentScenarioVersion || len(resolved.States) != 3 {
 		t.Fatalf("unexpected normalized document: %+v", resolved)
 	}
 	for index, expected := range []time.Duration{0, 2, 10} {
@@ -38,7 +38,7 @@ func TestNormalizeV2OrdersFullStatesNumerically(t *testing.T) {
 }
 
 // A missing patch in state 2 uses fixed defaults, not state 1's overrides.
-func TestNormalizeV2ResolvesEveryStateIndependently(t *testing.T) {
+func TestNormalizeResolvesEveryStateIndependently(t *testing.T) {
 	input := exampleTimeline()
 	input.Fixed.Network.Profiles = []scenario.LinkProfile{
 		{ID: "slow", Config: scenario.LinkPatch{BandwidthBitsPerSecond: pointer[int64](100)}},
@@ -62,7 +62,7 @@ func TestNormalizeV2ResolvesEveryStateIndependently(t *testing.T) {
 	input.States["0"] = first
 	input.States["2"] = exampleTimeline().States["0"]
 
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,35 +98,35 @@ func TestNormalizeV2ResolvesEveryStateIndependently(t *testing.T) {
 }
 
 // A bad final state rejects the whole document; callers never receive a valid prefix.
-func TestNormalizeV2RejectsInvalidSettingsAnywhere(t *testing.T) {
+func TestNormalizeRejectsInvalidSettingsAnywhere(t *testing.T) {
 	tests := []struct {
 		name  string
-		edit  func(*scenario.ScenarioV2)
+		edit  func(*scenario.Scenario)
 		field string
 	}{
 		{
 			name:  "fixed execution",
-			edit:  func(input *scenario.ScenarioV2) { input.Fixed.Execution.MaxEvents = 0 },
+			edit:  func(input *scenario.Scenario) { input.Fixed.Execution.MaxEvents = 0 },
 			field: "fixed.execution.maxEvents",
 		},
 		{
 			name:  "fixed TCP",
-			edit:  func(input *scenario.ScenarioV2) { input.Fixed.TCP.MSSBytes = pointer(0) },
+			edit:  func(input *scenario.Scenario) { input.Fixed.TCP.MSSBytes = pointer(0) },
 			field: "fixed.tcp.mssBytes",
 		},
 		{
 			name:  "fixed link defaults",
-			edit:  func(input *scenario.ScenarioV2) { input.Fixed.Network.Defaults.LossRate = math.NaN() },
+			edit:  func(input *scenario.Scenario) { input.Fixed.Network.Defaults.LossRate = math.NaN() },
 			field: "fixed.network.defaults.lossRate",
 		},
 		{
 			name:  "fixed stream defaults",
-			edit:  func(input *scenario.ScenarioV2) { input.Fixed.Workload.Defaults.Bytes = -2 },
+			edit:  func(input *scenario.Scenario) { input.Fixed.Workload.Defaults.Bytes = -2 },
 			field: "fixed.workload.defaults.bytes",
 		},
 		{
 			name: "late ingress",
-			edit: func(input *scenario.ScenarioV2) {
+			edit: func(input *scenario.Scenario) {
 				state := input.States["2"]
 				state.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = 0
 				input.States["2"] = state
@@ -135,7 +135,7 @@ func TestNormalizeV2RejectsInvalidSettingsAnywhere(t *testing.T) {
 		},
 		{
 			name: "late mapping timeout",
-			edit: func(input *scenario.ScenarioV2) {
+			edit: func(input *scenario.Scenario) {
 				state := input.States["2"]
 				state.Resources.LoadBalancer.MappingTimeouts.ClosingIdleTimeout = pointer(-time.Second)
 				input.States["2"] = state
@@ -144,29 +144,29 @@ func TestNormalizeV2RejectsInvalidSettingsAnywhere(t *testing.T) {
 		},
 		{
 			name:  "late profile reference",
-			edit:  func(input *scenario.ScenarioV2) { input.States["2"].Resources.Backends[0].Network.Profile = "missing" },
+			edit:  func(input *scenario.Scenario) { input.States["2"].Resources.Backends[0].Network.Profile = "missing" },
 			field: "network.profile",
 		},
 		{
 			name:  "late CPU",
-			edit:  func(input *scenario.ScenarioV2) { input.States["2"].Resources.Backends[0].Host.Cores = pointer(0) },
+			edit:  func(input *scenario.Scenario) { input.States["2"].Resources.Backends[0].Host.Cores = pointer(0) },
 			field: "host.cores",
 		},
 		{
 			name: "late administrative state",
-			edit: func(input *scenario.ScenarioV2) {
+			edit: func(input *scenario.Scenario) {
 				input.States["2"].Resources.Backends[0].AdministrativeState = pointer(scenario.BackendAdministrativeState("dead"))
 			},
 			field: "administrativeState",
 		},
 		{
 			name:  "late duplicate ID",
-			edit:  func(input *scenario.ScenarioV2) { input.States["2"].Resources.Backends[0].ID = "clients" },
+			edit:  func(input *scenario.Scenario) { input.States["2"].Resources.Backends[0].ID = "clients" },
 			field: "id",
 		},
 		{
 			name: "late duplicate endpoint",
-			edit: func(input *scenario.ScenarioV2) {
+			edit: func(input *scenario.Scenario) {
 				state := input.States["2"]
 				other := state.Resources.Backends[0]
 				other.ID = "other-backend"
@@ -183,11 +183,11 @@ func TestNormalizeV2RejectsInvalidSettingsAnywhere(t *testing.T) {
 			input.States["2"] = exampleTimeline().States["0"]
 			test.edit(&input)
 
-			resolved, err := scenario.NormalizeV2(input)
+			resolved, err := scenario.Normalize(input)
 			if err == nil || !strings.Contains(err.Error(), test.field) {
 				t.Fatalf("want an error for %s, got %v", test.field, err)
 			}
-			if !reflect.DeepEqual(resolved, scenario.NormalizedV2{}) {
+			if !reflect.DeepEqual(resolved, scenario.Normalized{}) {
 				t.Fatal("validation returned a partially resolved timeline")
 			}
 		})
@@ -195,7 +195,7 @@ func TestNormalizeV2RejectsInvalidSettingsAnywhere(t *testing.T) {
 }
 
 // Normalizing must not sort input overrides in place or retain their patch pointers.
-func TestNormalizeV2OwnsResolvedData(t *testing.T) {
+func TestNormalizeOwnsResolvedData(t *testing.T) {
 	input := exampleTimeline()
 	first := input.States["0"]
 	first.Workload.ClientGroups[0].Overrides = []scenario.ClientOverride{
@@ -205,7 +205,7 @@ func TestNormalizeV2OwnsResolvedData(t *testing.T) {
 	input.States["0"] = first
 	input.States["2"] = exampleTimeline().States["0"]
 
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}

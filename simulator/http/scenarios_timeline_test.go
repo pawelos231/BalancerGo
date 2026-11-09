@@ -2,7 +2,6 @@ package httpserver
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -12,30 +11,7 @@ import (
 	"load-balancer/scenario"
 )
 
-type nativeScenarioServiceStub struct {
-	scenarioServiceStub
-	definitionV2 scenario.ScenarioV2
-	inputV2      scenario.ScenarioV2
-	plan         *scenario.CompiledV2
-	nativeStarts int
-}
-
-func (service *nativeScenarioServiceStub) DefaultsV2() scenario.ScenarioV2 {
-	return service.definitionV2
-}
-
-func (service *nativeScenarioServiceStub) StartScenarioV2(
-	ctx context.Context,
-	input scenario.ScenarioV2,
-	plan *scenario.CompiledV2,
-) (contract.RunReceipt, error) {
-	service.nativeStarts++
-	service.startContext = ctx
-	service.inputV2, service.plan = input, plan
-	return contract.RunReceipt{RunID: "run-native"}, service.startError
-}
-
-func scenarioHTTPDefinitionV2() scenario.ScenarioV2 {
+func scenarioHTTPTimelineDefinition() scenario.Scenario {
 	base := scenarioHTTPDefinition()
 	initial := base.States["0"]
 	later := initial
@@ -46,26 +22,17 @@ func scenarioHTTPDefinitionV2() scenario.ScenarioV2 {
 	return base
 }
 
-func encodedHTTPScenarioV2(t *testing.T, definition scenario.ScenarioV2) []byte {
-	t.Helper()
-	document, err := scenario.EncodeDocumentV2(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return document
-}
-
-func TestScenarioV2StartPassesCompleteCompiledTimeline(t *testing.T) {
-	definition := scenarioHTTPDefinitionV2()
-	document := encodedHTTPScenarioV2(t, definition)
-	service := &nativeScenarioServiceStub{}
+func TestScenarioStartPassesCompleteCompiledTimeline(t *testing.T) {
+	definition := scenarioHTTPTimelineDefinition()
+	document := encodedHTTPScenario(t, definition)
+	service := &scenarioServiceStub{}
 	response := requestScenarioAPI(scenarioHTTPHandler(service), http.MethodPost,
 		"/api/simulations", "application/json", document)
-	if response.Code != http.StatusAccepted || service.nativeStarts != 1 || service.startCalls != 0 {
-		t.Fatalf("native admission = %d, native calls %d, legacy calls %d: %s",
-			response.Code, service.nativeStarts, service.startCalls, response.Body.String())
+	if response.Code != http.StatusAccepted || service.startCalls != 1 {
+		t.Fatalf("admission = %d, calls %d: %s",
+			response.Code, service.startCalls, response.Body.String())
 	}
-	if !bytes.Equal(encodedHTTPScenarioV2(t, service.inputV2), document) {
+	if !bytes.Equal(encodedHTTPScenario(t, service.input), document) {
 		t.Fatal("admission changed the complete source document")
 	}
 	state, err := service.plan.StateAt(750 * time.Millisecond)
@@ -77,13 +44,13 @@ func TestScenarioV2StartPassesCompleteCompiledTimeline(t *testing.T) {
 	}
 }
 
-func TestScenarioV2InvalidLaterStateCannotStart(t *testing.T) {
-	definition := scenarioHTTPDefinitionV2()
+func TestScenarioInvalidLaterStateCannotStart(t *testing.T) {
+	definition := scenarioHTTPTimelineDefinition()
 	later := definition.States["500000000"]
 	later.Resources.LoadBalancer.Algorithm = "invalid"
 	definition.States["500000000"] = later
-	invalid := encodedHTTPScenarioV2(t, definition)
-	valid := encodedHTTPScenarioV2(t, scenarioHTTPDefinitionV2())
+	invalid := encodedHTTPScenario(t, definition)
+	valid := encodedHTTPScenario(t, scenarioHTTPTimelineDefinition())
 	unknownField := bytes.Replace(valid, []byte(`"500000000":{`), []byte(`"500000000":{"unknown":1,`), 1)
 	for _, test := range []struct {
 		name   string
@@ -95,10 +62,10 @@ func TestScenarioV2InvalidLaterStateCannotStart(t *testing.T) {
 	} {
 		for _, path := range []string{"/api/scenarios/validate", "/api/simulations"} {
 			t.Run(test.name+path, func(t *testing.T) {
-				service := &nativeScenarioServiceStub{}
+				service := &scenarioServiceStub{}
 				response := requestScenarioAPI(scenarioHTTPHandler(service), http.MethodPost,
 					path, "application/json", test.body)
-				if response.Code != test.status || service.nativeStarts != 0 || service.startCalls != 0 {
+				if response.Code != test.status || service.startCalls != 0 {
 					t.Fatalf("invalid later state admission = %d: %s", response.Code, response.Body.String())
 				}
 			})
@@ -106,31 +73,28 @@ func TestScenarioV2InvalidLaterStateCannotStart(t *testing.T) {
 	}
 }
 
-func TestScenarioV2ValidationAndDefaultsPreserveAllStates(t *testing.T) {
-	definition := scenarioHTTPDefinitionV2()
+func TestScenarioValidationAndDefaultsPreserveAllStates(t *testing.T) {
+	definition := scenarioHTTPTimelineDefinition()
 	definition.Fixed.Network.Defaults.BandwidthBitsPerSecond = 9_007_199_254_740_993
-	service := &nativeScenarioServiceStub{
-		scenarioServiceStub: scenarioServiceStub{definition: scenarioHTTPDefinition()},
-		definitionV2:        definition,
-	}
+	service := &scenarioServiceStub{definition: definition}
 	handler := scenarioHTTPHandler(service)
-	document := encodedHTTPScenarioV2(t, definition)
+	document := encodedHTTPScenario(t, definition)
 	response := requestScenarioAPI(handler, http.MethodPost, "/api/scenarios/validate", "application/json", document)
 	var validation contract.ScenarioValidationResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &validation); err != nil {
 		t.Fatal(err)
 	}
 	if response.Code != http.StatusOK || !bytes.Equal(validation.Scenario, document) {
-		t.Fatalf("native validation lost its source: %d %s", response.Code, response.Body.String())
+		t.Fatalf("validation lost its source: %d %s", response.Code, response.Body.String())
 	}
 	if validation.Summary.TotalClients != 8 || validation.Summary.BackendCount != 2 {
 		t.Fatalf("summary = %+v", validation.Summary)
 	}
-	resolved, err := scenario.NormalizeV2(definition)
+	resolved, err := scenario.Normalize(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantResolved, err := scenario.EncodeNormalizedDocumentV2(resolved)
+	wantResolved, err := scenario.EncodeNormalizedDocument(resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,12 +124,8 @@ func TestScenarioV2ValidationAndDefaultsPreserveAllStates(t *testing.T) {
 	if backend.ID != "a" || !backend.PhysicalAvailable || string(backend.Network.ToLoadBalancer.Bandwidth) != `"9007199254740993"` {
 		t.Fatal("resolved backend fields must be flat and preserve exact integers")
 	}
-	defaults := requestScenarioAPI(handler, http.MethodGet, "/api/scenarios/defaults?version=2", "", nil)
+	defaults := requestScenarioAPI(handler, http.MethodGet, "/api/scenarios/defaults", "", nil)
 	if defaults.Code != http.StatusOK || !bytes.Equal(bytes.TrimSpace(defaults.Body.Bytes()), document) {
-		t.Fatalf("native defaults = %d: %s", defaults.Code, defaults.Body.String())
-	}
-	unqualified := requestScenarioAPI(handler, http.MethodGet, "/api/scenarios/defaults", "", nil)
-	if _, err := scenario.DecodeDocumentV2(unqualified.Body.Bytes()); unqualified.Code != http.StatusOK || err != nil {
-		t.Fatalf("unqualified defaults must return native v2: %d %s", unqualified.Code, unqualified.Body.String())
+		t.Fatalf("defaults = %d: %s", defaults.Code, defaults.Body.String())
 	}
 }

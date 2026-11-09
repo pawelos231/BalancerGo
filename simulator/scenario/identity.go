@@ -58,7 +58,7 @@ func (identities *timelineIdentities) backend(
 		return err
 	}
 
-	endpoint := endpointKeyV2(backend.Address, backend.Port)
+	endpoint := endpointKey(backend.Address, backend.Port)
 	if !firstVisit && identity.endpoint != endpoint {
 		return fmt.Errorf("%s: retained backend address and port must not change", path)
 	}
@@ -102,9 +102,9 @@ func (identities *timelineIdentities) group(
 	return identity.clientSlots, nil
 }
 
-// V2 folds only ASCII letters so hostname identity does not depend on Unicode versions.
+// endpointKey folds only ASCII letters so hostname identity does not depend on Unicode versions.
 // Other characters remain literal; equivalent IPv6 spellings still identify the same IP.
-func endpointKeyV2(address string, port uint16) string {
+func endpointKey(address string, port uint16) string {
 	bytes := []byte(address)
 	for index, character := range bytes {
 		if character >= 'A' && character <= 'Z' {

@@ -13,15 +13,15 @@ import (
 
 // timelineDefinition keeps both real backends but schedules no client arrivals.
 // This makes one configuration event easy to distinguish from ordinary network work.
-func timelineDefinition() scenario.ScenarioV2 {
+func timelineDefinition() scenario.Scenario {
 	definition := baseScenario()
 	definition.States["0"].Workload.ClientGroups[0].Count = 0
 	return definition
 }
 
-func newTimelineWorld(t *testing.T, definition scenario.ScenarioV2) *World {
+func newTimelineWorld(t *testing.T, definition scenario.Scenario) *World {
 	t.Helper()
-	plan, err := scenario.CompileV2(definition)
+	plan, err := scenario.Compile(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestTimelineEventBudgetDoesNotSplitACommit(t *testing.T) {
 
 // No runtime resources are created without a valid compiled timeline.
 func TestTimelineRejectsMissingPlanBeforeConstruction(t *testing.T) {
-	for _, plan := range []*scenario.CompiledV2{nil, {}} {
+	for _, plan := range []*scenario.Compiled{nil, {}} {
 		world, err := NewTimeline(plan)
 		if world != nil || err == nil {
 			t.Fatalf("missing plan was admitted: world=%v error=%v", world, err)

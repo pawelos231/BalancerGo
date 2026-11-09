@@ -14,14 +14,14 @@ import (
 )
 
 // catalogScenario shortens detached examples while keeping their network and arrival settings.
-func catalogScenario(t *testing.T, id string, duration time.Duration, payload int) scenario.ScenarioV2 {
+func catalogScenario(t *testing.T, id string, duration time.Duration, payload int) scenario.Scenario {
 	t.Helper()
 	path := filepath.Join("..", "..", "..", "examples", "scenarios", id+".json")
 	document, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := scenario.DecodeDocumentV2(document)
+	input, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func catalogScenario(t *testing.T, id string, duration time.Duration, payload in
 }
 
 // runCatalogScenario retains the model so tests can inspect individual physical paths.
-func runCatalogScenario(t *testing.T, input scenario.ScenarioV2) *World {
+func runCatalogScenario(t *testing.T, input scenario.Scenario) *World {
 	t.Helper()
 	s := newTimelineWorld(t, input)
 	if err := runWorld(context.Background(), s); err != nil {

@@ -11,13 +11,13 @@ import (
 
 // Contract examples preserve their timestamps, profiles and explicit overrides
 // when decoded and written again, before execution.
-func TestScenarioV2ExamplesRoundTrip(t *testing.T) {
-	paths, err := filepath.Glob(filepath.Join("..", "examples", "scenarios-v2", "*.json"))
+func TestScenarioExamplesRoundTrip(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join("..", "examples", "scenarios", "timeline-*.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(paths) == 0 {
-		t.Fatal("no v2 contract examples found")
+		t.Fatal("no timeline contract examples found")
 	}
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -25,21 +25,21 @@ func TestScenarioV2ExamplesRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, err := scenario.DecodeDocumentV2(document)
+			input, err := scenario.DecodeDocument(document)
 			if err != nil {
 				t.Fatal(err)
 			}
-			encoded, err := scenario.EncodeDocumentV2(input)
+			encoded, err := scenario.EncodeDocument(input)
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, err := scenario.DecodeDocumentV2(encoded)
+			restored, err := scenario.DecodeDocument(encoded)
 			if err != nil || !reflect.DeepEqual(restored, input) {
 				t.Fatalf("example changed during round trip: %v", err)
 			}
 
 			// The complete timeline validates before runtime admission.
-			resolved, err := scenario.NormalizeV2(input)
+			resolved, err := scenario.Normalize(input)
 			if err != nil {
 				t.Fatalf("example failed timeline validation: %v", err)
 			}
@@ -48,7 +48,7 @@ func TestScenarioV2ExamplesRoundTrip(t *testing.T) {
 			}
 
 			// Compilation prepares every transition before world construction.
-			plan, err := scenario.CompileV2(input)
+			plan, err := scenario.Compile(input)
 			if err != nil {
 				t.Fatalf("example failed timeline compilation: %v", err)
 			}

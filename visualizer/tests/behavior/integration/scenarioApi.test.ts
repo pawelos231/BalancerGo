@@ -79,11 +79,11 @@ test('current run rejects missing or malformed experiment context and empty run 
 
 test('file validation sends original JSON tokens and never starts a run', async () => {
   const documents = [
-    '{"version":1,"version":2}',
+    '{"scenarioVersion":1,"scenarioVersion":2}',
     '{"execution":{"seed":9007199254740993}}',
     '{"execution":{"seed":9007199254740991.1}}',
     '{"execution":{"seed":1e2}}',
-    '{"version":1} {"version":2}',
+    '{"scenarioVersion":1} {"scenarioVersion":2}',
     '{ invalid JSON',
     '',
   ];
@@ -106,7 +106,7 @@ test('validation retains native data and a separate exact resolved preview', asy
   const scenario = scenarioFixture();
   const summary = { totalClients: 0, backendCount: 0, clientGroupCount: 0 };
   const resolved = {
-    version: scenario.version,
+    scenarioVersion: scenario.scenarioVersion,
     fixed: {
       execution: scenario.fixed.execution, tcp: {}, loadBalancer: scenario.fixed.loadBalancer,
       networkDefaults: scenario.fixed.network.defaults,
@@ -129,6 +129,19 @@ test('validation retains native data and a separate exact resolved preview', asy
     Response.json({ scenario, summary, resolved: { totalClients: 0 } })
   ));
   await assert.rejects(invalid.validate(scenario), /unexpected response/);
+
+  const unversioned: Record<string, unknown> = { ...resolved };
+  delete unversioned.scenarioVersion;
+  for (const invalidResolved of [
+    { ...unversioned, version: 2 },
+    { ...resolved, version: 2 },
+    { ...resolved, scenarioVersion: 1 },
+  ]) {
+    const api = new ScenarioApi('http://backend.test', async () => (
+      Response.json({ scenario, summary, resolved: invalidResolved })
+    ));
+    await assert.rejects(api.validate(scenario), /unexpected response/);
+  }
 });
 
 test('validation and Start retain authoritative zero queue scalars for omitted and explicit inputs', async () => {
@@ -203,12 +216,19 @@ test('request cancellation reaches fetch and does not become a timeout message',
 });
 
 
-test('scenario responses reject version one and an invalid later state', async () => {
-  const v1 = { version: 1, execution: {}, network: {}, resources: {}, workload: {} };
+test('scenario responses reject scenarioVersion one and an invalid later state', async () => {
+  const unsupported = { ...scenarioFixture(), scenarioVersion: 1 };
+  const unversioned: Record<string, unknown> = { ...scenarioFixture() };
+  delete unversioned.scenarioVersion;
   const late = scenarioFixture();
   late.states['10'] = structuredClone(late.states['0']);
   late.states['10'].resources.loadBalancer.forwardingBitsPerSecond = 0;
-  for (const scenario of [v1, late]) {
+  for (const scenario of [
+    unsupported,
+    { ...unversioned, version: 2 },
+    { ...scenarioFixture(), version: 2 },
+    late,
+  ]) {
     const defaults = new ScenarioApi('http://backend.test', async () => Response.json(scenario));
     await assert.rejects(defaults.defaults(), /unexpected response/);
     const validate = new ScenarioApi('http://backend.test', async () => Response.json({

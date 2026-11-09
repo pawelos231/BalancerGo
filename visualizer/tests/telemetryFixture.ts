@@ -69,7 +69,7 @@ export function telemetryFrame(revision = '1', runId = 'run-1', value = 1, publi
   const definition = topologyDefinition(revision, runId);
   return {
     type: 'simulationSnapshot',
-    version: 1,
+    snapshotVersion: 1,
     simulation: {
       runId, status: 'running', algorithm: 'roundRobin', virtualTimeSeconds: value / 10,
       experiment: experimentFixture(), publicationSequence,
@@ -100,7 +100,7 @@ export function telemetryFrame(revision = '1', runId = 'run-1', value = 1, publi
 
 export function idleFrame(): SimulationSnapshot {
   return {
-    type: 'simulationSnapshot', version: 1, mode: 'NAT', algorithm: 'RoundRobin',
+    type: 'simulationSnapshot', snapshotVersion: 1, mode: 'NAT', algorithm: 'RoundRobin',
     simulation: { status: 'idle', algorithm: 'roundRobin', virtualTimeSeconds: 0 },
     servers: [], topology: { revision: '0', nodes: [], links: [] },
   };

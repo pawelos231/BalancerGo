@@ -12,8 +12,8 @@ import (
 	"load-balancer/scenario"
 )
 
-// scenarioRuntimeDefinition supplies a small, fast native scenario for these tests.
-func scenarioRuntimeDefinition() scenario.ScenarioV2 {
+// scenarioRuntimeDefinition supplies a small, fast scenario for these tests.
+func scenarioRuntimeDefinition() scenario.Scenario {
 	definition := baseScenario()
 	definition.Fixed.Execution.Duration = 500 * time.Millisecond
 	definition.Fixed.Network.Defaults = scenario.LinkConfig{
@@ -36,9 +36,9 @@ func scenarioRuntimeDefinition() scenario.ScenarioV2 {
 func scenarioRuntimeValue[T any](value T) *T { return &value }
 
 // normalizedRuntimeScenario validates the document before creating its runtime.
-func normalizedRuntimeScenario(t *testing.T, definition scenario.ScenarioV2) scenario.NormalizedState {
+func normalizedRuntimeScenario(t *testing.T, definition scenario.Scenario) scenario.NormalizedState {
 	t.Helper()
-	resolved, err := scenario.NormalizeV2(definition)
+	resolved, err := scenario.Normalize(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +459,7 @@ type resourceObservations struct {
 // observeScenarioResources exercises production client senders without backend replies.
 func observeScenarioResources(
 	t *testing.T,
-	definition scenario.ScenarioV2,
+	definition scenario.Scenario,
 	inspectSnapshots bool,
 ) resourceObservations {
 	t.Helper()

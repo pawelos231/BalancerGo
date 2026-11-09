@@ -12,6 +12,8 @@ interface TopologySearchProps {
   options: TopologySearchOption[];
   value: TopologySearchOption | null;
   onSelect: (selection: TopologySelection) => void;
+  label?: string;
+  helperText?: string;
 }
 
 const filterSearchOptions = createFilterOptions<TopologySearchOption>({
@@ -20,7 +22,13 @@ const filterSearchOptions = createFilterOptions<TopologySearchOption>({
 });
 
 // Search covers the complete physical graph, including clients hidden in groups.
-function TopologySearch({ options, value, onSelect }: TopologySearchProps) {
+function TopologySearch({
+  options,
+  value,
+  onSelect,
+  label = 'Find a client, group or directed link',
+  helperText = 'Search all labels, addresses and IDs. Selecting a hidden client shows its own links. Up to 50 matches are listed.',
+}: TopologySearchProps) {
   const [query, setQuery] = useState(value?.label ?? '');
   const typing = useRef(false);
   const selectedKey = value ? JSON.stringify([value.kind, value.id]) : null;
@@ -81,9 +89,9 @@ function TopologySearch({ options, value, onSelect }: TopologySearchProps) {
       renderInput={(params) => (
         <TextField
           {...params}
-          label="Find a client, group or directed link"
+          label={label}
           size="small"
-          helperText="Search all labels, addresses and IDs. Selecting a hidden client shows its own links. Up to 50 matches are listed."
+          helperText={helperText}
         />
       )}
     />

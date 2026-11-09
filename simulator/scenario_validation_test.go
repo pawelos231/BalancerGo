@@ -12,8 +12,8 @@ import (
 )
 
 // Both Go and the browser use these exact cases, including raw ambiguous JSON tokens.
-func TestScenarioV2SharedValidationCases(t *testing.T) {
-	path := filepath.Join("..", "examples", "scenarios-v2", "validation", "cases.json")
+func TestScenarioSharedValidationCases(t *testing.T) {
+	path := filepath.Join("..", "examples", "scenarios", "validation", "cases.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -66,9 +66,9 @@ func TestScenarioV2SharedValidationCases(t *testing.T) {
 				document = strings.Replace(document, replacement.From, replacement.To, 1)
 			}
 
-			decoded, err := scenario.DecodeDocumentV2([]byte(document))
+			decoded, err := scenario.DecodeDocument([]byte(document))
 			if err == nil {
-				_, err = scenario.NormalizeV2(decoded)
+				_, err = scenario.Normalize(decoded)
 			}
 			if example.Valid {
 				if err != nil {

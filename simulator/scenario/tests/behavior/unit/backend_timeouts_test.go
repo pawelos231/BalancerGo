@@ -11,7 +11,7 @@ import (
 func TestBackendTimeoutDefaultsAndDocumentOverrides(t *testing.T) {
 	// Old documents expire incomplete handshakes after 5 s; established idle cleanup is off.
 	input := exampleScenario()
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,15 +26,15 @@ func TestBackendTimeoutDefaultsAndDocumentOverrides(t *testing.T) {
 	// Explicit zero disables the handshake limit; idle cleanup keeps nanosecond precision.
 	input.Fixed.TCP.BackendHalfOpenIdleTimeout = pointer(time.Duration(0))
 	input.Fixed.TCP.BackendEstablishedIdleTimeout = pointer(1234567 * time.Nanosecond)
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocumentV2(document)
+	restored, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.NormalizeV2(restored)
+	resolved, err = scenario.Normalize(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestBackendTimeoutsRejectNegativeDurations(t *testing.T) {
 			input := exampleScenario()
 			test.set(&input.Fixed.TCP)
 
-			_, err := scenario.NormalizeV2(input)
+			_, err := scenario.Normalize(input)
 			if err == nil || !strings.Contains(err.Error(), test.path) {
 				t.Fatalf("expected %s error, got %v", test.path, err)
 			}

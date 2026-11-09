@@ -42,7 +42,7 @@ func TestPublicationSequenceLifecycle(t *testing.T) {
 	})
 	assertPublicationSequence(t, idle, "")
 
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Duration = time.Nanosecond
 	input.Fixed.Execution.Speed = 0
 	input.Fixed.Execution.SnapshotInterval = time.Hour
@@ -102,7 +102,7 @@ func TestPublicationSequenceLifecycle(t *testing.T) {
 
 func TestPublicationSequenceIncludesFailedSnapshot(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Duration = time.Second
 	input.Fixed.Execution.Speed = 0
 	input.Fixed.Execution.SnapshotInterval = time.Hour

@@ -39,7 +39,7 @@ func TestConfigurationKeepsIndependentNetworkLimits(t *testing.T) {
 	cfg.bandwidth = 125_000_000
 	cfg.ingress.BandwidthBitsPerSecond = 500_000_000
 	cfg.forwardingBitsPerSecond = 750_000_000
-	prepared, err := cfg.prepareScenarioV2()
+	prepared, err := cfg.prepareScenario()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestConfigurationKeepsIndependentNetworkLimits(t *testing.T) {
 	if prepared.plan.Fixed().NetworkDefaults.BandwidthBitsPerSecond != cfg.bandwidth ||
 		initial.LoadBalancer.Ingress.BandwidthBitsPerSecond != cfg.ingress.BandwidthBitsPerSecond ||
 		initial.LoadBalancer.ForwardingBitsPerSecond != cfg.forwardingBitsPerSecond {
-		t.Fatal("native configuration mixed independent network limits")
+		t.Fatal("scenario configuration mixed independent network limits")
 	}
 }
 
@@ -59,7 +59,7 @@ func TestScenarioPreparationRejectsCountsBeforeAllocation(t *testing.T) {
 	} {
 		cfg := testConfiguration()
 		cfg.clients, cfg.servers = counts[0], counts[1]
-		if _, err := cfg.prepareScenarioV2(); err == nil {
+		if _, err := cfg.prepareScenario(); err == nil {
 			t.Fatalf("invalid counts accepted: %v", counts)
 		}
 	}
@@ -203,7 +203,7 @@ func TestScenarioAdapterPreservesExactDurations(t *testing.T) {
 	cfg.packetTravelTime = 11 * time.Nanosecond
 	cfg.ingress.PacketTravelTime = 13 * time.Nanosecond
 
-	prepared, err := cfg.prepareScenarioV2()
+	prepared, err := cfg.prepareScenario()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestHeadlessConfigurationValidatesSpeedBeforeDisablingPacing(t *testing.T) 
 		cfg := testConfiguration()
 		cfg.headless = true
 		cfg.speed = speed
-		if _, err := cfg.prepareScenarioV2(); err == nil {
+		if _, err := cfg.prepareScenario(); err == nil {
 			t.Errorf("invalid headless speed accepted: %v", speed)
 		}
 	}
@@ -242,7 +242,7 @@ func TestHeadlessConfigurationValidatesSpeedBeforeDisablingPacing(t *testing.T) 
 	cfg.headless = true
 	cfg.tracePath = "example.trace"
 	cfg.speed = 2
-	prepared, err := cfg.prepareScenarioV2()
+	prepared, err := cfg.prepareScenario()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestHeadlessConfigurationValidatesSpeedBeforeDisablingPacing(t *testing.T) 
 	cfg.duration = time.Duration(math.MaxInt64)
 	cfg.speed = 1e-100
 	cfg.headless = false
-	if _, err := cfg.prepareScenarioV2(); err == nil {
+	if _, err := cfg.prepareScenario(); err == nil {
 		t.Fatal("paced duration overflow accepted")
 	}
 }
@@ -267,17 +267,17 @@ func TestConfigurationPreservesNativeIntegerLimits(t *testing.T) {
 	cfg.maxEvents = math.MaxUint64
 	cfg.bandwidth = math.MaxInt64
 	cfg.forwardingBitsPerSecond = math.MaxInt64
-	if _, err := cfg.prepareScenarioV2(); err != nil {
+	if _, err := cfg.prepareScenario(); err != nil {
 		t.Fatal(err)
 	}
 
 	cfg.clients++
-	if _, err := cfg.prepareScenarioV2(); err == nil {
+	if _, err := cfg.prepareScenario(); err == nil {
 		t.Fatal("client address range overflow accepted")
 	}
 	cfg.clients = 0
 	cfg.servers = 10001
-	if _, err := cfg.prepareScenarioV2(); err == nil {
+	if _, err := cfg.prepareScenario(); err == nil {
 		t.Fatal("backend limit exceeded")
 	}
 }
@@ -294,24 +294,24 @@ func TestConfigurationKeepsLogicalTransportLimits(t *testing.T) {
 		uint64(math.MaxUint32)*uint64(model.SEGMENT_SIZE) + 1,
 	} {
 		cfg.streamBytes = int(bytes)
-		if _, err := cfg.prepareScenarioV2(); err != nil {
+		if _, err := cfg.prepareScenario(); err != nil {
 			t.Fatalf("logical transport rejected %d bytes: %v", bytes, err)
 		}
 	}
 
 	// Native integer arithmetic still bounds accepted stream sizes.
 	cfg.streamBytes = math.MaxInt - 40
-	if _, err := cfg.prepareScenarioV2(); err != nil {
+	if _, err := cfg.prepareScenario(); err != nil {
 		t.Fatal(err)
 	}
 	cfg.streamBytes = math.MaxInt - 39
-	if _, err := cfg.prepareScenarioV2(); err == nil {
-		t.Fatal("stream beyond native byte range accepted")
+	if _, err := cfg.prepareScenario(); err == nil {
+		t.Fatal("stream beyond loaded byte range accepted")
 	}
 
 	cfg.streamBytes = 17
 	cfg.packets = -1
-	if _, err := cfg.prepareScenarioV2(); err == nil {
+	if _, err := cfg.prepareScenario(); err == nil {
 		t.Fatal("negative packet count accepted with explicit payload size")
 	}
 }
@@ -367,9 +367,9 @@ func readPreparedTestConfiguration(t *testing.T, args ...string) (configuration,
 	}()
 	flag.CommandLine = flag.NewFlagSet("configuration-test", flag.ContinueOnError)
 	os.Args = append([]string{"configuration-test"}, args...)
-	config, native, err := readConfiguration()
-	if err != nil || native == nil {
+	config, loaded, err := readConfiguration()
+	if err != nil || loaded == nil {
 		return config, nil, err
 	}
-	return config, native, nil
+	return config, loaded, nil
 }

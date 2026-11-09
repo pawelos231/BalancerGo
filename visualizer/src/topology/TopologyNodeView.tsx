@@ -10,11 +10,12 @@ import { memo } from 'react';
 import { formatMetric, formatNumber, kindLabel } from './format';
 import { nodeHeight, NODE_WIDTH } from './layout';
 import TopologyTrafficRates from './TopologyTrafficRates';
-import type { TopologyIngress, TopologyNode } from './types';
+import type { DiagramMode, TopologyIngress, TopologyNode } from './types';
 import { nodeHostState, showHostCPUWork } from './telemetry';
 
 export type FlowTopologyNode = Node<{
   node: TopologyNode;
+  mode?: DiagramMode;
   ingress?: TopologyIngress;
   domainLayout?: boolean;
 }, 'topologyNode'>;
@@ -79,6 +80,7 @@ function HostProcessing({ node }: { node: TopologyNode }) {
 function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
   const theme = useTheme();
   const node = data.node;
+  const planned = data.mode === 'planned';
   const isLoadBalancer = node.kind === 'loadBalancer';
   let color = theme.palette.primary.main;
   let Icon = WidgetsOutlinedIcon;
@@ -105,7 +107,9 @@ function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
     color = theme.palette.text.disabled;
   }
 
-  const subtitle = node.address ?? kindLabel(node.kind);
+  const subtitle = planned
+    ? node.description ?? node.address ?? kindLabel(node.kind)
+    : node.address ?? kindLabel(node.kind);
   // Keep both shared LB limits visible directly on the diagram.
   const limitMetrics = node.metrics.filter((metric) => (
     metric.key === 'ingressBitsPerSecond' || metric.key === 'forwardingBitsPerSecond'
@@ -203,6 +207,7 @@ function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
         color="text.secondary"
         noWrap
         display="block"
+        title={subtitle}
         sx={{ mt: 0.25 }}
       >
         {subtitle}
@@ -230,9 +235,13 @@ function TopologyNodeView({ data, selected }: NodeProps<FlowTopologyNode>) {
           </Box>
         ))}
       </Stack>
-      <TopologyTrafficRates traffic={node.traffic} grouped={node.kind === 'clientGroup'} />
-      <HostProcessing node={node} />
-      {isLoadBalancer && data.ingress && <LoadBalancerInputs ingress={data.ingress} />}
+      {!planned && (
+        <>
+          <TopologyTrafficRates traffic={node.traffic} grouped={node.kind === 'clientGroup'} />
+          <HostProcessing node={node} />
+          {isLoadBalancer && data.ingress && <LoadBalancerInputs ingress={data.ingress} />}
+        </>
+      )}
     </Box>
   );
 }

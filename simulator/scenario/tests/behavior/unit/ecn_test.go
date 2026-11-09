@@ -14,11 +14,11 @@ func TestECNConfigurationAndDocument(t *testing.T) {
 	for _, enabled := range []*bool{nil, pointer(false), pointer(true)} {
 		input := exampleScenario()
 		input.Fixed.TCP.ECNEnabled = enabled
-		data, err := scenario.EncodeDocumentV2(input)
+		data, err := scenario.EncodeDocument(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		restored, err := scenario.DecodeDocumentV2(data)
+		restored, err := scenario.DecodeDocument(data)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -26,7 +26,7 @@ func TestECNConfigurationAndDocument(t *testing.T) {
 			restored.Fixed.TCP.ECNEnabled == nil || *restored.Fixed.TCP.ECNEnabled != *enabled) {
 			t.Fatal("document changed the explicit ECN setting")
 		}
-		resolved, err := scenario.NormalizeV2(restored)
+		resolved, err := scenario.Normalize(restored)
 		if err != nil || resolved.Fixed.TCP.ECNEnabled != (enabled != nil && *enabled) {
 			t.Fatalf("ECN normalization = %v, err=%v", resolved.Fixed.TCP.ECNEnabled, err)
 		}
@@ -36,7 +36,7 @@ func TestECNConfigurationAndDocument(t *testing.T) {
 	input := exampleScenario()
 	input.Fixed.TCP.ECNEnabled = pointer(true)
 	input.Fixed.TCP.CongestionControl.Mode = pointer("none")
-	if _, err := scenario.NormalizeV2(input); err == nil || !strings.Contains(err.Error(), "tcp.ECNenabled") {
+	if _, err := scenario.Normalize(input); err == nil || !strings.Contains(err.Error(), "tcp.ECNenabled") {
 		t.Fatalf("ECN without congestion control: %v", err)
 	}
 }
@@ -57,7 +57,7 @@ func TestCongestionPolicyInheritancePreservesZeroProbability(t *testing.T) {
 			FromLoadBalancer: scenario.LinkPatch{CongestionSignalProbability: pointer(0.0)},
 		}
 	})
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestQueuePolicyZeroSettingsSurviveDocumentRoundTrip(t *testing.T) {
 		state.Resources.LoadBalancer.Ingress.CongestionSignalProbability = 0
 	})
 
-	data, err := scenario.EncodeDocumentV2(input)
+	data, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestQueuePolicyZeroSettingsSurviveDocumentRoundTrip(t *testing.T) {
 		t.Fatalf("explicit zero settings disappeared from the saved scenario: %s", data)
 	}
 
-	restored, err := scenario.DecodeDocumentV2(data)
+	restored, err := scenario.DecodeDocument(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestCongestionPolicyValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			input := exampleScenario()
 			test.edit(&input.Fixed.Network.Defaults)
-			if _, err := scenario.NormalizeV2(input); err == nil {
+			if _, err := scenario.Normalize(input); err == nil {
 				t.Fatal("invalid queue policy was accepted")
 			}
 		})

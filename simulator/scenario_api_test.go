@@ -127,7 +127,7 @@ func scenarioRequest(t *testing.T, server *httptest.Server, method, path string,
 // TestHTTPScenarioLifecycle checks profiles in the runtime and request-independent starts.
 func TestHTTPScenarioLifecycle(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Speed = 1
 	input.Fixed.Execution.Duration = 2 * time.Second
 	slowRate := int64(10_000_000)
@@ -147,7 +147,7 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 		initialState.Resources.Backends[0].Network.Profile = "slow"
 		input.States["0"] = initialState
 	}
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestHTTPScenarioLifecycle(t *testing.T) {
 	if err := json.Unmarshal(body, &record); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocumentV2(record.Scenario)
+	restored, err := scenario.DecodeDocument(record.Scenario)
 	if err != nil || !reflect.DeepEqual(restored, input) {
 		t.Fatalf("current scenario changed: %v", err)
 	}
@@ -258,12 +258,12 @@ func TestScenarioStartAdmission(t *testing.T) {
 	serviceCtx, cancelService := context.WithCancel(context.Background())
 	defer cancelService()
 	control := newRunController(serviceCtx)
-	input := testConfiguration().scenarioDefinitionV2()
-	resolved, err := scenario.CompileV2(input)
+	input := testConfiguration().scenarioDefinition()
+	resolved, err := scenario.Compile(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}

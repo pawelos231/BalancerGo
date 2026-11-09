@@ -1,32 +1,49 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { formatVirtualSeconds, parseVirtualSeconds, projectPlannedTopology } from '../../../src/scenarios/plannedTopology.ts';
-import { parseScenarioV2, validateScenarioV2 } from '../../../src/scenarios/v2.ts';
+import {
+  formatVirtualSeconds, plannedStateTimes, projectPlannedTopology,
+} from '../../../src/scenarios/plannedTopology.ts';
+import { parseScenario, validateScenario } from '../../../src/scenarios/validation.ts';
 
-const fixture = readFileSync(new URL('../../../../examples/scenarios-v2/static.json', import.meta.url), 'utf8');
+const fixture = readFileSync(new URL('../../../../examples/scenarios/timeline-static.json', import.meta.url), 'utf8');
 
 function scenario() {
-  return parseScenarioV2(fixture);
+  return parseScenario(fixture);
 }
 
-test('planned time entry and formatting preserve exact nanoseconds without floating point', () => {
+// Slider indices select original keys, including neighboring unsafe integer timestamps.
+test('slider timestamps are sorted exactly and contain only declared states', () => {
+  const initial = scenario().states['0'];
+  const states = {
+    '9007199254740993': initial,
+    '10': initial,
+    '0': initial,
+    '9007199254740992': initial,
+    '2': initial,
+  };
+  const before = Object.keys(states);
+  assert.deepEqual(plannedStateTimes({ states }), [
+    '0', '2', '10', '9007199254740992', '9007199254740993',
+  ]);
+  assert.deepEqual(Object.keys(states), before);
+  assert.deepEqual(plannedStateTimes({ states: { '0': initial } }), ['0']);
+});
+
+test('timestamp labels preserve exact nanoseconds without floating point', () => {
   const cases = [
     ['0', 0n],
-    ['.000000001', 1n],
-    [' 001.250000000 ', 1_250_000_000n],
+    ['0.000000001', 1n],
+    ['1.25', 1_250_000_000n],
     ['9007199.254740993', 9_007_199_254_740_993n],
     ['9223372036.854775807', 9_223_372_036_854_775_807n],
   ] as const;
   for (const [text, expected] of cases) {
-    assert.equal(parseVirtualSeconds(text), expected);
-    assert.equal(parseVirtualSeconds(formatVirtualSeconds(expected)), expected);
+    assert.equal(formatVirtualSeconds(expected), text);
   }
   assert.equal(formatVirtualSeconds('1000000000'), '1');
   assert.equal(formatVirtualSeconds(1_020_000_000n), '1.02');
-  for (const text of ['', ' ', '-1', '+1', '1e-9', '0.0000000001', 'NaN', 'Infinity', '1,5']) {
-    assert.throws(() => parseVirtualSeconds(text), /at most 9 decimal places/);
-  }
+  assert.throws(() => formatVirtualSeconds(-1n), /nonnegative/);
 });
 
 test('planned lookup uses the greatest exact state at or below arbitrary virtual time', () => {
@@ -40,29 +57,20 @@ test('planned lookup uses the greatest exact state at or below arbitrary virtual
     '9007199254740992': structuredClone(initial),
     '2': structuredClone(initial),
   };
-  const checked = validateScenarioV2(input);
+  const checked = validateScenario(input);
   const atZero = projectPlannedTopology(checked, 0n);
   assert.equal(atZero.stateAtNanoseconds, '0');
-  assert.equal(atZero.previousAtNanoseconds, null);
-  assert.equal(atZero.nextAtNanoseconds, '2');
 
   const between = projectPlannedTopology(checked, 9n);
   assert.equal(between.stateAtNanoseconds, '2');
-  assert.equal(between.previousAtNanoseconds, '2');
-  assert.equal(between.nextAtNanoseconds, '10');
 
   const adjacent = projectPlannedTopology(checked, 9_007_199_254_740_992n);
   assert.equal(adjacent.stateAtNanoseconds, '9007199254740992');
-  assert.equal(adjacent.previousAtNanoseconds, '10');
-  assert.equal(adjacent.nextAtNanoseconds, '9007199254740993');
   const next = projectPlannedTopology(checked, 9_007_199_254_740_993n);
   assert.equal(next.stateAtNanoseconds, '9007199254740993');
-  assert.equal(next.previousAtNanoseconds, '9007199254740992');
-  assert.equal(next.nextAtNanoseconds, null);
 
   const end = projectPlannedTopology(checked, BigInt(checked.fixed.execution.durationNanoseconds));
   assert.equal(end.stateAtNanoseconds, '9007199254740993');
-  assert.equal(end.previousAtNanoseconds, '9007199254740993');
   assert.equal(end.atNanoseconds, '9007199254740999');
   assert.throws(() => projectPlannedTopology(checked, -1n), /between 0/);
   assert.throws(() => projectPlannedTopology(checked, 9_007_199_254_741_000n), /between 0/);
@@ -87,7 +95,7 @@ test('planned projection resolves directional profiles, explicit zero overrides 
     },
     { index: 1, network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} }, stream: { packets: 0, bytes: 0 } },
   ];
-  const checked = validateScenarioV2(input);
+  const checked = validateScenario(input);
   const projected = projectPlannedTopology(checked, 0n).clientGroups[0];
   assert.equal(projected.network.toLoadBalancer.bandwidthBitsPerSecond, 10_000_000);
   assert.equal(projected.network.fromLoadBalancer.bandwidthBitsPerSecond, 20_000_000);
@@ -121,7 +129,7 @@ test('planned resource projection shows configured CPU, shared LB limits and phy
   state.resources.backends[1].physicalAvailable = false;
   state.resources.backends[1].administrativeState = 'drain';
   state.resources.backends[1].network.fromLoadBalancer = { lossRate: 0.4 };
-  const projected = projectPlannedTopology(validateScenarioV2(input), 0n);
+  const projected = projectPlannedTopology(validateScenario(input), 0n);
   assert.deepEqual(projected.loadBalancer.host, { cores: 3, packetProcessingTimeNanoseconds: 0, queueCapacity: 0 });
   assert.equal(projected.loadBalancer.forwardingBitsPerSecond, '9007199254740993');
   assert.equal(projected.loadBalancer.mappingTimeouts.halfOpenIdleTimeoutNanoseconds, 0);
@@ -149,7 +157,7 @@ test('each planned state resolves against fixed defaults rather than the previou
   later.resources.backends[0].host = undefined;
   later.resources.backends[0].physicalAvailable = undefined;
   input.states['1000'] = later;
-  const projected = projectPlannedTopology(validateScenarioV2(input), 1000n);
+  const projected = projectPlannedTopology(validateScenario(input), 1000n);
   assert.equal(projected.clientGroups[0].network.toLoadBalancer.bandwidthBitsPerSecond, 100_000_000);
   assert.equal(projected.clientGroups[0].stream.bytes, 262144);
   assert.equal(projected.backends[0].network.toLoadBalancer.lossRate, 0);
@@ -173,7 +181,7 @@ test('planned declarations stay compact for 50000 slots and retain reserved over
   const removed = structuredClone(smaller);
   removed.workload.clientGroups = [];
   input.states['2000'] = removed;
-  const checked = validateScenarioV2(input);
+  const checked = validateScenario(input);
   const projected = projectPlannedTopology(checked, 0n);
   assert.equal(projected.clientGroups.length, 1);
   assert.equal(projected.clientGroups[0].count, 50_000);
@@ -196,7 +204,7 @@ test('planned projection does not mutate or retain mutable source settings', () 
     network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
     stream: {},
   }];
-  const before = parseScenarioV2(JSON.stringify(input));
+  const before = parseScenario(JSON.stringify(input));
   const projected = projectPlannedTopology(input, 0n);
   assert.deepEqual(input, before);
   projected.loadBalancer.host.cores = 10;

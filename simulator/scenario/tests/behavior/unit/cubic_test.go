@@ -6,7 +6,7 @@ import (
 	"load-balancer/scenario"
 )
 
-// Omitted convergence uses the CUBIC default; an explicit false survives native JSON.
+// Omitted convergence uses the CUBIC default; an explicit false survives scenario JSON.
 func TestCubicOptionsSurviveDocumentRoundTrip(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -33,11 +33,11 @@ func TestCubicOptionsSurviveDocumentRoundTrip(t *testing.T) {
 				CubicFastConvergence: test.fastConvergence,
 				FastRetransmit:       test.fastRetransmit,
 			}
-			document, err := scenario.EncodeDocumentV2(input)
+			document, err := scenario.EncodeDocument(input)
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, err := scenario.DecodeDocumentV2(document)
+			restored, err := scenario.DecodeDocument(document)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -45,9 +45,9 @@ func TestCubicOptionsSurviveDocumentRoundTrip(t *testing.T) {
 			// Omission and false remain distinct until normalization fills defaults.
 			if (restored.Fixed.TCP.CongestionControl.CubicFastConvergence == nil) !=
 				(test.fastConvergence == nil) {
-				t.Fatal("native JSON changed whether fast convergence was configured")
+				t.Fatal("scenario JSON changed whether fast convergence was configured")
 			}
-			resolved, err := scenario.NormalizeV2(restored)
+			resolved, err := scenario.Normalize(restored)
 			if err != nil {
 				t.Fatal(err)
 			}

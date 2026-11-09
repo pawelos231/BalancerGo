@@ -10,7 +10,7 @@ import (
 
 func TestLBClosingAndResetIdleTimeouts(t *testing.T) {
 	input := exampleScenario()
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,15 +31,15 @@ func TestLBClosingAndResetIdleTimeouts(t *testing.T) {
 		editInitialState(&input, func(state *scenario.StateConfig) {
 			state.Resources.LoadBalancer.MappingTimeouts.ResetIdleTimeout = &limits[1]
 		})
-		document, err := scenario.EncodeDocumentV2(input)
+		document, err := scenario.EncodeDocument(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		restored, err := scenario.DecodeDocumentV2(document)
+		restored, err := scenario.DecodeDocument(document)
 		if err != nil {
 			t.Fatal(err)
 		}
-		resolved, err = scenario.NormalizeV2(restored)
+		resolved, err = scenario.Normalize(restored)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -64,7 +64,7 @@ func TestLBClosingAndResetIdleTimeoutsRejectNegativeDurations(t *testing.T) {
 					state.Resources.LoadBalancer.MappingTimeouts.ResetIdleTimeout = &negative
 				})
 			}
-			_, err := scenario.NormalizeV2(input)
+			_, err := scenario.Normalize(input)
 			path := "resources.loadBalancer.mappingTimeouts." + phase + "IdleTimeoutNanoseconds"
 			if err == nil || !strings.Contains(err.Error(), path) {
 				t.Fatalf("expected %s error, got %v", path, err)

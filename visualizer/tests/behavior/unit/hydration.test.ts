@@ -60,9 +60,13 @@ test('hydration refuses revision/run mismatches and missing resources', () => {
 });
 
 test('only supported complete snapshot envelopes enable the live model', () => {
-  assert.equal(parseSnapshot(telemetryFrame()).version, 1);
+  assert.equal(parseSnapshot(telemetryFrame()).snapshotVersion, 1);
   assert.equal(parseSnapshot(idleFrame()).simulation.status, 'idle');
-  assert.throws(() => parseSnapshot({ ...telemetryFrame(), version: 2 }), /unsupported/);
+  assert.throws(() => parseSnapshot({ ...telemetryFrame(), snapshotVersion: 2 }), /unsupported/);
+  const unversioned: Record<string, unknown> = { ...telemetryFrame() };
+  delete unversioned.snapshotVersion;
+  assert.throws(() => parseSnapshot({ ...unversioned, version: 1 }), /unsupported/);
+  assert.throws(() => parseSnapshot({ ...telemetryFrame(), version: 1 }), /unsupported/);
   assert.throws(() => parseSnapshot({ ...telemetryFrame(), simulation: {} }), /incomplete/);
 });
 

@@ -7,10 +7,10 @@ import (
 	"load-balancer/scenario"
 )
 
-// Omitted settings keep immediate ACKs; explicit values survive the native document.
+// Omitted settings keep immediate ACKs; explicit values survive the scenario document.
 func TestDelayedACKDefaultsAndDocumentRoundTrip(t *testing.T) {
 	input := exampleScenario()
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,15 +24,15 @@ func TestDelayedACKDefaultsAndDocumentRoundTrip(t *testing.T) {
 		SegmentsPerACK: pointer(1),
 		MaxDelay:       pointer(40*time.Millisecond + time.Nanosecond),
 	}
-	data, err := scenario.EncodeDocumentV2(input)
+	data, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocumentV2(data)
+	restored, err := scenario.DecodeDocument(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.NormalizeV2(restored)
+	resolved, err = scenario.Normalize(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestDelayedACKValidation(t *testing.T) {
 	} {
 		input := exampleScenario()
 		input.Fixed.TCP.DelayedACK = invalid
-		if _, err := scenario.NormalizeV2(input); err == nil {
+		if _, err := scenario.Normalize(input); err == nil {
 			t.Fatalf("invalid ACK settings accepted: %+v", invalid)
 		}
 	}
@@ -62,7 +62,7 @@ func TestDelayedACKValidation(t *testing.T) {
 func TestMaximumCongestionWindowConfiguration(t *testing.T) {
 	input := exampleScenario()
 	input.Fixed.TCP.CongestionControl.MaximumWindowSegments = pointer(1)
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,13 +71,13 @@ func TestMaximumCongestionWindowConfiguration(t *testing.T) {
 	}
 
 	input.Fixed.TCP.CongestionControl.MaximumWindowSegments = pointer(-1)
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("negative maximum window accepted")
 	}
 	input.Fixed.TCP.CongestionControl.MaximumWindowSegments = pointer(1)
 	input.Fixed.TCP.CongestionControl.Mode = pointer("none")
 	input.Fixed.TCP.CongestionControl.FastRetransmit = pointer(false)
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("maximum window accepted without congestion control")
 	}
 }

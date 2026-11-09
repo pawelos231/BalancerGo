@@ -19,11 +19,6 @@ func TestScenarioFilesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	timelines, err := filepath.Glob(filepath.Join("..", "..", "..", "examples", "scenarios-v2", "*.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	paths = append(paths, timelines...)
 	if len(paths) != 40 {
 		t.Fatalf("found %d runnable scenario examples, want 40", len(paths))
 	}
@@ -34,21 +29,21 @@ func TestScenarioFilesRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, err := scenario.DecodeDocumentV2(document)
+			input, err := scenario.DecodeDocument(document)
 			if err != nil {
 				t.Fatalf("strictly decode example: %v", err)
 			}
-			original, err := scenario.NormalizeV2(input)
+			original, err := scenario.Normalize(input)
 			if err != nil {
 				t.Fatalf("normalize example: %v", err)
 			}
-			if _, err := scenario.CompileV2(input); err != nil {
+			if _, err := scenario.Compile(input); err != nil {
 				t.Fatalf("compile complete example: %v", err)
 			}
 
 			// Canonical transport must preserve every effective setting of the full file.
 			restored := scenarioFileRoundTrip(t, input)
-			resolved, err := scenario.NormalizeV2(restored)
+			resolved, err := scenario.Normalize(restored)
 			if err != nil {
 				t.Fatalf("normalize restored example: %v", err)
 			}
@@ -89,7 +84,7 @@ func TestScenarioFilesRoundTrip(t *testing.T) {
 }
 
 // limitScenarioSmokeClients bounds runtime allocation without discarding explicit overrides.
-func limitScenarioSmokeClients(t *testing.T, input *scenario.ScenarioV2) bool {
+func limitScenarioSmokeClients(t *testing.T, input *scenario.Scenario) bool {
 	t.Helper()
 	const maxClients = 128
 	groups := input.States["0"].Workload.ClientGroups
@@ -176,7 +171,7 @@ func TestScenarioLimitsDocument(t *testing.T) {
 	if !bytes.Equal(wire.States["0"].Resources.LoadBalancer.Forwarding, exactRate) || !bytes.Equal(wire.States["0"].Resources.LoadBalancer.Ingress.Bandwidth, exactRate) {
 		t.Fatal("both LB rates must use exact decimal strings outside the JavaScript safe-integer range")
 	}
-	input, err := scenario.DecodeDocumentV2(document)
+	input, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,13 +193,13 @@ func TestScenarioLimitsDocument(t *testing.T) {
 }
 
 // scenarioFileRoundTrip produces independent input data through the public document codec.
-func scenarioFileRoundTrip(t *testing.T, input scenario.ScenarioV2) scenario.ScenarioV2 {
+func scenarioFileRoundTrip(t *testing.T, input scenario.Scenario) scenario.Scenario {
 	t.Helper()
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocumentV2(document)
+	restored, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +207,7 @@ func scenarioFileRoundTrip(t *testing.T, input scenario.ScenarioV2) scenario.Sce
 }
 
 // runScenarioFile excludes wall time while retaining all virtual counters and endpoint state.
-func runScenarioFile(t *testing.T, input scenario.ScenarioV2) worldReadings {
+func runScenarioFile(t *testing.T, input scenario.Scenario) worldReadings {
 	t.Helper()
 	resolved := normalizedRuntimeScenario(t, input)
 	s := newTimelineWorld(t, input)
@@ -243,7 +238,7 @@ func runScenarioFile(t *testing.T, input scenario.ScenarioV2) worldReadings {
 	// Dedicated timeline tests check birth counts; the catalog checks every commit
 	// and the reservation bound without assuming that every slot must be born.
 	if len(input.States) > 1 {
-		checked, err := scenario.CompileV2(input)
+		checked, err := scenario.Compile(input)
 		if err != nil {
 			t.Fatal(err)
 		}

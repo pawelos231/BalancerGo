@@ -3,10 +3,11 @@ import { BaseEdge, EdgeLabelRenderer, Position } from '@xyflow/react';
 import type { Edge, EdgeProps } from '@xyflow/react';
 import { memo } from 'react';
 import { formatBandwidth, formatNumber, linkIsBusy } from './format';
-import type { TopologyLink } from './types';
+import type { DiagramLink, DiagramMode } from './types';
 
 export type FlowTopologyLink = Edge<{
-  link: TopologyLink;
+  link: DiagramLink;
+  mode?: DiagramMode;
   lane: number;
   showLabel: boolean;
   selectLink: (id: string) => void;
@@ -30,7 +31,9 @@ function TopologyLinkView({
     return null;
   }
 
-  const busy = linkIsBusy(data.link);
+  const planned = data.mode === 'planned';
+  const stats = planned ? undefined : data.link.stats;
+  const busy = stats ? linkIsBusy({ ...data.link, stats }) : false;
   let color = theme.palette.text.disabled;
   let strokeWidth = 1.5;
 
@@ -67,7 +70,7 @@ function TopologyLinkView({
   const bandwidthLabel = memberCount > 1
     ? `${formatNumber(memberCount)} × ${bandwidth}`
     : bandwidth;
-  const queuedPackets = data.link.stats.queuedPackets;
+  const queuedPackets = stats?.queuedPackets ?? 0;
   const queueScope = memberCount > 1 ? 'queued total' : 'Q';
   const queueLabel = queuedPackets > 0 ? ` · ${queueScope} ${formatNumber(queuedPackets)}` : '';
   const label = `${bandwidthLabel}${queueLabel}`;

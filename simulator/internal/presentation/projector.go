@@ -42,7 +42,7 @@ type RunState struct {
 // keeps lifecycle decisions, real time and publication ordering.
 func BuildSnapshot(world *simulation.World, projector *Projector, state RunState) (contract.SimulationSnapshot, *contract.TopologyDocument, error) {
 	snapshot := contract.SimulationSnapshot{
-		Type: "simulationSnapshot", Version: 1,
+		Type: "simulationSnapshot", SnapshotVersion: contract.CurrentSnapshotVersion,
 		Mode: contract.LBModeNAT, Algorithm: AlgorithmLabel(state.Algorithm),
 		Servers: make([]contract.TelemetryServer, 0),
 		Simulation: contract.SimulationMetadata{

@@ -190,27 +190,27 @@ func readConfiguration() (configuration, *loadedScenario, error) {
 	}
 	// Keep raw defaults for the form and retain the prepared CLI scenario.
 	// A later frontend request prepares its own settings independently.
-	prepared, err := c.prepareScenarioV2()
+	prepared, err := c.prepareScenario()
 	if err != nil {
 		return c, nil, err
 	}
 	return c, &prepared, nil
 }
 
-// prepareScenarioV2 compiles the native CLI document before creating a world.
-func (c configuration) prepareScenarioV2() (loadedScenario, error) {
+// prepareScenario compiles the CLI scenario document before creating a world.
+func (c configuration) prepareScenario() (loadedScenario, error) {
 	if c.clients < 0 || c.clients > scenario.MaxClients || c.servers < 0 {
 		return loadedScenario{}, errors.New("invalid client or server count")
 	}
 	if c.servers > scenario.MaxBackends {
 		return loadedScenario{}, fmt.Errorf("server count must not exceed %d", scenario.MaxBackends)
 	}
-	definition := c.scenarioDefinitionV2()
-	plan, err := scenario.CompileV2(definition)
+	definition := c.scenarioDefinition()
+	plan, err := scenario.Compile(definition)
 	if err != nil {
 		return loadedScenario{}, err
 	}
-	document, err := scenario.EncodeDocumentV2(definition)
+	document, err := scenario.EncodeDocument(definition)
 	if err != nil {
 		return loadedScenario{}, err
 	}

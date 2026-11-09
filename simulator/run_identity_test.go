@@ -14,12 +14,12 @@ import (
 // A new controller represents a backend restart. Its first run must not reuse
 // the previous controller's first ID, even for exactly the same scenario.
 func TestRunIdentitySurvivesControllerRestart(t *testing.T) {
-	input := testConfiguration().scenarioDefinitionV2()
-	resolved, err := scenario.CompileV2(input)
+	input := testConfiguration().scenarioDefinition()
+	resolved, err := scenario.Compile(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestRunIdentitySurvivesControllerRestart(t *testing.T) {
 func TestCurrentRunMetadataIsDetached(t *testing.T) {
 	control := newRunController(context.Background())
 	modified := true
-	control.rememberRun("test-run", []byte(`{"version":1}`), contract.ExperimentContext{
+	control.rememberRun("test-run", []byte(`{"scenarioVersion":2}`), contract.ExperimentContext{
 		Build: contract.ExperimentBuild{VCSModified: &modified},
 	})
 

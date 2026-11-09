@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// CLI CPU settings are retained in the native state, including a zero-slot FIFO.
+// CLI CPU settings are retained in the scenario state, including a zero-slot FIFO.
 func TestHostCLIProfileReachesNativeState(t *testing.T) {
 	configured, err := readTestConfiguration(t,
 		"-lb-cpu-cores", "2",
@@ -16,7 +16,7 @@ func TestHostCLIProfileReachesNativeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := configured.prepareScenarioV2()
+	prepared, err := configured.prepareScenario()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,9 +6,9 @@ import (
 	"load-balancer/scenario"
 )
 
-// scenarioDefinitionV2 maps CLI settings directly to a one-state v2 document.
+// scenarioDefinition maps CLI settings directly to a one-state scenario document.
 // Shared ingress, endpoint links and forwarding keep their independent settings.
-func (c configuration) scenarioDefinitionV2() scenario.ScenarioV2 {
+func (c configuration) scenarioDefinition() scenario.Scenario {
 	mssBytes := c.effectiveMSSBytes()
 	receiveBufferBytes := c.receiveBufferBytes
 	if receiveBufferBytes == 0 {
@@ -120,9 +120,9 @@ func (c configuration) scenarioDefinitionV2() scenario.ScenarioV2 {
 			}},
 		},
 	}
-	return scenario.ScenarioV2{
-		Version: scenario.VersionV2,
-		Fixed:   fixed,
-		States:  map[string]scenario.StateConfig{"0": initial},
+	return scenario.Scenario{
+		ScenarioVersion: scenario.CurrentScenarioVersion,
+		Fixed:           fixed,
+		States:          map[string]scenario.StateConfig{"0": initial},
 	}
 }

@@ -258,7 +258,7 @@ func TestTransferSnapshotLifecycle(t *testing.T) {
 	stopTelemetryScenario(t, h)
 }
 
-func runTransferWorld(t *testing.T, input scenario.ScenarioV2) *simulation.World {
+func runTransferWorld(t *testing.T, input scenario.Scenario) *simulation.World {
 	t.Helper()
 	world := newScenarioSimulation(compiledRuntimeScenario(t, input))
 	if err := runWorld(context.Background(), world, nil); err != nil {

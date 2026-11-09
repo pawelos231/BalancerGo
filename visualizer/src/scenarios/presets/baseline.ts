@@ -1,11 +1,11 @@
 import type { ScenarioPreset } from '../scenarioPresetTypes.ts';
-import type { ScenarioV2, V2ClientGroup } from '../v2Types.ts';
+import type { Scenario, ScenarioClientGroup } from '../types.ts';
 
 const fastBitsPerSecond = 1_000_000_000;
 const slowBitsPerSecond = 10_000_000;
 
 // Network presets share duration and payload; remaining settings start from Go defaults.
-function smallExperiment(defaults: ScenarioV2): ScenarioV2 {
+function smallExperiment(defaults: Scenario): Scenario {
   const scenario = structuredClone(defaults);
   scenario.states = { '0': scenario.states['0'] };
   if (scenario.fixed.tcp) {
@@ -39,7 +39,7 @@ function smallExperiment(defaults: ScenarioV2): ScenarioV2 {
   return scenario;
 }
 
-function clientGroup(id: string, count: number, profile?: string): V2ClientGroup {
+function clientGroup(id: string, count: number, profile?: string): ScenarioClientGroup {
   return {
     id,
     count,
@@ -51,7 +51,7 @@ function clientGroup(id: string, count: number, profile?: string): V2ClientGroup
 }
 
 // Very high bitrates expose the engine's one-nanosecond serialization floor.
-function throughputExperiment(defaults: ScenarioV2): ScenarioV2 {
+function throughputExperiment(defaults: Scenario): Scenario {
   const scenario = smallExperiment(defaults);
   scenario.fixed.execution = {
     durationNanoseconds: 5_000_000,

@@ -13,7 +13,7 @@ import (
 func TestManualMSSPreservesPayloadUnitsAndRoundTrip(t *testing.T) {
 	input := exampleScenario()
 	input.Fixed.Workload.Defaults.Packets = 5
-	defaults, err := scenario.NormalizeV2(input)
+	defaults, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,15 +23,15 @@ func TestManualMSSPreservesPayloadUnitsAndRoundTrip(t *testing.T) {
 
 	for _, mss := range []int{536, 1024, 1452, 1460, 8960, 1234} {
 		input.Fixed.TCP.MSSBytes = pointer(mss)
-		document, err := scenario.EncodeDocumentV2(input)
+		document, err := scenario.EncodeDocument(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		restored, err := scenario.DecodeDocumentV2(document)
+		restored, err := scenario.DecodeDocument(document)
 		if err != nil {
 			t.Fatal(err)
 		}
-		resolved, err := scenario.NormalizeV2(restored)
+		resolved, err := scenario.Normalize(restored)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -46,24 +46,24 @@ func TestManualMSSAndWindowValidation(t *testing.T) {
 	for _, invalid := range []int{-1, 0, model.MaxMSSBytes + 1} {
 		input := exampleScenario()
 		input.Fixed.TCP.MSSBytes = pointer(invalid)
-		if _, err := scenario.NormalizeV2(input); err == nil || !strings.Contains(err.Error(), "tcp.mssBytes") {
+		if _, err := scenario.Normalize(input); err == nil || !strings.Contains(err.Error(), "tcp.mssBytes") {
 			t.Fatalf("MSS %d: expected an MSS error, got %v", invalid, err)
 		}
 	}
 
 	input := exampleScenario()
 	input.Fixed.TCP.MSSBytes = pointer(model.MaxMSSBytes)
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("large MSS accepted a slow-start threshold below two MSS")
 	}
 	input.Fixed.TCP.CongestionControl.InitialSlowStartThresholdBytes = pointer(uint64(2 * model.MaxMSSBytes))
-	if _, err := scenario.NormalizeV2(input); err != nil {
+	if _, err := scenario.Normalize(input); err != nil {
 		t.Fatal(err)
 	}
 
 	// A count that fits alone can overflow once converted into MSS-sized bytes.
 	input.Fixed.TCP.CongestionControl.InitialWindowSegments = pointer(math.MaxInt64/model.MaxMSSBytes + 1)
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("window count accepted despite overflowing its MSS byte conversion")
 	}
 
@@ -71,7 +71,7 @@ func TestManualMSSAndWindowValidation(t *testing.T) {
 	input.Fixed.TCP.MSSBytes = pointer(1)
 	input.Fixed.TCP.CongestionControl.InitialWindowSegments = pointer(4)
 	input.Fixed.TCP.CongestionControl.InitialSlowStartThresholdBytes = pointer(uint64(2))
-	if _, err := scenario.NormalizeV2(input); err != nil {
+	if _, err := scenario.Normalize(input); err != nil {
 		t.Fatal(err)
 	}
 }

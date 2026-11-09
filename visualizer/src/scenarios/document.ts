@@ -1,6 +1,6 @@
-import type { ScenarioV2 } from './v2Types.ts';
-import { JSONNumber, replaceLoneSurrogates } from './v2JSON.ts';
-import { INT64_MAX, INT64_MIN, UINT64_MAX } from './v2Values.ts';
+import type { Scenario } from './types.ts';
+import { JSONNumber, replaceLoneSurrogates } from './json.ts';
+import { INT64_MAX, INT64_MIN, UINT64_MAX } from './values.ts';
 
 type Shape =
   | { kind: 'object'; fields: Record<string, Shape> }
@@ -118,7 +118,7 @@ const state = object({
   workload: object({ clientGroups: array(group) }),
 });
 const scenario = object({
-  version: int64,
+  scenarioVersion: int64,
   fixed: object({
     execution: object({
       durationNanoseconds: int64,
@@ -136,8 +136,8 @@ const scenario = object({
 });
 
 // Decode into a detached DTO before checking semantic rules; no casts of unchecked JSON escape.
-export function decodeScenarioV2(input: unknown): ScenarioV2 {
-  return decode(scenario, input, 'scenario') as ScenarioV2;
+export function decodeScenario(input: unknown): Scenario {
+  return decode(scenario, input, 'scenario') as Scenario;
 }
 
 function invalid(path: string, message: string): never {

@@ -52,9 +52,13 @@ Reaching the horizon preserves in-progress attempts; Stop clears the run's resul
 
 `src/scenarios/types.ts` mirrors the backend document. Integer values may be safe
 JSON numbers or exact decimal strings; keep strings unchanged when sending or
-displaying the scenario. Nanosecond fields retain their explicit units.
+displaying the scenario. Nanosecond fields retain their explicit units. Scenario
+documents use `scenarioVersion: 2`; live and terminal snapshots use
+`snapshotVersion: 1`. Reports use `reportVersion: 1`. Each field versions its own
+contract, and the generic `version` field is rejected. See the
+[scenario contract](../examples/scenarios/CONTRACT.md) for the document format.
 
-`presets.ts` exposes 26 scenarios across links, queues, loss, workloads, routing,
+`presets.ts` exposes 37 scenarios across links, queues, loss, workloads, routing,
 edge cases, performance and reference experiments. Search by title/description or filter by category;
 the library shows six cards per page. Choosing or filtering never starts a run.
 The original four topology presets still inherit backend defaults. The other
@@ -140,8 +144,9 @@ validation: inherited link settings and streams for backends, groups and explici
 client overrides. It is read-only and is not an import format. The active run's
 original scenario remains a separate document.
 
-See [example scenarios](../examples/scenarios/README.md) for all 26 catalog
-experiments and a smaller directional/client-override example. JSON duration
+See [example scenarios](../examples/scenarios/README.md) for all 37 catalog
+experiments, a smaller directional/client-override example and two timeline
+contract examples. JSON duration
 fields use exact virtual nanoseconds, bandwidth uses decimal bit/s and capacities
 count waiting packets. Keep large integer decimal strings intact. The same file,
 seed, code/model version and runtime command timing reproduce virtual results;

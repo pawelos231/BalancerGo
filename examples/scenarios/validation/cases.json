@@ -1,11 +1,25 @@
 {
-  "base": "../static.json",
+  "base": "../timeline-static.json",
   "cases": [
     {
-      "name": "version one is rejected without a compatibility fallback",
+      "name": "scenarioVersion one is rejected",
+      "valid": false,
+      "errorField": "scenarioVersion",
+      "changes": [{ "path": ["scenarioVersion"], "value": 1 }]
+    },
+    {
+      "name": "generic version field cannot replace scenarioVersion",
       "valid": false,
       "errorField": "version",
-      "changes": [{ "path": ["version"], "value": 1 }]
+      "replacements": [
+        { "from": "\"scenarioVersion\":2", "to": "\"version\":2" }
+      ]
+    },
+    {
+      "name": "generic version field is rejected beside scenarioVersion",
+      "valid": false,
+      "errorField": "version",
+      "changes": [{ "path": ["version"], "value": 2 }]
     },
     {
       "name": "complete static example",
@@ -245,9 +259,9 @@
     {
       "name": "escaped duplicate fields are rejected before overwrite",
       "valid": false,
-      "errorField": "version",
+      "errorField": "scenarioVersion",
       "replacements": [
-        { "from": "\"version\":2", "to": "\"version\":2,\"\\u0076ersion\":2" }
+        { "from": "\"scenarioVersion\":2", "to": "\"scenarioVersion\":2,\"\\u0073cenarioVersion\":2" }
       ]
     },
     {

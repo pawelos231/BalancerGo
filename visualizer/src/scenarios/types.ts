@@ -76,8 +76,104 @@ export interface ScenarioExecution {
   maxEvents: ExactInteger;
 }
 
-export type { ScenarioV2 as Scenario } from './v2Types.ts';
-import type { ScenarioV2 as Scenario } from './v2Types.ts';
+// Go pointer fields accept omission or null; explicit zero remains an override.
+export type NullablePatch<T> = { [Key in keyof T]?: T[Key] | null };
+export type ScenarioLinkPatch = NullablePatch<ScenarioLinkConfig>;
+export type ScenarioHostPatch = NullablePatch<ScenarioHostConfig>;
+export type ScenarioStreamPatch = NullablePatch<ScenarioStream>;
+
+// Fixed settings stay constant; state keys are exact decimal virtual nanoseconds.
+// The same document is used by files, the form and runtime admission.
+export interface Scenario {
+  scenarioVersion: ExactInteger;
+  fixed: {
+    execution: ScenarioExecution;
+    tcp: ScenarioTCPConfig;
+    loadBalancer: { id: string };
+    network: ScenarioNetworkConfig;
+    workload: { defaults: ScenarioStream };
+  };
+  states: Record<string, ScenarioState>;
+}
+
+// Every state is complete; omitted entities are removed, not inherited.
+export interface ScenarioState {
+  resources: {
+    loadBalancer: ScenarioLoadBalancerState;
+    backends: ScenarioBackendState[];
+  };
+  workload: { clientGroups: ScenarioClientGroup[] };
+}
+
+// These defaults and profiles apply independently in every state.
+export interface ScenarioNetworkConfig {
+  defaults: ScenarioLinkConfig;
+  profiles: { id: string; config: ScenarioLinkPatch }[];
+}
+
+export interface ScenarioEndpointNetwork {
+  profile: string;
+  toLoadBalancer: ScenarioLinkPatch;
+  fromLoadBalancer: ScenarioLinkPatch;
+}
+
+// Algorithm changes affect new mappings; idle limits also apply to existing ones.
+export interface ScenarioLoadBalancerState {
+  algorithm: string;
+  host?: ScenarioHostPatch;
+  ingress: ScenarioLinkConfig;
+  forwardingBitsPerSecond: ExactInteger;
+  mappingTimeouts: ScenarioMappingTimeouts;
+}
+
+export interface ScenarioMappingTimeouts {
+  halfOpenIdleTimeoutNanoseconds?: ExactInteger | null;
+  establishedIdleTimeoutNanoseconds?: ExactInteger | null;
+  closingIdleTimeoutNanoseconds?: ExactInteger | null;
+  resetIdleTimeoutNanoseconds?: ExactInteger | null;
+}
+
+// Availability describes the backend itself; health observed by the LB is runtime state.
+export interface ScenarioBackendState {
+  id: string;
+  name?: string;
+  address: string;
+  port: ExactInteger;
+  network: ScenarioEndpointNetwork;
+  host?: ScenarioHostPatch;
+  physicalAvailable?: boolean | null;
+  administrativeState?: 'active' | 'drain' | null;
+}
+
+// Count is a lifetime birth budget. Existing clients survive a smaller budget.
+export interface ScenarioClientGroup {
+  id: string;
+  count: ExactInteger;
+  startAtNanoseconds: ExactInteger;
+  clientGapNanoseconds: ExactInteger;
+  network: ScenarioEndpointNetwork;
+  stream: ScenarioStreamPatch;
+  overrides?: {
+    index: ExactInteger;
+    network: ScenarioEndpointNetwork;
+    stream: ScenarioStreamPatch;
+  }[];
+}
+
+// TCP remains fixed for a run; nested settings fill omitted fields from model defaults.
+export interface ScenarioTCPConfig {
+  mssBytes?: ExactInteger | null;
+  receiveBufferBytes?: ExactInteger | null;
+  sackEnabled?: boolean | null;
+  ECNenabled?: boolean | null;
+  delayedAck?: NullablePatch<ScenarioDelayedACKConfig>;
+  rto?: NullablePatch<ScenarioRTOConfig>;
+  close?: NullablePatch<ScenarioCloseConfig>;
+  congestionControl?: NullablePatch<ScenarioCongestionConfig>;
+  clientIdleTimeoutNanoseconds?: ExactInteger | null;
+  backendHalfOpenIdleTimeoutNanoseconds?: ExactInteger | null;
+  backendEstablishedIdleTimeoutNanoseconds?: ExactInteger | null;
+}
 
 export interface ScenarioSummary {
   totalClients: ExactInteger;
@@ -94,7 +190,7 @@ export interface ValidatedScenario {
 // Read-only settings after the backend applies profiles and endpoint overrides.
 // Client groups stay compact; the native Scenario remains the file and Start format.
 export interface ResolvedScenario {
-  version: ExactInteger;
+  scenarioVersion: ExactInteger;
   fixed: {
     execution: ScenarioExecution;
     tcp: Record<string, unknown>;

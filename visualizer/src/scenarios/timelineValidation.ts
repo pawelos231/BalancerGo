@@ -1,12 +1,12 @@
-import type { ResolvedLinks } from './types.ts';
 import type {
-  BackendStateV2,
-  ScenarioStateV2,
-  ScenarioV2,
-  V2ClientGroup,
-  V2LinkPatch,
-} from './v2Types.ts';
-import { TimelineIdentities, registerID, validateID } from './v2Identity.ts';
+  ResolvedLinks,
+  ScenarioBackendState,
+  ScenarioState,
+  Scenario,
+  ScenarioClientGroup,
+  ScenarioLinkPatch,
+} from './types.ts';
+import { TimelineIdentities, registerID, validateID } from './identity.ts';
 import {
   applyStreamPatch,
   resolveNetwork,
@@ -15,17 +15,17 @@ import {
   validateLink,
   validateProfiles,
   validateStream,
-} from './v2Settings.ts';
-import { validateTCP } from './v2TCP.ts';
-import { endpointKey, INT64_MAX } from './v2Values.ts';
+} from './settings.ts';
+import { validateTCP } from './tcp.ts';
+import { endpointKey, INT64_MAX } from './values.ts';
 
 const maxBackends = 10_000;
 
 // Check all states before Start; an invalid final state rejects the whole document.
 // Shape and exact integer checks run first in the document decoder.
-export function checkScenarioV2(input: ScenarioV2): void {
-  if (BigInt(input.version) !== 2n) {
-    throw new Error('scenario.version: expected version 2');
+export function checkScenario(input: Scenario): void {
+  if (BigInt(input.scenarioVersion) !== 2n) {
+    throw new Error('scenario.scenarioVersion: expected 2');
   }
   const times = timelineTimes(input.states);
 
@@ -53,7 +53,7 @@ export function checkScenarioV2(input: ScenarioV2): void {
 }
 
 // Decimal keys are compared as bigint: 2 must precede 10, even above 2^53.
-function timelineTimes(states: ScenarioV2['states']): string[] {
+function timelineTimes(states: Scenario['states']): string[] {
   const keys = Object.keys(states);
   for (const key of keys) {
     const canonical = key !== '' && (key === '0' || key[0] !== '0') && !/[^0-9]/.test(key);
@@ -71,9 +71,9 @@ function timelineTimes(states: ScenarioV2['states']): string[] {
 
 // Complete state settings always start from fixed defaults, never the previous state.
 function validateState(
-  state: ScenarioStateV2,
-  input: ScenarioV2,
-  profiles: Map<string, V2LinkPatch>,
+  state: ScenarioState,
+  input: Scenario,
+  profiles: Map<string, ScenarioLinkPatch>,
   identities: TimelineIdentities,
   at: bigint,
   stateIndex: number,
@@ -133,10 +133,10 @@ function validateState(
 
 // Group settings apply to every client, then individual patches may adjust one slot.
 function validateGroup(
-  group: V2ClientGroup,
-  fixed: ScenarioV2['fixed'],
+  group: ScenarioClientGroup,
+  fixed: Scenario['fixed'],
   defaultLinks: ResolvedLinks,
-  profiles: Map<string, V2LinkPatch>,
+  profiles: Map<string, ScenarioLinkPatch>,
   clientSlots: bigint,
   path: string,
 ): void {
@@ -172,7 +172,7 @@ function validateGroup(
 }
 
 // Compare endpoints using canonical host spelling while preserving the original document.
-function validateAddress(backend: BackendStateV2, used: Map<string, string>, path: string): void {
+function validateAddress(backend: ScenarioBackendState, used: Map<string, string>, path: string): void {
   if (backend.address === '' || /[ \t\r\n]/.test(backend.address)) {
     throw new Error(`${path}.address: must be a nonempty host without whitespace`);
   }

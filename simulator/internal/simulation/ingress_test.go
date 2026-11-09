@@ -14,7 +14,7 @@ import (
 )
 
 // ingressTestConfiguration keeps packet timings exact and retries out of range.
-func ingressTestConfiguration() scenario.ScenarioV2 {
+func ingressTestConfiguration() scenario.Scenario {
 	cfg := baseScenario()
 	editInitialState(&cfg, func(state *scenario.StateConfig) {
 		state.Workload.ClientGroups[0].Count = 1

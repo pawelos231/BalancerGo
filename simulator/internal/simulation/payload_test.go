@@ -9,7 +9,7 @@ import (
 )
 
 // payloadScenario spaces segments apart so reception and its ACK can be inspected separately.
-func payloadScenario() scenario.ScenarioV2 {
+func payloadScenario() scenario.Scenario {
 	input := scenarioRuntimeDefinition()
 	editInitialState(&input, func(state *scenario.StateConfig) { state.Resources.Backends = state.Resources.Backends[:1] })
 	input.Fixed.Network.Defaults.BandwidthBitsPerSecond = 1_000_000_000

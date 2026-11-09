@@ -21,7 +21,7 @@ func TestDelayedACKCLIConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := configured.prepareScenarioV2()
+	prepared, err := configured.prepareScenario()
 	if err != nil {
 		t.Fatal(err)
 	}

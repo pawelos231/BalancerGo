@@ -10,7 +10,7 @@ import (
 )
 
 // A state becomes visible exactly at its timestamp and remains visible through the run's end.
-func TestCompiledV2SelectsStateAtExactTimeBoundaries(t *testing.T) {
+func TestCompiledSelectsStateAtExactTimeBoundaries(t *testing.T) {
 	input := exampleTimeline()
 	next := exampleTimeline().States["0"]
 	next.Resources.LoadBalancer.ForwardingBitsPerSecond = 100
@@ -50,7 +50,7 @@ func TestCompiledV2SelectsStateAtExactTimeBoundaries(t *testing.T) {
 }
 
 // The plan owns its data, and each inspection result owns its nested slices and pointers.
-func TestCompiledV2ProtectsInputStatesAndTransitionsFromMutation(t *testing.T) {
+func TestCompiledProtectsInputStatesAndTransitionsFromMutation(t *testing.T) {
 	input := exampleTimeline()
 	input.Fixed.TCP.MSSBytes = pointer(1024)
 	next := exampleTimeline().States["0"]
@@ -111,7 +111,7 @@ func TestCompiledV2ProtectsInputStatesAndTransitionsFromMutation(t *testing.T) {
 }
 
 // A maximal group stays one generator; compilation does not allocate millions of clients.
-func TestCompiledV2KeepsMaximalClientGroupsCompact(t *testing.T) {
+func TestCompiledKeepsMaximalClientGroupsCompact(t *testing.T) {
 	input := exampleTimeline()
 	input.States["0"].Workload.ClientGroups[0].Count = scenario.MaxClients
 	plan := compileTimeline(t, input)

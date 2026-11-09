@@ -2,10 +2,10 @@ package scenario
 
 import "time"
 
-// CompiledV2 holds checked states and the changes to apply after the initial state.
+// Compiled holds checked states and the changes to apply after the initial state.
 // Its accessors return copies, so inspecting a plan cannot change later execution.
-type CompiledV2 struct {
-	scenario    NormalizedV2
+type Compiled struct {
+	scenario    Normalized
 	transitions []Transition
 }
 

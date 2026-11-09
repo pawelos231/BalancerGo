@@ -163,7 +163,7 @@ func TestWorldSACKCompletesSeededLossyAccessTransfers(t *testing.T) {
 }
 
 // Eight segments fill the initial window; a short TIME_WAIT lets tests observe full closure.
-func sackIntegrationScenario(mode string, enabled bool) scenario.ScenarioV2 {
+func sackIntegrationScenario(mode string, enabled bool) scenario.Scenario {
 	definition := congestionScenario()
 	initialSegments := 8
 	msl := 5 * time.Millisecond

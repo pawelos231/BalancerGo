@@ -3,7 +3,7 @@ import test from 'node:test';
 import { applyScenarioField, scenarioFormValues, scenarioStateTimes } from '../../../src/scenarios/draft.ts';
 import { editScenarioForm, selectScenarioFormState } from '../../../src/scenarios/formState.ts';
 import { editHostField, emptyHostEdits } from '../../../src/scenarios/host.ts';
-import { validateScenarioV2 } from '../../../src/scenarios/v2.ts';
+import { validateScenario } from '../../../src/scenarios/validation.ts';
 import { scenarioFixture } from '../../scenarioFixture.ts';
 
 function timeline() {
@@ -27,7 +27,7 @@ test('fixed and selected-state edits retain every other complete state', () => {
   assert.equal(host.states['10'].resources.loadBalancer.host?.cores, 2);
   assert.deepEqual(host.states['0'], before.states['0']);
   assert.deepEqual(original, before);
-  assert.doesNotThrow(() => validateScenarioV2(host));
+  assert.doesNotThrow(() => validateScenario(host));
 });
 
 test('state timestamps sort as exact integers and selecting a state clears pending field text', () => {
@@ -56,7 +56,7 @@ test('a later count reduction retains overrides for clients reserved in earlier 
   assert.equal(edited.states['10'].workload.clientGroups[0].count, 2);
   assert.deepEqual(edited.states['10'].workload.clientGroups[0].overrides, scenario.states['10'].workload.clientGroups[0].overrides);
   assert.deepEqual(edited.states['0'], scenario.states['0']);
-  assert.doesNotThrow(() => validateScenarioV2(edited));
+  assert.doesNotThrow(() => validateScenario(edited));
 });
 
 test('new resource IDs avoid every state and removed draft IDs even after host edits', () => {
@@ -83,5 +83,5 @@ test('a group first inserted in a later state starts at its exact insertion time
   const edited = applyScenarioField(scenario, 'clients', '3', at);
   assert.equal(edited.states[at].workload.clientGroups[0].startAtNanoseconds, at);
   assert.deepEqual(edited.states['0'], scenario.states['0']);
-  assert.doesNotThrow(() => validateScenarioV2(edited));
+  assert.doesNotThrow(() => validateScenario(edited));
 });

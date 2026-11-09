@@ -3,12 +3,12 @@ import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import { serializeScenario } from '../../../src/scenarios/files.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
-import { parseScenarioV2, validateScenarioV2 } from '../../../src/scenarios/v2.ts';
-import type { ScenarioV2 } from '../../../src/scenarios/v2Types.ts';
+import { parseScenario, validateScenario } from '../../../src/scenarios/validation.ts';
+import type { Scenario } from '../../../src/scenarios/types.ts';
 
-function readExample(id: string): ScenarioV2 {
+function readExample(id: string): Scenario {
   const path = new URL(`../../../../examples/scenarios/${id}.json`, import.meta.url);
-  return JSON.parse(readFileSync(path, 'utf8')) as ScenarioV2;
+  return JSON.parse(readFileSync(path, 'utf8')) as Scenario;
 }
 
 // A published snapshot supplies the ordinary defaults used to create these files.
@@ -20,21 +20,19 @@ test('downloadable examples match the scenarios loaded from the library', () => 
     const built = preset.build(defaults);
     const exported = JSON.parse(serializeScenario(built));
     assert.deepEqual(exported, readExample(preset.id), preset.id);
-    assert.deepEqual(validateScenarioV2(exported), validateScenarioV2(readExample(preset.id)), preset.id);
+    assert.deepEqual(validateScenario(exported), validateScenario(readExample(preset.id)), preset.id);
   }
 });
 
 test('all 40 runnable examples use the strict native timeline contract', () => {
   let count = 0;
-  for (const directory of ['scenarios', 'scenarios-v2']) {
-    const base = new URL(`../../../../examples/${directory}/`, import.meta.url);
-    for (const name of readdirSync(base).filter((entry) => entry.endsWith('.json'))) {
-      const document = parseScenarioV2(readFileSync(new URL(name, base), 'utf8'));
-      assert.equal(BigInt(document.version), 2n, name);
-      assert.deepEqual(Object.keys(document).sort(), ['fixed', 'states', 'version'], name);
-      assert.ok(document.states['0'], name);
-      count += 1;
-    }
+  const base = new URL('../../../../examples/scenarios/', import.meta.url);
+  for (const name of readdirSync(base).filter((entry) => entry.endsWith('.json'))) {
+    const document = parseScenario(readFileSync(new URL(name, base), 'utf8'));
+    assert.equal(BigInt(document.scenarioVersion), 2n, name);
+    assert.deepEqual(Object.keys(document).sort(), ['fixed', 'scenarioVersion', 'states'], name);
+    assert.ok(document.states['0'], name);
+    count += 1;
   }
   assert.equal(count, 40);
 });

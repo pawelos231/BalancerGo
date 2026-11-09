@@ -9,7 +9,7 @@ import (
 )
 
 // congestionScenario keeps enough payload waiting to expose the sender's window.
-func congestionScenario() scenario.ScenarioV2 {
+func congestionScenario() scenario.Scenario {
 	definition := baseScenario()
 	definition.Fixed.Execution.Duration = 2 * time.Second
 	editInitialState(&definition, func(state *scenario.StateConfig) {

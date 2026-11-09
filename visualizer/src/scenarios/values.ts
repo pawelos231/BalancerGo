@@ -4,7 +4,7 @@ export const INT64_MAX = (1n << 63n) - 1n;
 export const INT64_MIN = -(1n << 63n);
 export const UINT64_MAX = (1n << 64n) - 1n;
 
-// Match v2 endpoint comparison, including equivalent IPv6 and IPv4-mapped IPv6.
+// Match endpoint comparison, including equivalent IPv6 and IPv4-mapped IPv6.
 // The comparison key never replaces the address shown in the configuration.
 export function endpointKey(address: string, port: ExactInteger): string {
   // ASCII casing is stable across Go and browser Unicode versions; other code points stay literal.

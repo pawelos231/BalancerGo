@@ -111,7 +111,7 @@ func assertLifecycleObservation(t *testing.T, ended contract.SimulationEndedFram
 func TestLifecycleFastRunsPreserveUnreadFinalOutcomes(t *testing.T) {
 	h := newScenarioHarness(t)
 	witness := lifecycleSocket(t, h)
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Speed, input.Fixed.Execution.Duration = 0, 100*time.Millisecond
 	{
 		initialState := input.States["0"]
@@ -169,7 +169,7 @@ func TestLifecycleFastRunsPreserveUnreadFinalOutcomes(t *testing.T) {
 func TestLifecycleRunningStopPublishesBeforePrivateReply(t *testing.T) {
 	h := newScenarioHarness(t)
 	other := lifecycleSocket(t, h)
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Duration, input.Fixed.Execution.Speed, input.Fixed.Execution.SnapshotInterval = time.Hour, 1, time.Millisecond
 	input.Fixed.Workload.Defaults.Bytes = 1 << 30
 	input.Fixed.Workload.Defaults.PacketGap = 10 * time.Millisecond

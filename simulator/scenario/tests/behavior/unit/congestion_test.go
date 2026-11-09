@@ -12,7 +12,7 @@ import (
 func TestCongestionDefaultsAndDocumentRoundTrip(t *testing.T) {
 	// Older scenarios start with Reno and four 1,024-byte segments in flight.
 	input := exampleScenario()
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,18 +35,18 @@ func TestCongestionDefaultsAndDocumentRoundTrip(t *testing.T) {
 		InitialWindowSegments:          pointer(2),
 		InitialSlowStartThresholdBytes: pointer(uint64(9_007_199_254_740_993)),
 	}
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(document), `"initialSlowStartThresholdBytes":"9007199254740993"`) {
 		t.Fatal("export rounded a threshold larger than JavaScript's safe integer range")
 	}
-	restored, err := scenario.DecodeDocumentV2(document)
+	restored, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.NormalizeV2(restored)
+	resolved, err = scenario.Normalize(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestCongestionDefaultsAndDocumentRoundTrip(t *testing.T) {
 // Omitted recovery follows the mode; exporting an explicit false keeps it disabled.
 func TestFastRetransmitDefaultsAndDocumentRoundTrip(t *testing.T) {
 	input := exampleScenario()
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,30 +69,30 @@ func TestFastRetransmitDefaultsAndDocumentRoundTrip(t *testing.T) {
 	}
 
 	input.Fixed.TCP.CongestionControl.FastRetransmit = pointer(false)
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(document), `"fastRetransmit":false`) {
 		t.Fatal("export omitted the explicit false")
 	}
-	restored, err := scenario.DecodeDocumentV2(document)
+	restored, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.NormalizeV2(restored)
+	resolved, err = scenario.Normalize(restored)
 	if err != nil || resolved.Fixed.TCP.CongestionControl.FastRetransmit {
 		t.Fatalf("disabled recovery changed after export/import: %+v, %v", resolved.Fixed.TCP, err)
 	}
 
 	// The rwnd-only mode omits recovery by default and rejects an incompatible true.
 	input.Fixed.TCP.CongestionControl = scenario.CongestionConfig{Mode: pointer("none")}
-	resolved, err = scenario.NormalizeV2(input)
+	resolved, err = scenario.Normalize(input)
 	if err != nil || resolved.Fixed.TCP.CongestionControl.FastRetransmit {
 		t.Fatalf("none should inherit disabled recovery: %+v, %v", resolved.Fixed.TCP, err)
 	}
 	input.Fixed.TCP.CongestionControl.FastRetransmit = pointer(true)
-	_, err = scenario.NormalizeV2(input)
+	_, err = scenario.Normalize(input)
 	if err == nil || !strings.Contains(err.Error(), "tcp.congestionControl.fastRetransmit") {
 		t.Fatalf("expected a recovery dependency error, got %v", err)
 	}
@@ -122,18 +122,18 @@ func TestRecoveryModeCongestionSettingsRoundTrip(t *testing.T) {
 			}
 
 			// Encoding must preserve omission as well as an explicit false.
-			document, err := scenario.EncodeDocumentV2(input)
+			document, err := scenario.EncodeDocument(input)
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, err := scenario.DecodeDocumentV2(document)
+			restored, err := scenario.DecodeDocument(document)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if (restored.Fixed.TCP.CongestionControl.FastRetransmit == nil) != (test.fastRetransmit == nil) {
-				t.Fatal("native round trip changed whether early retry was configured")
+				t.Fatal("scenario round trip changed whether early retry was configured")
 			}
-			resolved, err := scenario.NormalizeV2(restored)
+			resolved, err := scenario.Normalize(restored)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -151,7 +151,7 @@ func TestCongestionValidation(t *testing.T) {
 	for _, mode := range []string{"none", "reno", "newReno", "tahoe", "cubic", "", "bbr"} {
 		input := exampleScenario()
 		input.Fixed.TCP.CongestionControl.Mode = pointer(mode)
-		_, err := scenario.NormalizeV2(input)
+		_, err := scenario.Normalize(input)
 		valid := mode == "none" || mode == "reno" || mode == "newReno" ||
 			mode == "tahoe" || mode == "cubic"
 		if (err == nil) != valid {
@@ -164,7 +164,7 @@ func TestCongestionValidation(t *testing.T) {
 	for _, segments := range []int{-1, 0, 1, maximumSegments, maximumSegments + 1} {
 		input := exampleScenario()
 		input.Fixed.TCP.CongestionControl.InitialWindowSegments = pointer(segments)
-		_, err := scenario.NormalizeV2(input)
+		_, err := scenario.Normalize(input)
 		valid := segments >= 1 && segments <= maximumSegments
 		if (err == nil) != valid {
 			t.Fatalf("initial window %d: error %v", segments, err)
@@ -175,7 +175,7 @@ func TestCongestionValidation(t *testing.T) {
 	for _, threshold := range []uint64{0, 2047, 2048, math.MaxInt64, math.MaxInt64 + 1} {
 		input := exampleScenario()
 		input.Fixed.TCP.CongestionControl.InitialSlowStartThresholdBytes = pointer(threshold)
-		_, err := scenario.NormalizeV2(input)
+		_, err := scenario.Normalize(input)
 		valid := threshold >= 2048 && threshold <= math.MaxInt64
 		if (err == nil) != valid {
 			t.Fatalf("initial threshold %d: error %v", threshold, err)

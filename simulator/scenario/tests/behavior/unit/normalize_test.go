@@ -13,9 +13,9 @@ import (
 )
 
 // exampleScenario provides valid settings shared by the normalization tests.
-func exampleScenario() scenario.ScenarioV2 {
-	return scenario.ScenarioV2{
-		Version: scenario.VersionV2,
+func exampleScenario() scenario.Scenario {
+	return scenario.Scenario{
+		ScenarioVersion: scenario.CurrentScenarioVersion,
 		Fixed: scenario.FixedConfig{
 			Execution:    scenario.ExecutionConfig{Duration: time.Minute, SnapshotInterval: time.Millisecond, Seed: 1, MaxEvents: 1000},
 			LoadBalancer: scenario.LoadBalancerIdentity{ID: "lb"},
@@ -32,8 +32,8 @@ func exampleScenario() scenario.ScenarioV2 {
 	}
 }
 
-// editInitialState applies a test mutation to the native initial state.
-func editInitialState(input *scenario.ScenarioV2, edit func(*scenario.StateConfig)) {
+// editInitialState applies a test mutation to the initial scenario state.
+func editInitialState(input *scenario.Scenario, edit func(*scenario.StateConfig)) {
 	state := input.States["0"]
 	edit(&state)
 	input.States["0"] = state
@@ -91,7 +91,7 @@ func TestGroupAndClientPatchesPreserveZeroAndProfileInheritance(t *testing.T) {
 		},
 	}
 
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestClientPacketOverrideResolvesByteSentinelLast(t *testing.T) {
 		},
 	}
 
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestHeterogeneousBackendsResolveTheirOwnDirections(t *testing.T) {
 		})
 	})
 
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,12 +276,12 @@ func TestMaximumClientGroupStaysCompactAndDetached(t *testing.T) {
 		},
 	}
 
-	first, err := scenario.NormalizeV2(input)
+	first, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	second, err := scenario.NormalizeV2(input)
+	second, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestZeroAndLargeNativeValuesRemainValid(t *testing.T) {
 	group.StartAt = time.Duration(math.MaxInt64)
 	group.ClientGap = time.Duration(math.MaxInt64)
 
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,14 +378,14 @@ func TestZeroAndLargeNativeValuesRemainValid(t *testing.T) {
 	}
 
 	input.Fixed.Execution.Duration = 0
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("zero duration must be rejected")
 	}
 	input.Fixed.Execution.Duration = time.Duration(math.MaxInt64)
 
 	// Far-future arrivals need no overflowing count * gap calculation.
 	group.Count = scenario.MaxClients
-	if _, err := scenario.NormalizeV2(input); err != nil {
+	if _, err := scenario.Normalize(input); err != nil {
 		t.Fatalf("far-future arrivals should not require overflowing count * gap: %v", err)
 	}
 }
@@ -395,13 +395,13 @@ func TestSimplifiedTransportByteBoundary(t *testing.T) {
 
 	// uint64 sequence positions cover the native stream-size range.
 	input.Fixed.Workload.Defaults.Bytes = math.MaxInt - 40
-	if _, err := scenario.NormalizeV2(input); err != nil {
+	if _, err := scenario.Normalize(input); err != nil {
 		t.Fatalf("last supported stream byte rejected: %v", err)
 	}
 
 	// One extra byte must exceed the supported transport range.
 	input.Fixed.Workload.Defaults.Bytes++
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("stream beyond transport range accepted")
 	}
 
@@ -409,7 +409,7 @@ func TestSimplifiedTransportByteBoundary(t *testing.T) {
 	input.Fixed.Workload.Defaults.Bytes = -1
 	input.Fixed.Workload.Defaults.Packets = math.MaxInt
 
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("packet count multiplication overflow accepted")
 	}
 }
@@ -427,7 +427,7 @@ func TestLogicalBytePositionsAcceptLargeStreams(t *testing.T) {
 	for _, bytes := range byteCounts {
 		input := exampleScenario()
 		input.Fixed.Workload.Defaults.Bytes = int(bytes)
-		if _, err := scenario.NormalizeV2(input); err != nil {
+		if _, err := scenario.Normalize(input); err != nil {
 			t.Fatalf("logical byte positions rejected %d bytes: %v", bytes, err)
 		}
 	}
@@ -436,62 +436,62 @@ func TestLogicalBytePositionsAcceptLargeStreams(t *testing.T) {
 func TestNormalizeRejectsInvalidFields(t *testing.T) {
 	tests := []struct {
 		name          string
-		change        func(*scenario.ScenarioV2)
+		change        func(*scenario.Scenario)
 		errorFragment string
 	}{
 		// Execution settings.
 		{
-			name: "version",
-			change: func(input *scenario.ScenarioV2) {
-				input.Version++
+			name: "scenarioVersion",
+			change: func(input *scenario.Scenario) {
+				input.ScenarioVersion++
 			},
-			errorFragment: "version",
+			errorFragment: "scenarioVersion",
 		},
 		{
 			name: "duration",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Execution.Duration = -1
 			},
 			errorFragment: "execution.durationNanoseconds",
 		},
 		{
 			name: "snapshot",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Execution.SnapshotInterval = 0
 			},
 			errorFragment: "execution.snapshotIntervalNanoseconds",
 		},
 		{
 			name: "negative speed",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Execution.Speed = -1
 			},
 			errorFragment: "execution.speed",
 		},
 		{
 			name: "nan speed",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Execution.Speed = math.NaN()
 			},
 			errorFragment: "execution.speed",
 		},
 		{
 			name: "infinite speed",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Execution.Speed = math.Inf(1)
 			},
 			errorFragment: "execution.speed",
 		},
 		{
 			name: "paced overflow",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Execution.Speed = math.SmallestNonzeroFloat64
 			},
 			errorFragment: "paced duration",
 		},
 		{
 			name: "events",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Execution.MaxEvents = 0
 			},
 			errorFragment: "execution.maxEvents",
@@ -500,49 +500,49 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		// Link defaults.
 		{
 			name: "bandwidth",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Network.Defaults.BandwidthBitsPerSecond = 0
 			},
 			errorFragment: "network.defaults.bandwidthBitsPerSecond",
 		},
 		{
 			name: "travel",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Network.Defaults.PacketTravelTime = -1
 			},
 			errorFragment: "network.defaults.packetTravelTimeNanoseconds",
 		},
 		{
 			name: "queue",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Network.Defaults.QueueCapacity = -1
 			},
 			errorFragment: "network.defaults.queueCapacity",
 		},
 		{
 			name: "negative loss",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Network.Defaults.LossRate = -0.1
 			},
 			errorFragment: "network.defaults.lossRate",
 		},
 		{
 			name: "high loss",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Network.Defaults.LossRate = 1.1
 			},
 			errorFragment: "network.defaults.lossRate",
 		},
 		{
 			name: "nan loss",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Network.Defaults.LossRate = math.NaN()
 			},
 			errorFragment: "network.defaults.lossRate",
 		},
 		{
 			name: "infinite loss",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Network.Defaults.LossRate = math.Inf(1)
 			},
 			errorFragment: "network.defaults.lossRate",
@@ -551,7 +551,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		// Load balancer settings.
 		{
 			name: "budget",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Resources.LoadBalancer.ForwardingBitsPerSecond = 0
 				})
@@ -560,7 +560,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "algorithm",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Resources.LoadBalancer.Algorithm = "unknown"
 				})
@@ -571,7 +571,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		// Client arrival and stream settings.
 		{
 			name: "negative clients",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Workload.ClientGroups[0].Count = -1
 				})
@@ -580,7 +580,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "too many clients",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Workload.ClientGroups[0].Count = scenario.MaxClients + 1
 				})
@@ -589,7 +589,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "client start",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Workload.ClientGroups[0].StartAt = -1
 				})
@@ -598,7 +598,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "client gap",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Workload.ClientGroups[0].ClientGap = -1
 				})
@@ -607,7 +607,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "packets despite explicit bytes",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Workload.Defaults.Packets = -1
 				input.Fixed.Workload.Defaults.Bytes = 0
 			},
@@ -615,14 +615,14 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "bytes",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Workload.Defaults.Bytes = -2
 			},
 			errorFragment: "workload.defaults.bytes",
 		},
 		{
 			name: "packet gap",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Workload.Defaults.PacketGap = -1
 			},
 			errorFragment: "workload.defaults.packetGapNanoseconds",
@@ -631,14 +631,14 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		// Identifiers and backend endpoints.
 		{
 			name: "lb id",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.LoadBalancer.ID = "bad/id"
 			},
 			errorFragment: "fixed.loadBalancer.id",
 		},
 		{
 			name: "backend id collision",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Resources.Backends[0].ID = "lb"
 				})
@@ -647,7 +647,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "group id collision",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Workload.ClientGroups[0].ID = "backend"
 				})
@@ -656,7 +656,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "empty address",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Resources.Backends[0].Address = ""
 				})
@@ -665,7 +665,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "port",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Resources.Backends[0].Port = 0
 				})
@@ -676,7 +676,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		// Endpoint profiles and client-specific overrides.
 		{
 			name: "unknown backend profile",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Resources.Backends[0].Network.Profile = "missing"
 				})
@@ -685,7 +685,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "unknown group profile",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Workload.ClientGroups[0].Network.Profile = "missing"
 				})
@@ -694,7 +694,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "directional bandwidth",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				group := &input.States["0"].Workload.ClientGroups[0]
 				group.Network.ToLoadBalancer.BandwidthBitsPerSecond = pointer[int64](0)
 			},
@@ -702,7 +702,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "invalid override index",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				group := &input.States["0"].Workload.ClientGroups[0]
 				group.Overrides = []scenario.ClientOverride{
 					{Index: 10},
@@ -712,7 +712,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "duplicate override",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				group := &input.States["0"].Workload.ClientGroups[0]
 				group.Overrides = []scenario.ClientOverride{
 					{Index: 2},
@@ -723,7 +723,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "invalid client stream",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				group := &input.States["0"].Workload.ClientGroups[0]
 				group.Overrides = []scenario.ClientOverride{
 					{
@@ -738,7 +738,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "unknown client profile",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				group := &input.States["0"].Workload.ClientGroups[0]
 				group.Overrides = []scenario.ClientOverride{
 					{
@@ -753,7 +753,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "unused invalid profile",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Network.Profiles = []scenario.LinkProfile{
 					{
 						ID: "unused",
@@ -767,7 +767,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "duplicate profile",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				input.Fixed.Network.Profiles = []scenario.LinkProfile{
 					{ID: "same"},
 					{ID: "same"},
@@ -777,7 +777,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 		},
 		{
 			name: "too many backends",
-			change: func(input *scenario.ScenarioV2) {
+			change: func(input *scenario.Scenario) {
 				editInitialState(input, func(state *scenario.StateConfig) {
 					state.Resources.Backends = make([]scenario.BackendStateConfig, scenario.MaxBackends+1)
 				})
@@ -792,7 +792,7 @@ func TestNormalizeRejectsInvalidFields(t *testing.T) {
 			input := exampleScenario()
 			test.change(&input)
 
-			_, err := scenario.NormalizeV2(input)
+			_, err := scenario.Normalize(input)
 			if err == nil {
 				t.Fatal("invalid scenario accepted")
 			}
@@ -821,7 +821,7 @@ func TestDefaultsValidatedEvenWithoutClientsOrBackends(t *testing.T) {
 	})
 
 	input.Fixed.Workload.Defaults.Packets = -1
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("invalid default stream accepted for an empty group")
 	}
 
@@ -829,7 +829,7 @@ func TestDefaultsValidatedEvenWithoutClientsOrBackends(t *testing.T) {
 	input.Fixed.Workload.Defaults.Packets = 0
 	input.Fixed.Network.Defaults.BandwidthBitsPerSecond = 0
 
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("invalid default link accepted without endpoints")
 	}
 }
@@ -850,7 +850,7 @@ func TestTotalClientCountAcrossGroups(t *testing.T) {
 		}
 	})
 
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("sum of client counts exceeded the address space")
 	}
 }
@@ -880,17 +880,17 @@ func TestNativeJSONRoundTripRetainsNanosecondsAndFullWidthIntegers(t *testing.T)
 		t.Fatalf("duration not encoded as exact integer nanoseconds: %s", data)
 	}
 
-	var restored scenario.ScenarioV2
+	var restored scenario.Scenario
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
 
 	if !reflect.DeepEqual(input, restored) {
-		t.Fatal("native JSON round trip changed the scenario")
+		t.Fatal("scenario JSON round trip changed the scenario")
 	}
 
 	// The restored document must still satisfy all configuration rules.
-	if _, err := scenario.NormalizeV2(restored); err != nil {
+	if _, err := scenario.Normalize(restored); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -939,7 +939,7 @@ func TestIngressDoesNotInheritEndpointProfiles(t *testing.T) {
 	editInitialState(&input, func(state *scenario.StateConfig) {
 		state.Workload.ClientGroups[0].Network.Profile = "endpoint"
 	})
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1017,7 +1017,7 @@ func TestIngressValidationRequiresACompleteLink(t *testing.T) {
 			editInitialState(&input, func(state *scenario.StateConfig) {
 				test.change(&state.Resources.LoadBalancer.Ingress)
 			})
-			_, err := scenario.NormalizeV2(input)
+			_, err := scenario.Normalize(input)
 			path := "resources.loadBalancer.ingress." + test.field
 			if err == nil || !strings.Contains(err.Error(), path) {
 				t.Fatalf("expected ingress validation error for %s, got %v", path, err)

@@ -11,8 +11,8 @@ import (
 
 // Native fixtures are shared by application integration tests, without exposing
 // the world's private endpoint pointers or network queues.
-func scenarioRuntimeDefinition() scenario.ScenarioV2 {
-	definition := testConfiguration().scenarioDefinitionV2()
+func scenarioRuntimeDefinition() scenario.Scenario {
+	definition := testConfiguration().scenarioDefinition()
 	definition.Fixed.Execution.Duration = 500 * time.Millisecond
 	definition.Fixed.Network.Defaults = scenario.LinkConfig{
 		BandwidthBitsPerSecond: 8_000_000,
@@ -29,7 +29,7 @@ func scenarioRuntimeDefinition() scenario.ScenarioV2 {
 
 func scenarioRuntimeValue[T any](value T) *T { return &value }
 
-func initialScenarioState(t *testing.T, plan *scenario.CompiledV2) scenario.NormalizedState {
+func initialScenarioState(t *testing.T, plan *scenario.Compiled) scenario.NormalizedState {
 	t.Helper()
 	state, err := plan.StateAt(0)
 	if err != nil {
@@ -38,16 +38,16 @@ func initialScenarioState(t *testing.T, plan *scenario.CompiledV2) scenario.Norm
 	return state
 }
 
-func compiledRuntimeScenario(t *testing.T, input scenario.ScenarioV2) *scenario.CompiledV2 {
+func compiledRuntimeScenario(t *testing.T, input scenario.Scenario) *scenario.Compiled {
 	t.Helper()
-	resolved, err := scenario.CompileV2(input)
+	resolved, err := scenario.Compile(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return resolved
 }
 
-func newScenarioSimulation(input *scenario.CompiledV2) *simulation.World {
+func newScenarioSimulation(input *scenario.Compiled) *simulation.World {
 	world, err := simulation.NewTimeline(input)
 	if err != nil {
 		panic(err)
@@ -56,11 +56,11 @@ func newScenarioSimulation(input *scenario.CompiledV2) *simulation.World {
 }
 
 func newSimulation(cfg configuration) *simulation.World {
-	return newScenarioSimulation(mustCompileScenario(cfg.scenarioDefinitionV2()))
+	return newScenarioSimulation(mustCompileScenario(cfg.scenarioDefinition()))
 }
 
-func mustCompileScenario(input scenario.ScenarioV2) *scenario.CompiledV2 {
-	resolved, err := scenario.CompileV2(input)
+func mustCompileScenario(input scenario.Scenario) *scenario.Compiled {
+	resolved, err := scenario.Compile(input)
 	if err != nil {
 		panic(err)
 	}

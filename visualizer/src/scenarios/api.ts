@@ -6,7 +6,7 @@ import type {
 } from './types.ts';
 import type { TopologyDefinition } from '../telemetry/types';
 import { isExperimentContext } from '../experiment.ts';
-import { validateScenarioV2 } from './v2.ts';
+import { validateScenario } from './validation.ts';
 
 // Keep API failures readable while retaining the status for expected cases such as 404.
 export class ScenarioApiError extends Error {
@@ -164,11 +164,11 @@ function isScenario(value: unknown): value is Scenario {
     && isRecord(state.resources) && isRecord(state.resources.loadBalancer)
     && Array.isArray(state.resources.backends)
     && isRecord(state.workload) && Array.isArray(state.workload.clientGroups))) return false;
-  try { validateScenarioV2(value); return true; } catch { return false; }
+  try { validateScenario(value); return true; } catch { return false; }
 }
 
 function isResolvedScenario(value: unknown): boolean {
-  return isRecord(value) && String(value.version) === '2'
+  return isRecord(value) && !('version' in value) && String(value.scenarioVersion) === '2'
     && isRecord(value.fixed) && isRecord(value.fixed.execution)
     && isRecord(value.fixed.networkDefaults) && isRecord(value.fixed.defaultStream)
     && Array.isArray(value.states) && value.states.every(state => isRecord(state)

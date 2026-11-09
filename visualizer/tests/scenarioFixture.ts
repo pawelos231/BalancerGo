@@ -16,7 +16,7 @@ export function experimentFixture(): ExperimentContext {
 // Keep nontrivial defaults so preset tests notice accidentally reset inherited settings.
 export function scenarioFixture(): Scenario {
   return {
-    version: 2,
+    scenarioVersion: 2,
     fixed: {
       execution: {
         durationNanoseconds: '9223372036854775807',

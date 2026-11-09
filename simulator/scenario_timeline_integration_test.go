@@ -18,7 +18,7 @@ import (
 	"load-balancer/scenario"
 )
 
-func scenarioTimelineInput() scenario.ScenarioV2 {
+func scenarioTimelineInput() scenario.Scenario {
 	input := scenarioCLIDefinition()
 	input.Fixed.Execution.Duration = 120 * time.Millisecond
 	input.Fixed.Execution.SnapshotInterval = 5 * time.Millisecond
@@ -58,7 +58,7 @@ func assertTimelineResult(t *testing.T, result contract.SimulationResult) {
 	}
 }
 
-func TestScenarioV2CLIExecutesAndArchivesCompleteTimeline(t *testing.T) {
+func TestScenarioCLIExecutesAndArchivesCompleteTimeline(t *testing.T) {
 	executable := buildScenarioCLI(t)
 	input := scenarioTimelineInput()
 	path := writeScenarioCLIInput(t, input)
@@ -114,16 +114,16 @@ func TestScenarioV2CLIExecutesAndArchivesCompleteTimeline(t *testing.T) {
 	}
 }
 
-func TestScenarioV2HTTPExecutesTimelineWithMatchingProvenance(t *testing.T) {
+func TestScenarioHTTPExecutesTimelineWithMatchingProvenance(t *testing.T) {
 	h := newScenarioHarness(t)
 	input := scenarioTimelineInput()
 	input.Fixed.Execution.Speed = 1
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The strict integer codec accepts decimal strings and canonicalizes them.
-	request := bytes.Replace(document, []byte(`"version":2`), []byte(`"version":"2"`), 1)
+	request := bytes.Replace(document, []byte(`"scenarioVersion":2`), []byte(`"scenarioVersion":"2"`), 1)
 	body := scenarioRequest(t, h.server, http.MethodPost, "/api/simulations", request, http.StatusAccepted)
 	var receipt contract.RunReceipt
 	if err := json.Unmarshal(body, &receipt); err != nil {
@@ -151,13 +151,13 @@ func TestScenarioV2HTTPExecutesTimelineWithMatchingProvenance(t *testing.T) {
 	}
 }
 
-func TestScenarioV2HTTPInvalidLaterStateCannotAdmit(t *testing.T) {
+func TestScenarioHTTPInvalidLaterStateCannotAdmit(t *testing.T) {
 	h := newScenarioHarness(t)
 	input := scenarioTimelineInput()
 	later := input.States["40000000"]
 	later.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = -1
 	input.States["40000000"] = later
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func assertNativeManualCommandsRejected(t *testing.T, control *runController) {
 	} {
 		err := submitFrontendCommand(control, context.Background(), command, nil)
 		if !errors.Is(err, simulation.ErrTimelineManualMutation) {
-			t.Fatalf("native %s returned %v", command.Type, err)
+			t.Fatalf("scenario %s returned %v", command.Type, err)
 		}
 	}
 	if control.contextForRun().Err() != nil {
@@ -184,13 +184,13 @@ func assertNativeManualCommandsRejected(t *testing.T, control *runController) {
 	}
 }
 
-func TestScenarioV2CommandsAreBlockedBeforeAndAfterWorldCreation(t *testing.T) {
+func TestScenarioCommandsAreBlockedBeforeAndAfterWorldCreation(t *testing.T) {
 	input := scenarioTimelineInput()
-	plan, err := scenario.CompileV2(input)
+	plan, err := scenario.Compile(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,11 +200,11 @@ func TestScenarioV2CommandsAreBlockedBeforeAndAfterWorldCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNativeManualCommandsRejected(t, control)
-	if err := submitStopTestCommand(control, receipt.RunID, "stop-pending-native", nil); err != nil {
+	if err := submitStopTestCommand(control, receipt.RunID, "stop-pending-scenario", nil); err != nil {
 		t.Fatal(err)
 	}
 	if !errors.Is(control.contextForRun().Err(), context.Canceled) {
-		t.Fatal("Stop could not cancel a native run before world creation")
+		t.Fatal("Stop could not cancel a scenario run before world creation")
 	}
 	if err := control.applyStop(<-control.stops, func() (stopObservation, error) { return stopObservation{}, nil }); err != nil {
 		t.Fatal(err)
@@ -213,7 +213,7 @@ func TestScenarioV2CommandsAreBlockedBeforeAndAfterWorldCreation(t *testing.T) {
 	h := newScenarioHarness(t)
 	input.Fixed.Execution.Speed = 1
 	input.Fixed.Execution.Duration = 2 * time.Second
-	document, err = scenario.EncodeDocumentV2(input)
+	document, err = scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestScenarioV2CommandsAreBlockedBeforeAndAfterWorldCreation(t *testing.T) {
 		return snapshot.Simulation.Status == "running" && snapshot.Simulation.VirtualTimeSeconds > 0
 	})
 	assertNativeManualCommandsRejected(t, h.control)
-	if err := submitStopTestCommand(h.control, running.Simulation.RunID, "stop-running-native", nil); err != nil {
+	if err := submitStopTestCommand(h.control, running.Simulation.RunID, "stop-running-scenario", nil); err != nil {
 		t.Fatal(err)
 	}
 	readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
@@ -232,7 +232,7 @@ func TestScenarioV2CommandsAreBlockedBeforeAndAfterWorldCreation(t *testing.T) {
 
 func TestScenarioInputsRejectVersionOneAndFlatWebSocketSettings(t *testing.T) {
 	for _, document := range [][]byte{[]byte(`{"version":1}`), []byte(`{"durationSeconds":0,"speed":0}`)} {
-		_, err := prepareStart(startRequest{command: &runtimeCommand{Payload: document}}, testConfiguration())
+		_, err := prepareStart(startRequest{command: &runtimeCommand{Payload: document}})
 		if err == nil {
 			t.Fatalf("obsolete input was accepted: %s", document)
 		}

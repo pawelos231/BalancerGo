@@ -14,11 +14,11 @@ func TestSACKDefaultsAndDocumentRoundTrip(t *testing.T) {
 		input := exampleScenario()
 		input.Fixed.TCP.SACKEnabled = requested
 
-		encoded, err := scenario.EncodeDocumentV2(input)
+		encoded, err := scenario.EncodeDocument(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		restored, err := scenario.DecodeDocumentV2(encoded)
+		restored, err := scenario.DecodeDocument(encoded)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -32,7 +32,7 @@ func TestSACKDefaultsAndDocumentRoundTrip(t *testing.T) {
 			t.Fatal("the explicit SACK choice changed during the round trip")
 		}
 
-		resolved, err := scenario.NormalizeV2(restored)
+		resolved, err := scenario.Normalize(restored)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -51,7 +51,7 @@ func TestSACKSupportedRecoveryProfiles(t *testing.T) {
 			input.Fixed.TCP.SACKEnabled = pointer(true)
 			input.Fixed.TCP.CongestionControl.Mode = pointer(mode)
 
-			_, err := scenario.NormalizeV2(input)
+			_, err := scenario.Normalize(input)
 			wantValid := mode == "reno" || mode == "newReno" || mode == "cubic"
 			if wantValid {
 				if err != nil {
@@ -67,7 +67,7 @@ func TestSACKSupportedRecoveryProfiles(t *testing.T) {
 	input := exampleScenario()
 	input.Fixed.TCP.SACKEnabled = pointer(true)
 	input.Fixed.TCP.CongestionControl.FastRetransmit = pointer(false)
-	if _, err := scenario.NormalizeV2(input); err == nil || !strings.Contains(err.Error(), "tcp.sackEnabled") {
+	if _, err := scenario.Normalize(input); err == nil || !strings.Contains(err.Error(), "tcp.sackEnabled") {
 		t.Fatalf("expected a SACK dependency error, got %v", err)
 	}
 }

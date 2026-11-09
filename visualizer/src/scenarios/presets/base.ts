@@ -1,7 +1,7 @@
-import type { ScenarioV2, V2ClientGroup } from '../v2Types.ts';
+import type { Scenario, ScenarioClientGroup } from '../types.ts';
 
 // Each endpoint receives independent directional patches and its own resource ID.
-export function presetBackends(count: number): ScenarioV2['states'][string]['resources']['backends'] {
+export function presetBackends(count: number): Scenario['states'][string]['resources']['backends'] {
   return Array.from({ length: count }, (_, index) => ({
     id: `backend-${index + 1}`,
     name: `Backend ${index + 1}`,
@@ -12,7 +12,7 @@ export function presetBackends(count: number): ScenarioV2['states'][string]['res
 }
 
 // An unpatched group inherits both access links and the default stream.
-export function presetClientGroup(id: string, count: number): V2ClientGroup {
+export function presetClientGroup(id: string, count: number): ScenarioClientGroup {
   return {
     id,
     count,
@@ -24,7 +24,7 @@ export function presetClientGroup(id: string, count: number): V2ClientGroup {
 }
 
 // New experiments reset inherited settings so only their stated variable changes.
-export function isolatedExperiment(defaults: ScenarioV2): ScenarioV2 {
+export function isolatedExperiment(defaults: Scenario): Scenario {
   const scenario = structuredClone(defaults);
   if (scenario.fixed.tcp) {
     delete scenario.fixed.tcp.mssBytes;
@@ -33,7 +33,7 @@ export function isolatedExperiment(defaults: ScenarioV2): ScenarioV2 {
     if (scenario.fixed.tcp.congestionControl) delete scenario.fixed.tcp.congestionControl.maximumWindowSegments;
   }
 
-  scenario.version = 2;
+  scenario.scenarioVersion = 2;
   scenario.fixed.loadBalancer = { id: 'lb' };
   scenario.fixed.execution = {
     durationNanoseconds: 180_000_000_000,

@@ -13,7 +13,7 @@ import (
 // Its zero queue accepts an idle core but provides no waiting slots.
 func TestHostDefaultsAndIndependentBackendRoundTrip(t *testing.T) {
 	input := exampleScenario()
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,15 +29,15 @@ func TestHostDefaultsAndIndependentBackendRoundTrip(t *testing.T) {
 			QueueCapacity:        pointer(0),
 		}
 	})
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := scenario.DecodeDocumentV2(document)
+	restored, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.NormalizeV2(restored)
+	resolved, err = scenario.Normalize(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestHostValidation(t *testing.T) {
 			editInitialState(&input, func(state *scenario.StateConfig) {
 				state.Resources.Backends[0].Host = test.config
 			})
-			_, err := scenario.NormalizeV2(input)
+			_, err := scenario.Normalize(input)
 			if err == nil || !strings.Contains(err.Error(), "resources.backends[0].host") {
 				t.Fatalf("expected a backend host error, got %v", err)
 			}
@@ -86,19 +86,19 @@ func TestHostValidation(t *testing.T) {
 			QueueCapacity:        pointer(0),
 		}
 	})
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("accepted CPU counters that cannot represent the experiment horizon")
 	}
 	editInitialState(&input, func(state *scenario.StateConfig) {
 		state.Resources.LoadBalancer.Host.PacketProcessingTime = pointer(time.Duration(0))
 	})
-	if _, err := scenario.NormalizeV2(input); err == nil {
+	if _, err := scenario.Normalize(input); err == nil {
 		t.Fatal("disabled CPU must still validate its configured core-time integral")
 	}
 	editInitialState(&input, func(state *scenario.StateConfig) {
 		state.Resources.LoadBalancer.Host.Cores = pointer(1)
 	})
-	if _, err := scenario.NormalizeV2(input); err != nil {
+	if _, err := scenario.Normalize(input); err != nil {
 		t.Fatalf("a representable disabled CPU capacity was rejected: %v", err)
 	}
 }

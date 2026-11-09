@@ -30,7 +30,7 @@ func runnerTrafficWorld(t *testing.T, bandwidth int64, travel time.Duration, max
 	}
 	initial.Workload.ClientGroups = []scenario.ClientGroup{{ID: "traffic", Count: 1}}
 	definition.States["0"] = initial
-	resolved, err := scenario.CompileV2(definition)
+	resolved, err := scenario.Compile(definition)
 	if err != nil {
 		t.Fatal(err)
 	}

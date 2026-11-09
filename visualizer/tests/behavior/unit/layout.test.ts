@@ -10,7 +10,7 @@ import {
   structureKey,
   visibleGraph,
 } from '../../../src/topology/layout.ts';
-import type { TopologyGraph, TopologyLink, TopologyNode } from '../../../src/topology/types.ts';
+import type { DiagramGraph, DiagramLink, TopologyGraph, TopologyLink, TopologyNode } from '../../../src/topology/types.ts';
 
 function node(id: string, kind: string): TopologyNode {
   return { id, kind, label: id, metrics: [] };
@@ -166,6 +166,31 @@ test('a selected physical edge remains reachable after both canvas caps are reac
   assert.ok(ids.has('shared-receiver'));
   assert.ok(graph.links.includes(input.links.find((edge) => edge.id === 'return-999')!));
   assert.ok(graph.links.some((edge) => edge.id === 'common-ingress'));
+});
+
+test('configuration diagrams share bounded layout without adding measured counters', () => {
+  const live = endpointGraph(MAX_VISIBLE_NODES + 10);
+  const planned: DiagramGraph & { scenario: string } = {
+    scenario: 'configuration-only',
+    nodes: live.nodes,
+    links: live.links.map((edge) => {
+      const configured: DiagramLink = { ...edge };
+      delete configured.stats;
+      return configured;
+    }),
+  };
+  const selection = { kind: 'link', id: `front-in-${MAX_VISIBLE_NODES + 9}` } as const;
+  const graph = visibleGraph(planned, selection);
+
+  assert.equal(graph.scenario, planned.scenario);
+  assert.equal(graph.nodes.length, MAX_VISIBLE_NODES);
+  assert.ok(graph.links.some((edge) => edge.id === selection.id));
+  assert.ok(graph.links.every((edge) => !('stats' in edge)));
+  assert.equal(graph.ingress, undefined);
+  assert.deepEqual(
+    layoutTopology(structureKey(graph)),
+    layoutTopology(structureKey(visibleGraph(live, selection))),
+  );
 });
 
 test('layout keys ignore live values and settings while retaining actual structure', () => {

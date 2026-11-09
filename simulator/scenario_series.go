@@ -14,8 +14,6 @@ import (
 	"load-balancer/scenario"
 )
 
-const experimentSeriesVersion = 1
-
 // runScenarioSeries runs seeds in the requested order, with a fresh world each time.
 // Reports stay on disk; the index keeps only their paths, seeds and outcomes.
 func runScenarioSeries(
@@ -57,12 +55,12 @@ func runScenarioSeries(
 		// Only the seed changes. The base input and its requested pacing stay intact.
 		definition := loaded.definition
 		definition.Fixed.Execution.Seed = seed
-		document, err := scenario.EncodeDocumentV2(definition)
+		document, err := scenario.EncodeDocument(definition)
 		if err != nil {
 			entry.Status, entry.Error = "failed", err.Error()
 			return finishScenarioSeries(directory, index, stdout, err)
 		}
-		plan, err := scenario.CompileV2(definition)
+		plan, err := scenario.Compile(definition)
 		if err != nil {
 			entry.Status, entry.Error = "failed", err.Error()
 			return finishScenarioSeries(directory, index, stdout, err)
@@ -114,10 +112,10 @@ func parseSeriesSeeds(input string) ([]int64, error) {
 // newSeriesIndex reserves an entry for every planned run, including future ones.
 func newSeriesIndex(document []byte, seeds []int64) *contract.ExperimentSeriesReport {
 	index := &contract.ExperimentSeriesReport{
-		Version:  experimentSeriesVersion,
-		Status:   "running",
-		Manifest: experimentManifest(document, false),
-		Runs:     make([]contract.ExperimentSeriesRun, len(seeds)),
+		ReportVersion: contract.CurrentSeriesReportVersion,
+		Status:        "running",
+		Manifest:      experimentManifest(document, false),
+		Runs:          make([]contract.ExperimentSeriesRun, len(seeds)),
 	}
 	for position, seed := range seeds {
 		index.Runs[position] = contract.ExperimentSeriesRun{

@@ -117,7 +117,7 @@ func runInteractive(
 			}
 			continue
 		}
-		prepared, err := prepareStart(request, defaults)
+		prepared, err := prepareStart(request)
 		if err != nil {
 			control.finishRun()
 			if request.command != nil && request.command.reply != nil {

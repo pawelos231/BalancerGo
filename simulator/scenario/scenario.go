@@ -2,14 +2,14 @@ package scenario
 
 import "time"
 
-const VersionV2 = 2
+const CurrentScenarioVersion = 2
 
-// ScenarioV2 separates run-wide settings from configurations selected by virtual time.
+// Scenario separates run-wide settings from configurations selected by virtual time.
 // State keys are decimal nanoseconds; decoding alone does not make the document runnable.
-type ScenarioV2 struct {
-	Version int                    `json:"version"`
-	Fixed   FixedConfig            `json:"fixed"`
-	States  map[string]StateConfig `json:"states"`
+type Scenario struct {
+	ScenarioVersion int                    `json:"scenarioVersion"`
+	Fixed           FixedConfig            `json:"fixed"`
+	States          map[string]StateConfig `json:"states"`
 }
 
 // FixedConfig stays unchanged for the whole run, including TCP and shared defaults.

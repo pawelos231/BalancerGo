@@ -308,7 +308,7 @@ test('a catalog selection replaces a fetched timeline with the selected experime
     const built = preset.build(defaults);
     assert.ok(built.states['0'], preset.id);
     assert.equal(Object.hasOwn(built.states, '1000000'), false, preset.id);
-    assert.equal(BigInt(built.version), 2n, preset.id);
+    assert.equal(BigInt(built.scenarioVersion), 2n, preset.id);
     assert.deepEqual(defaults, original, preset.id);
   }
 });
@@ -326,7 +326,7 @@ test('every preset has valid resource membership and resolvable profile referenc
     const profiles = scenario.fixed.network.profiles ?? [];
     const profileIds = new Set(profiles.map((profile) => profile.id));
 
-    assert.equal(BigInt(scenario.version), 2n, `${preset.id}: scenario version`);
+    assert.equal(BigInt(scenario.scenarioVersion), 2n, `${preset.id}: scenarioVersion`);
     assert.equal(new Set(resourceIds).size, resourceIds.length, `${preset.id}: resource IDs`);
     assert.ok(resourceIds.every((id) => id.trim() !== ''), `${preset.id}: nonempty resource IDs`);
     assert.equal(profileIds.size, profiles.length, `${preset.id}: profile IDs`);

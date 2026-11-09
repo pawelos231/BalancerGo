@@ -16,7 +16,7 @@ func timelineProjectionWorld(t *testing.T) *simulation.World {
 }
 
 // timelineProjectionDefinition provides independent state collections for each test.
-func timelineProjectionDefinition() scenario.ScenarioV2 {
+func timelineProjectionDefinition() scenario.Scenario {
 	base := projectionScenario()
 	initial := base.States["0"]
 	initial.Resources.Backends = []scenario.BackendStateConfig{{ID: "one", Name: "Old one", Address: "10.0.0.1", Port: 80}, {ID: "two", Name: "Old two", Address: "10.0.0.2", Port: 80}}
@@ -28,9 +28,9 @@ func timelineProjectionDefinition() scenario.ScenarioV2 {
 	return base
 }
 
-func timelineProjectionFrom(t *testing.T, input scenario.ScenarioV2) *simulation.World {
+func timelineProjectionFrom(t *testing.T, input scenario.Scenario) *simulation.World {
 	t.Helper()
-	plan, err := scenario.CompileV2(input)
+	plan, err := scenario.Compile(input)
 	if err != nil {
 		t.Fatal(err)
 	}

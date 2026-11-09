@@ -290,11 +290,11 @@ func TestScenarioSeriesCancellation(t *testing.T) {
 }
 
 type scenarioSeriesIndex struct {
-	Version  int             `json:"version"`
-	Status   string          `json:"status"`
-	Error    string          `json:"error"`
-	Manifest json.RawMessage `json:"manifest"`
-	Runs     []struct {
+	ReportVersion int             `json:"reportVersion"`
+	Status        string          `json:"status"`
+	Error         string          `json:"error"`
+	Manifest      json.RawMessage `json:"manifest"`
+	Runs          []struct {
 		ID     string `json:"id"`
 		Seed   string `json:"seed"`
 		Status string `json:"status"`
@@ -305,11 +305,12 @@ type scenarioSeriesIndex struct {
 
 func decodeScenarioSeriesIndex(t *testing.T, encoded []byte, status string) scenarioSeriesIndex {
 	t.Helper()
+	assertReportVersions(t, encoded)
 	var index scenarioSeriesIndex
 	if err := json.Unmarshal(encoded, &index); err != nil {
 		t.Fatalf("invalid series index: %v\n%s", err, encoded)
 	}
-	if index.Version != 1 || index.Status != status || len(index.Manifest) == 0 {
+	if index.ReportVersion != 1 || index.Status != status || len(index.Manifest) == 0 {
 		t.Fatalf("unexpected series index: %+v", index)
 	}
 	return index
@@ -343,10 +344,11 @@ func readScenarioSeriesRun(
 		t.Fatal(err)
 	}
 	var report scenarioCLIReport
+	assertReportVersions(t, encoded)
 	if err := json.Unmarshal(encoded, &report); err != nil {
 		t.Fatalf("invalid run report: %v", err)
 	}
-	if report.Version != 1 || report.Status != status || len(report.Manifest) == 0 {
+	if report.ReportVersion != 1 || report.Status != status || len(report.Manifest) == 0 {
 		t.Fatalf("unexpected run report: %+v", report)
 	}
 	return report

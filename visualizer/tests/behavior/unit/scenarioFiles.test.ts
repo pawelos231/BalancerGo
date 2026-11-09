@@ -89,7 +89,7 @@ test('empty files and read failures give readable errors and allow another read'
 
 test('raw duplicate keys, unsafe integers and fractional tokens reach backend validation unchanged', async () => {
   const documents = [
-    ' \n{"version":1,"version":2}\n',
+    ' \n{"scenarioVersion":1,"scenarioVersion":2}\n',
     '{"execution":{"seed":9007199254740993}}',
     '{"execution":{"durationNanoseconds":1.25}}',
     '{"execution":{"maxEvents":1e20}}',

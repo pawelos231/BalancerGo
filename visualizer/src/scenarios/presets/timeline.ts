@@ -1,5 +1,5 @@
 import type { ScenarioPreset } from '../scenarioPresetTypes.ts';
-import type { ScenarioV2 } from '../v2Types.ts';
+import type { Scenario } from '../types.ts';
 import { idealHost } from '../host.ts';
 import { isolatedExperiment, presetClientGroup } from './base.ts';
 
@@ -7,7 +7,7 @@ const overloadAt = '30000000000';
 const recoveryAt = '90000000000';
 
 // Finite streams outlast both transitions, even at the initial shared LB rate.
-function timelineExperiment(defaults: ScenarioV2): ScenarioV2 {
+function timelineExperiment(defaults: Scenario): Scenario {
   const scenario = isolatedExperiment(defaults);
   scenario.fixed.execution.maxEvents = 5_000_000_000;
   scenario.fixed.tcp = {

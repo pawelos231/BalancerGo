@@ -14,7 +14,7 @@ import (
 // Older documents use the shared limits, while zero explicitly disables FIN retries.
 func TestCloseDefaultsAndExactDocumentRoundTrip(t *testing.T) {
 	input := exampleScenario()
-	resolved, err := scenario.NormalizeV2(input)
+	resolved, err := scenario.Normalize(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestCloseDefaultsAndExactDocumentRoundTrip(t *testing.T) {
 		MSL:            pointer(time.Duration(9_007_199_254_740_993)),
 		FinWaitTimeout: pointer(2 * time.Second), MaxFINRetries: pointer(0),
 	}
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,11 +39,11 @@ func TestCloseDefaultsAndExactDocumentRoundTrip(t *testing.T) {
 		!bytes.Contains(document, []byte(`"maxFINRetries":0`)) {
 		t.Fatalf("document lost exact duration or zero retries: %s", document)
 	}
-	restored, err := scenario.DecodeDocumentV2(document)
+	restored, err := scenario.DecodeDocument(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = scenario.NormalizeV2(restored)
+	resolved, err = scenario.Normalize(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestCloseLimits(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			input := exampleScenario()
 			input.Fixed.TCP.Close = test.config
-			if _, err := scenario.NormalizeV2(input); err == nil || !strings.Contains(err.Error(), "tcp.close."+test.path) {
+			if _, err := scenario.Normalize(input); err == nil || !strings.Contains(err.Error(), "tcp.close."+test.path) {
 				t.Fatalf("wanted close validation error, got %v", err)
 			}
 		})
@@ -80,7 +80,7 @@ func TestCloseLimits(t *testing.T) {
 		MSL:            pointer(time.Duration(math.MaxInt64 / 2)),
 		FinWaitTimeout: pointer(time.Duration(math.MaxInt64)), MaxFINRetries: pointer(30),
 	}
-	if _, err := scenario.NormalizeV2(input); err != nil {
+	if _, err := scenario.Normalize(input); err != nil {
 		t.Fatalf("valid timer boundaries rejected: %v", err)
 	}
 }

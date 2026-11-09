@@ -75,6 +75,21 @@ test('end parser requires matching reason, run, revision and a paired self-conta
   ]) assert.throws(() => parseSimulationEnded(invalid));
 });
 
+test('final samples require snapshotVersion and reject the generic version field', () => {
+  const event = end();
+  const unversioned: Record<string, unknown> = { ...event.finalSnapshot };
+  delete unversioned.snapshotVersion;
+
+  for (const finalSnapshot of [
+    { ...unversioned, version: 1 },
+    { ...event.finalSnapshot, version: 1 },
+    { ...event.finalSnapshot, snapshotVersion: 2 },
+  ]) {
+    assert.throws(() => parseSimulationEnded({ ...event, finalSnapshot }));
+    assert.equal(parseStopCommandResult({ ...acknowledgement(event), finalSnapshot }), null);
+  }
+});
+
 test('a fast A end is delivered synchronously before B replaces the displayed state', () => {
   const state = fixture();
   state.snapshot(telemetryFrame('1', 'run-a'));

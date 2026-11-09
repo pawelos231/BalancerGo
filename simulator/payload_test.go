@@ -11,7 +11,7 @@ import (
 )
 
 // payloadScenario spaces segments apart so reception and its ACK can be inspected separately.
-func payloadScenario() scenario.ScenarioV2 {
+func payloadScenario() scenario.Scenario {
 	input := scenarioRuntimeDefinition()
 	{
 		initialState := input.States["0"]

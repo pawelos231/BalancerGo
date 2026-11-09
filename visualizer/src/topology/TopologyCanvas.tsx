@@ -9,7 +9,7 @@ import type { FlowTopologyNode } from './TopologyNodeView';
 import TopologyLinkView from './TopologyLinkView';
 import type { FlowTopologyLink } from './TopologyLinkView';
 import { formatBandwidth, kindLabel, linkIsBusy } from './format';
-import type { TopologyGraph, TopologyLink, TopologySelection } from './types';
+import type { DiagramGraph, DiagramLink, DiagramMode, TopologySelection } from './types';
 
 const nodeTypes = { topologyNode: TopologyNodeView };
 const edgeTypes = { topologyLink: TopologyLinkView };
@@ -19,7 +19,8 @@ type NodeChanges = NodeChange<FlowTopologyNode>[];
 type Measurements = Map<string, { width: number; height: number }>;
 
 interface TopologyCanvasProps {
-  graph: TopologyGraph;
+  graph: DiagramGraph;
+  mode?: DiagramMode;
   selection: TopologySelection;
   onSelect: (selection: TopologySelection) => void;
   viewKey: string;
@@ -50,7 +51,7 @@ function updateMeasurements(previous: Measurements, changes: NodeChanges): Measu
   return next;
 }
 
-function findFocusedNodeId(selection: TopologySelection, links: TopologyLink[]) {
+function findFocusedNodeId(selection: TopologySelection, links: DiagramLink[]) {
   if (selection?.kind === 'node') {
     return selection.id;
   }
@@ -61,7 +62,7 @@ function findFocusedNodeId(selection: TopologySelection, links: TopologyLink[]) 
   return undefined;
 }
 
-function TopologyCanvas({ graph, selection, onSelect, viewKey }: TopologyCanvasProps) {
+function TopologyCanvas({ graph, mode = 'live', selection, onSelect, viewKey }: TopologyCanvasProps) {
   const theme = useTheme();
   const instance = useRef<FlowInstance | null>(null);
   const [measurements, setMeasurements] = useState<Measurements>(() => new Map());
@@ -86,6 +87,7 @@ function TopologyCanvas({ graph, selection, onSelect, viewKey }: TopologyCanvasP
         measured: measurements.get(node.id),
         data: {
           node,
+          mode,
           ingress: node.kind === 'loadBalancer' && singleLoadBalancer ? graph.ingress : undefined,
           domainLayout: layout.domainLayout,
         },
@@ -96,7 +98,7 @@ function TopologyCanvas({ graph, selection, onSelect, viewKey }: TopologyCanvasP
         ariaLabel: `${node.label}, ${kindLabel(node.kind)}. Press Enter to inspect.`,
         style: { width: NODE_WIDTH, height: nodeHeight(node.kind) },
       })),
-    [graph.nodes, graph.ingress, layout, selection, measurements, singleLoadBalancer]
+    [graph.nodes, graph.ingress, mode, layout, selection, measurements, singleLoadBalancer]
   );
 
   const edges = useMemo<FlowTopologyLink[]>(
@@ -107,7 +109,9 @@ function TopologyCanvas({ graph, selection, onSelect, viewKey }: TopologyCanvasP
         const bandwidth = link.memberCount && link.memberCount > 1
           ? `${link.memberCount} independent links at ${perLinkBandwidth} each`
           : perLinkBandwidth;
-        const activity = linkIsBusy(link) ? 'busy' : 'idle';
+        const activity = mode === 'live' && link.stats
+          ? `, ${linkIsBusy({ ...link, stats: link.stats }) ? 'busy' : 'idle'}`
+          : '';
 
         return {
           id: link.id,
@@ -117,6 +121,7 @@ function TopologyCanvas({ graph, selection, onSelect, viewKey }: TopologyCanvasP
           ...route,
           data: {
             link,
+            mode,
             lane: route.lane,
             showLabel: graph.nodes.length <= 30,
             selectLink,
@@ -124,7 +129,7 @@ function TopologyCanvas({ graph, selection, onSelect, viewKey }: TopologyCanvasP
           selected: selection?.kind === 'link' && selection.id === link.id,
           deletable: false,
           reconnectable: false,
-          ariaLabel: `${link.label}, ${bandwidth}, ${activity}. Press Enter to inspect.`,
+          ariaLabel: `${link.label}, ${bandwidth}${activity}. Press Enter to inspect.`,
           markerEnd: {
             type: MarkerType.ArrowClosed,
             color: theme.palette.text.secondary,
@@ -133,7 +138,7 @@ function TopologyCanvas({ graph, selection, onSelect, viewKey }: TopologyCanvasP
           },
         };
       }),
-    [graph.links, graph.nodes.length, layout, selection, selectLink, theme.palette.text.secondary]
+    [graph.links, graph.nodes.length, mode, layout, selection, selectLink, theme.palette.text.secondary]
   );
 
   const focusedNodeId = findFocusedNodeId(selection, graph.links);

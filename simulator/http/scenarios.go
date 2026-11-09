@@ -24,18 +24,14 @@ var (
 // ScenarioService admits work to the simulation owner without touching its model.
 // The request context applies to admission, not the accepted run's lifetime.
 type ScenarioService interface {
+	Defaults() scenario.Scenario
+	StartScenario(context.Context, scenario.Scenario, *scenario.Compiled) (contract.RunReceipt, error)
 	CurrentRun() *contract.RunRecord
 }
 
-// NativeScenarioService receives a compiled plan only after every state is checked.
-type NativeScenarioService interface {
-	DefaultsV2() scenario.ScenarioV2
-	StartScenarioV2(context.Context, scenario.ScenarioV2, *scenario.CompiledV2) (contract.RunReceipt, error)
-}
-
 type checkedScenario struct {
-	definition scenario.ScenarioV2
-	plan       *scenario.CompiledV2
+	definition scenario.Scenario
+	plan       *scenario.Compiled
 }
 
 // scenarioAPI translates bounded HTTP documents into calls on the owner service.
@@ -79,17 +75,17 @@ func (api scenarioAPI) validate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	document, err := scenario.EncodeDocumentV2(checked.definition)
+	document, err := scenario.EncodeDocument(checked.definition)
 	if err != nil {
 		writeScenarioError(w, http.StatusInternalServerError, "unable to encode scenario")
 		return
 	}
-	resolved, err := scenario.NormalizeV2(checked.definition)
+	resolved, err := scenario.Normalize(checked.definition)
 	if err != nil {
 		writeScenarioError(w, http.StatusInternalServerError, "unable to resolve checked scenario")
 		return
 	}
-	resolvedDocument, err := scenario.EncodeNormalizedDocumentV2(resolved)
+	resolvedDocument, err := scenario.EncodeNormalizedDocument(resolved)
 	if err != nil {
 		writeScenarioError(w, http.StatusInternalServerError, "unable to encode resolved scenario")
 		return
@@ -110,12 +106,7 @@ func (api scenarioAPI) validate(w http.ResponseWriter, r *http.Request) {
 
 // defaults serves the owner's scenario in the same format accepted by POST.
 func (api scenarioAPI) defaults(w http.ResponseWriter, r *http.Request) {
-	service, ok := api.service.(NativeScenarioService)
-	if !ok {
-		writeScenarioError(w, http.StatusServiceUnavailable, "native scenario service is unavailable")
-		return
-	}
-	document, err := scenario.EncodeDocumentV2(service.DefaultsV2())
+	document, err := scenario.EncodeDocument(api.service.Defaults())
 	if err != nil {
 		writeScenarioError(w, http.StatusInternalServerError, "unable to encode default scenario")
 		return
@@ -129,13 +120,7 @@ func (api scenarioAPI) start(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var receipt contract.RunReceipt
-	var err error
-	if service, ok := api.service.(NativeScenarioService); ok {
-		receipt, err = service.StartScenarioV2(r.Context(), checked.definition, checked.plan)
-	} else {
-		err = ErrServiceClosed
-	}
+	receipt, err := api.service.StartScenario(r.Context(), checked.definition, checked.plan)
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch {
@@ -183,12 +168,12 @@ func readScenario(w http.ResponseWriter, r *http.Request) (checkedScenario, bool
 		}
 		return empty, false
 	}
-	definition, err := scenario.DecodeDocumentV2(document)
+	definition, err := scenario.DecodeDocument(document)
 	if err != nil {
 		writeScenarioError(w, http.StatusBadRequest, err.Error())
 		return empty, false
 	}
-	plan, err := scenario.CompileV2(definition)
+	plan, err := scenario.Compile(definition)
 	if err != nil {
 		writeScenarioError(w, http.StatusUnprocessableEntity, err.Error())
 		return empty, false

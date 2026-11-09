@@ -2,6 +2,8 @@ package contract
 
 import "time"
 
+const CurrentSnapshotVersion = 1
+
 // Protocol is the transport name shown in public client keys.
 type Protocol string
 
@@ -86,13 +88,13 @@ type SimulationMetadata struct {
 }
 
 type SimulationSnapshot struct {
-	Type       string             `json:"type"`
-	Version    int                `json:"version"`
-	Mode       LBMode             `json:"mode"`
-	Algorithm  string             `json:"algorithm"`
-	Servers    []TelemetryServer  `json:"servers"`
-	Simulation SimulationMetadata `json:"simulation"`
-	Topology   TelemetryTopology  `json:"topology"`
+	Type            string             `json:"type"`
+	SnapshotVersion int                `json:"snapshotVersion"`
+	Mode            LBMode             `json:"mode"`
+	Algorithm       string             `json:"algorithm"`
+	Servers         []TelemetryServer  `json:"servers"`
+	Simulation      SimulationMetadata `json:"simulation"`
+	Topology        TelemetryTopology  `json:"topology"`
 }
 
 // Topology is a detached view of the nodes and directed links actually wired

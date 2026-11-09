@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { projectPlannedTopology } from '../../../src/scenarios/plannedTopology.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
-import { validateScenarioV2 } from '../../../src/scenarios/v2.ts';
+import { validateScenario } from '../../../src/scenarios/validation.ts';
 import { scenarioFixture } from '../../scenarioFixture.ts';
 
 function timelinePreset(id: string) {
   const preset = scenarioPresets.find(entry => entry.id === id);
   assert.ok(preset, `missing preset ${id}`);
-  return validateScenarioV2(preset.build(scenarioFixture()));
+  return validateScenario(preset.build(scenarioFixture()));
 }
 
 test('timeline presets pin TCP and contain complete independent states through recovery', () => {

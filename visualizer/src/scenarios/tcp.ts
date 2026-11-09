@@ -1,8 +1,8 @@
-import type { V2TCPConfig } from './v2Types.ts';
-import { INT64_MAX } from './v2Values.ts';
+import type { ScenarioTCPConfig } from './types.ts';
+import { INT64_MAX } from './values.ts';
 
 // Apply the backend's TCP defaults before checking dependencies such as SACK and fast retransmit.
-export function validateTCP(config: V2TCPConfig, path = 'fixed.tcp'): void {
+export function validateTCP(config: ScenarioTCPConfig, path = 'fixed.tcp'): void {
   const mss = BigInt(config.mssBytes ?? 1024);
   requireRange(mss, 1n, 65_495n, `${path}.mssBytes`);
   requireRange(BigInt(config.receiveBufferBytes ?? 65_535), 1n, 65_535n, `${path}.receiveBufferBytes`);
@@ -33,7 +33,7 @@ export function validateTCP(config: V2TCPConfig, path = 'fixed.tcp'): void {
 
 // A sender's byte-window arithmetic must stay within int64 for every configured MSS.
 function validateCongestion(
-  config: V2TCPConfig['congestionControl'],
+  config: ScenarioTCPConfig['congestionControl'],
   mss: bigint,
   path: string,
 ): { mode: string; fastRetransmit: boolean } {
@@ -65,7 +65,7 @@ function validateCongestion(
 }
 
 // All timer modes require positive limits ordered as minimum <= initial <= maximum.
-function validateRTO(config: V2TCPConfig['rto'], path: string): void {
+function validateRTO(config: ScenarioTCPConfig['rto'], path: string): void {
   const mode = config?.mode ?? 'adaptive';
   if (mode !== 'fixed' && mode !== 'adaptive') {
     throw new Error(`${path}.mode: must be fixed or adaptive`);
@@ -83,7 +83,7 @@ function validateRTO(config: V2TCPConfig['rto'], path: string): void {
 }
 
 // Even disabled delayed ACK keeps a valid threshold and timer ready for later experiments.
-function validateDelayedACK(config: V2TCPConfig['delayedAck'], path: string): void {
+function validateDelayedACK(config: ScenarioTCPConfig['delayedAck'], path: string): void {
   requireRange(BigInt(config?.segmentsPerACK ?? 2), 1n, 2n, `${path}.segmentsPerACK`);
   const delay = BigInt(config?.maxDelayNanoseconds ?? 40_000_000);
   if (delay <= 0n || delay > 500_000_000n) {
@@ -92,7 +92,7 @@ function validateDelayedACK(config: V2TCPConfig['delayedAck'], path: string): vo
 }
 
 // TIME_WAIT lasts twice MSL, so that multiplication must also fit the timer range.
-function validateClose(config: V2TCPConfig['close'], path: string): void {
+function validateClose(config: ScenarioTCPConfig['close'], path: string): void {
   const msl = BigInt(config?.mslNanoseconds ?? 30_000_000_000);
   if (msl <= 0n || msl > INT64_MAX / 2n) {
     throw new Error(`${path}.mslNanoseconds: must be positive and at most half the time.Duration range`);

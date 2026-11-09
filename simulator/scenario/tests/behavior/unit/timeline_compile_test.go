@@ -10,9 +10,9 @@ import (
 )
 
 // compileTimeline keeps each test focused on the changes its configuration requests.
-func compileTimeline(t *testing.T, input scenario.ScenarioV2) *scenario.CompiledV2 {
+func compileTimeline(t *testing.T, input scenario.Scenario) *scenario.Compiled {
 	t.Helper()
-	plan, err := scenario.CompileV2(input)
+	plan, err := scenario.Compile(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func compileTimeline(t *testing.T, input scenario.ScenarioV2) *scenario.Compiled
 }
 
 // At 10 s add a third backend and halve LB capacity; at 20 s restore capacity only.
-func TestCompileV2BuildsTimedResourceChanges(t *testing.T) {
+func TestCompileBuildsTimedResourceChanges(t *testing.T) {
 	input := exampleTimeline()
 	initial := input.States["0"]
 	initial.Resources.Backends = append(initial.Resources.Backends, scenario.BackendStateConfig{
@@ -66,7 +66,7 @@ func TestCompileV2BuildsTimedResourceChanges(t *testing.T) {
 }
 
 // Reordering IDs, overrides or equivalent host spellings must not restart resources.
-func TestCompileV2IgnoresOrderingAndEquivalentEndpointSpelling(t *testing.T) {
+func TestCompileIgnoresOrderingAndEquivalentEndpointSpelling(t *testing.T) {
 	input := exampleTimeline()
 	initial := input.States["0"]
 	initial.Resources.Backends[0].Address = "Backend.Example"
@@ -109,7 +109,7 @@ func TestCompileV2IgnoresOrderingAndEquivalentEndpointSpelling(t *testing.T) {
 }
 
 // Every component is marked explicitly, allowing future handlers to update just that part.
-func TestCompileV2IdentifiesLoadBalancerAndBackendComponents(t *testing.T) {
+func TestCompileIdentifiesLoadBalancerAndBackendComponents(t *testing.T) {
 	input := exampleTimeline()
 	next := exampleTimeline().States["0"]
 	lb := &next.Resources.LoadBalancer
@@ -154,7 +154,7 @@ func TestCompileV2IdentifiesLoadBalancerAndBackendComponents(t *testing.T) {
 }
 
 // Birth timing, current links and future payloads have different lifecycle effects.
-func TestCompileV2SeparatesClientGroupChanges(t *testing.T) {
+func TestCompileSeparatesClientGroupChanges(t *testing.T) {
 	tests := []struct {
 		name    string
 		edit    func(*scenario.ClientGroup)
@@ -227,7 +227,7 @@ func TestCompileV2SeparatesClientGroupChanges(t *testing.T) {
 }
 
 // Replacement resources are sorted by ID; a removed group stops only its generator.
-func TestCompileV2OrdersMembershipChangesByID(t *testing.T) {
+func TestCompileOrdersMembershipChangesByID(t *testing.T) {
 	input := exampleTimeline()
 	initial := input.States["0"]
 	initial.Resources.Backends = []scenario.BackendStateConfig{
@@ -290,13 +290,13 @@ func TestCompileV2OrdersMembershipChangesByID(t *testing.T) {
 }
 
 // A bad last state must reject compilation, without returning a valid prefix plan.
-func TestCompileV2RejectsTheWholeInvalidTimeline(t *testing.T) {
+func TestCompileRejectsTheWholeInvalidTimeline(t *testing.T) {
 	input := exampleTimeline()
 	next := exampleTimeline().States["0"]
 	next.Resources.LoadBalancer.Ingress.BandwidthBitsPerSecond = 0
 	input.States["2"] = next
 
-	plan, err := scenario.CompileV2(input)
+	plan, err := scenario.Compile(input)
 	if err == nil || !strings.Contains(err.Error(), "ingress.bandwidthBitsPerSecond") || plan != nil {
 		t.Fatalf("invalid timeline returned plan=%v, error=%v", plan, err)
 	}

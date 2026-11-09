@@ -19,31 +19,32 @@ import (
 
 // scenarioServiceStub records admission without creating a simulation model.
 type scenarioServiceStub struct {
-	definition    scenario.ScenarioV2
+	definition    scenario.Scenario
 	record        *contract.RunRecord
 	startError    error
 	startCalls    int
 	defaultsCalls int
 	currentCalls  int
 	startContext  context.Context
-	input         scenario.ScenarioV2
-	resolved      scenario.NormalizedV2
+	input         scenario.Scenario
+	plan          *scenario.Compiled
+	resolved      scenario.Normalized
 }
 
-func (service *scenarioServiceStub) DefaultsV2() scenario.ScenarioV2 {
+func (service *scenarioServiceStub) Defaults() scenario.Scenario {
 	service.defaultsCalls++
 	return service.definition
 }
 
-func (service *scenarioServiceStub) StartScenarioV2(
+func (service *scenarioServiceStub) StartScenario(
 	ctx context.Context,
-	input scenario.ScenarioV2,
-	plan *scenario.CompiledV2,
+	input scenario.Scenario,
+	plan *scenario.Compiled,
 ) (contract.RunReceipt, error) {
 	service.startCalls++
 	service.startContext = ctx
-	service.input = input
-	service.resolved, _ = scenario.NormalizeV2(input)
+	service.input, service.plan = input, plan
+	service.resolved, _ = scenario.Normalize(input)
 	return contract.RunReceipt{RunID: "run-17"}, service.startError
 }
 
@@ -53,9 +54,9 @@ func (service *scenarioServiceStub) CurrentRun() *contract.RunRecord {
 }
 
 // scenarioHTTPDefinition includes multiple compact client groups and backends.
-func scenarioHTTPDefinition() scenario.ScenarioV2 {
+func scenarioHTTPDefinition() scenario.Scenario {
 	link := scenario.LinkConfig{BandwidthBitsPerSecond: 1_000_000_000, PacketTravelTime: time.Millisecond, QueueCapacity: 4}
-	return scenario.ScenarioV2{Version: 2,
+	return scenario.Scenario{ScenarioVersion: 2,
 		Fixed: scenario.FixedConfig{
 			Execution:    scenario.ExecutionConfig{Duration: time.Second, SnapshotInterval: 100 * time.Millisecond, Seed: 17, MaxEvents: 100_000},
 			LoadBalancer: scenario.LoadBalancerIdentity{ID: "lb"}, Network: scenario.NetworkConfig{Defaults: link},
@@ -71,9 +72,9 @@ func scenarioHTTPDefinition() scenario.ScenarioV2 {
 	}
 }
 
-func encodedHTTPScenario(t *testing.T, definition scenario.ScenarioV2) []byte {
+func encodedHTTPScenario(t *testing.T, definition scenario.Scenario) []byte {
 	t.Helper()
-	document, err := scenario.EncodeDocumentV2(definition)
+	document, err := scenario.EncodeDocument(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ func TestScenarioValidatePreservesExactDocument(t *testing.T) {
 	if result.Summary != wantSummary {
 		t.Fatalf("summary = %+v, want %+v", result.Summary, wantSummary)
 	}
-	decoded, err := scenario.DecodeDocumentV2(result.Scenario)
+	decoded, err := scenario.DecodeDocument(result.Scenario)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,11 +155,11 @@ func TestScenarioValidatePreservesExactDocument(t *testing.T) {
 	}
 
 	// The effective view resolves inheritance without replacing the exportable input.
-	resolved, err := scenario.NormalizeV2(definition)
+	resolved, err := scenario.Normalize(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedResolved, err := scenario.EncodeNormalizedDocumentV2(resolved)
+	expectedResolved, err := scenario.EncodeNormalizedDocument(resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,9 +271,21 @@ func TestScenarioRejectsInvalidRequests(t *testing.T) {
 			status:      http.StatusBadRequest,
 		},
 		{
+			name:        "unscoped version",
+			contentType: "application/json",
+			body:        `{"version":2}`,
+			status:      http.StatusBadRequest,
+		},
+		{
+			name:        "mixed version fields",
+			contentType: "application/json",
+			body:        `{"scenarioVersion":2,"version":2}`,
+			status:      http.StatusBadRequest,
+		},
+		{
 			name:        "duplicate field",
 			contentType: "application/json",
-			body:        `{"version":1,"version":1}`,
+			body:        `{"scenarioVersion":1,"scenarioVersion":1}`,
 			status:      http.StatusBadRequest,
 		},
 		{
@@ -284,7 +297,7 @@ func TestScenarioRejectsInvalidRequests(t *testing.T) {
 		{
 			name:        "invalid settings",
 			contentType: "application/json",
-			body:        `{"version":2}`,
+			body:        `{"scenarioVersion":2}`,
 			status:      http.StatusUnprocessableEntity,
 		},
 		{
@@ -426,7 +439,7 @@ func TestScenarioReadRoutesReturnExactDocuments(t *testing.T) {
 	if defaults.Code != http.StatusOK {
 		t.Fatalf("defaults status = %d: %s", defaults.Code, defaults.Body.String())
 	}
-	decoded, err := scenario.DecodeDocumentV2(defaults.Body.Bytes())
+	decoded, err := scenario.DecodeDocument(defaults.Body.Bytes())
 	if err != nil || !bytes.Equal(encodedHTTPScenario(t, decoded), document) {
 		t.Fatalf("defaults did not return the direct scenario: %s", defaults.Body.String())
 	}

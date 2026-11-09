@@ -13,7 +13,8 @@ function validPublicationSequence(value: unknown): boolean {
 
 // Validate the envelope before enabling controls; individual resources are checked at hydration.
 export function parseSnapshot(value: unknown): SimulationSnapshot {
-  if (!record(value) || value.type !== 'simulationSnapshot' || value.version !== 1) {
+  if (!record(value) || value.type !== 'simulationSnapshot'
+    || value.snapshotVersion !== 1 || 'version' in value) {
     throw new Error('The server sent an unsupported simulation snapshot.');
   }
   const { simulation, topology } = value;

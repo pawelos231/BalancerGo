@@ -75,6 +75,17 @@ export interface TopologyGraph {
   ingress?: TopologyIngress;
 }
 
+// Configuration diagrams share the canvas without inventing measured counters.
+export type DiagramLink = Omit<TopologyLink, 'stats'> & { stats?: TopologyLinkStats };
+
+export interface DiagramGraph {
+  nodes: TopologyNode[];
+  links: DiagramLink[];
+  ingress?: TopologyIngress;
+}
+
+export type DiagramMode = 'live' | 'planned';
+
 // Separate input queues feed one shared physical receiver and bitrate limit.
 export interface TopologyIngress {
   config: TopologyLinkConfig;

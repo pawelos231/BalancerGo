@@ -58,7 +58,7 @@ func TestStaleStopCannotCancelReservedRun(t *testing.T) {
 					t.Fatal("WebSocket start unexpectedly replaced the previous record")
 				}
 			} else {
-				receipt, err := control.startTimeline(context.Background(), []byte(`{}`), mustCompileScenario(testConfiguration().scenarioDefinitionV2()))
+				receipt, err := control.startTimeline(context.Background(), []byte(`{}`), mustCompileScenario(testConfiguration().scenarioDefinition()))
 				if err != nil {
 					t.Fatal(err)
 				}

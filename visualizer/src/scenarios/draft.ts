@@ -1,7 +1,6 @@
 import type { SimulationConfig } from '../types';
 import { congestionModeOptions } from './types.ts';
-import type { ExactInteger, Scenario } from './types';
-import type { ScenarioStateV2 } from './v2Types.ts';
+import type { ExactInteger, Scenario, ScenarioState } from './types.ts';
 
 export type ScenarioField = keyof SimulationConfig;
 export type ScenarioDraft = Record<ScenarioField, string>;
@@ -411,7 +410,7 @@ export function applyScenarioField(
 }
 
 // Preserve groups and their relative sizes; never discard explicit client overrides.
-function resizeClients(selected: ScenarioStateV2, count: number, used: Set<string>, selectedAt: string, scenario: Scenario) {
+function resizeClients(selected: ScenarioState, count: number, used: Set<string>, selectedAt: string, scenario: Scenario) {
   const groups = selected.workload.clientGroups;
   if (groups.length === 0) {
     let id = 'clients';
@@ -477,7 +476,7 @@ export function scenarioStateTimes(scenario: Scenario): string[] {
   return Object.keys(scenario.states).sort((left, right) => BigInt(left) < BigInt(right) ? -1 : BigInt(left) > BigInt(right) ? 1 : 0);
 }
 
-export function selectedScenarioState(scenario: Scenario, selectedAt = '0'): ScenarioStateV2 {
+export function selectedScenarioState(scenario: Scenario, selectedAt = '0'): ScenarioState {
   const state = scenario.states[selectedAt];
   if (!state) throw new Error(`Scenario state ${selectedAt} does not exist.`);
   return state;
@@ -496,7 +495,7 @@ function endpointKey(address: string, port: ExactInteger): string {
 }
 
 // Existing backend settings stay in order; new backends inherit network defaults.
-function resizeBackends(selected: ScenarioStateV2, count: number, usedIds: Set<string>, baseline: Scenario) {
+function resizeBackends(selected: ScenarioState, count: number, usedIds: Set<string>, baseline: Scenario) {
   const endpoints = new Set(Object.values(baseline.states).flatMap(state => state.resources.backends.map(backend => endpointKey(backend.address, backend.port))));
   selected.resources.backends = selected.resources.backends.slice(0, count);
   const backends = selected.resources.backends;

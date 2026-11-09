@@ -49,9 +49,9 @@ func readTelemetryFrame(
 }
 
 // startTelemetryScenario uses real HTTP admission and returns its run identity.
-func startTelemetryScenario(t *testing.T, h *scenarioHarness, input scenario.ScenarioV2) contract.RunReceipt {
+func startTelemetryScenario(t *testing.T, h *scenarioHarness, input scenario.Scenario) contract.RunReceipt {
 	t.Helper()
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func assertTelemetryReferences(t *testing.T, snapshot contract.SimulationSnapsho
 // assertCompactTelemetry inspects raw JSON, including fields unknown to the Go DTO.
 func assertCompactTelemetry(t *testing.T, frame telemetryFrame) {
 	t.Helper()
-	if frame.snapshot.Type != "simulationSnapshot" || frame.snapshot.Version != 1 {
+	if frame.snapshot.Type != "simulationSnapshot" || frame.snapshot.SnapshotVersion != contract.CurrentSnapshotVersion {
 		t.Fatal("snapshot lacks the supported wire version")
 	}
 	forbidden := map[string]bool{
@@ -162,9 +162,15 @@ func assertCompactTelemetry(t *testing.T, frame telemetryFrame) {
 		"address": true, "source": true, "target": true, "groupId": true,
 		"resourceId": true, "clientKey": true, "Key": true, "SrcIP": true,
 	}
-	var value any
+	var value map[string]any
 	if err := json.Unmarshal(frame.data, &value); err != nil {
 		t.Fatal(err)
+	}
+	if value["snapshotVersion"] != float64(contract.CurrentSnapshotVersion) {
+		t.Fatal("snapshot lacks snapshotVersion")
+	}
+	if _, exists := value["version"]; exists {
+		t.Fatal("snapshot contains an unscoped version")
 	}
 	var inspect func(any, string)
 	inspect = func(value any, path string) {
@@ -188,7 +194,7 @@ func assertCompactTelemetry(t *testing.T, frame telemetryFrame) {
 // TestTelemetryTopologyRevisionLifecycle separates structural changes from counters.
 func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Duration = 2 * time.Second
 	input.Fixed.Execution.Speed = 1
 	input.Fixed.Execution.SnapshotInterval = 20 * time.Millisecond
@@ -264,7 +270,7 @@ func TestTelemetryTopologyRevisionLifecycle(t *testing.T) {
 // TestTelemetryFinishedRunCanReconnect keeps the last sample and its definitions together.
 func TestTelemetryFinishedRunCanReconnect(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Duration = 150 * time.Millisecond
 	input.Fixed.Execution.Speed = 0
 	input.Fixed.Workload.Defaults.Bytes = 0
@@ -341,11 +347,11 @@ func TestTelemetryPayloadSize(t *testing.T) {
 	legacy.Simulation.Config = cfg.publicConfig()
 	legacy.Simulation.VirtualTimeSeconds = s.Now().Seconds()
 	current := contract.SimulationSnapshot{
-		Type:      "simulationSnapshot",
-		Version:   1,
-		Mode:      state.Mode,
-		Algorithm: state.Algorithm,
-		Servers:   sample.Servers,
+		Type:            "simulationSnapshot",
+		SnapshotVersion: contract.CurrentSnapshotVersion,
+		Mode:            state.Mode,
+		Algorithm:       state.Algorithm,
+		Servers:         sample.Servers,
 		Simulation: contract.SimulationMetadata{
 			Status:             "running",
 			RunID:              runID,

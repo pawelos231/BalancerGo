@@ -10,7 +10,7 @@ import (
 
 // lifecycleScenario completes the handshake, then waits 30 seconds before data.
 // With client idle cleanup disabled, each test can isolate another owner's timer.
-func lifecycleScenario() scenario.ScenarioV2 {
+func lifecycleScenario() scenario.Scenario {
 	definition := baseScenario()
 	definition.Fixed.Execution.Duration = 40 * time.Second
 	editInitialState(&definition, func(state *scenario.StateConfig) {

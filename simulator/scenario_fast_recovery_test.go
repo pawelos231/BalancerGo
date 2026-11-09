@@ -10,16 +10,16 @@ func TestNativeStartResolvesRecoverySettings(t *testing.T) {
 	for _, mode := range []string{"none", "reno", "newReno", "tahoe", "cubic"} {
 		t.Run(mode, func(t *testing.T) {
 			for _, explicitDisabled := range []bool{false, true} {
-				input := testConfiguration().scenarioDefinitionV2()
+				input := testConfiguration().scenarioDefinition()
 				input.Fixed.TCP.CongestionControl = scenario.CongestionConfig{Mode: &mode}
 				if explicitDisabled {
 					input.Fixed.TCP.CongestionControl.FastRetransmit = scenarioRuntimeValue(false)
 				}
-				document, err := scenario.EncodeDocumentV2(input)
+				document, err := scenario.EncodeDocument(input)
 				if err != nil {
 					t.Fatal(err)
 				}
-				prepared, err := prepareStart(startRequest{command: &runtimeCommand{Payload: document}}, testConfiguration())
+				prepared, err := prepareStart(startRequest{command: &runtimeCommand{Payload: document}})
 				if err != nil {
 					t.Fatal(err)
 				}

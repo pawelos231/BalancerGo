@@ -137,7 +137,7 @@ func TestScenarioCLI(t *testing.T) {
 	})
 
 	t.Run("invalid documents leave no report", func(t *testing.T) {
-		valid, err := scenario.EncodeDocumentV2(scenarioCLIDefinition())
+		valid, err := scenario.EncodeDocument(scenarioCLIDefinition())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -145,7 +145,7 @@ func TestScenarioCLI(t *testing.T) {
 		invalidState := invalid.States["0"]
 		invalidState.Resources.LoadBalancer.ForwardingBitsPerSecond = 0
 		invalid.States["0"] = invalidState
-		invalidSettings, err := scenario.EncodeDocumentV2(invalid)
+		invalidSettings, err := scenario.EncodeDocument(invalid)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -157,7 +157,7 @@ func TestScenarioCLI(t *testing.T) {
 			{
 				name:     "legacy version",
 				document: []byte(`{"version":1}`),
-				message:  "expected version 2",
+				message:  "scenario.version: unknown field",
 			},
 			{
 				name:     "unknown field",
@@ -166,7 +166,7 @@ func TestScenarioCLI(t *testing.T) {
 			},
 			{
 				name:     "duplicate field",
-				document: append([]byte(`{"version":1,`), valid[1:]...),
+				document: append([]byte(`{"scenarioVersion":2,`), valid[1:]...),
 				message:  "duplicate field",
 			},
 			{
@@ -365,8 +365,8 @@ func TestScenarioCLICancellation(t *testing.T) {
 }
 
 // A large seed exercises exact integer handling; slow playback must be ignored.
-func scenarioCLIDefinition() scenario.ScenarioV2 {
-	input := testConfiguration().scenarioDefinitionV2()
+func scenarioCLIDefinition() scenario.Scenario {
+	input := testConfiguration().scenarioDefinition()
 	input.Fixed.Execution.Duration = 500 * time.Millisecond
 	input.Fixed.Network.Defaults = scenario.LinkConfig{BandwidthBitsPerSecond: 8_000_000, QueueCapacity: 32}
 	state := input.States["0"]
@@ -432,7 +432,7 @@ func assertScenarioCLILinks(t *testing.T, result contract.SimulationResult) {
 func assertScenarioCLIManifest(
 	t *testing.T,
 	encoded json.RawMessage,
-	input scenario.ScenarioV2,
+	input scenario.Scenario,
 	traceEnabled bool,
 ) {
 	t.Helper()
@@ -468,7 +468,7 @@ func assertScenarioCLIManifest(
 	}
 
 	// The archived input retains requested playback and exact large integers.
-	canonical, err := scenario.EncodeDocumentV2(input)
+	canonical, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func assertScenarioCLIManifest(
 	if manifest.ScenarioSHA256 != hex.EncodeToString(checksum[:]) {
 		t.Fatalf("manifest checksum = %q", manifest.ScenarioSHA256)
 	}
-	restored, err := scenario.DecodeDocumentV2(manifest.Scenario)
+	restored, err := scenario.DecodeDocument(manifest.Scenario)
 	if err != nil {
 		t.Fatalf("stored scenario cannot be replayed: %v", err)
 	}
@@ -500,11 +500,35 @@ type scenarioCLIOutput struct {
 }
 
 type scenarioCLIReport struct {
-	Version  int                       `json:"version"`
-	Status   string                    `json:"status"`
-	Error    string                    `json:"error"`
-	Manifest json.RawMessage           `json:"manifest"`
-	Result   contract.SimulationResult `json:"result"`
+	ReportVersion int                       `json:"reportVersion"`
+	Status        string                    `json:"status"`
+	Error         string                    `json:"error"`
+	Manifest      json.RawMessage           `json:"manifest"`
+	Result        contract.SimulationResult `json:"result"`
+}
+
+func assertReportVersions(t *testing.T, encoded []byte) {
+	t.Helper()
+	var envelope struct {
+		ReportVersion int             `json:"reportVersion"`
+		LegacyVersion json.RawMessage `json:"version"`
+		Manifest      struct {
+			Scenario struct {
+				ScenarioVersion int             `json:"scenarioVersion"`
+				LegacyVersion   json.RawMessage `json:"version"`
+			} `json:"scenario"`
+		} `json:"manifest"`
+	}
+	if err := json.Unmarshal(encoded, &envelope); err != nil {
+		t.Fatalf("invalid report envelope: %v", err)
+	}
+	if envelope.ReportVersion != 1 || envelope.LegacyVersion != nil {
+		t.Fatal("report must use reportVersion: 1 without an unscoped version field")
+	}
+	definition := envelope.Manifest.Scenario
+	if definition.ScenarioVersion != 2 || definition.LegacyVersion != nil {
+		t.Fatal("archived scenario must use scenarioVersion: 2 without an unscoped version field")
+	}
 }
 
 func assertScenarioCLIRejected(t *testing.T, output scenarioCLIOutput) {
@@ -560,9 +584,9 @@ func executeScenarioCLI(
 	}
 }
 
-func writeScenarioCLIInput(t *testing.T, input scenario.ScenarioV2) string {
+func writeScenarioCLIInput(t *testing.T, input scenario.Scenario) string {
 	t.Helper()
-	encoded, err := scenario.EncodeDocumentV2(input)
+	encoded, err := scenario.EncodeDocument(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,10 +613,11 @@ func decodeScenarioCLIReport(
 		}
 	}
 	var report scenarioCLIReport
+	assertReportVersions(t, output.stdout)
 	if err := json.Unmarshal(output.stdout, &report); err != nil {
 		t.Fatalf("invalid CLI report: %v\n%s\n%s", err, output.stdout, output.stderr)
 	}
-	if report.Version != 1 || report.Status != status || len(report.Manifest) == 0 {
+	if report.ReportVersion != 1 || report.Status != status || len(report.Manifest) == 0 {
 		t.Fatalf("report header = %+v", report)
 	}
 	return report

@@ -13,10 +13,10 @@ import (
 	"load-balancer/scenario"
 )
 
-func projectionScenario() scenario.ScenarioV2 {
+func projectionScenario() scenario.Scenario {
 	link := scenario.LinkConfig{BandwidthBitsPerSecond: 8_000_000, QueueCapacity: 32}
-	return scenario.ScenarioV2{
-		Version: scenario.VersionV2,
+	return scenario.Scenario{
+		ScenarioVersion: scenario.CurrentScenarioVersion,
 		Fixed: scenario.FixedConfig{
 			Execution:    scenario.ExecutionConfig{Duration: 500 * time.Millisecond, SnapshotInterval: time.Millisecond, Seed: 41, MaxEvents: 1_000_000},
 			LoadBalancer: scenario.LoadBalancerIdentity{ID: "lb"},
@@ -30,13 +30,13 @@ func projectionScenario() scenario.ScenarioV2 {
 	}
 }
 
-func editInitialState(definition *scenario.ScenarioV2, edit func(*scenario.StateConfig)) {
+func editInitialState(definition *scenario.Scenario, edit func(*scenario.StateConfig)) {
 	state := definition.States["0"]
 	edit(&state)
 	definition.States["0"] = state
 }
 
-func projectionWorld(t *testing.T, definition scenario.ScenarioV2) *simulation.World {
+func projectionWorld(t *testing.T, definition scenario.Scenario) *simulation.World {
 	t.Helper()
 	return timelineProjectionFrom(t, definition)
 }
@@ -240,7 +240,7 @@ func TestSnapshotIdleAndRuntimeRepresentations(t *testing.T) {
 	if err != nil || document != nil {
 		t.Fatal("idle snapshot unexpectedly has definitions or an error")
 	}
-	want := `{"type":"simulationSnapshot","version":1,"mode":"NAT","algorithm":"Random","servers":[],"simulation":{"status":"idle","algorithm":"random","virtualTimeSeconds":0},"topology":{"revision":"0","nodes":[],"links":[]}}`
+	want := `{"type":"simulationSnapshot","snapshotVersion":1,"mode":"NAT","algorithm":"Random","servers":[],"simulation":{"status":"idle","algorithm":"random","virtualTimeSeconds":0},"topology":{"revision":"0","nodes":[],"links":[]}}`
 	if actual := jsonProjection(t, idle); actual != want {
 		t.Fatalf("idle JSON = %s", actual)
 	}

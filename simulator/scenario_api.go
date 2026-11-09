@@ -19,24 +19,24 @@ type scenarioAPI struct {
 	publication *httpserver.Publication
 }
 
-// preparedStart keeps the native checked plan with its read-only run summary.
+// preparedStart keeps the checked plan with its read-only run summary.
 type preparedStart struct {
-	plan     *scenario.CompiledV2
+	plan     *scenario.Compiled
 	config   contract.SimulationConfig
 	document []byte
 }
 
-func (api *scenarioAPI) DefaultsV2() scenario.ScenarioV2 {
-	return api.defaults.scenarioDefinitionV2()
+func (api *scenarioAPI) Defaults() scenario.Scenario {
+	return api.defaults.scenarioDefinition()
 }
 
-// StartScenarioV2 retains the complete document admitted by the HTTP compiler.
-func (api *scenarioAPI) StartScenarioV2(
+// StartScenario retains the complete document admitted by the HTTP compiler.
+func (api *scenarioAPI) StartScenario(
 	ctx context.Context,
-	input scenario.ScenarioV2,
-	plan *scenario.CompiledV2,
+	input scenario.Scenario,
+	plan *scenario.Compiled,
 ) (contract.RunReceipt, error) {
-	document, err := scenario.EncodeDocumentV2(input)
+	document, err := scenario.EncodeDocument(input)
 	if err != nil {
 		return contract.RunReceipt{}, err
 	}
@@ -63,28 +63,28 @@ func (api *scenarioAPI) CurrentTopology() json.RawMessage {
 	return api.publication.CurrentTopology()
 }
 
-// prepareStart validates a native WebSocket document or uses an admitted HTTP plan.
-func prepareStart(request startRequest, _ configuration) (preparedStart, error) {
+// prepareStart validates a WebSocket scenario document or uses an admitted HTTP plan.
+func prepareStart(request startRequest) (preparedStart, error) {
 	if request.plan != nil {
-		return preparedStart{plan: request.plan, config: scenarioSummaryV2(request.plan)}, nil
+		return preparedStart{plan: request.plan, config: scenarioSummary(request.plan)}, nil
 	}
 	if request.command == nil {
-		return preparedStart{}, errors.New("compiled scenario or native document is required")
+		return preparedStart{}, errors.New("compiled scenario or scenario document is required")
 	}
-	input, err := scenario.DecodeDocumentV2(request.command.Payload)
+	input, err := scenario.DecodeDocument(request.command.Payload)
 	if err != nil {
 		return preparedStart{}, err
 	}
-	plan, err := scenario.CompileV2(input)
+	plan, err := scenario.Compile(input)
 	if err != nil {
 		return preparedStart{}, err
 	}
-	document, err := scenario.EncodeDocumentV2(input)
-	return preparedStart{plan: plan, config: scenarioSummaryV2(plan), document: document}, err
+	document, err := scenario.EncodeDocument(input)
+	return preparedStart{plan: plan, config: scenarioSummary(plan), document: document}, err
 }
 
 // Telemetry includes an initial summary; the run record retains every state.
-func scenarioSummaryV2(plan *scenario.CompiledV2) contract.SimulationConfig {
+func scenarioSummary(plan *scenario.Compiled) contract.SimulationConfig {
 	fixed := plan.Fixed()
 	initial, _ := plan.StateAt(0)
 	execution := fixed.Execution
@@ -94,7 +94,7 @@ func scenarioSummaryV2(plan *scenario.CompiledV2) contract.SimulationConfig {
 	lbHost := initial.LoadBalancer.Host
 	backendHost := scenario.DefaultHostConfig()
 	if len(initial.Backends) > 0 {
-		// Native scenarios retain all overrides; the old form summarizes the first backend.
+		// The scalar summary uses the first backend; the scenario retains all overrides.
 		backendHost = initial.Backends[0].Host
 	}
 	return contract.SimulationConfig{

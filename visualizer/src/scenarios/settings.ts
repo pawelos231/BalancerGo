@@ -3,17 +3,15 @@ import type {
   ScenarioExecution,
   ScenarioLinkConfig,
   ScenarioStream,
-} from './types.ts';
-import type {
   NullablePatch,
-  V2EndpointNetwork,
-  V2HostConfig,
-  V2LinkPatch,
-  V2NetworkConfig,
-  V2StreamPatch,
-} from './v2Types.ts';
-import { validateID } from './v2Identity.ts';
-import { INT64_MAX } from './v2Values.ts';
+  ScenarioEndpointNetwork,
+  ScenarioHostPatch,
+  ScenarioLinkPatch,
+  ScenarioNetworkConfig,
+  ScenarioStreamPatch,
+} from './types.ts';
+import { validateID } from './identity.ts';
+import { INT64_MAX } from './values.ts';
 
 // Check virtual run limits separately from real-time playback and UI refreshes.
 export function validateExecution(config: ScenarioExecution, path: string): void {
@@ -59,7 +57,7 @@ export function validateLink(config: ScenarioLinkConfig, path: string): void {
 }
 
 // Configured capacity accrues at zero cost; positive cost also bounds waiting time.
-export function validateHost(config: V2HostConfig | undefined, duration: bigint, path: string): void {
+export function validateHost(config: ScenarioHostPatch | undefined, duration: bigint, path: string): void {
   const cores = BigInt(config?.cores ?? 1);
   const cost = BigInt(config?.packetProcessingTimeNanoseconds ?? 0);
   const queue = BigInt(config?.queueCapacity ?? 1024);
@@ -81,8 +79,8 @@ export function validateHost(config: V2HostConfig | undefined, duration: bigint,
 }
 
 // Validate named patches even when no endpoint currently selects them.
-export function validateProfiles(config: V2NetworkConfig, path: string): Map<string, V2LinkPatch> {
-  const profiles = new Map<string, V2LinkPatch>();
+export function validateProfiles(config: ScenarioNetworkConfig, path: string): Map<string, ScenarioLinkPatch> {
+  const profiles = new Map<string, ScenarioLinkPatch>();
 
   config.profiles.forEach((profile, index) => {
     const profilePath = `${path}.profiles[${index}]`;
@@ -100,8 +98,8 @@ export function validateProfiles(config: V2NetworkConfig, path: string): Map<str
 // Inherit both directions, apply a selected profile, then apply directional patches.
 export function resolveNetwork(
   base: ResolvedLinks,
-  input: V2EndpointNetwork,
-  profiles: Map<string, V2LinkPatch>,
+  input: ScenarioEndpointNetwork,
+  profiles: Map<string, ScenarioLinkPatch>,
   path: string,
 ): ResolvedLinks {
   let toLoadBalancer = { ...base.toLoadBalancer };
@@ -124,12 +122,12 @@ export function resolveNetwork(
 }
 
 // Null and omitted fields inherit; an explicit zero replaces the inherited value.
-export function applyLinkPatch(base: ScenarioLinkConfig, patch: V2LinkPatch): ScenarioLinkConfig {
+export function applyLinkPatch(base: ScenarioLinkConfig, patch: ScenarioLinkPatch): ScenarioLinkConfig {
   return { ...base, ...suppliedValues(patch) };
 }
 
 // Keep bytes=-1 until the final client patch, so its packet count still determines its payload.
-export function applyStreamPatch(base: ScenarioStream, patch: V2StreamPatch): ScenarioStream {
+export function applyStreamPatch(base: ScenarioStream, patch: ScenarioStreamPatch): ScenarioStream {
   return { ...base, ...suppliedValues(patch) };
 }
 

@@ -101,7 +101,7 @@ func hostTestConfig(cost time.Duration) scenario.HostConfig {
 	return scenario.HostConfig{Cores: &cores, PacketProcessingTime: &cost, QueueCapacity: &queue}
 }
 
-func hostTestScenario() scenario.ScenarioV2 {
+func hostTestScenario() scenario.Scenario {
 	definition := baseScenario()
 	definition.Fixed.Execution.Duration = 5 * time.Millisecond
 	definition.Fixed.Execution.MaxEvents = 5_000_000

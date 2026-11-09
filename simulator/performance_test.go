@@ -23,7 +23,7 @@ func TestPerformanceMetricsLifecycle(t *testing.T) {
 	}
 
 	// A short unpaced run still performs real work and reports its own counters.
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	input.Fixed.Execution.Speed = 0
 	input.Fixed.Execution.Duration = 100 * time.Microsecond
 	input.Fixed.Execution.SnapshotInterval = 10 * time.Microsecond
@@ -109,7 +109,7 @@ func TestPerformanceMetricsLifecycle(t *testing.T) {
 // TestPerformanceFailedRunFreezes keeps completed work visible after an event limit.
 func TestPerformanceFailedRunFreezes(t *testing.T) {
 	h := newScenarioHarness(t)
-	input := h.defaults.scenarioDefinitionV2()
+	input := h.defaults.scenarioDefinition()
 	// A tiny playback wait makes elapsed time observable even on coarse clocks.
 	input.Fixed.Execution.Speed = 1
 	input.Fixed.Execution.Duration = time.Millisecond

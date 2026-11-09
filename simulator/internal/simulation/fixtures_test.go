@@ -8,11 +8,11 @@ import (
 	"load-balancer/scenario"
 )
 
-// baseScenario supplies a small native timeline without application configuration.
+// baseScenario supplies a small timeline without application configuration.
 // Application flag parsing and browser configuration are exercised in main tests.
-func baseScenario() scenario.ScenarioV2 {
-	return scenario.ScenarioV2{
-		Version: scenario.VersionV2,
+func baseScenario() scenario.Scenario {
+	return scenario.Scenario{
+		ScenarioVersion: scenario.CurrentScenarioVersion,
 		Fixed: scenario.FixedConfig{
 			Execution:    scenario.ExecutionConfig{Duration: time.Second, SnapshotInterval: 100 * time.Millisecond, Seed: 1, MaxEvents: 100_000},
 			LoadBalancer: scenario.LoadBalancerIdentity{ID: "lb"},
@@ -29,8 +29,8 @@ func baseScenario() scenario.ScenarioV2 {
 	}
 }
 
-// editInitialState updates only the native document's initial complete state.
-func editInitialState(definition *scenario.ScenarioV2, edit func(*scenario.StateConfig)) {
+// editInitialState updates only the scenario document's initial complete state.
+func editInitialState(definition *scenario.Scenario, edit func(*scenario.StateConfig)) {
 	state := definition.States["0"]
 	edit(&state)
 	definition.States["0"] = state

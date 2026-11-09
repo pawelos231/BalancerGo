@@ -91,7 +91,7 @@ export interface ServerTelemetry {
 
 export interface SimulationSnapshot {
   type: 'simulationSnapshot';
-  version: 1;
+  snapshotVersion: 1;
   simulation: SimulationMetadata;
   mode: string;
   algorithm: string;

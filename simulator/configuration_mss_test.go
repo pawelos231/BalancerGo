@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// CLI settings reach the native TCP profile without a form overlay.
+// CLI settings reach the scenario TCP profile without a form overlay.
 func TestManualMSSConfigurationRoundTrip(t *testing.T) {
 	defaults, err := readTestConfiguration(t)
 	if err != nil {
@@ -18,11 +18,11 @@ func TestManualMSSConfigurationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := configured.prepareScenarioV2()
+	prepared, err := configured.prepareScenario()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prepared.plan.Fixed().TCP.MSSBytes != 1460 || scenarioSummaryV2(prepared.plan).MSSBytes != 1460 {
+	if prepared.plan.Fixed().TCP.MSSBytes != 1460 || scenarioSummary(prepared.plan).MSSBytes != 1460 {
 		t.Fatal("MSS was lost between CLI, scenario and browser summary")
 	}
 
