@@ -144,14 +144,23 @@ func TestTimelineRejectsUnsupportedChangesBeforeConstruction(t *testing.T) {
 		name string
 		edit func(*scenario.StateConfig)
 	}{
-		{"backend membership", func(state *scenario.StateConfig) {
-			state.Resources.Backends = state.Resources.Backends[:1]
-		}},
 		{"physical availability", func(state *scenario.StateConfig) {
 			state.Resources.Backends[0].PhysicalAvailable = scenarioRuntimeValue(false)
 		}},
 		{"administrative admission", func(state *scenario.StateConfig) {
 			state.Resources.Backends[0].AdministrativeState = scenarioRuntimeValue(scenario.BackendAdminDrain)
+		}},
+		{"added unavailable backend", func(state *scenario.StateConfig) {
+			state.Resources.Backends = append(state.Resources.Backends, scenario.BackendStateConfig{
+				ID: "unavailable", Address: "10.0.0.3", Port: 80,
+				PhysicalAvailable: scenarioRuntimeValue(false),
+			})
+		}},
+		{"added draining backend", func(state *scenario.StateConfig) {
+			state.Resources.Backends = append(state.Resources.Backends, scenario.BackendStateConfig{
+				ID: "draining", Address: "10.0.0.3", Port: 80,
+				AdministrativeState: scenarioRuntimeValue(scenario.BackendAdminDrain),
+			})
 		}},
 		{"client generation", func(state *scenario.StateConfig) {
 			state.Workload.ClientGroups[0].Count = 1

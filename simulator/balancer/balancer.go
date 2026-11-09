@@ -128,6 +128,31 @@ func (lb *LoadBalancer) AddServer(srv *server.Server, send Sender) error {
 	return nil
 }
 
+// RetireServer removes a backend from new selection and stops its local work.
+// Existing routes and their senders stay pinned until ordinary mapping cleanup.
+func (lb *LoadBalancer) RetireServer(srv *server.Server) {
+	check := lb.health[srv]
+	if check == nil {
+		return
+	}
+	lb.engine.Cancel(check.tick)
+	lb.engine.Cancel(check.timeout)
+	delete(lb.health, srv)
+	for index, backend := range lb.servers {
+		if backend == srv {
+			copy(lb.servers[index:], lb.servers[index+1:])
+			lb.servers[len(lb.servers)-1] = nil
+			lb.servers = lb.servers[:len(lb.servers)-1]
+			break
+		}
+	}
+	srv.Shutdown()
+	if len(lb.connTable[srv]) == 0 {
+		delete(lb.connTable, srv)
+		delete(lb.toServer, srv)
+	}
+}
+
 func (lb *LoadBalancer) HandleClientPacket(pkt model.Packet) {
 	if lb.closed {
 		return
@@ -169,7 +194,7 @@ func (lb *LoadBalancer) processClientPacket(pkt model.Packet) {
 }
 
 func (lb *LoadBalancer) HandleServerPacket(srv *server.Server, pkt model.Packet) {
-	if lb.closed {
+	if lb.closed || lb.health[srv] == nil {
 		return
 	}
 	cl := lb.clients[pkt.Key]
@@ -184,7 +209,7 @@ func (lb *LoadBalancer) HandleServerPacket(srv *server.Server, pkt model.Packet)
 
 func (lb *LoadBalancer) processServerPacket(srv *server.Server, pkt model.Packet) {
 	cl := lb.clients[pkt.Key]
-	if cl == nil || !lb.HasClient(cl) || lb.byKey[pkt.Key] != srv {
+	if cl == nil || !lb.HasClient(cl) || lb.byKey[pkt.Key] != srv || lb.health[srv] == nil {
 		return
 	}
 	connection := lb.connections[pkt.Key]
@@ -259,6 +284,10 @@ func (lb *LoadBalancer) forgetRoute(key model.ClientKey) {
 				lb.connTable[srv] = list[:len(list)-1]
 				break
 			}
+		}
+		if lb.health[srv] == nil && len(lb.connTable[srv]) == 0 {
+			delete(lb.connTable, srv)
+			delete(lb.toServer, srv)
 		}
 	}
 	delete(lb.byKey, key)

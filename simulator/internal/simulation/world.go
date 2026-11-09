@@ -16,7 +16,6 @@ import (
 	"load-balancer/model"
 	"load-balancer/network"
 	"load-balancer/scenario"
-	"load-balancer/server"
 )
 
 // World owns the protocol endpoints, network and virtual-time measurements.
@@ -33,6 +32,7 @@ type World struct {
 	clientIngress  *network.Input
 	backendIngress *network.Input
 	links          []namedLink
+	backends       map[string]*runtimeBackend
 	clientGroups   []runtimeClientGroup
 	clients        []runtimeClient
 	traffic        trafficSampler
@@ -77,6 +77,7 @@ func New(resolved scenario.Normalized) *World {
 		scenario:  resolved,
 		algorithm: resolved.LoadBalancer.Algorithm,
 		engine:    e,
+		backends:  make(map[string]*runtimeBackend, len(resolved.Backends)),
 	}
 	s.algorithmRNG = s.resourceRNG("algorithm")
 
@@ -257,79 +258,6 @@ func (s *World) addOutput(
 	output := s.egress.AddOutput(link)
 	s.links[len(s.links)-1].Output = output
 	return output
-}
-
-// addBackend connects one configured backend to the shared input and dispatcher.
-func (s *World) addBackend(config scenario.NormalizedBackend) {
-	srv := server.NewServer(
-		s.engine,
-		config.ID,
-		config.Name,
-		config.Address,
-		config.Port,
-		0,   // Distance.
-		1,   // Initial weight.
-		100, // Half-open connection limit.
-	)
-	srv.SetHostConfig(configuredHost(config.Host))
-	srv.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
-	srv.SetSACKEnabled(s.scenario.TCP.SACKEnabled)
-	srv.SetECNEnabled(s.scenario.TCP.ECNEnabled)
-	srv.SetDelayedACKConfig(configuredDelayedACK(s.scenario.TCP.DelayedACK))
-	srv.SetRTOConfig(configuredRTO(s.scenario.TCP.RTO))
-	srv.SetCloseConfig(configuredClose(s.scenario.TCP.Close))
-	srv.SetIdleTimeouts(
-		s.scenario.TCP.BackendHalfOpenIdleTimeout,
-		s.scenario.TCP.BackendEstablishedIdleTimeout,
-	)
-	endpointID := BackendNodeID(config.ID)
-	// Keep received bytes after this backend's connections close or it is removed.
-	srv.OnPayloadReceived = func(bytes int) {
-		s.payload.ReceivedBytes += uint64(bytes)
-	}
-
-	toBackend := s.addOutput(
-		"link/"+endpointID+"/from-lb",
-		LoadBalancerNodeID,
-		endpointID,
-		config.Network.FromLoadBalancer,
-	)
-	toInput := s.addLink(
-		"link/"+endpointID+"/to-lb",
-		endpointID,
-		LoadBalancerNodeID,
-		config.Network.ToLoadBalancer,
-	)
-
-	// A backend reply crosses its return link and then the common LB input.
-	srv.SetSender(func(pkt model.Packet) {
-		originalClient := s.lb.GetClient(pkt.Key)
-		transmitPacket(toInput, pkt, func(pkt model.Packet) {
-			transmitPacket(s.backendIngress, pkt, func(pkt model.Packet) {
-				if s.lb.HasClient(originalClient) {
-					s.lb.HandleServerPacket(srv, pkt)
-				}
-			})
-		})
-	})
-
-	// Keep the original client identity while the packet waits or travels.
-	err := s.lb.AddServer(srv, func(pkt model.Packet) {
-		originalClient := s.lb.GetClient(pkt.Key)
-		transmitPacket(toBackend, pkt, func(pkt model.Packet) {
-			if s.lb.HasClient(originalClient) {
-				srv.HandlePacketIf(pkt, func() bool {
-					return s.lb.HasClient(originalClient)
-				})
-			}
-		})
-	})
-
-	if err != nil {
-		panic(err)
-	}
-
-	srv.Start()
 }
 
 // SetAlgorithm switches selection without resetting the algorithm RNG.

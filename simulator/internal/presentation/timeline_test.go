@@ -64,6 +64,63 @@ func timelineProjectionFrom(t *testing.T, input scenario.ScenarioV2) *simulation
 	return world
 }
 
+// Membership and retained-resource edits publish together without rewriting old graphs.
+func TestTimelineMembershipPublishesCoherentTopology(t *testing.T) {
+	input := timelineProjectionDefinition()
+	next := input.States["250000000"]
+	next.Resources.Backends[0] = scenario.BackendStateConfig{
+		ID: "three", Name: "New three", Address: "10.0.0.3", Port: 80,
+	}
+	bandwidth := int64(5_000_000)
+	next.Resources.Backends[1].Network.FromLoadBalancer = scenario.LinkPatch{
+		BandwidthBitsPerSecond: &bandwidth,
+	}
+	cores, cost, queue := 2, time.Microsecond, 4
+	next.Resources.Backends[1].Host = scenario.HostConfig{
+		Cores: &cores, PacketProcessingTime: &cost, QueueCapacity: &queue,
+	}
+	next.Resources.LoadBalancer.Algorithm = "random"
+	input.States["250000000"] = next
+	world := timelineProjectionFrom(t, input)
+	advanceProjection(t, world, 0)
+	projector := NewProjector("membership")
+	first := project(t, projector, world)
+	oldDocument := jsonProjection(t, first.Document)
+	advanceProjection(t, world, 250*time.Millisecond)
+	frame, definition, err := BuildSnapshot(world, projector, RunState{
+		Status: "running", RunID: "membership",
+	})
+	if err != nil || definition == nil || definition.Revision != "2" || frame.Topology.Revision != "2" {
+		t.Fatalf("membership did not publish one complete new definition: %v", err)
+	}
+	if len(definition.Servers) != 2 || len(definition.Nodes) != len(first.Document.Nodes) ||
+		len(definition.Links) != len(first.Document.Links) || world.Info().Algorithm != "random" {
+		t.Fatal("membership or policy was only partially projected")
+	}
+	foundNew, foundRetained := false, false
+	for _, node := range definition.Nodes {
+		if node.ID == simulation.BackendNodeID("one") {
+			t.Fatal("the removed backend remained in the graph")
+		}
+		foundNew = foundNew || node.ID == simulation.BackendNodeID("three")
+		foundRetained = foundRetained || node.ID == simulation.BackendNodeID("two") && node.Label == "New two"
+	}
+	for _, link := range definition.Links {
+		if link.Source == simulation.BackendNodeID("one") || link.Target == simulation.BackendNodeID("one") {
+			t.Fatal("a historical link retained a graph endpoint that no longer exists")
+		}
+		if link.ID == "link/backend/two/from-lb" && link.Config.BandwidthBitsPerSecond != 5_000_000 {
+			t.Fatal("the retained backend link missed its same-time edit")
+		}
+	}
+	if !foundNew || !foundRetained || jsonProjection(t, first.Document) != oldDocument {
+		t.Fatal("membership missed a backend or mutated the retained old definition")
+	}
+	if project(t, projector, world).Document != nil {
+		t.Fatal("reading the committed graph created another definition revision")
+	}
+}
+
 // Retained link IDs still need fresh definitions when their actual limits change.
 func TestTimelineBackendLinkEditRefreshesTopologyConfiguration(t *testing.T) {
 	input := timelineProjectionDefinition()

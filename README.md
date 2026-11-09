@@ -941,6 +941,16 @@ Stopping a backend clears its local state without ending remote clients or
 migrating their active TCP streams. Packets emitted before the sender stops can
 still arrive; FIN/RST take effect at the receiver only when delivered.
 
+Version-2 timeline states can add and remove backends by stable ID. Inserted
+backends create their CPU and directed links at that timestamp. Removal stops
+local TCP and CPU work, retires both physical paths and excludes the backend
+from new selection and health probes. Existing clients keep their TCP state;
+their old LB mappings remain pinned until ordinary mapping expiry. Packets for
+a removed backend are dropped. Historical link counters remain available to
+reports and traffic sampling, while the current graph omits the removed node
+and its links. Membership, CPU, network and policy edits at one timestamp
+publish as one configuration revision.
+
 Backend cleanup is configured under `tcp`:
 
 - `backendHalfOpenIdleTimeoutNanoseconds`: defaults to 5 s, measured from

@@ -60,6 +60,9 @@ type Link struct {
 	travelling    int
 	stats         Stats
 	onReady       func()
+	retired       bool
+	transmitEvent engine.EventID
+	arrivalEvents map[engine.EventID]struct{}
 }
 
 // NewLink creates an idle link and panics on invalid configuration.
@@ -139,9 +142,6 @@ func (l *Link) Transmit(sizeBytes int, onArrival func()) bool {
 // TransmitECN applies congestion signaling once, when a packet must wait.
 // The callback reports its final CE state, including a mark received earlier.
 func (l *Link) TransmitECN(sizeBytes int, state ECNState, onArrival func(marked bool)) bool {
-	if l.onReady != nil {
-		panic("network: managed link must be started through its external queue")
-	}
 	if sizeBytes < 0 {
 		panic("network: packet size must not be negative")
 	}
@@ -149,6 +149,12 @@ func (l *Link) TransmitECN(sizeBytes int, state ECNState, onArrival func(marked 
 		panic("network: arrival callback must not be nil")
 	}
 	validateECNState(state)
+	if l.retired {
+		return false
+	}
+	if l.onReady != nil {
+		panic("network: managed link must be started through its external queue")
+	}
 
 	packet := transmission{
 		sizeBytes: sizeBytes,
@@ -188,7 +194,7 @@ func (l *Link) TransmitECN(sizeBytes int, state ECNState, onArrival func(marked 
 
 // Ready reports a free transmitter; packets still travelling do not block it.
 func (l *Link) Ready() bool {
-	return !l.transmitting
+	return !l.retired && !l.transmitting
 }
 
 // TryStart starts immediately or returns false without queueing or counting a
@@ -236,6 +242,9 @@ func (l *Link) useExternalQueue(onReady func()) {
 	if l.onReady != nil {
 		panic("network: link already has an external queue")
 	}
+	if l.retired {
+		panic("network: external queue requires an active link")
+	}
 
 	hasTraffic := l.stats.OfferedPackets != 0 || l.transmitting || l.queued() != 0 || l.travelling != 0
 	if hasTraffic {
@@ -265,6 +274,23 @@ func (l *Link) DiscardPending() {
 	l.queueHead = 0
 	l.transmitting = false
 	l.travelling = 0
+	l.transmitEvent = 0
+	l.arrivalEvents = nil
+}
+
+// Retire permanently closes this path and cancels its unfinished physical work.
+// Historical counters remain available. Managed outputs use Output.Retire instead.
+func (l *Link) Retire() {
+	if l.retired {
+		return
+	}
+	l.retired = true
+	l.engine.Cancel(l.transmitEvent)
+	for eventID := range l.arrivalEvents {
+		l.engine.Cancel(eventID)
+	}
+	l.DiscardPending()
+	l.onReady = nil
 }
 
 // queued excludes consumed slots retained at the front of the slice.
@@ -282,7 +308,11 @@ func (l *Link) start(packet transmission) {
 		// A slower link may leave an admitted packet transmitting beyond the entire run.
 		return
 	}
-	l.engine.ScheduleAfter(duration, func() {
+	l.transmitEvent = l.engine.ScheduleAfter(duration, func() {
+		l.transmitEvent = 0
+		if l.retired {
+			return
+		}
 		// Transmission has finished, so the sender is available again.
 		l.transmitting = false
 		l.stats.TransmittedBytes += uint64(packet.sizeBytes)
@@ -299,12 +329,23 @@ func (l *Link) start(packet transmission) {
 			l.stats.LostBytes += uint64(packet.sizeBytes)
 		} else {
 			l.travelling++
-			l.engine.ScheduleAfter(config.PacketTravelTime, func() {
+			var arrivalEvent engine.EventID
+			arrivalEvent = l.engine.ScheduleAfter(config.PacketTravelTime, func() {
+				delete(l.arrivalEvents, arrivalEvent)
+				if l.retired {
+					return
+				}
 				l.travelling--
 				l.stats.DeliveredPackets++
 				l.stats.DeliveredBytes += uint64(packet.sizeBytes)
 				packet.onArrival()
 			})
+			if arrivalEvent != 0 {
+				if l.arrivalEvents == nil {
+					l.arrivalEvents = make(map[engine.EventID]struct{})
+				}
+				l.arrivalEvents[arrivalEvent] = struct{}{}
+			}
 		}
 
 		// A manager owns the waiting queue; autonomous links keep their own FIFO.

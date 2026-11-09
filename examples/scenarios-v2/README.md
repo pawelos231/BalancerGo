@@ -202,9 +202,10 @@ CLI, HTTP and the current frontend still reject or do not submit runnable v2.
 `simulation.NewTimeline(plan)` prepares an internal world only after checking the
 entire compiled plan. E1.5 introduced backend display-name changes; E1.6 added
 backend link edits, E1.7 added shared LB ingress and forwarding limits, E1.8 added
-mutable LB/backend CPU resources, and E1.9 adds LB algorithms and mapping timeouts.
+mutable LB/backend CPU resources, E1.9 added LB algorithms and mapping timeouts,
+and E1.10 adds backend insertion/removal with insertion-time resource lifetimes.
 This allows real execution and publication tests without silently ignoring
-unfinished availability, admission, membership or generator changes. Such transitions
+unfinished availability, admission or generator changes. Such transitions
 return `ErrUnsupportedTimelineChange` before any world is constructed. Initial
 physical unavailability or drain is also rejected until those handlers exist.
 

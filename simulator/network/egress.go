@@ -2,6 +2,7 @@ package network
 
 import (
 	"container/heap"
+	"math/rand"
 	"time"
 
 	"load-balancer/engine"
@@ -60,6 +61,7 @@ type Output struct {
 	queueHead  int // Index of the first waiting packet.
 	readyIndex int
 	stats      Stats
+	retired    bool
 }
 
 // NewEgress creates a dispatcher with a positive shared limit and no idle events.
@@ -124,6 +126,11 @@ func (e *Egress) AddOutput(link *Link) *Output {
 	return output
 }
 
+// PrepareConfig checks an edit for this output's physical link and waiting limit.
+func (output *Output) PrepareConfig(config Config, congestionRNG *rand.Rand) PreparedConfig {
+	return output.link.PrepareConfig(config, congestionRNG)
+}
+
 // Transmit admits a packet or drops it when this output's waiting queue is full.
 // Admission does not promise delivery before the experiment's end time.
 func (output *Output) Transmit(sizeBytes int, onArrival func()) bool {
@@ -143,6 +150,9 @@ func (output *Output) TransmitECN(sizeBytes int, state ECNState, onArrival func(
 		panic("network: arrival callback must not be nil")
 	}
 	validateECNState(state)
+	if output.retired || output.link.retired {
+		return false
+	}
 	serializationDuration(sizeBytes, output.link.config.BandwidthBitsPerSecond)
 	serializationDuration(sizeBytes, output.egress.forwardingBitsPerSecond)
 
@@ -242,6 +252,25 @@ func (output *Output) DiscardPending() {
 	output.readyIndex = -1
 }
 
+// Retire permanently closes one output without refunding its shared grant.
+// Its admissions and physical history remain available to traffic reports.
+func (output *Output) Retire() {
+	if output.retired {
+		return
+	}
+	e := output.egress
+	e.accountBudgetWait()
+	output.retired = true
+	if output.readyIndex >= 0 {
+		heap.Remove(&e.readyOutputs, output.readyIndex)
+	}
+	e.stats.QueuedPackets -= output.queued()
+	output.DiscardPending()
+	output.link.Retire()
+	e.accountBudgetWait()
+	e.scheduleBudgetWake()
+}
+
 // queued counts waiting packets without the consumed prefix of the slice.
 func (output *Output) queued() int {
 	return len(output.queue) - output.queueHead
@@ -249,7 +278,7 @@ func (output *Output) queued() int {
 
 // markReady keeps exactly one heap entry for a ready output with a waiting head.
 func (e *Egress) markReady(output *Output) {
-	eligible := output.queued() > 0 && output.link.Ready()
+	eligible := !output.retired && output.queued() > 0 && output.link.Ready()
 	if eligible && output.readyIndex < 0 {
 		heap.Push(&e.readyOutputs, output)
 	}
@@ -341,8 +370,9 @@ func (e *Egress) accountBudgetWait() {
 
 // scheduleBudgetWake keeps one useful grant event and removes obsolete wakeups.
 func (e *Egress) scheduleBudgetWake() {
-	needsWake := e.budgetBlocked() && !e.grantBeyondEnd
-	wakeAlreadyScheduled := e.wakeEvent != 0 && e.wakeAt == e.nextGrantAt
+	needsWake := e.readyOutputs.Len() > 0 && !e.grantBeyondEnd
+	wakeAt := max(e.nextGrantAt, e.engine.Now())
+	wakeAlreadyScheduled := e.wakeEvent != 0 && e.wakeAt == wakeAt
 	if needsWake && wakeAlreadyScheduled {
 		return
 	}
@@ -355,7 +385,7 @@ func (e *Egress) scheduleBudgetWake() {
 		return
 	}
 
-	e.wakeAt = e.nextGrantAt
+	e.wakeAt = wakeAt
 	e.wakeEvent = e.engine.ScheduleAt(e.wakeAt, func() {
 		e.wakeEvent = 0
 		e.dispatch()
