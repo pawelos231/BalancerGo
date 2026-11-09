@@ -24,7 +24,7 @@ test('downloadable examples match the scenarios loaded from the library', () => 
   }
 });
 
-test('all 37 runnable examples use the strict native timeline contract', () => {
+test('all 40 runnable examples use the strict native timeline contract', () => {
   let count = 0;
   for (const directory of ['scenarios', 'scenarios-v2']) {
     const base = new URL(`../../../../examples/${directory}/`, import.meta.url);
@@ -36,5 +36,5 @@ test('all 37 runnable examples use the strict native timeline contract', () => {
       count += 1;
     }
   }
-  assert.equal(count, 37);
+  assert.equal(count, 40);
 });

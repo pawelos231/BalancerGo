@@ -9,6 +9,7 @@ import { routingPresets } from './presets/routing.ts';
 import { workloadPresets } from './presets/workload.ts';
 import { tcpPresets } from './presets/tcp.ts';
 import { hostPresets } from './presets/host.ts';
+import { timelinePresets } from './presets/timeline.ts';
 
 export { presetCategories } from './scenarioPresetTypes.ts';
 export type { ScenarioPreset } from './scenarioPresetTypes.ts';
@@ -27,4 +28,5 @@ export const scenarioPresets = [
   ...workloadPresets,
   ...routingPresets,
   ...referencePresets,
+  ...timelinePresets,
 ] as const;

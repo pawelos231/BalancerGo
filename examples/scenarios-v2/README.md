@@ -25,6 +25,23 @@ horizon is not guaranteed. Both examples explicitly set execution, TCP, link,
 host, stream and mapping-timeout settings. Empty endpoint/stream patches inherit
 the document's fixed defaults, rather than undocumented values from another state.
 
+The library also supplies three longer, directly runnable timeline examples in
+[`../scenarios/`](../scenarios/README.md):
+
+- [Arrival burst and stop](../scenarios/timeline-arrival-burst.json): add generators
+  at 30 s, then remove them at 90 s. Existing clients continue after removal.
+- [Shared LB capacity recovery](../scenarios/timeline-lb-capacity.json): reduce
+  ingress and forwarding together at 30 s, then restore both at 90 s.
+- [CPU bottleneck and scale-up](../scenarios/timeline-cpu-scaling.json): enable
+  one LB core at 10 µs/packet at 30 s, then provide four cores at 90 s.
+
+These use the same full-state contract and retain finite traffic throughout both
+transitions. Their `count` values are lifetime generator budgets. Repeating a
+count does not repeat births; removing a group stops only future births, retains
+born clients, and does not release the group's run-wide address reservation.
+The [catalog guide](../scenarios/README.md) documents timings, profiles, budgets
+and the distinction between planned generators and live clients.
+
 ## Document shape and units
 
 | JSON path | Contents |

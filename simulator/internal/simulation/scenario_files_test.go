@@ -24,8 +24,8 @@ func TestScenarioFilesRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths = append(paths, timelines...)
-	if len(paths) != 37 {
-		t.Fatalf("found %d runnable scenario examples, want 37", len(paths))
+	if len(paths) != 40 {
+		t.Fatalf("found %d runnable scenario examples, want 40", len(paths))
 	}
 
 	for _, path := range paths {
@@ -141,6 +141,15 @@ func TestScenarioSmokeSampleKeepsOverrides(t *testing.T) {
 	}
 }
 
+func TestScenarioSmokeAcceptsUnchangedTimelineState(t *testing.T) {
+	input := scenarioRuntimeDefinition()
+	input.States["100000000"] = input.States["0"]
+	result := runScenarioFile(t, input)
+	if result.CreatedClients != 1 || result.CompletedStreams != 1 {
+		t.Fatal("an unchanged declaration changed the catalog's smoke workload")
+	}
+}
+
 // TestScenarioLimitsDocument checks the complete stress document without constructing its endpoints.
 func TestScenarioLimitsDocument(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "examples", "scenarios", "simulator-limits.json")
@@ -230,14 +239,20 @@ func runScenarioFile(t *testing.T, input scenario.ScenarioV2) worldReadings {
 		}
 		expectedCreated += count
 	}
-	// Both shipped timeline examples keep all declared generators through the end
-	// and schedule their complete lifetime budgets before the shortened horizon.
+	// A timeline may stop a generator before it spends its lifetime budget.
+	// Dedicated timeline tests check birth counts; the catalog checks every commit
+	// and the reservation bound without assuming that every slot must be born.
 	if len(input.States) > 1 {
-		checked, err := scenario.NormalizeV2(input)
+		checked, err := scenario.CompileV2(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		expectedCreated = checked.TotalClients
+		// The compiler retains no-op states for inspection but schedules no commit.
+		wantRevision := uint64(1 + len(checked.Transitions()))
+		if result.CreatedClients > checked.TotalClients() || s.Info().ConfigurationRevision != wantRevision {
+			t.Fatal("the bounded timeline exceeded its client budget or skipped a state")
+		}
+		expectedCreated = result.CreatedClients
 	}
 	if result.CreatedClients != expectedCreated {
 		t.Fatalf("created clients = %d, want %d within the bounded horizon", result.CreatedClients, expectedCreated)

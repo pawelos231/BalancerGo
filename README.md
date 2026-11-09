@@ -408,8 +408,8 @@ Invoke-RestMethod "$base/api/simulations" -Method Post -ContentType 'application
 Invoke-RestMethod "$base/api/simulations/current"
 ```
 
-The frontend **Scenario library** has 34 presets across TCP transport, links,
-queues, host CPU, loss, workloads, routing, edge cases, performance and reference experiments. Search or filter the catalog;
+The frontend **Scenario library** has 37 presets across TCP transport, links,
+queues, host CPU, loss, workloads, routing, edge cases, performance, timeline changes and reference experiments. Search or filter the catalog;
 six cards appear per page. Choose a preset and click **Validate and load preset**
 to load it into the form, then use the single **Start simulation** button.
 The catalog lives in `visualizer/src/scenarios/presets.ts`, with factories split
@@ -434,6 +434,23 @@ retains historical overrides; a new group in a later state starts no earlier
 than that state. This selector edits existing states; adding and removing states
 is a later editor feature.
 Validation and Start keep their errors visible and do not change the running model.
+
+Three timeline presets use ordinary complete states at 0, 30 and 90 seconds:
+
+- **Timeline: burst, then stop arrivals** adds a burst and a trickle at 30 s,
+  then removes those generators at 90 s. Already-born clients keep transferring.
+- **Timeline: shared LB capacity recovery** changes shared ingress and forwarding
+  from 1 Gbit/s to 100 Mbit/s, then restores 1 Gbit/s.
+- **Timeline: CPU bottleneck and scale-up** changes the LB from ideal CPU
+  processing to one core at 10 microseconds per packet, then four cores.
+
+The link and CPU cases offer 32 GiB: even an ideal 1 Gbit/s shared LB can move
+only 11.25 GB of wire traffic by 90 s, so demand remains at recovery. The arrival
+case's baseline clients each need over 400 s to send 1 GiB through their 20 Mbit/s
+access links. These 180-second experiments pin TCP, seed and disabled idle
+timeouts. A group's `count` is its lifetime birth budget, rather than another
+batch at every state. See the [timeline examples](examples/scenarios-v2/README.md)
+and the [small measured timeline benchmark](perf_results.md#e116-timeline-presets-and-runtime-cost-2026-11-09).
 
 The **Simulator throughput** preset measures the simulator's real execution rate:
 50 clients, 5 backends, 10 TB/s client links, 100 TB/s backend links and 1 PB/s
@@ -507,8 +524,8 @@ does not count active connections or mean every client is born at each state.
 Existing clients may survive a budget decrease or group removal. The preview
 does not create a model or predict traffic, drops, active clients or observed health.
 
-Thirty-five ready documents, their units and expected settings are described in
-[examples/scenarios/README.md](examples/scenarios/README.md). Thirty-four mirror the UI
+Thirty-eight ready documents, their units and expected settings are described in
+[examples/scenarios/README.md](examples/scenarios/README.md). Thirty-seven mirror the UI
 preset catalog; `advanced-overrides.json` demonstrates directional and individual
 client settings. Nanosecond fields store exact virtual time, bandwidth is in
 decimal bit/s, queue capacities count waiting packets and `bytes: -1` uses

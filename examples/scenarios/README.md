@@ -1,7 +1,7 @@
 # Scenario files
 
-These 35 UTF-8 JSON files use the native version-2 scenario contract accepted by
-the frontend, CLI and HTTP API. Thirty-four match the UI preset factories; one extra file demonstrates nested
+These 38 UTF-8 JSON files use the native version-2 scenario contract accepted by
+the frontend, CLI and HTTP API. Thirty-seven match the UI preset factories; one extra file demonstrates nested
 overrides. The library supports search, category filters and six cards per page.
 Ordinary presets use seed 1, a 50-million-event limit, 100 real ms snapshots,
 1 ms endpoint travel time, 1024 waiting slots and zero random loss unless their
@@ -36,11 +36,35 @@ overrides or changes to Go defaults do not alter it.
 | [seeded-random.json](seeded-random.json) | 16 / 4 | Random routing with exact seed `"9007199254740993"` for repeatable assignments. |
 | [no-backends.json](no-backends.json) | 8 / 0 | Connection attempts with no destination backend; retries and cleanup. |
 | [idle-network.json](idle-network.json) | 0 / 2 | Infrastructure without client traffic; scheduled maintenance events still execute. |
+| [timeline-arrival-burst.json](timeline-arrival-burst.json) | 8 + 24 + 60 born / 2 | At 30 s add burst and staggered generators; at 90 s stop their future arrivals while born clients continue. |
+| [timeline-lb-capacity.json](timeline-lb-capacity.json) | 16 slow + 16 fast / 2 | Shared LB ingress and forwarding: 1 Gbit/s, 100 Mbit/s at 30 s, recovery at 90 s. |
+| [timeline-cpu-scaling.json](timeline-cpu-scaling.json) | 16 slow + 16 fast / 2 | LB CPU: zero cost, one core at 10 µs/packet at 30 s, four cores at 90 s. |
 | [advanced-overrides.json](advanced-overrides.json) | 4 / 2 | Profile, directional settings and one explicit client override. |
 | [Reference matrix](REFERENCE_EXPERIMENTS.md) | 16 / 2 | Eight cases crossing backend 2's travel RTT, return-link bandwidth and stream size. |
 
 Host CPU presets use NewReno with SACK to sustain traffic when CPU queues overflow.
 Their processing times are assumed experiment parameters, not measured hardware profiles.
+
+The **Timeline changes** category uses ordinary complete `states` at 0, 30 and
+90 virtual seconds, with a 180-second horizon and a five-billion-event ceiling.
+Its explicit NewReno/SACK configuration, seed 1 and disabled TCP/mapping idle
+cleanup keep long streams alive through the resource changes. Slow client
+access is 20 Mbit/s; other access links are 2 Gbit/s. Backend links are 1 and
+2 Gbit/s, respectively. Every client has a finite 1 GiB payload; incomplete
+streams at the horizon are expected. The 32-client capacity/CPU cases cannot
+finish their combined 32 GiB before either transition through the 1 Gbit/s LB.
+
+In the arrival timeline, `count` is each generator's lifetime birth budget,
+not a target number of currently active connections. The baseline's count 8
+is repeated without creating it again. At 30 s, the new burst creates 24 clients
+and the new `arrivals` group has a budget of 120, starting one client per second.
+Removing both groups at 90 s cancels future births, including the birth exactly
+at 90 s; the 24 burst clients and 60 staggered clients already born continue
+their streams. There are 92 births in total, while the conservative run-wide
+reservation remains 152 slots. The final planned topology shows only the
+remaining baseline generator; live topology can still show the removed groups'
+clients. See the [timeline contract](../scenarios-v2/README.md#client-generators-and-access-links-e112)
+for the execution rules.
 
 The **Reference experiments** category adds a fixed 2 x 2 x 2 matrix: backend 2
 has a 4 or 40 ms base travel RTT and a 1 Gbit/s or 64 kbit/s return link;

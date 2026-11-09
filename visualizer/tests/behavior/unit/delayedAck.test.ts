@@ -86,6 +86,7 @@ test('the one-segment preset fixes cwnd and other presets keep delayed ACK disab
       continue;
     }
     assert.notEqual(scenario.fixed.tcp?.delayedAck?.enabled, true, preset.id);
-    assert.equal(scenario.fixed.tcp?.congestionControl?.maximumWindowSegments, undefined, preset.id);
+    const uncapped = preset.category === 'timeline' ? 0 : undefined;
+    assert.equal(scenario.fixed.tcp?.congestionControl?.maximumWindowSegments, uncapped, preset.id);
   }
 });

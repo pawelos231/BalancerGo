@@ -12,6 +12,7 @@ export const presetCategories = [
   { id: 'edge-cases', label: 'Edge cases' },
   { id: 'performance', label: 'Simulator performance' },
   { id: 'reference', label: 'Reference experiments' },
+  { id: 'timeline', label: 'Timeline changes' },
 ] as const;
 
 export type ScenarioPresetCategory = typeof presetCategories[number]['id'];
