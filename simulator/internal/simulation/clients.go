@@ -199,6 +199,10 @@ func (s *World) startClient(
 // SpawnClients adds a batch to one group's settings, starting at the current time.
 // Multiple groups require an explicit groupId so profiles are never guessed.
 func (s *World) SpawnClients(count int, groupID string) error {
+	if s.timeline != nil {
+		return ErrTimelineManualMutation
+	}
+
 	invalidCount := count < 1 || count > 10000
 	addressRangeExceeded := s.scheduledClients > scenario.MaxClients-count
 	if invalidCount || addressRangeExceeded {

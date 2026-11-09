@@ -24,6 +24,7 @@ import (
 type World struct {
 	scenario     scenario.Normalized
 	engine       *engine.Engine
+	timeline     *timelineRuntime
 	lb           *balancer.LoadBalancer
 	algorithmRNG *rand.Rand
 
@@ -329,6 +330,10 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 
 // SetAlgorithm switches selection without resetting the algorithm RNG.
 func (s *World) SetAlgorithm(name string) error {
+	if s.timeline != nil {
+		return ErrTimelineManualMutation
+	}
+
 	switch name {
 	case "roundRobin":
 		s.lb.SetAlgorithm(&algorithms.RoundRobin{})

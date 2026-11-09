@@ -22,10 +22,11 @@ type Sample struct {
 // Projector belongs to the world owner. Its previously returned definitions are
 // immutable, and every live value is detached before publication can retain it.
 type Projector struct {
-	runID     string
-	revision  uint64
-	document  *contract.TopologyDocument
-	nodeIndex map[string]int
+	runID                 string
+	revision              uint64
+	configurationRevision uint64 // Last committed world configuration included in the document.
+	document              *contract.TopologyDocument
+	nodeIndex             map[string]int
 }
 
 func NewProjector(runID string) *Projector { return &Projector{runID: runID} }
@@ -95,7 +96,8 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 		})
 	}
 
-	matches := projector.document != nil
+	configurationChanged := projector.configurationRevision != info.ConfigurationRevision
+	matches := projector.document != nil && !configurationChanged
 	nodeIndex := projector.nodeIndex
 	serverIndex := make(map[string]int)
 	servers := make([]contract.TelemetryServer, 0)
@@ -128,9 +130,8 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 	}
 	topology.Nodes = slices.Grow(topology.Nodes, info.CreatedClients)
 
-	// Allocate definitions only after membership first differs. The already read
-	// backend values refresh current metadata; unchanged client prefixes reuse
-	// their immutable cached definitions without revisiting retained endpoints.
+	// Rebuild after membership or committed configuration changes. A normal sample
+	// keeps reusing immutable definitions instead of rebuilding the whole graph.
 	ensureDocument := func() {
 		if document != nil {
 			return
@@ -176,10 +177,11 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 		metrics := clientMetrics(client)
 		key := clientKey(state.Key)
 		var definition contract.TopologyNodeDefinition
-		if previous, exists := projector.nodeIndex[client.ID]; exists && projector.document.Nodes[previous].ClientKey != nil &&
+		previous, retained := projector.nodeIndex[client.ID]
+		if !configurationChanged && retained &&
+			projector.document.Nodes[previous].ClientKey != nil &&
 			*projector.document.Nodes[previous].ClientKey == key {
-			// A retained client's identity/configuration is immutable. Sharing its
-			// immutable definition also keeps older documents safe to retain.
+			// Retained identities reuse their definition until a configuration commit.
 			definition = projector.document.Nodes[previous]
 		} else {
 			matches = false
@@ -252,6 +254,11 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 		matches = false
 	}
 
+	// A failed sample must not install definitions that were never published.
+	if unresolved != 0 {
+		return Sample{}, fmt.Errorf("telemetry: routed client has no topology definition")
+	}
+
 	var changed *contract.TopologyDocument
 	if !matches {
 		if projector.revision == ^uint64(0) {
@@ -276,10 +283,8 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 		projector.revision++
 		document.Revision = strconv.FormatUint(projector.revision, 10)
 		projector.document, projector.nodeIndex = document, nodeIndex
+		projector.configurationRevision = info.ConfigurationRevision
 		changed = document
-	}
-	if unresolved != 0 {
-		return Sample{}, fmt.Errorf("telemetry: routed client has no topology definition")
 	}
 	topology.Revision = projector.document.Revision
 	return Sample{Topology: topology, Servers: servers, Document: changed, Transfers: transfers}, nil

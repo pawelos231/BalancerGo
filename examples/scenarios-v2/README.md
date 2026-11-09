@@ -192,10 +192,43 @@ and metadata edits. A group's `ReplanArrivals` is true only when `Count` or
 `StreamChanged` concerns future clients. Stopping a generator does not remove its
 existing clients, and removing a backend does not instantly clear remote TCP state.
 
-E1.5 and later stages will apply these instructions atomically through the engine.
+E1.5 supplies atomic execution; later stages add individual resource handlers.
 Address ranges, actual generator progress and birth-time arithmetic remain E1.12;
 their reservation must use each group's maximum count across the entire run.
 CLI, HTTP and the current frontend still reject or do not submit runnable v2.
+
+## Internal execution boundary (E1.5)
+
+`simulation.NewTimeline(plan)` prepares an internal world only after checking the
+entire compiled plan. At this stage, backend display names are the one supported
+mutable setting. This allows real execution and publication tests without silently
+ignoring unfinished link, CPU, LB, membership or generator changes. Such transitions
+return `ErrUnsupportedTimelineChange` before any world is constructed. Initial
+physical unavailability or drain is also rejected until those handlers exist.
+
+One `engine.ScheduleConfigurationAt` callback applies all prepared edits at a
+timestamp, then installs the configuration and increments its commit counter once.
+It has priority over ordinary events at the same timestamp. A callback runs to
+completion on the engine owner; event-budget pauses cannot split it, and it adds
+no virtual delay. Preparation and checks happen before execution, not inside the
+commit. This is not a general rollback mechanism for arbitrary user callbacks.
+
+The engine preserves ordinary FIFO ordering and rejects retroactive configuration
+insertion after ordinary work at that timestamp has started, even after a pause.
+All compiled changes are registered before the internal world begins advancing.
+
+`CurrentConfiguration()` returns an independent copy of the last committed state;
+future states never become visible merely because they exist in the plan.
+`Info.ConfigurationRevision` counts world commits, independently of wire topology
+revisions. A new commit invalidates cached definitions, including retained clients
+and links. The next successful projection builds one complete document alongside
+the first snapshot using it. Repeated reads reuse that document; previously returned
+documents remain unchanged. If several commits occur between samples, the next
+sample describes the latest complete state.
+
+Manual `SetAlgorithm` and `SpawnClients` are blocked for timeline worlds. Stop
+still clears pending events, including future configuration commits. CLI/HTTP
+admission remains deferred to E1.13 and frontend migration to E1.14.
 
 ## Frontend validation
 

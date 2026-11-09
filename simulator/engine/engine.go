@@ -17,18 +17,19 @@ var (
 	ErrReentrantRun = errors.New("engine: RunUntil cannot be called from a running callback")
 )
 
-// Engine owns a global future-event queue. equal-time events run in increasing
-// EventID order, including events scheduled by another callback at the same time.
+// Engine owns the future-event queue. Configuration runs before ordinary work at
+// the same time; events within either kind follow scheduling order (EventID).
 type Engine struct {
 	// MaxEvents bounds the total number of callbacks executed over all RunUntil
-	MaxEvents uint64
-	now       time.Duration
-	endTime   time.Duration // virtual end time; no events are scheduled after it.
-	nextID    EventID
-	queue     eventQueue
-	byID      map[EventID]*event
-	executed  uint64
-	running   bool
+	MaxEvents      uint64
+	now            time.Duration
+	endTime        time.Duration // virtual end time; no events are scheduled after it.
+	nextID         EventID
+	queue          eventQueue
+	byID           map[EventID]*event
+	executed       uint64
+	running        bool
+	lastOrdinaryAt time.Duration // -1 until an ordinary callback starts.
 }
 
 // New creates a simulation engine with its clock starting at zero.
@@ -36,7 +37,12 @@ func New(endTime time.Duration) *Engine {
 	if endTime < 0 {
 		panic("engine: end time must not be negative")
 	}
-	return &Engine{endTime: endTime, MaxEvents: DefaultMaxEvents, byID: make(map[EventID]*event)}
+	return &Engine{
+		endTime:        endTime,
+		MaxEvents:      DefaultMaxEvents,
+		byID:           make(map[EventID]*event),
+		lastOrdinaryAt: -1,
+	}
 }
 
 func (e *Engine) Now() time.Duration {
@@ -74,6 +80,17 @@ func (e *Engine) Clear() {
 
 // ScheduleAt schedules a callback, or returns zero when at exceeds EndTime.
 func (e *Engine) ScheduleAt(at time.Duration, callback func()) EventID {
+	return e.scheduleAt(at, ordinaryEvent, callback)
+}
+
+// ScheduleConfigurationAt runs configuration before ordinary events at the same time.
+// It cannot insert configuration after ordinary work at that timestamp has started.
+func (e *Engine) ScheduleConfigurationAt(at time.Duration, callback func()) EventID {
+	return e.scheduleAt(at, configurationEvent, callback)
+}
+
+// scheduleAt shares queue limits and cancellation bookkeeping for both event kinds.
+func (e *Engine) scheduleAt(at time.Duration, priority eventPriority, callback func()) EventID {
 	if callback == nil {
 		panic("engine: callback must not be nil")
 	}
@@ -85,6 +102,9 @@ func (e *Engine) ScheduleAt(at time.Duration, callback func()) EventID {
 	if at > e.endTime {
 		return 0
 	}
+	if priority == configurationEvent && at == e.lastOrdinaryAt {
+		panic("engine: configuration must be scheduled before ordinary work at its timestamp starts")
+	}
 
 	if e.nextID == ^EventID(0) {
 		panic("engine: event ID overflow")
@@ -92,14 +112,14 @@ func (e *Engine) ScheduleAt(at time.Duration, callback func()) EventID {
 
 	e.nextID++
 
-	item := &event{id: e.nextID, at: at, callback: callback}
+	item := &event{id: e.nextID, at: at, priority: priority, callback: callback}
 	heap.Push(&e.queue, item)
 
 	e.byID[item.id] = item
 	return item.id
 }
 
-// ScheduleAfter schedules relative to Now. Comparing with the remaining time
+// ScheduleAfter schedules relative to Now, or returns zero beyond the end time.
 func (e *Engine) ScheduleAfter(delay time.Duration, callback func()) EventID {
 	if callback == nil {
 		panic("engine: callback must not be nil")
@@ -169,6 +189,9 @@ func (e *Engine) RunUntil(until time.Duration) error {
 
 		e.now = item.at
 		e.executed++
+		if item.priority == ordinaryEvent {
+			e.lastOrdinaryAt = item.at
+		}
 
 		callback := item.callback
 		item.callback = nil
@@ -180,9 +203,17 @@ func (e *Engine) RunUntil(until time.Duration) error {
 	return nil
 }
 
+type eventPriority uint8
+
+const (
+	configurationEvent eventPriority = iota
+	ordinaryEvent
+)
+
 type event struct {
 	id       EventID
 	at       time.Duration
+	priority eventPriority
 	callback func()
 	index    int
 }
@@ -193,9 +224,12 @@ func (q eventQueue) Len() int {
 	return len(q)
 }
 
-// less puts earlier events first, equal-time events follow scheduling order (ID).
+// Earlier times run first; equal times use configuration priority, then scheduling order.
 func (q eventQueue) Less(i, j int) bool {
 	if q[i].at == q[j].at {
+		if q[i].priority != q[j].priority {
+			return q[i].priority < q[j].priority
+		}
 		return q[i].id < q[j].id
 	}
 	return q[i].at < q[j].at

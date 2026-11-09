@@ -19,6 +19,7 @@ func BackendNodeID(resourceID string) string { return "backend/" + resourceID }
 type Info struct {
 	LoadBalancerID                string
 	Algorithm                     string
+	ConfigurationRevision         uint64 // Committed world settings, independent of telemetry revisions.
 	Mode                          model.LBMode
 	Now                           time.Duration
 	EndTime                       time.Duration
@@ -88,7 +89,8 @@ type IngressObservation struct {
 func (s *World) Info() Info {
 	return Info{
 		LoadBalancerID: s.scenario.LoadBalancer.ID, Algorithm: s.algorithm, Mode: s.lb.Mode,
-		Now: s.engine.Now(), EndTime: s.engine.EndTime(),
+		ConfigurationRevision: s.configurationRevision(),
+		Now:                   s.engine.Now(), EndTime: s.engine.EndTime(),
 		SnapshotInterval: s.scenario.Execution.SnapshotInterval,
 		Speed:            s.scenario.Execution.Speed, Seed: s.scenario.Execution.Seed,
 		ReceiveBufferBytes: s.scenario.TCP.ReceiveBufferBytes,
