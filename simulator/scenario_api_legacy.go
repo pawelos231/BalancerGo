@@ -1,0 +1,154 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"time"
+
+	"load-balancer/internal/contract"
+	"load-balancer/scenario"
+)
+
+// Defaults builds the same initial scenario used by the existing Go settings.
+func (api *scenarioAPI) Defaults() scenario.Scenario {
+	return api.defaults.scenarioDefinition()
+}
+
+// StartScenario queues a checked scenario; closing the HTTP request cannot stop it.
+func (api *scenarioAPI) StartScenario(
+	ctx context.Context,
+	input scenario.Scenario,
+	resolved scenario.Normalized,
+) (contract.RunReceipt, error) {
+	document, err := scenario.EncodeDocument(input)
+	if err != nil {
+		return contract.RunReceipt{}, err
+	}
+	receipt, err := api.control.startScenario(ctx, document, resolved)
+	return contract.RunReceipt{RunID: receipt.RunID, Status: receipt.Status}, admissionError(err)
+}
+
+func prepareLegacyStart(request startRequest, defaults configuration) (preparedStart, error) {
+	if request.scenario != nil {
+		resolved := *request.scenario
+		return preparedStart{scenario: resolved, config: scenarioSummary(resolved)}, nil
+	}
+
+	requested := defaults.publicConfig()
+	previousCongestionMode := requested.CongestionControl
+	// Older payloads omit this flag. Keep omission distinct from an explicit true.
+	inputSettings := struct {
+		*contract.SimulationConfig
+		FastRetransmit *bool `json:"fastRetransmit"`
+	}{SimulationConfig: &requested}
+	decoder := json.NewDecoder(bytes.NewReader(request.legacy.Payload))
+	decoder.DisallowUnknownFields()
+	if bytes.Equal(bytes.TrimSpace(request.legacy.Payload), []byte("null")) {
+		return preparedStart{}, errors.New("configuration must be a JSON object")
+	}
+	if err := decoder.Decode(&inputSettings); err != nil {
+		return preparedStart{}, err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return preparedStart{}, errors.New("configuration must contain exactly one JSON object")
+	}
+	if inputSettings.FastRetransmit != nil {
+		requested.FastRetransmit = *inputSettings.FastRetransmit
+	} else if requested.CongestionControl != previousCongestionMode {
+		// Changing the mode uses its default retry policy when the flag is omitted.
+		requested.FastRetransmit = requested.CongestionControl != "none"
+	} else if requested.CongestionControl == "none" {
+		requested.FastRetransmit = false
+	}
+
+	prepared, err := preparePublicScenario(requested, defaults)
+	if err != nil {
+		return preparedStart{}, err
+	}
+	document, err := scenario.EncodeDocument(prepared.definition)
+	return preparedStart{
+		scenario: prepared.resolved,
+		config:   requested,
+		document: document,
+	}, err
+}
+
+// scenarioSummary adapts shared defaults for the old form during the HTTP migration.
+// Profiles and overrides remain available in full through CurrentRun.
+func scenarioSummary(resolved scenario.Normalized) contract.SimulationConfig {
+	execution := resolved.Execution
+	links := resolved.NetworkDefaults
+	stream := resolved.DefaultStream
+	ingress := resolved.LoadBalancer.Ingress
+	lbHost := resolved.LoadBalancer.Host
+	backendHost := scenario.DefaultHostConfig()
+	if len(resolved.Backends) > 0 {
+		// Native scenarios retain all overrides; the old form summarizes the first backend.
+		backendHost = resolved.Backends[0].Host
+	}
+	return contract.SimulationConfig{
+		Clients:                            resolved.TotalClients,
+		Servers:                            len(resolved.Backends),
+		Packets:                            stream.Packets,
+		Bytes:                              stream.Bytes,
+		MSSBytes:                           resolved.TCP.MSSBytes,
+		ReceiveBufferBytes:                 resolved.TCP.ReceiveBufferBytes,
+		SACKEnabled:                        resolved.TCP.SACKEnabled,
+		ECNEnabled:                         resolved.TCP.ECNEnabled,
+		DelayedACKEnabled:                  resolved.TCP.DelayedACK.Enabled,
+		DelayedACKSegments:                 resolved.TCP.DelayedACK.SegmentsPerACK,
+		DelayedACKMaxDelayMs:               float64(resolved.TCP.DelayedACK.MaxDelay) / float64(time.Millisecond),
+		CongestionControl:                  resolved.TCP.CongestionControl.Mode,
+		FastRetransmit:                     resolved.TCP.CongestionControl.FastRetransmit,
+		CubicFastConvergence:               resolved.TCP.CongestionControl.CubicFastConvergence,
+		InitialCongestionWindowSegments:    resolved.TCP.CongestionControl.InitialWindowSegments,
+		MaximumCongestionWindowSegments:    resolved.TCP.CongestionControl.MaximumWindowSegments,
+		InitialSlowStartThresholdBytes:     resolved.TCP.CongestionControl.InitialSlowStartThresholdBytes,
+		RTOMode:                            string(resolved.TCP.RTO.Mode),
+		RTOBackoff:                         resolved.TCP.RTO.ExponentialBackoff,
+		RTOInitialMs:                       float64(resolved.TCP.RTO.InitialTimeout) / float64(time.Millisecond),
+		RTOMinimumMs:                       float64(resolved.TCP.RTO.MinimumTimeout) / float64(time.Millisecond),
+		RTOMaximumMs:                       float64(resolved.TCP.RTO.MaximumTimeout) / float64(time.Millisecond),
+		TCPMSLMs:                           float64(resolved.TCP.Close.MSL) / float64(time.Millisecond),
+		TCPFinWaitTimeoutMs:                float64(resolved.TCP.Close.FinWaitTimeout) / float64(time.Millisecond),
+		TCPMaxFINRetries:                   resolved.TCP.Close.MaxFINRetries,
+		ClientIdleTimeoutMs:                float64(resolved.TCP.ClientIdleTimeout) / float64(time.Millisecond),
+		BackendHalfOpenIdleTimeoutMs:       float64(resolved.TCP.BackendHalfOpenIdleTimeout) / float64(time.Millisecond),
+		BackendEstablishedIdleTimeoutMs:    float64(resolved.TCP.BackendEstablishedIdleTimeout) / float64(time.Millisecond),
+		LBHalfOpenIdleTimeoutMs:            float64(resolved.LoadBalancer.HalfOpenIdleTimeout) / float64(time.Millisecond),
+		LBEstablishedIdleTimeoutMs:         float64(resolved.LoadBalancer.EstablishedIdleTimeout) / float64(time.Millisecond),
+		LBClosingIdleTimeoutMs:             float64(resolved.LoadBalancer.ClosingIdleTimeout) / float64(time.Millisecond),
+		LBResetIdleTimeoutMs:               float64(resolved.LoadBalancer.ResetIdleTimeout) / float64(time.Millisecond),
+		LBHostCores:                        lbHost.Cores,
+		LBPacketProcessingTimeUs:           float64(lbHost.PacketProcessingTime) / float64(time.Microsecond),
+		LBCPUQueueCapacity:                 lbHost.QueueCapacity,
+		BackendHostCores:                   backendHost.Cores,
+		BackendPacketProcessingTimeUs:      float64(backendHost.PacketProcessingTime) / float64(time.Microsecond),
+		BackendCPUQueueCapacity:            backendHost.QueueCapacity,
+		DurationSeconds:                    execution.Duration.Seconds(),
+		SnapshotIntervalMs:                 float64(execution.SnapshotInterval) / float64(time.Millisecond),
+		PacketGapMs:                        float64(stream.PacketGap) / float64(time.Millisecond),
+		BandwidthBitsPerSecond:             links.BandwidthBitsPerSecond,
+		ForwardingBitsPerSecond:            resolved.LoadBalancer.ForwardingBitsPerSecond,
+		PacketTravelTimeMs:                 float64(links.PacketTravelTime) / float64(time.Millisecond),
+		LinkQueue:                          links.QueueCapacity,
+		Loss:                               links.LossRate,
+		QueuePolicy:                        links.QueuePolicy,
+		CongestionThresholdPercent:         links.CongestionThresholdPercent,
+		CongestionSignalProbability:        links.CongestionSignalProbability,
+		IngressBandwidthBitsPerSecond:      ingress.BandwidthBitsPerSecond,
+		IngressPacketTravelTimeMs:          float64(ingress.PacketTravelTime) / float64(time.Millisecond),
+		IngressQueueCapacity:               ingress.QueueCapacity,
+		IngressLoss:                        ingress.LossRate,
+		IngressQueuePolicy:                 ingress.QueuePolicy,
+		IngressCongestionThresholdPercent:  ingress.CongestionThresholdPercent,
+		IngressCongestionSignalProbability: ingress.CongestionSignalProbability,
+		Seed:                               execution.Seed,
+		Algorithm:                          resolved.LoadBalancer.Algorithm,
+		Speed:                              execution.Speed,
+		MaxEvents:                          execution.MaxEvents,
+	}
+}

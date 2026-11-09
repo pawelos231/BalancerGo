@@ -301,7 +301,7 @@ func TestScenarioRuntimeSharesBudgetAcrossClientAndBackendOutputs(t *testing.T) 
 				clientStarts += physicalStarts
 			}
 		}
-		for _, backend := range s.scenario.Backends {
+		for _, backend := range s.configuration.Backends {
 			if link.Target == BackendNodeID(backend.ID) {
 				backendStarts += physicalStarts
 			}
@@ -367,7 +367,7 @@ func TestScenarioRuntimeSpawnUsesExplicitGroupSettings(t *testing.T) {
 	if len(s.clients) != 4 || s.scheduledClients != 4 {
 		t.Fatal("initial and spawned batches did not remain independent")
 	}
-	if s.scenario.ClientGroups[0].Count != 1 {
+	if s.configuration.ClientGroups[0].Count != 1 {
 		t.Fatal("spawn mutated the source scenario's original client count")
 	}
 
@@ -454,7 +454,7 @@ func TestScenarioRuntimeTopologyNamespaces(t *testing.T) {
 			t.Fatalf("link %q references a missing endpoint", link.ID)
 		}
 	})
-	if s.scenario.LoadBalancer.ID != "edge" {
+	if s.configuration.LoadBalancer.ID != "edge" {
 		t.Fatal("infrastructure namespacing replaced the configured LB resource id")
 	}
 }

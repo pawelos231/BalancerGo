@@ -17,8 +17,27 @@ func runWorld(
 	publish func() error,
 	handled func(error),
 ) error {
+	return runWorldWithPacing(ctx, world, commands, publish, handled, false)
+}
+
+// Headless execution changes pacing without editing the admitted configuration.
+func runUnpacedWorld(ctx context.Context, world *simulation.World) error {
+	return runWorldWithPacing(ctx, world, nil, nil, nil, true)
+}
+
+func runWorldWithPacing(
+	ctx context.Context,
+	world *simulation.World,
+	commands <-chan runtimeCommand,
+	publish func() error,
+	handled func(error),
+	unpaced bool,
+) error {
 	wallStart := time.Now()
 	execution := world.Info()
+	if unpaced {
+		execution.Speed = 0
+	}
 	nextSnapshot := wallStart.Add(execution.SnapshotInterval)
 
 	// Commands join the DES at its current time, independently of UI refreshes.

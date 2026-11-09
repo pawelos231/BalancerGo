@@ -56,7 +56,7 @@ func TestScenarioSeriesCLI(t *testing.T) {
 			}
 			report := readScenarioSeriesRun(t, directory, run.Report, "finished")
 			requested := input
-			requested.Execution.Seed = seed
+			requested.Fixed.Execution.Seed = seed
 			assertScenarioCLIManifest(t, report.Manifest, requested, false)
 
 			// Every run starts with zero counters and keeps endpoint overrides.
@@ -85,7 +85,7 @@ func TestScenarioSeriesCLI(t *testing.T) {
 
 		// A report's archived input can reproduce its model result via commit 4.
 		replay := input
-		replay.Execution.Seed = seeds[1]
+		replay.Fixed.Execution.Seed = seeds[1]
 		replayPath := writeScenarioCLIInput(t, replay)
 		replayOutput := executeScenarioCLI(t, executable, "-scenario", replayPath)
 		replayReport := decodeScenarioCLIReport(t, replayOutput, "finished")
@@ -123,7 +123,7 @@ func TestScenarioSeriesCLI(t *testing.T) {
 
 	t.Run("execution failures keep reports and continue the series", func(t *testing.T) {
 		input := scenarioCLIDefinition()
-		input.Execution.MaxEvents = 20
+		input.Fixed.Execution.MaxEvents = 20
 		inputPath := writeScenarioCLIInput(t, input)
 		directory := filepath.Join(t.TempDir(), "failures")
 		output := executeScenarioCLI(

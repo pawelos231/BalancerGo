@@ -48,7 +48,7 @@ type runtimeClient struct {
 // initializeClients reserves address ranges and schedules one arrival per group.
 // The remaining arrivals form a chain, rather than one upfront event per client.
 func (s *World) initializeClients(reservations []clientGroupReservation) {
-	groups := s.scenario.ClientGroups
+	groups := s.configuration.ClientGroups
 	if reservations == nil {
 		for _, group := range groups {
 			reservations = append(reservations, clientGroupReservation{group.ID, group.Count})
@@ -210,8 +210,8 @@ func (s *World) startClient(
 		80,
 		model.TCP,
 	)
-	cl.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
-	congestion := s.scenario.TCP.CongestionControl
+	cl.SetReceiveBufferBytes(s.fixed.TCP.ReceiveBufferBytes)
+	congestion := s.fixed.TCP.CongestionControl
 	cl.SetCongestionConfigWithMSS(model.CongestionConfig{
 		Mode:                           model.CongestionMode(congestion.Mode),
 		FastRetransmit:                 congestion.FastRetransmit,
@@ -219,14 +219,14 @@ func (s *World) startClient(
 		InitialWindowSegments:          congestion.InitialWindowSegments,
 		MaximumWindowSegments:          congestion.MaximumWindowSegments,
 		InitialSlowStartThresholdBytes: congestion.InitialSlowStartThresholdBytes,
-	}, s.scenario.TCP.MSSBytes)
-	cl.SetSACKEnabled(s.scenario.TCP.SACKEnabled)
-	cl.SetECNEnabled(s.scenario.TCP.ECNEnabled)
+	}, s.fixed.TCP.MSSBytes)
+	cl.SetSACKEnabled(s.fixed.TCP.SACKEnabled)
+	cl.SetECNEnabled(s.fixed.TCP.ECNEnabled)
 
 	// Each connection estimates its own RTT using the scenario's timer policy.
-	cl.SetRTOConfig(configuredRTO(s.scenario.TCP.RTO))
-	cl.SetCloseConfig(configuredClose(s.scenario.TCP.Close))
-	cl.SetIdleTimeout(s.scenario.TCP.ClientIdleTimeout)
+	cl.SetRTOConfig(configuredRTO(s.fixed.TCP.RTO))
+	cl.SetCloseConfig(configuredClose(s.fixed.TCP.Close))
+	cl.SetIdleTimeout(s.fixed.TCP.ClientIdleTimeout)
 
 	toInput := s.addLink(
 		"link/"+config.ID+"/to-lb",

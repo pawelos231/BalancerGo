@@ -28,7 +28,7 @@ type timelineRuntime struct {
 // Backend resources are bound only after their lifetime has started.
 type configurationCommit struct {
 	at                time.Duration
-	configuration     scenario.Normalized
+	configuration     scenario.NormalizedState
 	added             []scenario.NormalizedBackendState
 	removed           []string
 	backendStates     []backendStateChange
@@ -85,7 +85,7 @@ func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 
 	timeline := &timelineRuntime{plan: plan, revision: 1}
 	reservations := timelineClientReservations(initial.ClientGroups, commits)
-	world := newWorld(timelineConfiguration(plan, initial), timeline, reservations)
+	world := newWorld(plan.Fixed(), initial, timeline, reservations)
 	for _, backend := range initial.Backends {
 		world.applyBackendState(backendStateChange{
 			id: backend.ID, available: backend.PhysicalAvailable,
@@ -123,7 +123,7 @@ func prepareConfigurationCommits(plan *scenario.CompiledV2) ([]configurationComm
 		}
 		commit := configurationCommit{
 			at:            transition.At,
-			configuration: timelineConfiguration(plan, state),
+			configuration: state,
 			removed:       transition.Backends.Removed,
 			groups:        transition.ClientGroups,
 			names:         make([]backendNameChange, 0, len(transition.Backends.Updated)),
@@ -217,27 +217,6 @@ func (s *World) prepareResourceCommits(commits []configurationCommit) {
 	}
 }
 
-// timelineConfiguration adapts checked state data to the existing world constructor.
-// Physical availability and admission are applied separately to their owners.
-func timelineConfiguration(plan *scenario.CompiledV2, state scenario.NormalizedState) scenario.Normalized {
-	fixed := plan.Fixed()
-	backends := make([]scenario.NormalizedBackend, 0, len(state.Backends))
-	for _, backend := range state.Backends {
-		backends = append(backends, backend.NormalizedBackend)
-	}
-	return scenario.Normalized{
-		Version:         scenario.VersionV2,
-		Execution:       fixed.Execution,
-		TCP:             fixed.TCP,
-		NetworkDefaults: fixed.NetworkDefaults,
-		DefaultStream:   fixed.DefaultStream,
-		LoadBalancer:    state.LoadBalancer,
-		Backends:        backends,
-		ClientGroups:    state.ClientGroups,
-		TotalClients:    plan.TotalClients(),
-	}
-}
-
 // commitConfiguration runs to completion as one configuration-priority event.
 // Publish the new configuration and its generation only after every edit is applied.
 func (s *World) commitConfiguration(commit *configurationCommit) {
@@ -289,7 +268,7 @@ func (s *World) commitConfiguration(commit *configurationCommit) {
 		s.applyBackendState(change)
 	}
 	s.commitClientGroups(commit.groups, commit.at)
-	s.scenario = commit.configuration
+	s.configuration = commit.configuration
 	s.timeline.committedAt = commit.at
 	s.timeline.revision++
 }

@@ -1,9 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"context"
-	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,7 +10,7 @@ import (
 )
 
 // Contract examples preserve their timestamps, profiles and explicit overrides
-// when decoded and written again, without needing a v2 simulation executor.
+// when decoded and written again, before execution.
 func TestScenarioV2ExamplesRoundTrip(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join("..", "examples", "scenarios-v2", "*.json"))
 	if err != nil {
@@ -41,7 +38,7 @@ func TestScenarioV2ExamplesRoundTrip(t *testing.T) {
 				t.Fatalf("example changed during round trip: %v", err)
 			}
 
-			// The complete timeline must validate, even though runtime admission stays disabled.
+			// The complete timeline validates before runtime admission.
 			resolved, err := scenario.NormalizeV2(input)
 			if err != nil {
 				t.Fatalf("example failed timeline validation: %v", err)
@@ -50,7 +47,7 @@ func TestScenarioV2ExamplesRoundTrip(t *testing.T) {
 				t.Fatal("normalized example lost its initial state or transitions")
 			}
 
-			// Compilation prepares instructions, while the existing runtime still rejects v2.
+			// Compilation prepares every transition before world construction.
 			plan, err := scenario.CompileV2(input)
 			if err != nil {
 				t.Fatalf("example failed timeline compilation: %v", err)
@@ -60,36 +57,4 @@ func TestScenarioV2ExamplesRoundTrip(t *testing.T) {
 			}
 		})
 	}
-}
-
-// The new reader can inspect v2, but existing entry points must reject the entire
-// document instead of quietly running its first state through the v1 executor.
-func TestScenarioV2CannotRunBeforeRuntimeMigration(t *testing.T) {
-	path := filepath.Join("..", "examples", "scenarios-v2", "static.json")
-	document, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := scenario.DecodeDocumentV2(document); err != nil {
-		t.Fatalf("v2 example is not readable by its own codec: %v", err)
-	}
-
-	t.Run("HTTP", func(t *testing.T) {
-		h := newScenarioHarness(t)
-		for _, endpoint := range []string{"/api/scenarios/validate", "/api/simulations"} {
-			scenarioRequest(t, h.server, http.MethodPost, endpoint, document, http.StatusBadRequest)
-		}
-		scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusNotFound)
-		if h.control.currentRun() != nil || h.control.contextForRun() != nil || len(h.control.starts) != 0 {
-			t.Fatal("v2 document reserved or created a run through the old HTTP entry point")
-		}
-	})
-
-	t.Run("CLI", func(t *testing.T) {
-		var output bytes.Buffer
-		err := runScenarioFile(context.Background(), configuration{scenarioPath: path}, &output)
-		if err == nil || output.Len() != 0 {
-			t.Fatalf("v2 must fail before execution or report output: error=%v output=%s", err, output.Bytes())
-		}
-	})
 }

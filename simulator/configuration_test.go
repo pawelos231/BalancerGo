@@ -741,5 +741,11 @@ func readPreparedTestConfiguration(t *testing.T, args ...string) (configuration,
 	}()
 	flag.CommandLine = flag.NewFlagSet("configuration-test", flag.ContinueOnError)
 	os.Args = append([]string{"configuration-test"}, args...)
-	return readConfiguration()
+	config, native, err := readConfiguration()
+	if err != nil || native == nil {
+		return config, nil, err
+	}
+	// Legacy form assertions remain here until the frontend moves to v2.
+	prepared, err := config.prepareScenario()
+	return config, &prepared, err
 }

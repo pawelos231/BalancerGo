@@ -20,6 +20,15 @@ func EncodeDocumentV2(input ScenarioV2) ([]byte, error) {
 	return json.Marshal(value)
 }
 
+// EncodeNormalizedDocumentV2 exposes effective states without expanding clients.
+func EncodeNormalizedDocumentV2(input NormalizedV2) ([]byte, error) {
+	value, err := encodeDocumentValue(reflect.ValueOf(input), "resolved")
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(value)
+}
+
 // DecodeDocumentV2 reads a strict v2 document without resolving its timeline.
 // Ordinary missing fields retain zero values, as in the v1 document reader.
 func DecodeDocumentV2(data []byte) (ScenarioV2, error) {

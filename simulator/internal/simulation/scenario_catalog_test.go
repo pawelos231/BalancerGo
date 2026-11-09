@@ -134,7 +134,7 @@ func TestCatalogSlowACKPath(t *testing.T) {
 	slow := runCatalogScenario(t, input)
 	control := scenarioFileRoundTrip(t, input)
 	var slowData uint64
-	for index, backend := range slow.scenario.Backends {
+	for index, backend := range slow.configuration.Backends {
 		returnLink := scenarioRuntimeLink(t, slow, BackendNodeID(backend.ID), LoadBalancerNodeID)
 		stats := returnLink.Stats()
 		config := returnLink.Link.Config()
@@ -152,7 +152,7 @@ func TestCatalogSlowACKPath(t *testing.T) {
 	}
 	fast := runCatalogScenario(t, control)
 	var fastData uint64
-	for _, backend := range fast.scenario.Backends {
+	for _, backend := range fast.configuration.Backends {
 		fastData += scenarioRuntimeLink(t, fast, LoadBalancerNodeID, BackendNodeID(backend.ID)).Stats().DeliveredBytes
 	}
 	if slowData == 0 || fastData <= 2*slowData {

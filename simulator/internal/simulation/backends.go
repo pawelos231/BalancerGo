@@ -22,15 +22,15 @@ func (s *World) addBackend(config scenario.NormalizedBackend) {
 		0, 1, 100, // Distance, initial weight and half-open limit.
 	)
 	srv.SetHostConfig(configuredHost(config.Host))
-	srv.SetReceiveBufferBytes(s.scenario.TCP.ReceiveBufferBytes)
-	srv.SetSACKEnabled(s.scenario.TCP.SACKEnabled)
-	srv.SetECNEnabled(s.scenario.TCP.ECNEnabled)
-	srv.SetDelayedACKConfig(configuredDelayedACK(s.scenario.TCP.DelayedACK))
-	srv.SetRTOConfig(configuredRTO(s.scenario.TCP.RTO))
-	srv.SetCloseConfig(configuredClose(s.scenario.TCP.Close))
+	srv.SetReceiveBufferBytes(s.fixed.TCP.ReceiveBufferBytes)
+	srv.SetSACKEnabled(s.fixed.TCP.SACKEnabled)
+	srv.SetECNEnabled(s.fixed.TCP.ECNEnabled)
+	srv.SetDelayedACKConfig(configuredDelayedACK(s.fixed.TCP.DelayedACK))
+	srv.SetRTOConfig(configuredRTO(s.fixed.TCP.RTO))
+	srv.SetCloseConfig(configuredClose(s.fixed.TCP.Close))
 	srv.SetIdleTimeouts(
-		s.scenario.TCP.BackendHalfOpenIdleTimeout,
-		s.scenario.TCP.BackendEstablishedIdleTimeout,
+		s.fixed.TCP.BackendHalfOpenIdleTimeout,
+		s.fixed.TCP.BackendEstablishedIdleTimeout,
 	)
 	srv.OnPayloadReceived = func(bytes int) {
 		s.payload.ReceivedBytes += uint64(bytes)

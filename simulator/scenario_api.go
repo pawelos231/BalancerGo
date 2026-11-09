@@ -1,15 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
 	httpserver "load-balancer/http"
 	"load-balancer/internal/contract"
+	"load-balancer/internal/simulation"
 	"load-balancer/scenario"
-	"time"
 )
 
 // scenarioAPI connects HTTP to admission control without accessing live models.
@@ -24,26 +21,26 @@ type scenarioAPI struct {
 // Document is set only when the legacy WS input still needs a stored scenario.
 type preparedStart struct {
 	scenario scenario.Normalized
+	plan     *scenario.CompiledV2
 	config   contract.SimulationConfig
 	document []byte
 }
 
-// Defaults builds the same initial scenario used by the existing Go settings.
-func (api *scenarioAPI) Defaults() scenario.Scenario {
-	return api.defaults.scenarioDefinition()
+func (api *scenarioAPI) DefaultsV2() scenario.ScenarioV2 {
+	return api.defaults.scenarioDefinitionV2()
 }
 
-// StartScenario queues a checked scenario; closing the HTTP request cannot stop it.
-func (api *scenarioAPI) StartScenario(
+// StartScenarioV2 retains the complete document admitted by the HTTP compiler.
+func (api *scenarioAPI) StartScenarioV2(
 	ctx context.Context,
-	input scenario.Scenario,
-	resolved scenario.Normalized,
+	input scenario.ScenarioV2,
+	plan *scenario.CompiledV2,
 ) (contract.RunReceipt, error) {
-	document, err := scenario.EncodeDocument(input)
+	document, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		return contract.RunReceipt{}, err
 	}
-	receipt, err := api.control.startScenario(ctx, document, resolved)
+	receipt, err := api.control.startTimeline(ctx, document, plan)
 	return contract.RunReceipt{RunID: receipt.RunID, Status: receipt.Status}, admissionError(err)
 }
 
@@ -68,123 +65,26 @@ func (api *scenarioAPI) CurrentTopology() json.RawMessage {
 
 // prepareStart keeps WS settings compatible while HTTP supplies a checked scenario.
 func prepareStart(request startRequest, defaults configuration) (preparedStart, error) {
-	if request.scenario != nil {
-		resolved := *request.scenario
-		return preparedStart{scenario: resolved, config: scenarioSummary(resolved)}, nil
+	if request.plan != nil {
+		return preparedStart{plan: request.plan, config: scenarioSummaryV2(request.plan)}, nil
 	}
-
-	requested := defaults.publicConfig()
-	previousCongestionMode := requested.CongestionControl
-	// Older payloads omit this flag. Keep omission distinct from an explicit true.
-	inputSettings := struct {
-		*contract.SimulationConfig
-		FastRetransmit *bool `json:"fastRetransmit"`
-	}{SimulationConfig: &requested}
-	decoder := json.NewDecoder(bytes.NewReader(request.legacy.Payload))
-	decoder.DisallowUnknownFields()
-	if bytes.Equal(bytes.TrimSpace(request.legacy.Payload), []byte("null")) {
-		return preparedStart{}, errors.New("configuration must be a JSON object")
-	}
-	if err := decoder.Decode(&inputSettings); err != nil {
-		return preparedStart{}, err
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return preparedStart{}, errors.New("configuration must contain exactly one JSON object")
-	}
-	if inputSettings.FastRetransmit != nil {
-		requested.FastRetransmit = *inputSettings.FastRetransmit
-	} else if requested.CongestionControl != previousCongestionMode {
-		// Changing the mode uses its default retry policy when the flag is omitted.
-		requested.FastRetransmit = requested.CongestionControl != "none"
-	} else if requested.CongestionControl == "none" {
-		requested.FastRetransmit = false
-	}
-
-	prepared, err := preparePublicScenario(requested, defaults)
-	if err != nil {
-		return preparedStart{}, err
-	}
-	document, err := scenario.EncodeDocument(prepared.definition)
-	return preparedStart{
-		scenario: prepared.resolved,
-		config:   requested,
-		document: document,
-	}, err
+	return prepareLegacyStart(request, defaults)
 }
 
-// scenarioSummary adapts shared defaults for the old form during the HTTP migration.
-// Profiles and overrides remain available in full through CurrentRun.
-func scenarioSummary(resolved scenario.Normalized) contract.SimulationConfig {
-	execution := resolved.Execution
-	links := resolved.NetworkDefaults
-	stream := resolved.DefaultStream
-	ingress := resolved.LoadBalancer.Ingress
-	lbHost := resolved.LoadBalancer.Host
-	backendHost := scenario.DefaultHostConfig()
-	if len(resolved.Backends) > 0 {
-		// Native scenarios retain all overrides; the old form summarizes the first backend.
-		backendHost = resolved.Backends[0].Host
-	}
+// The old form displays a summary; the run record retains every native state.
+func scenarioSummaryV2(plan *scenario.CompiledV2) contract.SimulationConfig {
+	fixed := plan.Fixed()
+	initial, _ := plan.StateAt(0)
 	return contract.SimulationConfig{
-		Clients:                            resolved.TotalClients,
-		Servers:                            len(resolved.Backends),
-		Packets:                            stream.Packets,
-		Bytes:                              stream.Bytes,
-		MSSBytes:                           resolved.TCP.MSSBytes,
-		ReceiveBufferBytes:                 resolved.TCP.ReceiveBufferBytes,
-		SACKEnabled:                        resolved.TCP.SACKEnabled,
-		ECNEnabled:                         resolved.TCP.ECNEnabled,
-		DelayedACKEnabled:                  resolved.TCP.DelayedACK.Enabled,
-		DelayedACKSegments:                 resolved.TCP.DelayedACK.SegmentsPerACK,
-		DelayedACKMaxDelayMs:               float64(resolved.TCP.DelayedACK.MaxDelay) / float64(time.Millisecond),
-		CongestionControl:                  resolved.TCP.CongestionControl.Mode,
-		FastRetransmit:                     resolved.TCP.CongestionControl.FastRetransmit,
-		CubicFastConvergence:               resolved.TCP.CongestionControl.CubicFastConvergence,
-		InitialCongestionWindowSegments:    resolved.TCP.CongestionControl.InitialWindowSegments,
-		MaximumCongestionWindowSegments:    resolved.TCP.CongestionControl.MaximumWindowSegments,
-		InitialSlowStartThresholdBytes:     resolved.TCP.CongestionControl.InitialSlowStartThresholdBytes,
-		RTOMode:                            string(resolved.TCP.RTO.Mode),
-		RTOBackoff:                         resolved.TCP.RTO.ExponentialBackoff,
-		RTOInitialMs:                       float64(resolved.TCP.RTO.InitialTimeout) / float64(time.Millisecond),
-		RTOMinimumMs:                       float64(resolved.TCP.RTO.MinimumTimeout) / float64(time.Millisecond),
-		RTOMaximumMs:                       float64(resolved.TCP.RTO.MaximumTimeout) / float64(time.Millisecond),
-		TCPMSLMs:                           float64(resolved.TCP.Close.MSL) / float64(time.Millisecond),
-		TCPFinWaitTimeoutMs:                float64(resolved.TCP.Close.FinWaitTimeout) / float64(time.Millisecond),
-		TCPMaxFINRetries:                   resolved.TCP.Close.MaxFINRetries,
-		ClientIdleTimeoutMs:                float64(resolved.TCP.ClientIdleTimeout) / float64(time.Millisecond),
-		BackendHalfOpenIdleTimeoutMs:       float64(resolved.TCP.BackendHalfOpenIdleTimeout) / float64(time.Millisecond),
-		BackendEstablishedIdleTimeoutMs:    float64(resolved.TCP.BackendEstablishedIdleTimeout) / float64(time.Millisecond),
-		LBHalfOpenIdleTimeoutMs:            float64(resolved.LoadBalancer.HalfOpenIdleTimeout) / float64(time.Millisecond),
-		LBEstablishedIdleTimeoutMs:         float64(resolved.LoadBalancer.EstablishedIdleTimeout) / float64(time.Millisecond),
-		LBClosingIdleTimeoutMs:             float64(resolved.LoadBalancer.ClosingIdleTimeout) / float64(time.Millisecond),
-		LBResetIdleTimeoutMs:               float64(resolved.LoadBalancer.ResetIdleTimeout) / float64(time.Millisecond),
-		LBHostCores:                        lbHost.Cores,
-		LBPacketProcessingTimeUs:           float64(lbHost.PacketProcessingTime) / float64(time.Microsecond),
-		LBCPUQueueCapacity:                 lbHost.QueueCapacity,
-		BackendHostCores:                   backendHost.Cores,
-		BackendPacketProcessingTimeUs:      float64(backendHost.PacketProcessingTime) / float64(time.Microsecond),
-		BackendCPUQueueCapacity:            backendHost.QueueCapacity,
-		DurationSeconds:                    execution.Duration.Seconds(),
-		SnapshotIntervalMs:                 float64(execution.SnapshotInterval) / float64(time.Millisecond),
-		PacketGapMs:                        float64(stream.PacketGap) / float64(time.Millisecond),
-		BandwidthBitsPerSecond:             links.BandwidthBitsPerSecond,
-		ForwardingBitsPerSecond:            resolved.LoadBalancer.ForwardingBitsPerSecond,
-		PacketTravelTimeMs:                 float64(links.PacketTravelTime) / float64(time.Millisecond),
-		LinkQueue:                          links.QueueCapacity,
-		Loss:                               links.LossRate,
-		QueuePolicy:                        links.QueuePolicy,
-		CongestionThresholdPercent:         links.CongestionThresholdPercent,
-		CongestionSignalProbability:        links.CongestionSignalProbability,
-		IngressBandwidthBitsPerSecond:      ingress.BandwidthBitsPerSecond,
-		IngressPacketTravelTimeMs:          float64(ingress.PacketTravelTime) / float64(time.Millisecond),
-		IngressQueueCapacity:               ingress.QueueCapacity,
-		IngressLoss:                        ingress.LossRate,
-		IngressQueuePolicy:                 ingress.QueuePolicy,
-		IngressCongestionThresholdPercent:  ingress.CongestionThresholdPercent,
-		IngressCongestionSignalProbability: ingress.CongestionSignalProbability,
-		Seed:                               execution.Seed,
-		Algorithm:                          resolved.LoadBalancer.Algorithm,
-		Speed:                              execution.Speed,
-		MaxEvents:                          execution.MaxEvents,
+		Clients: plan.TotalClients(), Servers: len(initial.Backends),
+		Algorithm: initial.LoadBalancer.Algorithm, Seed: fixed.Execution.Seed,
+		Speed: fixed.Execution.Speed,
 	}
+}
+
+func (prepared preparedStart) newWorld() (*simulation.World, error) {
+	if prepared.plan != nil {
+		return simulation.NewTimeline(prepared.plan)
+	}
+	return simulation.New(prepared.scenario), nil
 }

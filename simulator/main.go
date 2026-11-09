@@ -57,9 +57,12 @@ func run() error {
 
 	// Headless runs remain explicit CLI experiments without a browser.
 	if defaults.headless {
-		sim := simulation.New(prepared.resolved)
+		sim, err := simulation.NewTimeline(prepared.plan)
+		if err != nil {
+			return err
+		}
 		started := time.Now()
-		err = runWorld(ctx, sim, nil, nil, nil)
+		err = runUnpacedWorld(ctx, sim)
 		result := presentation.BuildResult(sim, time.Since(started))
 		if encodeErr := json.NewEncoder(os.Stdout).Encode(result); encodeErr != nil {
 			return encodeErr

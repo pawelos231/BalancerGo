@@ -154,7 +154,12 @@ func runInteractive(
 		if current != nil {
 			current.Stop()
 		}
-		current = simulation.New(prepared.scenario)
+		current, err = prepared.newWorld()
+		if err != nil {
+			control.setRunStatus(runID, "failed")
+			control.finishRun()
+			return err
+		}
 		publicationState = &runPublication{
 			hub: hub, topology: publication, projector: presentation.NewProjector(runID),
 			runID: runID, experiment: &request.experiment, started: started,

@@ -21,11 +21,12 @@ import (
 // World owns the protocol endpoints, network and virtual-time measurements.
 // All access, including observation, belongs to one owner goroutine.
 type World struct {
-	scenario     scenario.Normalized
-	engine       *engine.Engine
-	timeline     *timelineRuntime
-	lb           *balancer.LoadBalancer
-	algorithmRNG *rand.Rand
+	fixed         scenario.NormalizedFixedConfig
+	configuration scenario.NormalizedState
+	engine        *engine.Engine
+	timeline      *timelineRuntime
+	lb            *balancer.LoadBalancer
+	algorithmRNG  *rand.Rand
 
 	egress           *network.Egress
 	ingress          *network.Ingress
@@ -67,33 +68,29 @@ func (link namedLink) Stats() network.Stats {
 	return link.Link.Stats()
 }
 
-// New builds a world from a validated scenario kept read-only.
-// Clients and their two links are created only when their arrival event runs.
-func New(resolved scenario.Normalized) *World {
-	return newWorld(resolved, nil, nil)
-}
-
 // newWorld installs timeline reservations before scheduling any client births.
 func newWorld(
-	resolved scenario.Normalized,
+	fixed scenario.NormalizedFixedConfig,
+	initial scenario.NormalizedState,
 	timeline *timelineRuntime,
 	reservations []clientGroupReservation,
 ) *World {
-	execution := resolved.Execution
+	execution := fixed.Execution
 	e := engine.New(execution.Duration)
 	e.MaxEvents = execution.MaxEvents
 
 	s := &World{
-		scenario:  resolved,
-		timeline:  timeline,
-		algorithm: resolved.LoadBalancer.Algorithm,
-		engine:    e,
-		backends:  make(map[string]*runtimeBackend, len(resolved.Backends)),
+		fixed:         fixed,
+		configuration: initial,
+		timeline:      timeline,
+		algorithm:     initial.LoadBalancer.Algorithm,
+		engine:        e,
+		backends:      make(map[string]*runtimeBackend, len(initial.Backends)),
 	}
 	s.algorithmRNG = s.resourceRNG("algorithm")
 
 	var algorithm algorithms.Algorithm = &algorithms.RoundRobin{}
-	if resolved.LoadBalancer.Algorithm == "random" {
+	if initial.LoadBalancer.Algorithm == "random" {
 		algorithm = &algorithms.Random{RNG: s.algorithmRNG}
 	}
 
@@ -103,14 +100,14 @@ func newWorld(
 		algorithm,
 		s.resourceRNG("balancer"),
 	)
-	s.lb.SetMappingTimeouts(configuredMappingTimeouts(resolved.LoadBalancer))
-	s.lb.SetHostConfig(configuredHost(resolved.LoadBalancer.Host))
-	s.egress = network.NewEgress(e, resolved.LoadBalancer.ForwardingBitsPerSecond)
+	s.lb.SetMappingTimeouts(configuredMappingTimeouts(initial.LoadBalancer))
+	s.lb.SetHostConfig(configuredHost(initial.LoadBalancer.Host))
+	s.egress = network.NewEgress(e, initial.LoadBalancer.ForwardingBitsPerSecond)
 
 	// Two input queues share one physical receiver before LB processing.
-	s.connectIngress(resolved.LoadBalancer.Ingress)
-	for _, backend := range resolved.Backends {
-		s.addBackend(backend)
+	s.connectIngress(initial.LoadBalancer.Ingress)
+	for _, backend := range initial.Backends {
+		s.addBackend(backend.NormalizedBackend)
 	}
 
 	s.initializeClients(reservations)
@@ -157,7 +154,7 @@ func (s *World) AdvanceBatch(ctx context.Context, until time.Duration) (bool, er
 // Creating other links or reading snapshots cannot change this sequence.
 func (s *World) resourceRNG(id string) *rand.Rand {
 	var seed [8]byte
-	binary.LittleEndian.PutUint64(seed[:], uint64(s.scenario.Execution.Seed))
+	binary.LittleEndian.PutUint64(seed[:], uint64(s.fixed.Execution.Seed))
 
 	hash := fnv.New64a()
 	_, _ = hash.Write(seed[:])

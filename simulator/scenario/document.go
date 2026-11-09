@@ -73,7 +73,8 @@ func encodeDocumentValue(value reflect.Value, path string) (any, error) {
 	case reflect.Struct:
 		object := make(map[string]any)
 		for index := 0; index < value.NumField(); index++ {
-			name, omitEmpty := documentField(value.Type().Field(index))
+			fieldType := value.Type().Field(index)
+			name, omitEmpty := documentField(fieldType)
 			field := value.Field(index)
 			if name == "-" || (omitEmpty && emptyDocumentValue(field)) {
 				continue
@@ -81,6 +82,13 @@ func encodeDocumentValue(value reflect.Value, path string) (any, error) {
 			encoded, err := encodeDocumentValue(field, path+"."+name)
 			if err != nil {
 				return nil, err
+			}
+			// Embedded backend settings share their parent's JSON object.
+			if fieldType.Anonymous && field.Kind() == reflect.Struct && fieldType.Tag.Get("json") == "" {
+				for key, item := range encoded.(map[string]any) {
+					object[key] = item
+				}
+				continue
 			}
 			object[name] = encoded
 		}

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"math"
 	"os"
 	"time"
 
@@ -64,7 +63,7 @@ type configuration struct {
 	outputDirectory string
 }
 
-func readConfiguration() (configuration, *preparedScenario, error) {
+func readConfiguration() (configuration, *loadedScenario, error) {
 	var c configuration
 	ingressDefaults := scenario.DefaultIngressConfig()
 	c.registerTCPFlags()
@@ -191,11 +190,31 @@ func readConfiguration() (configuration, *preparedScenario, error) {
 	}
 	// Keep raw defaults for the form and retain the prepared CLI scenario.
 	// A later frontend request prepares its own settings independently.
-	prepared, err := c.prepareScenario()
+	prepared, err := c.prepareScenarioV2()
 	if err != nil {
 		return c, nil, err
 	}
 	return c, &prepared, nil
+}
+
+// prepareScenarioV2 compiles the native CLI document before creating a world.
+func (c configuration) prepareScenarioV2() (loadedScenario, error) {
+	if c.clients < 0 || c.clients > scenario.MaxClients || c.servers < 0 {
+		return loadedScenario{}, errors.New("invalid client or server count")
+	}
+	if c.servers > scenario.MaxBackends {
+		return loadedScenario{}, fmt.Errorf("server count must not exceed %d", scenario.MaxBackends)
+	}
+	definition := c.scenarioDefinitionV2()
+	plan, err := scenario.CompileV2(definition)
+	if err != nil {
+		return loadedScenario{}, err
+	}
+	document, err := scenario.EncodeDocumentV2(definition)
+	if err != nil {
+		return loadedScenario{}, err
+	}
+	return loadedScenario{document: document, definition: definition, plan: plan}, nil
 }
 
 // checkFileOptions checks explicit paths and keeps JSON as the source of settings.
@@ -250,37 +269,4 @@ func (c configuration) checkFileOptions() error {
 		return errors.New("-output requires -scenario")
 	}
 	return nil
-}
-
-// preparedScenario keeps requested settings beside their checked runtime values.
-// For example, definition retains Bytes=-1 while resolved contains the byte count.
-type preparedScenario struct {
-	definition scenario.Scenario
-	resolved   scenario.Normalized
-}
-
-// prepareScenario builds and normalizes one scenario without changing defaults.
-func (c configuration) prepareScenario() (preparedScenario, error) {
-	if c.clients < 0 || c.clients > scenario.MaxClients || c.servers < 0 {
-		return preparedScenario{}, errors.New("invalid client or server count")
-	}
-	if c.servers > scenario.MaxBackends {
-		return preparedScenario{}, fmt.Errorf("server count must not exceed %d", scenario.MaxBackends)
-	}
-	if c.speed < 0 || math.IsNaN(c.speed) || math.IsInf(c.speed, 0) {
-		return preparedScenario{}, errors.New("speed must be finite and nonnegative")
-	}
-
-	definition := c.scenarioDefinition()
-	runtimeDefinition := definition
-	// Headless ignores playback speed after validating the requested value.
-	if c.headless {
-		runtimeDefinition.Execution.Speed = 0
-	}
-
-	resolved, err := scenario.Normalize(runtimeDefinition)
-	if err != nil {
-		return preparedScenario{}, err
-	}
-	return preparedScenario{definition: definition, resolved: resolved}, nil
 }

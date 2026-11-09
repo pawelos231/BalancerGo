@@ -24,9 +24,19 @@ var (
 // ScenarioService admits work to the simulation owner without touching its model.
 // The request context applies to admission, not the accepted run's lifetime.
 type ScenarioService interface {
-	Defaults() scenario.Scenario
-	StartScenario(context.Context, scenario.Scenario, scenario.Normalized) (contract.RunReceipt, error)
 	CurrentRun() *contract.RunRecord
+}
+
+// NativeScenarioService receives a compiled plan only after every state is checked.
+type NativeScenarioService interface {
+	DefaultsV2() scenario.ScenarioV2
+	StartScenarioV2(context.Context, scenario.ScenarioV2, *scenario.CompiledV2) (contract.RunReceipt, error)
+}
+
+type checkedScenario struct {
+	definition scenario.ScenarioV2
+	plan       *scenario.CompiledV2
+	legacy     *legacyScenario
 }
 
 // scenarioAPI translates bounded HTTP documents into calls on the owner service.
@@ -66,28 +76,38 @@ func scenarioRoute(method string, next http.HandlerFunc) http.HandlerFunc {
 
 // validate returns a canonical document while leaving the current run untouched.
 func (api scenarioAPI) validate(w http.ResponseWriter, r *http.Request) {
-	definition, resolved, ok := readScenario(w, r)
+	checked, ok := readScenario(w, r)
 	if !ok {
 		return
 	}
-	document, err := scenario.EncodeDocument(definition)
+	if checked.legacy != nil {
+		validateLegacyScenario(w, *checked.legacy)
+		return
+	}
+	document, err := scenario.EncodeDocumentV2(checked.definition)
 	if err != nil {
 		writeScenarioError(w, http.StatusInternalServerError, "unable to encode scenario")
 		return
 	}
-	resolvedDocument, err := scenario.EncodeNormalizedDocument(resolved)
+	resolved, err := scenario.NormalizeV2(checked.definition)
+	if err != nil {
+		writeScenarioError(w, http.StatusInternalServerError, "unable to resolve checked scenario")
+		return
+	}
+	resolvedDocument, err := scenario.EncodeNormalizedDocumentV2(resolved)
 	if err != nil {
 		writeScenarioError(w, http.StatusInternalServerError, "unable to encode resolved scenario")
 		return
 	}
 
+	initial, _ := checked.plan.StateAt(0)
 	response := contract.ScenarioValidationResponse{
 		Scenario: document,
 		Resolved: resolvedDocument,
 		Summary: contract.ScenarioSummary{
-			TotalClients:     resolved.TotalClients,
-			BackendCount:     len(resolved.Backends),
-			ClientGroupCount: len(resolved.ClientGroups),
+			TotalClients:     checked.plan.TotalClients(),
+			BackendCount:     len(initial.Backends),
+			ClientGroupCount: len(initial.ClientGroups),
 		},
 	}
 	writeScenarioJSON(w, http.StatusOK, response)
@@ -95,7 +115,18 @@ func (api scenarioAPI) validate(w http.ResponseWriter, r *http.Request) {
 
 // defaults serves the owner's scenario in the same format accepted by POST.
 func (api scenarioAPI) defaults(w http.ResponseWriter, r *http.Request) {
-	document, err := scenario.EncodeDocument(api.service.Defaults())
+	if r.URL.Query().Get("version") != "2" {
+		if legacy, ok := api.service.(LegacyScenarioService); ok {
+			writeLegacyDefaults(w, legacy)
+			return
+		}
+	}
+	service, ok := api.service.(NativeScenarioService)
+	if !ok {
+		writeScenarioError(w, http.StatusServiceUnavailable, "native scenario service is unavailable")
+		return
+	}
+	document, err := scenario.EncodeDocumentV2(service.DefaultsV2())
 	if err != nil {
 		writeScenarioError(w, http.StatusInternalServerError, "unable to encode default scenario")
 		return
@@ -105,11 +136,19 @@ func (api scenarioAPI) defaults(w http.ResponseWriter, r *http.Request) {
 
 // start validates first, then asks the owner to admit a new run.
 func (api scenarioAPI) start(w http.ResponseWriter, r *http.Request) {
-	definition, resolved, ok := readScenario(w, r)
+	checked, ok := readScenario(w, r)
 	if !ok {
 		return
 	}
-	receipt, err := api.service.StartScenario(r.Context(), definition, resolved)
+	var receipt contract.RunReceipt
+	var err error
+	if checked.legacy != nil {
+		receipt, err = startLegacyScenario(r.Context(), api.service, *checked.legacy)
+	} else if service, ok := api.service.(NativeScenarioService); ok {
+		receipt, err = service.StartScenarioV2(r.Context(), checked.definition, checked.plan)
+	} else {
+		err = ErrServiceClosed
+	}
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch {
@@ -137,13 +176,12 @@ func (api scenarioAPI) current(w http.ResponseWriter, r *http.Request) {
 }
 
 // readScenario separates malformed documents from valid JSON with invalid settings.
-func readScenario(w http.ResponseWriter, r *http.Request) (scenario.Scenario, scenario.Normalized, bool) {
-	var empty scenario.Scenario
-	var unresolved scenario.Normalized
+func readScenario(w http.ResponseWriter, r *http.Request) (checkedScenario, bool) {
+	var empty checkedScenario
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		writeScenarioError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
-		return empty, unresolved, false
+		return empty, false
 	}
 
 	body := http.MaxBytesReader(w, r.Body, maxScenarioBytes)
@@ -156,19 +194,30 @@ func readScenario(w http.ResponseWriter, r *http.Request) (scenario.Scenario, sc
 		} else {
 			writeScenarioError(w, http.StatusBadRequest, "unable to read scenario")
 		}
-		return empty, unresolved, false
+		return empty, false
 	}
-	definition, err := scenario.DecodeDocument(document)
+	var header struct {
+		Version json.RawMessage `json:"version"`
+	}
+	if err := json.Unmarshal(document, &header); err != nil {
+		writeScenarioError(w, http.StatusBadRequest, err.Error())
+		return empty, false
+	}
+	// Remove this boundary together with the old browser contract in E1.14.
+	if isLegacyScenarioVersion(header.Version) {
+		return readLegacyScenario(w, document)
+	}
+	definition, err := scenario.DecodeDocumentV2(document)
 	if err != nil {
 		writeScenarioError(w, http.StatusBadRequest, err.Error())
-		return empty, unresolved, false
+		return empty, false
 	}
-	resolved, err := scenario.Normalize(definition)
+	plan, err := scenario.CompileV2(definition)
 	if err != nil {
 		writeScenarioError(w, http.StatusUnprocessableEntity, err.Error())
-		return empty, unresolved, false
+		return empty, false
 	}
-	return definition, resolved, true
+	return checkedScenario{definition: definition, plan: plan}, true
 }
 
 // writeScenarioError keeps HTTP failures separate from WebSocket command errors.

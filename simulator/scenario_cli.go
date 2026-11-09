@@ -19,15 +19,15 @@ import (
 const experimentReportVersion = 1
 
 // loadedScenario keeps the importable input beside its checked runtime settings.
-// A series changes only the seed on value copies of these settings.
+// A series compiles a fresh plan after changing the seed.
 type loadedScenario struct {
 	document   []byte
-	definition scenario.Scenario
-	resolved   scenario.Normalized
+	definition scenario.ScenarioV2
+	plan       *scenario.CompiledV2
 }
 
-// runScenarioFile runs the same full document accepted by the frontend.
-// The report preserves its input; only the runtime copy disables wall-clock playback waits.
+// runScenarioFile executes the complete native document without playback waits.
+// The report preserves the admitted source, including its requested speed.
 func runScenarioFile(
 	ctx context.Context,
 	options configuration,
@@ -74,7 +74,7 @@ func runScenarioFile(
 	report, runErr := executeScenario(
 		ctx,
 		loaded.document,
-		loaded.resolved,
+		loaded.plan,
 		options.tracePath != "",
 	)
 
@@ -90,15 +90,17 @@ func runScenarioFile(
 func executeScenario(
 	ctx context.Context,
 	document []byte,
-	resolved scenario.Normalized,
+	plan *scenario.CompiledV2,
 	traced bool,
 ) (contract.ExperimentReport, error) {
-	resolved.Execution.Speed = 0
-	world := simulation.New(resolved)
+	world, err := simulation.NewTimeline(plan)
+	if err != nil {
+		return contract.ExperimentReport{}, err
+	}
 
 	// Match the existing headless clock: setup and report encoding are outside it.
 	wallStart := time.Now()
-	runErr := runWorld(ctx, world, nil, nil, nil)
+	runErr := runUnpacedWorld(ctx, world)
 	elapsed := time.Since(wallStart)
 
 	report := contract.ExperimentReport{
@@ -125,22 +127,22 @@ func loadScenarioFile(path string) (loadedScenario, error) {
 	if err != nil {
 		return loadedScenario{}, fmt.Errorf("read scenario: %w", err)
 	}
-	definition, err := scenario.DecodeDocument(input)
+	definition, err := scenario.DecodeDocumentV2(input)
 	if err != nil {
 		return loadedScenario{}, fmt.Errorf("decode scenario: %w", err)
 	}
-	resolved, err := scenario.Normalize(definition)
+	plan, err := scenario.CompileV2(definition)
 	if err != nil {
 		return loadedScenario{}, fmt.Errorf("validate scenario: %w", err)
 	}
-	document, err := scenario.EncodeDocument(definition)
+	document, err := scenario.EncodeDocumentV2(definition)
 	if err != nil {
 		return loadedScenario{}, fmt.Errorf("encode scenario: %w", err)
 	}
 	return loadedScenario{
 		document:   document,
 		definition: definition,
-		resolved:   resolved,
+		plan:       plan,
 	}, nil
 }
 

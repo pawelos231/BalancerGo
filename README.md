@@ -146,21 +146,23 @@ remain in the final state; reaching that time does not imply successful completi
 
 ### Run a full JSON scenario from CLI
 
-The same scenario exported from the frontend can run directly from a file.
+The CLI runs native version-2 scenario files, including every timed state.
+The current frontend still exports version 1 until its migration in E1.14.
 From the repository root, for example in PowerShell:
 
 ```powershell
 cd simulator
-$scenario = '../examples/scenarios/reference-near-fast-ack-short.json'
+$scenario = '../examples/scenarios-v2/burst-and-recovery.json'
 go run . -scenario $scenario -output run.json
 ```
 
 `-scenario` starts one experiment immediately, without HTTP, WebSocket or the
 frontend. It always runs without pacing, even if the document requests a positive
-speed. The runner uses the same strict decoder, validation and normalization as
+speed. The runner uses the same strict decoder, validation and compiler as
 the scenario API, including decimal strings for integers outside JavaScript's
 safe range. Profiles, directional links, groups and individual overrides remain
-part of the full configuration.
+part of the full configuration. Every state is checked before creating the world;
+an invalid later state rejects the whole run. Version-1 CLI files are rejected.
 
 With `-output`, the report goes into that file and stdout stays empty. Omit
 `-output` to print the report as one JSON document to stdout. Output and trace
@@ -189,7 +191,7 @@ requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
 so formatting changes to the source file do not change this identifier.
 `manifest.execution` records `headless: true`, the effective `speed: 0` and
 whether tracing was enabled. `manifest.model` identifies the current
-`tcp-sack-v1` profile. `result.TCP.ReceiveBufferBytes`
+`host-cpu-v1` profile. `result.TCP.ReceiveBufferBytes`
 records the effective receive-buffer limit, including an omitted input's default.
 `result.TCP.RTO` and `result.LBIdleTimeouts` record the effective timer policy.
 `result.ClientTimings` retains each created client's latest RTT estimates and RTO,
@@ -219,7 +221,7 @@ the same measurement boundary as the interactive UI run.
 From `simulator/`, provide the scenario, an ordered seed list and a new directory:
 
 ```powershell
-$scenario = '../examples/scenarios/reference-near-fast-ack-short.json'
+$scenario = '../examples/scenarios-v2/burst-and-recovery.json'
 go run . -scenario $scenario -seeds '1,2,3' -output-dir runs-001
 ```
 
@@ -227,6 +229,7 @@ Each seed starts a fresh world and produces its own `run-0001.json`,
 `run-0002.json`, and so on. Runs execute sequentially without pacing. The input
 file is loaded once and stays unchanged. Each report uses the single-run format
 above; its scenario and checksum include the seed actually used for that run.
+Each run changes only `fixed.execution.seed` and compiles a fresh timeline.
 
 Seeds are comma-separated, signed base-10 `int64` values. Surrounding whitespace
 is allowed. Order and duplicates are preserved; for example,
@@ -296,38 +299,41 @@ published port.
 
 ## Scenario configuration foundation
 
-`simulator/scenario/` defines version 1 of the scenario configuration:
+`simulator/scenario/` defines version 2 of the scenario configuration:
 
 | Part        | Contents                                                           |
 | ----------- | ------------------------------------------------------------------ |
-| `execution` | Virtual duration, real-time UI refresh interval, seed, pacing and event limit. |
-| `network`   | Link defaults and named profiles.                                  |
-| `resources` | Load balancer settings and individually configured backends.       |
-| `workload`  | Stream defaults, compact client groups and individual overrides.   |
+| `fixed` | Run-wide execution, TCP, LB identity, link profiles and stream defaults. |
+| `states` | Complete resource and workload configurations keyed by decimal nanoseconds, including `"0"`. |
 
-`scenario.Normalize` resolves profiles and overrides into independent values,
+`scenario.NormalizeV2` resolves profiles and overrides into independent states,
 validates identifiers and settings, and resolves stream sizes. Patch fields use
 pointers so an explicit zero differs from an omitted value. Groups remain compact;
 normalization does not allocate one object for every configured client.
+`scenario.CompileV2` validates the entire document and prepares all transitions.
 
-The runtime now uses the normalized scenario. Each client gets its own access
+The runtime consumes the compiled plan's fixed settings and current state directly.
+Each client gets its own access
 and return link when it arrives; each backend also has its own pair. Groups,
 profiles and individual overrides can assign different settings in each direction.
-The CLI creates one group with shared defaults. The frontend edits one scenario
-document, preserving its client groups, profiles and individual overrides.
-Its single **Start simulation** button sends that document through HTTP.
-Native JSON files can be imported and exported through the frontend's
-**Scenario files** panel; ready examples are in [examples/scenarios](examples/scenarios/README.md).
+CLI flags create a one-state v2 document. Runnable timeline examples are in
+[examples/scenarios-v2](examples/scenarios-v2/README.md). The frontend temporarily
+uses a v1 input adapter for its form, library, import/export and HTTP Start.
+That adapter builds the same native world and retains the admitted v1 source and
+its matching hash. Its historical zero-duration runs still end at exactly zero;
+native v2 requires a positive duration.
 
 Access links feed two LB input FIFOs: one for clients and one for backends.
 Both use one shared physical input link. All LB outputs share a separate
 forwarding budget. Both limits remain independent of endpoint link speeds.
-`resources.loadBalancer.ingress` configures
+`states[at].resources.loadBalancer.ingress` configures
 the common input; `scenario.DefaultIngressConfig()` supplies its Go defaults.
 Each output has one FIFO, configured by the destination's
-`network.fromLoadBalancer.queueCapacity`, falling back to `network.defaults`.
+`network.fromLoadBalancer.queueCapacity`, falling back to `fixed.network.defaults`.
 
-The `spawnClient` command uses the group's network and stream settings. Its
+Native v2 runs reject manual `setAlgorithm` and `spawnClient` commands at admission,
+including while Start is pending. Configuration changes belong in `states`; Stop
+remains available. The temporary v1 browser's `spawnClient` command uses the group's network and stream settings. Its
 optional `groupId` selects that group and is required when more than one group
 exists. Spawned clients arrive from the current virtual time, separated by the
 group's `clientGapNanoseconds`. Their indices follow the group's initial range,
@@ -338,7 +344,7 @@ Scenario duration fields have explicit `Nanoseconds` JSON names and retain nativ
 and decimal strings outside ±(2^53−1), for example `"18446744073709551615"`
 for a large event limit. Integer strings are accepted for all integer fields;
 unsafe unquoted numbers, fractional integers and unknown fields are rejected.
-`scenario.EncodeDocument` and `DecodeDocument` handle this transport boundary;
+`scenario.EncodeDocumentV2` and `DecodeDocumentV2` handle this transport boundary;
 the model and normalizer continue using native Go types.
 
 ### Mutable virtual CPUs
@@ -370,16 +376,17 @@ one idle core for 1 s give 2 / 3 utilization.
 
 ## Scenario HTTP API
 
-All routes use the same `scenario.Normalize` rules, including profiles and
+Native requests use `scenario.CompileV2`, including all later states, profiles and
 directional overrides. POST requests require `Content-Type: application/json`
 and one complete scenario object, with a maximum body of 2 MiB.
 
 | Method | Route                               | Result                                                                                       |
 | ------ | ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| GET    | `/api/scenarios/defaults`           | Initial scenario derived from the Go/CLI settings.                                           |
+| GET    | `/api/scenarios/defaults?version=2` | Native v2 scenario derived from the Go/CLI settings.                                        |
+| GET    | `/api/scenarios/defaults`           | Temporary v1 defaults for the existing browser.                                             |
 | POST   | `/api/scenarios/validate`           | Canonical scenario, counts and resolved effective configuration; no model is created.        |
 | POST   | `/api/simulations`                  | `202` with `runId` and `status: "accepted"`.                                                 |
-| GET    | `/api/simulations/current`          | Run ID, lifecycle status and exact initial scenario; `404` when none exists.                 |
+| GET    | `/api/simulations/current`          | Run ID, lifecycle status and full canonical admitted scenario; `404` when none exists.       |
 | GET    | `/api/simulations/current/topology` | Latest graph definition with `runId` and `revision`; `404` before publication or after Stop. |
 
 The HTTP and WS paths share one start reservation. A concurrent Start returns
@@ -389,17 +396,19 @@ The HTTP and WS paths share one start reservation. A concurrent Start returns
 Accepted runs belong to the service, so completing or canceling the HTTP request
 does not stop them. WS snapshots identify their run with `simulation.runId`.
 The current document remains available after completion or failure and reconnect;
-**Stop and clear** removes it. Runtime commands do not rewrite that initial document.
+**Stop and clear** removes it. WebSocket experiment hashes identify this same full
+canonical source. Headless pacing changes do not edit its requested speed or hash.
+POST routes temporarily also accept v1 documents for the current browser.
 
 For example, with Docker Compose running:
 
 ```powershell
 $base = 'http://localhost:8081'
-$scenario = Invoke-RestMethod "$base/api/scenarios/defaults"
-$scenario.execution.durationNanoseconds = 1000000000
-$scenario.execution.speed = 0
-$scenario.workload.defaults.bytes = 1024
-$scenario.workload.clientGroups[0].count = 8
+$scenario = Invoke-RestMethod "$base/api/scenarios/defaults?version=2"
+$scenario.fixed.execution.durationNanoseconds = 1000000000
+$scenario.fixed.execution.speed = 0
+$scenario.fixed.workload.defaults.bytes = 1024
+$scenario.states.'0'.workload.clientGroups[0].count = 8
 $body = $scenario | ConvertTo-Json -Depth 32
 
 Invoke-RestMethod "$base/api/scenarios/validate" -Method Post -ContentType 'application/json' -Body $body
@@ -969,7 +978,7 @@ Address ranges use every group's maximum budget across the full plan, sorted by
 ID, so later insertion and growth cannot move or reuse another client's address.
 `ScheduledClients` reports current planned births, including those already born
 from removed groups; it is separate from the plan's address reservation bound.
-CLI and HTTP version-2 admission remains deferred to E1.13. See the
+CLI and HTTP execute these complete version-2 timelines. See the
 [client-generator execution rules](examples/scenarios-v2/README.md#client-generators-and-access-links-e112)
 for timing, overrides and metric details.
 

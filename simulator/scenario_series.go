@@ -56,15 +56,18 @@ func runScenarioSeries(
 
 		// Only the seed changes. The base input and its requested pacing stay intact.
 		definition := loaded.definition
-		definition.Execution.Seed = seed
-		document, err := scenario.EncodeDocument(definition)
+		definition.Fixed.Execution.Seed = seed
+		document, err := scenario.EncodeDocumentV2(definition)
 		if err != nil {
 			entry.Status, entry.Error = "failed", err.Error()
 			return finishScenarioSeries(directory, index, stdout, err)
 		}
-		resolved := loaded.resolved
-		resolved.Execution.Seed = seed
-		report, runErr := executeScenario(ctx, document, resolved, false)
+		plan, err := scenario.CompileV2(definition)
+		if err != nil {
+			entry.Status, entry.Error = "failed", err.Error()
+			return finishScenarioSeries(directory, index, stdout, err)
+		}
+		report, runErr := executeScenario(ctx, document, plan, false)
 
 		filename := entry.ID + ".json"
 		if err := writeSeriesRun(filepath.Join(directory, filename), report); err != nil {

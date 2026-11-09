@@ -46,8 +46,8 @@ func TestScenarioCLI(t *testing.T) {
 				first.Result.AcknowledgedPayloadBytes,
 			)
 		}
-		if first.Result.Seed != input.Execution.Seed {
-			t.Fatalf("seed = %d, want %d", first.Result.Seed, input.Execution.Seed)
+		if first.Result.Seed != input.Fixed.Execution.Seed {
+			t.Fatalf("seed = %d, want %d", first.Result.Seed, input.Fixed.Execution.Seed)
 		}
 		if first.Result.TCP.ReceiveBufferBytes != 65535 {
 			t.Fatalf("default receive buffer missing from report: %+v", first.Result.TCP)
@@ -65,7 +65,7 @@ func TestScenarioCLI(t *testing.T) {
 	t.Run("small receive buffer survives the scenario and report", func(t *testing.T) {
 		input := scenarioCLIDefinition()
 		capacity := 64
-		input.TCP.ReceiveBufferBytes = &capacity
+		input.Fixed.TCP.ReceiveBufferBytes = &capacity
 		path := writeScenarioCLIInput(t, input)
 
 		output := executeScenarioCLI(t, executable, "-scenario", path)
@@ -123,7 +123,7 @@ func TestScenarioCLI(t *testing.T) {
 
 	t.Run("event limit retains a failed report", func(t *testing.T) {
 		input := scenarioCLIDefinition()
-		input.Execution.MaxEvents = 20
+		input.Fixed.Execution.MaxEvents = 20
 		path := writeScenarioCLIInput(t, input)
 		output := executeScenarioCLI(t, executable, "-scenario", path)
 		report := decodeScenarioCLIReport(t, output, "failed")
@@ -137,13 +137,15 @@ func TestScenarioCLI(t *testing.T) {
 	})
 
 	t.Run("invalid documents leave no report", func(t *testing.T) {
-		valid, err := scenario.EncodeDocument(scenarioCLIDefinition())
+		valid, err := scenario.EncodeDocumentV2(scenarioCLIDefinition())
 		if err != nil {
 			t.Fatal(err)
 		}
 		invalid := scenarioCLIDefinition()
-		invalid.Resources.LoadBalancer.ForwardingBitsPerSecond = 0
-		invalidSettings, err := scenario.EncodeDocument(invalid)
+		invalidState := invalid.States["0"]
+		invalidState.Resources.LoadBalancer.ForwardingBitsPerSecond = 0
+		invalid.States["0"] = invalidState
+		invalidSettings, err := scenario.EncodeDocumentV2(invalid)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -152,6 +154,11 @@ func TestScenarioCLI(t *testing.T) {
 			document []byte
 			message  string
 		}{
+			{
+				name:     "legacy version",
+				document: []byte(`{"version":1}`),
+				message:  "expected version 2",
+			},
 			{
 				name:     "unknown field",
 				document: append([]byte(`{"unexpected":1,`), valid[1:]...),
@@ -358,13 +365,19 @@ func TestScenarioCLICancellation(t *testing.T) {
 }
 
 // A large seed exercises exact integer handling; slow playback must be ignored.
-func scenarioCLIDefinition() scenario.Scenario {
-	input := scenarioRuntimeDefinition()
-	input.Execution.Seed = 9_007_199_254_740_993
-	input.Execution.Speed = 0.001
-	input.Resources.LoadBalancer.Algorithm = "random"
-	input.Workload.Defaults.Bytes = 2050
-	input.Network.Profiles = []scenario.LinkProfile{
+func scenarioCLIDefinition() scenario.ScenarioV2 {
+	input := legacyTestConfiguration().scenarioDefinitionV2()
+	input.Fixed.Execution.Duration = 500 * time.Millisecond
+	input.Fixed.Network.Defaults = scenario.LinkConfig{BandwidthBitsPerSecond: 8_000_000, QueueCapacity: 32}
+	state := input.States["0"]
+	state.Resources.LoadBalancer.Ingress = input.Fixed.Network.Defaults
+	state.Resources.LoadBalancer.ForwardingBitsPerSecond = 9_223_372_036_854_775_807
+	input.Fixed.Workload.Defaults = scenario.StreamConfig{Bytes: 0}
+	input.Fixed.Execution.Seed = 9_007_199_254_740_993
+	input.Fixed.Execution.Speed = 0.001
+	state.Resources.LoadBalancer.Algorithm = "random"
+	input.Fixed.Workload.Defaults.Bytes = 2050
+	input.Fixed.Network.Profiles = []scenario.LinkProfile{
 		{
 			ID: "fast",
 			Config: scenario.LinkPatch{
@@ -379,9 +392,9 @@ func scenarioCLIDefinition() scenario.Scenario {
 			},
 		},
 	}
-	input.Resources.Backends[0].Network.Profile = "fast"
-	input.Resources.Backends[1].Network.Profile = "slow"
-	input.Workload.ClientGroups = []scenario.ClientGroup{
+	state.Resources.Backends[0].Network.Profile = "fast"
+	state.Resources.Backends[1].Network.Profile = "slow"
+	state.Workload.ClientGroups = []scenario.ClientGroup{
 		{
 			ID:      "fast",
 			Count:   2,
@@ -400,6 +413,7 @@ func scenarioCLIDefinition() scenario.Scenario {
 			Network: scenario.EndpointNetworkConfig{Profile: "slow"},
 		},
 	}
+	input.States["0"] = state
 	return input
 }
 
@@ -418,7 +432,7 @@ func assertScenarioCLILinks(t *testing.T, result contract.SimulationResult) {
 func assertScenarioCLIManifest(
 	t *testing.T,
 	encoded json.RawMessage,
-	input scenario.Scenario,
+	input scenario.ScenarioV2,
 	traceEnabled bool,
 ) {
 	t.Helper()
@@ -454,7 +468,7 @@ func assertScenarioCLIManifest(
 	}
 
 	// The archived input retains requested playback and exact large integers.
-	canonical, err := scenario.EncodeDocument(input)
+	canonical, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,12 +483,12 @@ func assertScenarioCLIManifest(
 	if manifest.ScenarioSHA256 != hex.EncodeToString(checksum[:]) {
 		t.Fatalf("manifest checksum = %q", manifest.ScenarioSHA256)
 	}
-	restored, err := scenario.DecodeDocument(manifest.Scenario)
+	restored, err := scenario.DecodeDocumentV2(manifest.Scenario)
 	if err != nil {
 		t.Fatalf("stored scenario cannot be replayed: %v", err)
 	}
-	if restored.Execution.Seed != input.Execution.Seed ||
-		restored.Execution.Speed != input.Execution.Speed {
+	if restored.Fixed.Execution.Seed != input.Fixed.Execution.Seed ||
+		restored.Fixed.Execution.Speed != input.Fixed.Execution.Speed {
 		t.Fatal("stored scenario lost the original seed or playback settings")
 	}
 }
@@ -546,9 +560,9 @@ func executeScenarioCLI(
 	}
 }
 
-func writeScenarioCLIInput(t *testing.T, input scenario.Scenario) string {
+func writeScenarioCLIInput(t *testing.T, input scenario.ScenarioV2) string {
 	t.Helper()
-	encoded, err := scenario.EncodeDocument(input)
+	encoded, err := scenario.EncodeDocumentV2(input)
 	if err != nil {
 		t.Fatal(err)
 	}

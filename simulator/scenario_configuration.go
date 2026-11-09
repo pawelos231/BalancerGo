@@ -6,9 +6,9 @@ import (
 	"load-balancer/scenario"
 )
 
-// scenarioDefinition maps CLI and browser settings to the scenario model.
+// scenarioDefinitionV2 maps CLI settings directly to a one-state v2 document.
 // Shared ingress, endpoint links and forwarding keep their independent settings.
-func (c configuration) scenarioDefinition() scenario.Scenario {
+func (c configuration) scenarioDefinitionV2() scenario.ScenarioV2 {
 	mssBytes := c.effectiveMSSBytes()
 	receiveBufferBytes := c.receiveBufferBytes
 	if receiveBufferBytes == 0 {
@@ -24,9 +24,9 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 	closingIdle, resetIdle := c.effectiveLBFinalIdleTimeouts()
 	backendHalfOpen, backendEstablished := c.effectiveBackendIdleTimeouts()
 
-	backends := make([]scenario.BackendConfig, c.servers)
+	backends := make([]scenario.BackendStateConfig, c.servers)
 	for i := range backends {
-		backends[i] = scenario.BackendConfig{
+		backends[i] = scenario.BackendStateConfig{
 			ID:      fmt.Sprintf("srv-%02d", i),
 			Name:    fmt.Sprintf("backend-%02d", i),
 			Address: fmt.Sprintf("10.0.%d.%d", i/254, i%254+1),
@@ -35,8 +35,7 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 		}
 	}
 
-	return scenario.Scenario{
-		Version: scenario.Version,
+	fixed := scenario.FixedConfig{
 		TCP: scenario.TCPConfig{
 			MSSBytes:           &mssBytes,
 			ReceiveBufferBytes: &receiveBufferBytes,
@@ -88,31 +87,42 @@ func (c configuration) scenarioDefinition() scenario.Scenario {
 				CongestionSignalProbability: c.congestionSignalProbability,
 			},
 		},
-		Resources: scenario.ResourcesConfig{
-			LoadBalancer: scenario.LoadBalancerConfig{
-				ID:                      "lb",
-				Algorithm:               c.algorithm,
-				Host:                    *hostInput(effectiveHostConfig(c.lbHost)),
-				Ingress:                 c.ingress,
-				ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
-				HalfOpenIdleTimeout:     &halfOpenIdle,
-				EstablishedIdleTimeout:  &establishedIdle,
-				ClosingIdleTimeout:      &closingIdle,
-				ResetIdleTimeout:        &resetIdle,
-			},
-			Backends: backends,
-		},
-		Workload: scenario.WorkloadConfig{
+		LoadBalancer: scenario.LoadBalancerIdentity{ID: "lb"},
+		Workload: scenario.WorkloadDefaultsConfig{
 			Defaults: scenario.StreamConfig{
 				Packets:   c.packets,
 				Bytes:     c.streamBytes,
 				PacketGap: c.packetGap,
 			},
+		},
+	}
+	initial := scenario.StateConfig{
+		Resources: scenario.StateResourcesConfig{
+			LoadBalancer: scenario.LoadBalancerStateConfig{
+				Algorithm:               c.algorithm,
+				Host:                    *hostInput(effectiveHostConfig(c.lbHost)),
+				Ingress:                 c.ingress,
+				ForwardingBitsPerSecond: c.forwardingBitsPerSecond,
+				MappingTimeouts: scenario.LoadBalancerTimeoutConfig{
+					HalfOpenIdleTimeout:    &halfOpenIdle,
+					EstablishedIdleTimeout: &establishedIdle,
+					ClosingIdleTimeout:     &closingIdle,
+					ResetIdleTimeout:       &resetIdle,
+				},
+			},
+			Backends: backends,
+		},
+		Workload: scenario.StateWorkloadConfig{
 			ClientGroups: []scenario.ClientGroup{{
 				ID:        "clients",
 				Count:     c.clients,
 				ClientGap: c.clientGap,
 			}},
 		},
+	}
+	return scenario.ScenarioV2{
+		Version: scenario.VersionV2,
+		Fixed:   fixed,
+		States:  map[string]scenario.StateConfig{"0": initial},
 	}
 }

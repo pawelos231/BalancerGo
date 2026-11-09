@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"load-balancer/internal/contract"
+	"load-balancer/internal/simulation"
 	"load-balancer/scenario"
 )
 
@@ -51,6 +52,7 @@ type startRequest struct {
 	runID      string
 	legacy     *runtimeCommand
 	scenario   *scenario.Normalized
+	plan       *scenario.CompiledV2
 	experiment contract.ExperimentContext
 }
 
@@ -66,6 +68,7 @@ type runController struct {
 	cancelRun     context.CancelFunc
 	reservedRunID string // Includes accepted starts whose model has not been created yet.
 	pendingStop   *stopRequest
+	nativeRun     bool
 }
 
 func newRunController(ctx context.Context) *runController {
@@ -99,6 +102,9 @@ func (c *runController) submit(ctx context.Context, command runtimeCommand) erro
 		if c.cancelRun == nil || c.pendingStop != nil {
 			return errors.New("start the simulation before sending a command")
 		}
+		if c.nativeRun {
+			return simulation.ErrTimelineManualMutation
+		}
 	default:
 		return fmt.Errorf("unsupported application command: %d", command.kind)
 	}
@@ -109,6 +115,29 @@ func (c *runController) submit(ctx context.Context, command runtimeCommand) erro
 	default:
 		return errCommandQueueFull
 	}
+}
+
+// startTimeline admits an immutable plan and retains the same canonical source.
+func (c *runController) startTimeline(
+	ctx context.Context,
+	document []byte,
+	plan *scenario.CompiledV2,
+) (runReceipt, error) {
+	if plan == nil {
+		return runReceipt{}, errors.New("compiled scenario is required")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return runReceipt{}, err
+	}
+	request := startRequest{
+		plan: plan,
+		experiment: experimentContext(document, contract.ExperimentExecution{
+			Speed: plan.Fixed().Execution.Speed,
+		}),
+	}
+	return c.enqueueStart(request, document)
 }
 
 // startScenario reserves the same start slot as WS, independent of request lifetime.
@@ -149,6 +178,7 @@ func (c *runController) enqueueStart(request startRequest, document []byte) (run
 	select {
 	case c.starts <- request:
 		c.reservedRunID = runID
+		c.nativeRun = request.plan != nil
 		if document != nil {
 			c.current = &runRecord{
 				RunID:      runID,
@@ -254,6 +284,7 @@ func (c *runController) finishRunLocked() {
 		c.cancelRun()
 	}
 	c.runCtx, c.cancelRun = nil, nil
+	c.nativeRun = false
 	if c.pendingStop == nil {
 		c.reservedRunID = ""
 	}

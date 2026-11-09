@@ -1,15 +1,19 @@
 # Version 2 scenario contract examples
 
-These are **contract examples, NOT RUNNABLE until E1.13**. They describe the
-planned timeline format; the CLI, HTTP runtime and frontend still use version 1.
-They live outside `examples/scenarios/*.json` so existing presets and tests do
-not discover them as runnable scenarios.
+These are runnable version-2 timeline examples for the CLI and HTTP API.
+Every state is validated and compiled before Start, then applied atomically at
+its virtual timestamp. The existing frontend still uses version 1 until E1.14;
+its temporary boundary adapter remains separate from native v2 execution.
+
+From `simulator/`, run `go run . -scenario ../examples/scenarios-v2/burst-and-recovery.json`.
+Use `GET /api/scenarios/defaults?version=2` for native HTTP defaults and POST a full
+v2 document to `/api/scenarios/validate` or `/api/simulations`.
 
 `scenario.DecodeDocumentV2` and `scenario.EncodeDocumentV2` check document syntax.
 `scenario.NormalizeV2` additionally validates the whole timeline and resolves
 each state independently. The frontend has matching types and local validation.
 The internal `simulation.NewTimeline` runtime executes all compiled transitions,
-including client generators. Public CLI/HTTP admission remains deferred to E1.13.
+including client generators. CLI and HTTP use this same executor.
 
 | File | Intended experiment | Target application payload |
 | --- | --- | --- |
@@ -78,8 +82,8 @@ or a checkpoint/resume format.
 
 ## Timeline runtime rules
 
-The internal timeline runtime implements these rules. The current public entry
-points continue to accept version 1 until E1.13.
+The native CLI and HTTP timeline runtime implements these rules. A temporary
+HTTP input adapter also serves the existing v1 browser until E1.14.
 
 - `fixed`, including the LB ID, is immutable throughout a run. A retained backend
   keeps its ID, address, port and role; its display `name` may change. IDs cannot
@@ -195,7 +199,7 @@ existing clients, and removing a backend does not instantly clear remote TCP sta
 
 E1.5 supplies atomic execution; E1.6 through E1.12 implement the resource handlers,
 address reservations and generator progress described below.
-CLI, HTTP and the current frontend still reject or do not submit runnable v2.
+CLI and HTTP execute the full compiled plan; the current frontend still submits v1.
 
 ## Internal execution boundary (E1.5)
 
@@ -230,7 +234,7 @@ sample describes the latest complete state.
 
 Manual `SetAlgorithm` and `SpawnClients` are blocked for timeline worlds. Stop
 still clears pending events, including future configuration commits. CLI/HTTP
-admission remains deferred to E1.13 and frontend migration to E1.14.
+admission supports v2; frontend migration remains scheduled for E1.14.
 
 ## Mutable directed links (E1.6)
 
@@ -303,7 +307,7 @@ Ingress, forwarding and backend edits at one timestamp are prepared before the
 run and applied in one configuration event. Applying settings processes no packet
 handlers. A fresh topology definition publishes the current shared limits and
 input capacities under the same resource IDs before the first snapshot using them.
-CLI and HTTP execution of version 2 remains deferred to E1.13.
+CLI and HTTP execute these edits through the same native timeline runtime.
 
 ## Mutable LB mapping policy (E1.9)
 
@@ -322,8 +326,8 @@ immediately, close an endpoint or reroute a flow. Zero disables that phase's cle
 Algorithm objects and checked timeout settings are prepared before execution.
 The configuration event installs them with the rest of its state, then publishes
 one revision. Current configuration, algorithm metadata and refreshed topology
-definitions therefore describe the same complete state. CLI/HTTP admission remains
-deferred to E1.13.
+definitions therefore describe the same complete state. CLI/HTTP admission checks
+all policy changes before creating the world.
 
 ## Physical availability and administrative drain (E1.11)
 
@@ -378,7 +382,7 @@ retains JSON-compatible numbers and decimal strings. Invalid Unicode surrogate
 escapes are replaced with U+FFFD, matching Go's JSON reader.
 
 The existing form, file import and Start still use v1. This module is the v2
-validation foundation; runtime admission follows in E1.13 and UI migration in E1.14.
+validation foundation; runtime admission supports v2 and UI migration follows in E1.14.
 
 `validation/cases.json` supplies the same valid and invalid inputs to Go and
 TypeScript tests. Each case edits a fresh copy of `static.json`; optional text
