@@ -200,7 +200,7 @@ func (ingress *Ingress) dispatch() {
 	ingress.lossesBefore = ingress.link.stats.LostPackets
 	oldest.stats.Transmitting = true
 
-	started := ingress.link.TryStart(packet.sizeBytes, func() {
+	started := ingress.link.tryStartAdmitted(packet.sizeBytes, func() {
 		oldest.stats.TravellingPackets--
 		oldest.stats.DeliveredPackets++
 		oldest.stats.DeliveredBytes += uint64(packet.sizeBytes)

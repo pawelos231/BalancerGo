@@ -67,7 +67,12 @@ func NewLink(e *engine.Engine, config Config, rng *rand.Rand) *Link {
 	if e == nil {
 		panic("network: engine must not be nil")
 	}
+	validateLinkConfig(config, rng)
+	return &Link{engine: e, config: config, rng: rng}
+}
 
+// validateLinkConfig checks limits before a link is created or reconfigured.
+func validateLinkConfig(config Config, rng *rand.Rand) {
 	if config.BandwidthBitsPerSecond <= 0 {
 		panic("network: bandwidth must be positive bits per second")
 	}
@@ -88,8 +93,35 @@ func NewLink(e *engine.Engine, config Config, rng *rand.Rand) *Link {
 		panic("network: probabilistic loss requires a link-owned random source")
 	}
 	validateCongestionConfig(config)
+}
 
-	return &Link{engine: e, config: config, rng: rng}
+// PreparedConfig holds a checked edit for one existing link.
+// Apply only installs settings; active packets keep the values captured at their start.
+type PreparedConfig struct {
+	link          *Link
+	config        Config
+	congestionRNG *rand.Rand
+}
+
+// PrepareConfig validates an edit without changing the link or its counters.
+// A newly enabled probabilistic queue policy needs its own random source.
+func (l *Link) PrepareConfig(config Config, congestionRNG *rand.Rand) PreparedConfig {
+	validateLinkConfig(config, l.rng)
+	needsRNG := config.QueuePolicy == "threshold" &&
+		config.CongestionSignalProbability > 0 && config.CongestionSignalProbability < 1
+	if needsRNG && l.congestionRNG == nil && congestionRNG == nil {
+		panic("network: probabilistic congestion signaling requires a random source")
+	}
+	return PreparedConfig{link: l, config: config, congestionRNG: congestionRNG}
+}
+
+// Apply preserves queues, statistics and any random stream already in use.
+// Shrinking capacity rejects new waiting packets without discarding admitted ones.
+func (update PreparedConfig) Apply() {
+	if update.link.congestionRNG == nil && update.congestionRNG != nil {
+		update.link.congestionRNG = update.congestionRNG
+	}
+	update.link.config = update.config
 }
 
 // Transmit returns whether a packet was admitted, rather than whether it will
@@ -120,8 +152,9 @@ func (l *Link) TransmitECN(sizeBytes int, state ECNState, onArrival func(marked 
 
 	packet := transmission{
 		sizeBytes: sizeBytes,
-		duration:  serializationDuration(sizeBytes, l.config.BandwidthBitsPerSecond),
 	}
+	// Reject unrepresentable packet sizes before counters or queue admission change.
+	serializationDuration(sizeBytes, l.config.BandwidthBitsPerSecond)
 	queueFull := l.transmitting && l.queued() >= l.config.QueueCapacity
 	selected := !queueFull && l.transmitting && l.shouldSignalCongestion(l.queued()+1)
 	marked := state == AlreadyMarked || (selected && state == Capable)
@@ -170,10 +203,19 @@ func (l *Link) TryStart(sizeBytes int, onArrival func()) bool {
 	if !l.Ready() {
 		return false
 	}
+	serializationDuration(sizeBytes, l.config.BandwidthBitsPerSecond)
+	return l.tryStartAdmitted(sizeBytes, onArrival)
+}
+
+// tryStartAdmitted starts work a manager already validated when it entered its queue.
+// A later bandwidth reduction may make that admitted work outlast the run.
+func (l *Link) tryStartAdmitted(sizeBytes int, onArrival func()) bool {
+	if !l.Ready() {
+		return false
+	}
 
 	packet := transmission{
 		sizeBytes: sizeBytes,
-		duration:  serializationDuration(sizeBytes, l.config.BandwidthBitsPerSecond),
 		onArrival: onArrival,
 	}
 
@@ -232,13 +274,20 @@ func (l *Link) queued() int {
 
 // start releases the transmitter after serialization, before travel completes.
 func (l *Link) start(packet transmission) {
+	// Waiting packets use current settings; active transmission and travel freeze them.
+	config := l.config
 	l.transmitting = true
-	l.engine.ScheduleAfter(packet.duration, func() {
+	duration, representable := trySerializationDuration(packet.sizeBytes, config.BandwidthBitsPerSecond)
+	if !representable || duration > l.engine.EndTime()-l.engine.Now() {
+		// A slower link may leave an admitted packet transmitting beyond the entire run.
+		return
+	}
+	l.engine.ScheduleAfter(duration, func() {
 		// Transmission has finished, so the sender is available again.
 		l.transmitting = false
 		l.stats.TransmittedBytes += uint64(packet.sizeBytes)
 
-		lossRate := l.config.LossRate
+		lossRate := config.LossRate
 		packetLost := lossRate == 1
 		if lossRate > 0 && lossRate < 1 {
 			packetLost = l.rng.Float64() < lossRate
@@ -250,7 +299,7 @@ func (l *Link) start(packet transmission) {
 			l.stats.LostBytes += uint64(packet.sizeBytes)
 		} else {
 			l.travelling++
-			l.engine.ScheduleAfter(l.config.PacketTravelTime, func() {
+			l.engine.ScheduleAfter(config.PacketTravelTime, func() {
 				l.travelling--
 				l.stats.DeliveredPackets++
 				l.stats.DeliveredBytes += uint64(packet.sizeBytes)
@@ -297,10 +346,9 @@ func (l *Link) pop() transmission {
 	return packet
 }
 
-// transmission freezes one packet's cost and delivery callback while queued.
+// transmission keeps a waiting packet's size and callback; start computes its cost.
 type transmission struct {
 	sizeBytes int
-	duration  time.Duration
 	onArrival func()
 }
 
@@ -308,20 +356,26 @@ type transmission struct {
 // overflowing the intermediate product. A positive-size packet takes at least
 // one nanosecond. Durations outside time.Duration's range panic explicitly.
 func serializationDuration(sizeBytes int, bandwidthBitsPerSecond int64) time.Duration {
+	duration, representable := trySerializationDuration(sizeBytes, bandwidthBitsPerSecond)
+	if !representable {
+		panic("network: packet serialization duration overflows")
+	}
+	return duration
+}
+
+// trySerializationDuration also handles queued work made too slow to finish in this run.
+func trySerializationDuration(sizeBytes int, bandwidthBitsPerSecond int64) (time.Duration, bool) {
 	hi, lo := bits.Mul64(uint64(sizeBytes), 8*uint64(time.Second))
 	divisor := uint64(bandwidthBitsPerSecond)
 	if hi >= divisor {
-		panic("network: packet serialization duration overflows")
+		return 0, false
 	}
 	nanoseconds, remainder := bits.Div64(hi, lo, divisor)
+	if nanoseconds > math.MaxInt64 || (nanoseconds == math.MaxInt64 && remainder > 0) {
+		return 0, false
+	}
 	if remainder > 0 {
-		if nanoseconds == math.MaxUint64 {
-			panic("network: packet serialization duration overflows")
-		}
 		nanoseconds++
 	}
-	if nanoseconds > math.MaxInt64 {
-		panic("network: packet serialization duration overflows")
-	}
-	return time.Duration(nanoseconds)
+	return time.Duration(nanoseconds), true
 }

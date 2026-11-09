@@ -261,7 +261,7 @@ func (e *Egress) dispatch() {
 		packet := output.queue[output.queueHead]
 
 		// Start transmitting that packet on the output's link.
-		if !output.link.TryStart(packet.sizeBytes, packet.onArrival) {
+		if !output.link.tryStartAdmitted(packet.sizeBytes, packet.onArrival) {
 			panic("network: ready output could not start its transmission")
 		}
 

@@ -3,8 +3,10 @@ package simulation
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
+	"load-balancer/network"
 	"load-balancer/scenario"
 	"load-balancer/server"
 )
@@ -29,14 +31,22 @@ type configurationCommit struct {
 	at            time.Duration
 	configuration scenario.Normalized
 	names         []backendNameChange
+	links         []linkConfigurationChange
 }
 
 type backendNameChange struct {
 	id, name string
 }
 
+// Link settings are resolved first, then bound to existing links before the run.
+type linkConfigurationChange struct {
+	id       string
+	config   scenario.LinkConfig
+	prepared network.PreparedConfig
+}
+
 // NewTimeline prepares a world only after every transition has a supported executor.
-// Initially only backend names can change; resource handlers arrive in later stages.
+// Backend names and links can change; other resource handlers arrive in later stages.
 func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("simulation: compiled timeline is required")
@@ -59,6 +69,7 @@ func NewTimeline(plan *scenario.CompiledV2) (*World, error) {
 	for _, backend := range world.lb.GetServers() {
 		world.timeline.backends[backend.ID] = backend
 	}
+	world.prepareLinkCommits(commits)
 
 	// Register all configuration events before any packet or arrival is executed.
 	for _, commit := range commits {
@@ -97,9 +108,24 @@ func prepareConfigurationCommits(
 			names:         make([]backendNameChange, 0, len(transition.Backends.Updated)),
 		}
 		for _, update := range transition.Backends.Updated {
-			commit.names = append(commit.names, backendNameChange{
-				id: update.Config.ID, name: update.Config.Name,
-			})
+			if update.NameChanged {
+				commit.names = append(commit.names, backendNameChange{
+					id: update.Config.ID, name: update.Config.Name,
+				})
+			}
+			if update.LinksChanged {
+				endpoint := BackendNodeID(update.Config.ID)
+				commit.links = append(commit.links,
+					linkConfigurationChange{
+						id:     "link/" + endpoint + "/to-lb",
+						config: update.Config.Network.ToLoadBalancer,
+					},
+					linkConfigurationChange{
+						id:     "link/" + endpoint + "/from-lb",
+						config: update.Config.Network.FromLoadBalancer,
+					},
+				)
+			}
 		}
 		commits = append(commits, commit)
 	}
@@ -122,11 +148,32 @@ func checkSupportedTransition(transition scenario.Transition) error {
 		return unsupported("client generators")
 	}
 	for _, update := range transition.Backends.Updated {
-		if update.LinksChanged || update.HostChanged || update.AvailabilityChanged || update.AdmissionChanged {
-			return unsupported("backend links, CPU, availability or admission policy")
+		if update.HostChanged || update.AvailabilityChanged || update.AdmissionChanged {
+			return unsupported("backend CPU, availability or admission policy")
 		}
 	}
 	return nil
+}
+
+// prepareLinkCommits binds checked settings and any new ECN random stream before Advance.
+// Existing streams are retained when later edits disable and re-enable signaling.
+func (s *World) prepareLinkCommits(commits []configurationCommit) {
+	links := make(map[string]*network.Link, len(s.links))
+	for _, link := range s.links {
+		links[link.ID] = link.Link
+	}
+	for commitIndex := range commits {
+		for changeIndex := range commits[commitIndex].links {
+			change := &commits[commitIndex].links[changeIndex]
+			config := configuredLink(change.config)
+			var signalingRNG *rand.Rand
+			if config.QueuePolicy == "threshold" &&
+				config.CongestionSignalProbability > 0 && config.CongestionSignalProbability < 1 {
+				signalingRNG = s.resourceRNG(change.id + "/congestion")
+			}
+			change.prepared = links[change.id].PrepareConfig(config, signalingRNG)
+		}
+	}
 }
 
 // timelineConfiguration adapts checked state data to the existing world constructor.
@@ -153,6 +200,9 @@ func timelineConfiguration(plan *scenario.CompiledV2, state scenario.NormalizedS
 // commitConfiguration runs to completion as one configuration-priority event.
 // Publish the new configuration and its generation only after every edit is applied.
 func (s *World) commitConfiguration(commit configurationCommit) {
+	for _, change := range commit.links {
+		change.prepared.Apply()
+	}
 	for _, change := range commit.names {
 		s.timeline.backends[change.id].Name = change.name
 	}

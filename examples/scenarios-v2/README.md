@@ -200,9 +200,9 @@ CLI, HTTP and the current frontend still reject or do not submit runnable v2.
 ## Internal execution boundary (E1.5)
 
 `simulation.NewTimeline(plan)` prepares an internal world only after checking the
-entire compiled plan. At this stage, backend display names are the one supported
-mutable setting. This allows real execution and publication tests without silently
-ignoring unfinished link, CPU, LB, membership or generator changes. Such transitions
+entire compiled plan. E1.5 introduced backend display-name changes; E1.6 also
+supports backend link edits. This allows real execution and publication tests without silently
+ignoring unfinished CPU, LB, membership or generator changes. Such transitions
 return `ErrUnsupportedTimelineChange` before any world is constructed. Initial
 physical unavailability or drain is also rejected until those handlers exist.
 
@@ -229,6 +229,30 @@ sample describes the latest complete state.
 Manual `SetAlgorithm` and `SpawnClients` are blocked for timeline worlds. Stop
 still clears pending events, including future configuration commits. CLI/HTTP
 admission remains deferred to E1.13 and frontend migration to E1.14.
+
+## Mutable directed links (E1.6)
+
+`Link.PrepareConfig(config, congestionRNG)` checks a future edit without changing
+the link. Its prepared `Apply()` installs the settings without resetting queues,
+statistics or random streams. The timeline binds both backend link directions
+before advancing the engine and applies them with the rest of the timestamp's
+configuration commit. Link IDs and endpoint objects stay unchanged, so the next
+topology definition reports the new limits for the same paths.
+
+A packet already serializing keeps its starting bandwidth, loss rate and travel
+time. A packet already travelling keeps its scheduled arrival. Waiting packets
+use settings current when serialization starts. After a sufficiently large rate
+reduction, admitted work may remain transmitting beyond the run's horizon.
+
+Queue shrinkage retains admitted packets; new waiting arrivals are rejected while
+the queue is full. This also applies to managed LB output FIFOs. ECN marking and
+early-drop decisions are made on admission, so queue-policy edits affect subsequent
+arrivals without re-marking already admitted packets. A newly enabled probabilistic
+policy receives a separate seeded stream; disabling and re-enabling it resumes
+that stream rather than resetting it.
+
+Client-group link updates are integrated with generator changes in E1.12. Changes
+to the shared LB input and forwarding budget remain E1.7.
 
 ## Frontend validation
 

@@ -12,6 +12,11 @@ import (
 // Both backend labels change at 250 ms while the same clients and links remain.
 func timelineProjectionWorld(t *testing.T) *simulation.World {
 	t.Helper()
+	return timelineProjectionFrom(t, timelineProjectionDefinition())
+}
+
+// timelineProjectionDefinition provides independent state collections for each test.
+func timelineProjectionDefinition() scenario.ScenarioV2 {
 	base := projectionScenario()
 	initial := scenario.StateConfig{
 		Resources: scenario.StateResourcesConfig{
@@ -32,7 +37,7 @@ func timelineProjectionWorld(t *testing.T) *simulation.World {
 	next.Resources.Backends[0].Name = "New one"
 	next.Resources.Backends[1].Name = "New two"
 
-	input := scenario.ScenarioV2{
+	return scenario.ScenarioV2{
 		Version: scenario.VersionV2,
 		Fixed: scenario.FixedConfig{
 			Execution:    base.Execution,
@@ -44,6 +49,10 @@ func timelineProjectionWorld(t *testing.T) *simulation.World {
 			"0": initial, "250000000": next,
 		},
 	}
+}
+
+func timelineProjectionFrom(t *testing.T, input scenario.ScenarioV2) *simulation.World {
+	t.Helper()
 	plan, err := scenario.CompileV2(input)
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +62,45 @@ func timelineProjectionWorld(t *testing.T) *simulation.World {
 		t.Fatal(err)
 	}
 	return world
+}
+
+// Retained link IDs still need fresh definitions when their actual limits change.
+func TestTimelineBackendLinkEditRefreshesTopologyConfiguration(t *testing.T) {
+	input := timelineProjectionDefinition()
+	next := input.States["250000000"]
+	bandwidth := int64(1_000_000)
+	travel := 5 * time.Millisecond
+	next.Resources.Backends[0].Network.FromLoadBalancer = scenario.LinkPatch{
+		BandwidthBitsPerSecond: &bandwidth,
+		PacketTravelTime:       &travel,
+	}
+	input.States["250000000"] = next
+	world := timelineProjectionFrom(t, input)
+	advanceProjection(t, world, 0)
+	projector := NewProjector("links")
+	first := project(t, projector, world)
+	oldDocument := jsonProjection(t, first.Document)
+
+	advanceProjection(t, world, 250*time.Millisecond)
+	frame, definition, err := BuildSnapshot(world, projector, RunState{Status: "running", RunID: "links"})
+	if err != nil || definition == nil || definition.Revision != "2" || frame.Topology.Revision != "2" {
+		t.Fatalf("the changed link did not produce a coherent new definition: %v", err)
+	}
+	found := false
+	for _, link := range definition.Links {
+		if link.ID == "link/backend/one/from-lb" {
+			found = true
+			if link.Config.BandwidthBitsPerSecond != bandwidth || link.Config.PacketTravelTimeMs != 5 {
+				t.Fatalf("retained link definition still has its old settings: %+v", link.Config)
+			}
+		}
+	}
+	if !found || len(first.Document.Links) != len(definition.Links) {
+		t.Fatal("a settings edit changed the graph's membership")
+	}
+	if jsonProjection(t, first.Document) != oldDocument {
+		t.Fatal("the new link definition changed a retained old document")
+	}
 }
 
 // Backend names and the frame revision become visible together after one configuration event.

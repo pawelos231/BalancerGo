@@ -147,9 +147,6 @@ func TestTimelineRejectsUnsupportedChangesBeforeConstruction(t *testing.T) {
 		{"LB settings", func(state *scenario.StateConfig) {
 			state.Resources.LoadBalancer.ForwardingBitsPerSecond = 100
 		}},
-		{"backend links", func(state *scenario.StateConfig) {
-			state.Resources.Backends[0].Network.ToLoadBalancer.BandwidthBitsPerSecond = scenarioRuntimeValue[int64](100)
-		}},
 		{"backend CPU", func(state *scenario.StateConfig) {
 			state.Resources.Backends[0].Host.Cores = scenarioRuntimeValue(2)
 		}},
