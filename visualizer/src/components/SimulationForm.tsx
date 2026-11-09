@@ -42,6 +42,7 @@ interface SimulationFormProps {
   hostRevision: number;
   onHostChange: (target: HostTarget, field: HostField, raw: string) => void;
   onApplyHostToAll: (values: HostValues) => void;
+  onStagedHostChange: (staged: boolean) => void;
 }
 
 // Sections share one scenario draft and one Start action.
@@ -63,6 +64,7 @@ function SimulationForm({
   hostRevision,
   onHostChange,
   onApplyHostToAll,
+  onStagedHostChange,
 }: SimulationFormProps) {
   const hasErrors = Object.keys(errors).length > 0 || Object.keys(hostEdits.errors).length > 0;
   const canStart = connected && !running && !pending && !validating && !hasErrors;
@@ -215,6 +217,7 @@ function SimulationForm({
             disabled={fieldsDisabled}
             onChange={onHostChange}
             onApplyAll={onApplyHostToAll}
+            onStagedChange={onStagedHostChange}
           />
 
           <Stack

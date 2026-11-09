@@ -37,7 +37,12 @@ export function Fact({ label, value }: FactProps) {
 }
 
 // Older snapshots omit the policy and retain tail-drop behavior.
-export function QueuePolicyFacts({ config }: { config: TopologyLinkConfig }) {
+type QueuePolicyConfig = Pick<
+  TopologyLinkConfig,
+  'queuePolicy' | 'congestionThresholdPercent' | 'congestionSignalProbability'
+>;
+
+export function QueuePolicyFacts({ config }: { config: QueuePolicyConfig }) {
   return (
     <>
       <Fact label="Queue policy" value={config.queuePolicy === 'threshold' ? 'Threshold signaling' : 'Tail drop'} />

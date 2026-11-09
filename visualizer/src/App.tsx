@@ -11,7 +11,7 @@ import {
   Typography,
   createTheme,
 } from '@mui/material';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Link as RouterLink,
   Navigate,
@@ -26,8 +26,10 @@ import SimulationPerformance from './components/SimulationPerformance';
 import useSimulation from './hooks/useSimulation';
 import SimulationPage from './pages/SimulationPage';
 import type { LoadBalancerState } from './types';
+import type { Scenario } from './scenarios/types';
 
 const TopologyPage = lazy(() => import('./pages/TopologyPage'));
+const PlannedTopologyPage = lazy(() => import('./pages/PlannedTopologyPage'));
 
 function readDarkMode(): boolean {
   if (typeof window === 'undefined') return false;
@@ -65,11 +67,20 @@ function App() {
     startScenario,
   } = useSimulation();
   const [darkMode, setDarkMode] = useState(readDarkMode);
+  const [plannedScenario, setPlannedScenario] = useState<Scenario | null>(null);
+  const [plannedError, setPlannedError] = useState<string | null>(null);
+
+  const updatePlannedScenario = useCallback((scenario: Scenario | null, error: string | null) => {
+    if (scenario) setPlannedScenario(scenario);
+    setPlannedError(error);
+  }, []);
 
   const simulation = data?.simulation ?? null;
   const topology = getTopology(data);
   const showSimulation = pathname === '/';
-  const activeTab = pathname.startsWith('/topology') ? '/topology' : '/';
+  const activeTab = pathname.startsWith('/planned-topology')
+    ? '/planned-topology'
+    : pathname.startsWith('/topology') ? '/topology' : '/';
 
   const theme = useMemo(
     () => createTheme({
@@ -124,13 +135,19 @@ function App() {
             <Tab component={RouterLink} to="/" value="/" label="Simulation" />
             <Tab
               component={RouterLink}
+              to="/planned-topology"
+              value="/planned-topology"
+              label="Planned topology"
+            />
+            <Tab
+              component={RouterLink}
               to="/topology"
               value="/topology"
-              label="Topology"
+              label="Live topology"
             />
           </Tabs>
 
-          {topologyLoading && (
+          {activeTab !== '/planned-topology' && topologyLoading && (
             <Alert severity="info" sx={{ mt: 2 }}>
               Updating network topology. Controls remain available while it loads.
             </Alert>
@@ -140,7 +157,7 @@ function App() {
               {terminationUncertainty}
             </Alert>
           )}
-          {topologyError && (
+          {activeTab !== '/planned-topology' && topologyError && (
             <Alert
               severity="error"
               sx={{ mt: 2 }}
@@ -150,7 +167,9 @@ function App() {
             </Alert>
           )}
 
-          <SimulationPerformance performance={simulation?.performance} />
+          {activeTab !== '/planned-topology' && (
+            <SimulationPerformance performance={simulation?.performance} />
+          )}
 
           {/* Keep unsent settings when switching pages. */}
           <Box hidden={!showSimulation}>
@@ -170,6 +189,7 @@ function App() {
                 currentRunError={currentRunError}
                 onRefreshCurrent={refreshCurrent}
                 onStart={startScenario}
+                onPreviewChange={updatePlannedScenario}
               />
             </ControlPanel>
           </Box>
@@ -184,6 +204,10 @@ function App() {
           >
             <Routes>
               <Route path="/" element={<SimulationPage data={data} />} />
+              <Route
+                path="/planned-topology"
+                element={<PlannedTopologyPage scenario={plannedScenario} error={plannedError} />}
+              />
               <Route
                 path="/topology"
                 element={

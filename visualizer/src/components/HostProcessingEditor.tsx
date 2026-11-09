@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Button, Chip,
   FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography,
@@ -21,6 +21,7 @@ interface HostProcessingEditorProps {
   disabled: boolean;
   onChange: (target: HostTarget, field: HostField, raw: string) => void;
   onApplyAll: (values: HostValues) => void;
+  onStagedChange: (staged: boolean) => void;
 }
 
 const labels: Record<HostField, string> = {
@@ -36,7 +37,7 @@ const help: Record<HostField, string> = {
 
 // Shared controls apply only on the explicit button; individual edits stay per backend.
 export default function HostProcessingEditor({
-  scenario, selectedAt, edits, disabled, onChange, onApplyAll,
+  scenario, selectedAt, edits, disabled, onChange, onApplyAll, onStagedChange,
 }: HostProcessingEditorProps) {
   const backends = selectedScenarioState(scenario, selectedAt).resources.backends;
   const [selected, setSelected] = useState(backends[0]?.id ?? '');
@@ -44,6 +45,16 @@ export default function HostProcessingEditor({
   const selectedID = backends.some(backend => backend.id === selected) ? selected : backends[0]?.id ?? '';
   const common = commonBackendHostValues(scenario, selectedAt);
   const sharedValues = { ...common, ...shared };
+  const hasStagedValues = hostFields.some(field => (
+    shared[field] !== undefined && shared[field] !== common[field]
+  ));
+
+  useEffect(() => {
+    onStagedChange(hasStagedValues);
+  }, [hasStagedValues, onStagedChange]);
+
+  // State selection or document replacement discards the staged common controls.
+  useEffect(() => () => onStagedChange(false), [onStagedChange]);
   const different = backends.filter(backend => {
     const current = hostValues(backend.host);
     const first = hostValues(backends[0]?.host);

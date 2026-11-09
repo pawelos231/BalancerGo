@@ -82,7 +82,7 @@ function TopologyPage({ topology, simulation, connected }: TopologyPageProps) {
       >
         <Box>
           <Typography variant="h5" component="h1" fontWeight={700}>
-            Network topology
+            Live network topology
           </Typography>
           <Typography
             variant="body2"

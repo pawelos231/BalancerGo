@@ -490,6 +490,23 @@ streams and explicit overrides returned by validation. The resolved preview is
 read-only and is not the import format. Correct invalid form values before
 validation or export. The active run's original document remains separate.
 
+Open **Planned topology** to inspect the last valid applied scenario before Start.
+Files, applied presets and valid form edits update this view; invalid or unapplied
+form input keeps the previous valid plan visible with a warning. This is separate
+from **Live topology**, which displays the current run's measurements.
+Enter any virtual time from zero through the run duration in seconds, with up to
+nine decimal places, or use **Previous state** and **Next state**. Lookup uses exact
+nanoseconds and selects the latest declared state at or before that instant.
+
+The plan shows shared LB ingress and forwarding limits, CPU resources, backend
+physical/administrative settings, effective links in each direction, and client
+generator timing, stream settings and lifetime birth budgets. Groups remain
+compact even for 50,000 clients; the slot selector lists only explicit overrides,
+including configured reserved slots outside a reduced current budget. A budget
+does not count active connections or mean every client is born at each state.
+Existing clients may survive a budget decrease or group removal. The preview
+does not create a model or predict traffic, drops, active clients or observed health.
+
 Thirty-five ready documents, their units and expected settings are described in
 [examples/scenarios/README.md](examples/scenarios/README.md). Thirty-four mirror the UI
 preset catalog; `advanced-overrides.json` demonstrates directional and individual

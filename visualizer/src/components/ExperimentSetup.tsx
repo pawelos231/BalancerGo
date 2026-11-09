@@ -9,6 +9,7 @@ import type { HostEdits, HostField, HostTarget, HostValues } from '../scenarios/
 import { readScenarioFile, serializeScenario } from '../scenarios/files';
 import { scenarioPresets } from '../scenarios/presets';
 import { scenarioApi } from '../scenarios/runtimeApi';
+import { validateScenarioV2 } from '../scenarios/v2';
 import type { CurrentSimulation, Scenario, ValidatedScenario } from '../scenarios/types';
 import type { SimulationMetadata } from '../types';
 import ScenarioLibrary from './ScenarioLibrary';
@@ -26,6 +27,7 @@ interface ExperimentSetupProps {
   currentRunError: string | null;
   onRefreshCurrent: () => void;
   onStart: (scenario: Scenario) => Promise<boolean>;
+  onPreviewChange: (scenario: Scenario | null, error: string | null) => void;
 }
 
 interface CountEdit {
@@ -42,6 +44,7 @@ function ExperimentSetup({
   currentRunError,
   onRefreshCurrent,
   onStart,
+  onPreviewChange,
 }: ExperimentSetupProps) {
   const [selectedAt, setSelectedAt] = useState('0');
   const selectedAtRef = useRef('0');
@@ -51,6 +54,7 @@ function ExperimentSetup({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [hostEdits, setHostEdits] = useState<HostEdits>(emptyHostEdits);
   const [hostRevision, setHostRevision] = useState(0);
+  const [stagedHosts, setStagedHosts] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   const [candidate, setCandidate] = useState<PresetCandidate | null>(null);
@@ -98,6 +102,23 @@ function ExperimentSetup({
   }, [reload, setNativeScenario, setFormValues]);
 
   useEffect(() => () => validationRef.current?.abort(), []);
+
+  // Rejected text remains in the form; only a complete valid document updates the plan.
+  useEffect(() => {
+    if (!scenario) return;
+    if (Object.keys(fieldErrors).length > 0 || Object.keys(hostEdits.errors).length > 0) {
+      onPreviewChange(null, 'The form has invalid, unapplied input. Fix the highlighted fields to update the planned topology.');
+      return;
+    }
+    try {
+      const notice = stagedHosts
+        ? 'Common backend CPU inputs have not been applied. Use Apply to all backends on the form to update those settings.'
+        : null;
+      onPreviewChange(validateScenarioV2(scenario), notice);
+    } catch (failure) {
+      onPreviewChange(null, failure instanceof Error ? failure.message : 'The draft is not a valid complete scenario.');
+    }
+  }, [scenario, fieldErrors, hostEdits.errors, stagedHosts, onPreviewChange]);
 
   function choosePreset(id: string) {
     if (!defaults || validationRef.current || pending) return;
@@ -375,6 +396,7 @@ function ExperimentSetup({
           hostRevision={hostRevision}
           onHostChange={changeHostField}
           onApplyHostToAll={applyHostToAll}
+          onStagedHostChange={setStagedHosts}
         />
       ) : (
         <Alert severity="info">Waiting for complete scenario defaults from the server…</Alert>
