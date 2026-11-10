@@ -24,6 +24,7 @@ interface ScenarioFilesProps {
   busy: boolean;
   checking: boolean;
   invalid: boolean;
+  stagedHosts: boolean;
   notice: ScenarioFileNotice | null;
   document: string;
   unapplied: boolean;
@@ -42,6 +43,7 @@ function ScenarioFiles({
   busy,
   checking,
   invalid,
+  stagedHosts,
   notice,
   document,
   unapplied,
@@ -53,7 +55,8 @@ function ScenarioFiles({
   onValidate,
 }: ScenarioFilesProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const canUseDraft = scenario !== null && !busy && !invalid && !unapplied;
+  const pendingForm = invalid || stagedHosts;
+  const canUseDraft = scenario !== null && !busy && !pendingForm && !unapplied;
 
   return (
     <Card variant="outlined">
@@ -70,7 +73,7 @@ function ScenarioFiles({
             <ScenarioJsonEditor
               document={document}
               dirty={unapplied}
-              disabled={busy}
+              disabled={busy || pendingForm}
               onChange={onEditDocument}
               onApply={onApplyDocument}
               onDiscard={onDiscardDocument}
@@ -82,7 +85,7 @@ function ScenarioFiles({
             type="file"
             accept=".json,application/json"
             aria-label="Scenario JSON file"
-            disabled={busy || unapplied}
+            disabled={busy || unapplied || pendingForm}
             hidden
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
@@ -92,7 +95,10 @@ function ScenarioFiles({
             }}
           />
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button variant="outlined" disabled={busy || unapplied} onClick={() => inputRef.current?.click()}>
+            <Button
+              variant="outlined" disabled={busy || unapplied || pendingForm}
+              onClick={() => inputRef.current?.click()}
+            >
               Import JSON
             </Button>
             <Button variant="outlined" disabled={!canUseDraft} onClick={onExport}>
@@ -109,13 +115,14 @@ function ScenarioFiles({
               {notice.message}
             </Alert>
           )}
-          {invalid && (
+          {pendingForm && (
             <Alert severity="warning">
-              Fix the highlighted fields before validation or export. The preview keeps
-              their last valid values.
+              Correct highlighted form inputs, apply common backend CPU settings, or
+              use Discard unapplied form inputs below before editing JSON or using files.
+              The applied draft is retained.
             </Alert>
           )}
-          {validation && !unapplied && (
+          {validation && !unapplied && !pendingForm && (
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Chip label="Draft validated" color="success" size="small" />
               <Chip label={`${validation.summary.totalClients} clients`} size="small" />
@@ -134,7 +141,7 @@ function ScenarioFiles({
               }
             />
           )}
-          {validation?.resolved && !unapplied ? (
+          {validation?.resolved && !unapplied && !pendingForm ? (
             <ScenarioDocumentPreview
               title="Effective configuration"
               document={validation.resolved}

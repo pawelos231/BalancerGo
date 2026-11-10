@@ -215,6 +215,27 @@ test('request cancellation reaches fetch and does not become a timeout message',
   assert.equal(requestSignal?.aborted, true);
 });
 
+test('cancelled defaults and validation reject late responses before any completion side effect', async () => {
+  for (const operation of ['defaults', 'validate'] as const) {
+    let respond!: (response: Response) => void;
+    const api = new ScenarioApi('http://backend.test', () => new Promise<Response>(resolve => {
+      respond = resolve;
+    }));
+    const controller = new AbortController();
+    let completions = 0;
+    const request = operation === 'defaults'
+      ? api.defaults(controller.signal)
+      : api.validate(scenarioFixture(), controller.signal);
+    const completed = request.then(() => { completions++; });
+    const reason = new DOMException('Draft disposed.', 'AbortError');
+    controller.abort(reason);
+    // Ignore cancellation and return an invalid body, as a late transport may do.
+    respond(Response.json({ obsolete: true }));
+    await assert.rejects(completed, error => error === reason);
+    assert.equal(completions, 0);
+  }
+});
+
 
 test('scenario responses reject scenarioVersion one and an invalid later state', async () => {
   const unsupported = { ...scenarioFixture(), scenarioVersion: 1 };

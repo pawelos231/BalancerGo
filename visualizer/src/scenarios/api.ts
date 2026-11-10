@@ -121,6 +121,8 @@ export class ScenarioApi {
         signal: controller.signal,
       });
       const body = await response.json().catch(() => null) as T | { error?: string } | null;
+      // A transport may finish after cancellation, including during body decoding.
+      controller.signal.throwIfAborted();
 
       if (!response.ok) {
         const message = body && typeof body === 'object' && 'error' in body

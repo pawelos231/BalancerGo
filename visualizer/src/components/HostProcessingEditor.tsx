@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Button, Chip,
   FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography,
@@ -20,7 +20,7 @@ interface HostProcessingEditorProps {
   edits: HostEdits;
   disabled: boolean;
   onChange: (target: HostTarget, field: HostField, raw: string) => void;
-  onApplyAll: (values: HostValues) => void;
+  onApplyAll: (values: HostValues) => string | undefined;
   onStagedChange: (staged: boolean) => void;
 }
 
@@ -42,6 +42,8 @@ export default function HostProcessingEditor({
   const backends = selectedScenarioState(scenario, selectedAt).resources.backends;
   const [selected, setSelected] = useState(backends[0]?.id ?? '');
   const [shared, setShared] = useState<Partial<HostValues>>({});
+  const sharedRef = useRef<Partial<HostValues>>({});
+  const [sharedError, setSharedError] = useState<string | null>(null);
   const selectedID = backends.some(backend => backend.id === selected) ? selected : backends[0]?.id ?? '';
   const common = commonBackendHostValues(scenario, selectedAt);
   const sharedValues = { ...common, ...shared };
@@ -53,8 +55,28 @@ export default function HostProcessingEditor({
     onStagedChange(hasStagedValues);
   }, [hasStagedValues, onStagedChange]);
 
-  // State selection or document replacement discards the staged common controls.
-  useEffect(() => () => onStagedChange(false), [onStagedChange]);
+  function changeShared(field: HostField, raw: string) {
+    const next = { ...sharedRef.current, [field]: raw };
+    sharedRef.current = next;
+    setShared(next);
+    setSharedError(null);
+    // Block other actions in this event, before React renders the pending input.
+    onStagedChange(hostFields.some(name => (
+      next[name] !== undefined && next[name] !== common[name]
+    )));
+  }
+
+  function applyShared() {
+    const failure = onApplyAll(sharedValues);
+    if (failure) {
+      setSharedError(failure);
+      return;
+    }
+    sharedRef.current = {};
+    setShared({});
+    setSharedError(null);
+    onStagedChange(false);
+  }
   const different = backends.filter(backend => {
     const current = hostValues(backend.host);
     const first = hostValues(backends[0]?.host);
@@ -143,7 +165,7 @@ export default function HostProcessingEditor({
                       placeholder="Mixed"
                       disabled={disabled || backends.length === 0}
                       error={Boolean(error)} helperText={error ?? help[field]}
-                      onChange={event => setShared(previous => ({ ...previous, [field]: event.target.value }))}
+                      onChange={event => changeShared(field, event.target.value)}
                     />
                   </Grid>
                 );
@@ -152,8 +174,15 @@ export default function HostProcessingEditor({
             <Button
               variant="outlined" sx={{ alignSelf: 'flex-start' }}
               disabled={disabled || backends.length === 0 || sharedInvalid}
-              onClick={() => { onApplyAll(sharedValues); setShared({}); }}
+              onClick={applyShared}
             >Apply to all backends</Button>
+            {sharedError && <Alert severity="error">{sharedError}</Alert>}
+            {hasStagedValues && (
+              <Alert severity="warning">
+                Common backend CPU inputs have not been applied. Apply them or use
+                Discard unapplied form inputs before Start or file actions.
+              </Alert>
+            )}
           </Stack>
 
           {backends.length > 0 ? (

@@ -1,5 +1,6 @@
 import type { ExactInteger, Scenario, ScenarioHostConfig, ScenarioHostPatch } from './types.ts';
 import { retainResourceIds, selectedScenarioState } from './draft.ts';
+import { validateScenario } from './validation.ts';
 
 export type HostField = 'cores' | 'packetProcessingTimeUs' | 'queueCapacity';
 export type HostValues = Record<HostField, string>;
@@ -98,20 +99,36 @@ export function editHostField(
     errors: { ...edits.errors },
   };
   const key = hostErrorKey(target, field);
-  let value: ExactInteger;
   try {
-    value = parseHostValue(field, raw);
+    const value = parseHostValue(field, raw);
+    const updated = retainResourceIds(structuredClone(scenario), scenario);
+    const resource = targetHost(updated, target, selectedAt);
+    resource.host ??= {};
+    assignHostField(resource.host, field, value);
+    validateScenario(updated);
+    delete next.errors[key];
+    return { scenario: updated, edits: next };
   } catch (failure) {
     next.errors[key] = failure instanceof Error ? failure.message : 'Invalid host setting.';
     return { scenario, edits: next };
   }
 
-  const updated = retainResourceIds(structuredClone(scenario), scenario);
-  const resource = targetHost(updated, target, selectedAt);
-  resource.host ??= {};
-  assignHostField(resource.host, field, value);
-  delete next.errors[key];
-  return { scenario: updated, edits: next };
+}
+
+// Changing duration or another host value can make rejected input applicable.
+export function retryHostEdits(scenario: Scenario, edits: HostEdits, selectedAt = '0') {
+  let result = { scenario, edits };
+  for (const [target, values] of Object.entries(edits.values)) {
+    for (const field of hostFields) {
+      const raw = values[field];
+      if (raw !== undefined && hostErrorKey(target, field) in result.edits.errors) {
+        result = editHostField(
+          result.scenario, result.edits, target as HostTarget, field, raw, selectedAt,
+        );
+      }
+    }
+  }
+  return result;
 }
 
 // Blank common values mean that imported backends have different effective settings.
@@ -129,6 +146,7 @@ export function applyHostToAllBackends(scenario: Scenario, values: HostValues, s
   for (const field of hostFields) assignHostField(host, field, parseHostValue(field, values[field]));
   const updated = retainResourceIds(structuredClone(scenario), scenario);
   for (const backend of selectedScenarioState(updated, selectedAt).resources.backends) backend.host = { ...host };
+  validateScenario(updated);
   return updated;
 }
 

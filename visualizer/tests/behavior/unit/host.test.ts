@@ -12,7 +12,9 @@ import { nodeHostState, showHostCPUWork } from '../../../src/topology/telemetry.
 import { formatMetric } from '../../../src/topology/format.ts';
 
 function backendsScenario() {
-  return applyScenarioField(scenarioFixture(), 'servers', '2');
+  const scenario = applyScenarioField(scenarioFixture(), 'servers', '2');
+  // Positive CPU costs reserve work over the horizon; keep these edits in range.
+  return applyScenarioField(scenario, 'durationSeconds', '1');
 }
 
 // Omitted CPU is ideal. Setting 10 microseconds writes exactly 10,000 nanoseconds.

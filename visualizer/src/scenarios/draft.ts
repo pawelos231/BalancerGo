@@ -300,6 +300,36 @@ export function scenarioFormValues(scenario: Scenario, selectedAt = '0'): Scenar
   return values;
 }
 
+// A resizing baseline keeps original resources and proportions with accepted edits.
+// Restoring a CPU-enabled backend can temporarily conflict with a longer duration;
+// validate the resized result before applying it. Both ID lineages remain reserved.
+export function rebaseScenarioCount(
+  baseline: Scenario, current: Scenario, field: 'clients' | 'servers', selectedAt = '0',
+): Scenario {
+  const updated = retainResourceIds(structuredClone(current), baseline, current);
+  const original = selectedScenarioState(baseline, selectedAt);
+  const latest = selectedScenarioState(current, selectedAt);
+  const selected = selectedScenarioState(updated, selectedAt);
+  if (field === 'servers') {
+    const retained = new Map(latest.resources.backends.map(backend => [backend.id, backend]));
+    const originalIds = new Set(original.resources.backends.map(backend => backend.id));
+    selected.resources.backends = structuredClone([
+      ...original.resources.backends.map(backend => retained.get(backend.id) ?? backend),
+      ...latest.resources.backends.filter(backend => !originalIds.has(backend.id)),
+    ]);
+  } else {
+    const retained = new Map(latest.workload.clientGroups.map(group => [group.id, group]));
+    const originalIds = new Set(original.workload.clientGroups.map(group => group.id));
+    selected.workload.clientGroups = structuredClone([
+      ...original.workload.clientGroups.map(group => ({
+        ...(retained.get(group.id) ?? group), count: group.count,
+      })),
+      ...latest.workload.clientGroups.filter(group => !originalIds.has(group.id)),
+    ]);
+  }
+  return updated;
+}
+
 // Apply one explicit edit while keeping all unrelated native settings intact.
 export function applyScenarioField(
   scenario: Scenario, field: ScenarioField, raw: string, selectedAt = '0', reservationBaseline = scenario,
@@ -462,8 +492,8 @@ function resizeClients(selected: ScenarioState, count: number, used: Set<string>
 
 // Reservations follow the draft lineage, including IDs removed by earlier edits.
 const reservations = new WeakMap<Scenario, Set<string>>();
-export function retainResourceIds(updated: Scenario, baseline: Scenario): Scenario {
-  reservations.set(updated, resourceIds(baseline));
+export function retainResourceIds(updated: Scenario, ...baselines: Scenario[]): Scenario {
+  reservations.set(updated, new Set(baselines.flatMap(baseline => [...resourceIds(baseline)])));
   return updated;
 }
 

@@ -30,14 +30,16 @@ test('fixed and selected-state edits retain every other complete state', () => {
   assert.doesNotThrow(() => validateScenario(host));
 });
 
-test('state timestamps sort as exact integers and selecting a state clears pending field text', () => {
+test('state timestamps sort exactly and projecting applied values discards pending field text', () => {
   const scenario = timeline();
+  scenario.fixed.execution.durationNanoseconds = '9223372036854775807';
   scenario.states['2'] = structuredClone(scenario.states['0']);
   scenario.states['9007199254740993'] = structuredClone(scenario.states['0']);
   scenario.states['9007199254740992'] = structuredClone(scenario.states['0']);
   assert.deepEqual(scenarioStateTimes(scenario), ['0', '2', '10', '9007199254740992', '9007199254740993']);
   const rejected = editScenarioForm(selectScenarioFormState(scenario), 'clients', '-1');
   assert.ok(rejected.errors.clients);
+  // The UI requires an explicit discard before selecting another state.
   const selected = selectScenarioFormState(rejected.scenario, '10');
   assert.deepEqual(selected.errors, {});
   assert.equal(selected.values.clients, '8');

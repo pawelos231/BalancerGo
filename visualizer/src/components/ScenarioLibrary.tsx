@@ -36,7 +36,7 @@ interface ScenarioLibraryProps {
   loading: boolean;
   pending: boolean;
   validating: boolean;
-  unappliedDocument: boolean;
+  unappliedInput: boolean;
   candidate: PresetCandidate | null;
   applied: AppliedPreset | null;
   error: string | null;
@@ -51,7 +51,7 @@ function ScenarioLibrary({
   loading,
   pending,
   validating,
-  unappliedDocument,
+  unappliedInput,
   candidate,
   applied,
   error,
@@ -62,8 +62,8 @@ function ScenarioLibrary({
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [page, setPage] = useState(1);
-  const canChoose = defaultsReady && !validating && !pending && !unappliedDocument;
-  const canValidate = candidate !== null && !validating && !pending && !unappliedDocument;
+  const canChoose = defaultsReady && !validating && !pending && !unappliedInput;
+  const canValidate = candidate !== null && !validating && !pending && !unappliedInput;
   const query = search.trim().toLowerCase();
   const categories = presetCategories.map((entry) => ({
     ...entry,
@@ -218,7 +218,11 @@ function ScenarioLibrary({
           {applied && (
             <Stack spacing={1}>
               <Typography variant="subtitle2">Loaded into form: {applied.title}</Typography>
-              {applied.pristine ? (
+              {unappliedInput ? (
+                <Typography variant="body2" color="text.secondary">
+                  Apply, correct or discard the unapplied inputs before using this draft.
+                </Typography>
+              ) : applied.pristine ? (
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip label="Applied and validated" color="success" size="small" />
                   <Chip label={`${applied.summary.totalClients} clients`} size="small" />

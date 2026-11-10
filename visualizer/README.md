@@ -121,6 +121,15 @@ JSON input and imported files are limited to 2 MiB of UTF-8 text; exact decimal
 integer strings and resource identities are preserved. Applying JSON replaces the
 whole document and does not start a simulation.
 
+Form and host edits also check the complete timeline before updating the applied
+draft. Rejected text stays visible, and related pending values are retried when a
+correcting edit makes them valid. Common backend CPU inputs take effect only with
+**Apply to all backends**; a rejected Apply retains those inputs. Until pending
+inputs are corrected, applied or discarded, Start, file actions, JSON editing,
+preset loading and state changes stay disabled. **Discard unapplied form inputs**
+restores the form from the applied draft, preserving every accepted edit and
+resource identity. It does not reset the document or affect the active run.
+
 `ScenarioLibrary.tsx` selects a candidate and applies it only after successful
 server validation. Loading a preset updates every input together; validation
 blocks editing and Start until it completes. `api.ts` wraps
@@ -163,8 +172,8 @@ The **Scenario files** panel has **Import JSON**, **Export JSON** and
 **Validate draft** actions. Import sends the original UTF-8 file text to the
 backend before browser JSON parsing, with a 2 MiB byte limit. Only successful
 validation replaces the draft; malformed or invalid files leave it unchanged.
-Import and validation never start a run. Correct invalid form values before
-validating or exporting.
+Import and validation never start a run. Correct or discard invalid form values
+and apply or discard common backend CPU inputs before using file actions.
 
 Export downloads the current native draft with its groups, profiles and overrides,
 including manual edits. **Native scenario** previews that export/Start document.

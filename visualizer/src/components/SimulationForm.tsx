@@ -37,6 +37,8 @@ interface SimulationFormProps {
   pending: boolean;
   validating: boolean;
   unappliedDocument: boolean;
+  unappliedForm: boolean;
+  onDiscardFormInputs: () => void;
   onChange: (name: ScenarioField, raw: string) => void;
   onFocus: (name: ScenarioField) => void;
   onBlur: (name: ScenarioField) => void;
@@ -44,7 +46,7 @@ interface SimulationFormProps {
   hostEdits: HostEdits;
   hostRevision: number;
   onHostChange: (target: HostTarget, field: HostField, raw: string) => void;
-  onApplyHostToAll: (values: HostValues) => void;
+  onApplyHostToAll: (values: HostValues) => string | undefined;
   onStagedHostChange: (staged: boolean) => void;
 }
 
@@ -62,6 +64,8 @@ function SimulationForm({
   pending,
   validating,
   unappliedDocument,
+  unappliedForm,
+  onDiscardFormInputs,
   onChange,
   onFocus,
   onBlur,
@@ -73,7 +77,8 @@ function SimulationForm({
   onStagedHostChange,
 }: SimulationFormProps) {
   const hasErrors = Object.keys(errors).length > 0 || Object.keys(hostEdits.errors).length > 0;
-  const canStart = connected && !running && !pending && !validating && !hasErrors && !unappliedDocument;
+  const canStart = connected && !running && !pending && !validating
+    && !unappliedForm && !unappliedDocument;
   const fieldsDisabled = !connected || pending || validating || unappliedDocument;
   const groups = selectedScenarioState(scenario, selectedAt).workload.clientGroups;
   const displayedGroups = groups.slice(0, 12);
@@ -103,6 +108,21 @@ function SimulationForm({
         <Stack spacing={2}>
           {unappliedDocument && (
             <Alert severity="warning">Apply or discard the JSON edits above before editing settings or starting.</Alert>
+          )}
+          {unappliedForm && (
+            <Alert
+              severity="warning"
+              action={(
+                <Button
+                  color="inherit" disabled={pending || validating}
+                  onClick={onDiscardFormInputs}
+                >Discard unapplied form inputs</Button>
+              )}
+            >
+              Your unapplied inputs are retained. Correct highlighted fields or apply
+              common backend CPU settings before Start, file actions or state changes.
+              Discard restores the applied draft in the form.
+            </Alert>
           )}
           <TimelineEditor
             scenario={scenario} selectedAt={selectedAt} disabled={fieldsDisabled}
