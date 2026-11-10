@@ -1,3 +1,3 @@
-// Package tcp models transport connections on the virtual-time engine.
-// Sender and Receiver own protocol state; client workloads and backend hosts use their APIs.
+// Package tcp groups transport models for the virtual-time engine.
+// The sender and receiver subpackages own endpoint state; this package holds only shared code when needed.
 package tcp

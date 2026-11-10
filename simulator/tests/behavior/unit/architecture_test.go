@@ -32,7 +32,11 @@ func TestArchitectureDependencyDirections(t *testing.T) {
 		// Congestion algorithms receive scalar facts; they cannot access hosts or the engine.
 		rule{"protocols/tcp/congestion_control", []string{
 			"engine", "network", "client", "server", "balancer", "algorithms", "scenario", "internal/simulation",
+			"protocols/tcp/sender", "protocols/tcp/receiver",
 		}},
+		// Each endpoint owns its state; neither reaches into the other endpoint.
+		rule{"protocols/tcp/sender", []string{"protocols/tcp/receiver"}},
+		rule{"protocols/tcp/receiver", []string{"protocols/tcp/sender"}},
 		// Protocols receive workload and host callbacks, without importing their callers.
 		rule{"protocols", []string{"client", "server", "balancer", "algorithms", "scenario", "internal/simulation"}},
 		// An empty package prefix forbids every import from this module: contract

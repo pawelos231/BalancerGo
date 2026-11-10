@@ -25,7 +25,8 @@ publishing detached data. Packages under `simulator/` divide the work as follows
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `engine/`                                                    | Ordered events, virtual time, cancellation and execution limits.                                |
 | `network/`, `client/`, `server/`, `balancer/`, `algorithms/` | Links and queues, client workloads, backend hosts, forwarding and backend selection.            |
-| `protocols/tcp/`                                             | TCP sender and receiver state, byte ranges, windows, timers, recovery and transport observations. |
+| `protocols/tcp/sender/`                                      | Packetization, send windows, ACK handling, RTT/RTO, loss recovery and sender observations.        |
+| `protocols/tcp/receiver/`                                    | Accepted connections, receive ranges, receive windows, ACK policy and receiver observations.    |
 | `model/`                                                     | Native shared packet, connection and measurement types.                                         |
 | `scenario/`                                                  | Scenario documents, exact integer encoding, validation and normalization.                       |
 | `internal/simulation/`                                       | World construction, client arrivals, wiring, RNG, typed operations and virtual-time sampling.   |
@@ -41,8 +42,12 @@ control-plane contract and adapters for other balancer implementations remain
 future work.
 
 Clients own workload definitions and traffic generation; backend hosts own their
-identity, health and local resource limits. Both use the TCP transport under
-`protocols/tcp/`. Congestion algorithms live in `protocols/tcp/congestion_control/`,
+identity, health and local resource limits. Clients use `protocols/tcp/sender/`;
+backend hosts use `protocols/tcp/receiver/`. The sender receives ACKs and the
+receiver sends them: these names describe payload direction. The two endpoints
+do not import each other. TCP-specific shared helpers can stay at the `tcp/`
+root when needed; shared native types remain in `model/`.
+Congestion algorithms live in `protocols/tcp/congestion_control/`,
 and reusable SACK range tracking lives in `protocols/tcp/sack/`.
 `protocols/udp/` reserves the protocol boundary for future UDP support.
 
@@ -1245,6 +1250,8 @@ Tests that need private state, or share fixtures with those checks, stay beside
 their implementation under `internal/app/`, `internal/live/` and
 `internal/execution/`. Shared native scenarios and subprocess helpers live in
 `internal/testsupport/`; application configuration and controller state stay private.
+TCP private tests stay beside their sender or receiver implementation. Exchange
+tests under `protocols/tcp/tests/behavior/integration/` use both public endpoint APIs.
 Tests of cooperation through public boundaries live under
 `simulator/tests/behavior/integration/`; architecture checks live under
 `simulator/tests/behavior/unit/`. Test helpers move with their suites.

@@ -5,14 +5,14 @@ import (
 
 	"load-balancer/engine"
 	"load-balancer/model"
-	"load-balancer/protocols/tcp"
+	"load-balancer/protocols/tcp/sender"
 )
 
 // Client owns one workload and delegates its connection to the TCP transport.
 // It schedules traffic generation, while TCP owns packets, windows and retries.
 type Client struct {
 	engine     *engine.Engine
-	transport  *tcp.Sender
+	transport  *sender.Sender
 	floodEvent engine.EventID
 
 	OnClose               func()
@@ -29,7 +29,7 @@ func NewClient(
 	protocol model.Protocol,
 ) *Client {
 	key := GenerateClientKey(srcIP, srcPort, dstIP, dstPort, protocol)
-	c := &Client{engine: e, transport: tcp.NewSender(e, key)}
+	c := &Client{engine: e, transport: sender.NewSender(e, key)}
 	c.transport.OnClose = func() {
 		c.stopFlood()
 		if c.OnClose != nil {

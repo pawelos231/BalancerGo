@@ -8,7 +8,7 @@ import (
 	"load-balancer/engine"
 	"load-balancer/host"
 	"load-balancer/model"
-	"load-balancer/protocols/tcp"
+	"load-balancer/protocols/tcp/receiver"
 )
 
 // Server owns backend availability, admission limits and host observations.
@@ -44,7 +44,7 @@ type Server struct {
 	// Called only for new payload accepted by a connection, before its ACK is sent.
 	OnPayloadReceived func(int)
 
-	transport       *tcp.Receiver
+	transport       *receiver.Receiver
 	processor       *host.Host
 	engine          *engine.Engine
 	sender          func(model.Packet)
@@ -75,7 +75,7 @@ func NewServer(
 		processor:   host.New(e, host.DefaultConfig()),
 		probeEvents: make(map[engine.EventID]struct{}),
 	}
-	s.transport = tcp.NewReceiver(e, tcp.ReceiverCallbacks{
+	s.transport = receiver.NewReceiver(e, receiver.ReceiverCallbacks{
 		Send: s.emit,
 		CanOpen: func() bool {
 			halfOpenFull := s.MaxHalfOpen > 0 && s.HalfOpenConnections >= s.MaxHalfOpen

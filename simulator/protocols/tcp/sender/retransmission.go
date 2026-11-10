@@ -1,0 +1,192 @@
+package sender
+
+import (
+	"time"
+
+	"load-balancer/model"
+)
+
+// roundTripProbe measures one original segment; retransmission makes it ambiguous.
+// recoveryUntilSeq prevents a cumulative retry ACK from becoming a fresh sample.
+type roundTripProbe struct {
+	active           bool
+	sentAt           time.Duration
+	endSeq           uint64
+	recovering       bool
+	recoveryUntilSeq uint64
+}
+
+// SetRTOConfig selects timer behavior before the connection starts.
+func (c *Sender) SetRTOConfig(config model.RTOConfig) {
+	if c.handshakeStarted || c.terminated {
+		panic("tcp: RTO configuration must be set before the connection starts")
+	}
+
+	c.rto = newRTOEstimator(config)
+}
+
+// SetIdleTimeout controls inactivity cleanup independently of retransmission.
+// Zero disables cleanup, allowing a long RTO to expire without an earlier idle limit.
+func (c *Sender) SetIdleTimeout(timeout time.Duration) {
+	if timeout < 0 {
+		panic("tcp: idle timeout must not be negative")
+	}
+	if c.handshakeStarted || c.terminated {
+		panic("tcp: idle timeout must be set before the connection starts")
+	}
+
+	c.idleTimeout = timeout
+}
+
+// GetRTOState returns measured RTT and the effective timeout, including backoff.
+func (c *Sender) GetRTOState() model.RTOState {
+	return c.rto.state
+}
+
+// startRTTProbe times one original segment, including its local queue wait.
+// An explicit active flag allows the first transmission to start at virtual time zero.
+func (c *Sender) startRTTProbe(packet model.Packet) {
+	if c.rttProbe.active || c.rttProbe.recovering {
+		return
+	}
+	end, valid := packet.SequenceEnd()
+	if !valid {
+		return
+	}
+
+	c.rttProbe.active = true
+	c.rttProbe.sentAt = c.engine.Now()
+	c.rttProbe.endSeq = end
+}
+
+// observeRTTACK finishes a safe probe when its complete byte range is confirmed.
+// An ACK covering retry recovery is skipped, even if it also confirms later data.
+func (c *Sender) observeRTTACK(ack uint64) {
+	probe := &c.rttProbe
+	if probe.recovering {
+		if ack >= probe.recoveryUntilSeq {
+			probe.recovering = false
+		}
+		return
+	}
+	if !probe.active || ack < probe.endSeq {
+		return
+	}
+
+	sample := c.engine.Now() - probe.sentAt
+	probe.active = false
+	c.rto.observeRTT(sample)
+}
+
+// invalidateRTTProbe applies Karn's rule before any retransmission is emitted.
+// If data through Seq=3073 was sent, its recovery ACK cannot provide an RTT sample.
+func (c *Sender) invalidateRTTProbe() {
+	c.rttProbe.active = false
+	c.rttProbe.recovering = true
+	c.rttProbe.recoveryUntilSeq = c.nextSendSeq
+}
+
+// sendSyn starts the SYN timer before emitting, so an immediate reply can cancel it.
+func (c *Sender) sendSyn() {
+	packet := GeneratePacket(c.key, c.synFlags(), 0, 0, 0)
+	packet.SACKPermitted = c.sack.enabled
+	if c.retrySyn == 0 {
+		c.startRTTProbe(packet)
+	}
+	c.cancelEvent(&c.synTimer)
+	c.synTimer = c.engine.ScheduleAfter(c.rto.state.CurrentRTO, c.retransmitSyn)
+	c.emit(packet)
+}
+
+// retransmitSyn backs off after a missing SYN-ACK and discards the ambiguous RTT.
+func (c *Sender) retransmitSyn() {
+	c.synTimer = 0
+	if c.terminated || c.connection.finSent || c.handshakeCompleted {
+		return
+	}
+	if c.retrySyn >= model.MAX_RETRANSMISIONS {
+		c.ShutdownWithReason(model.TransferSynRetryLimit)
+		return
+	}
+
+	c.retrySyn++
+	c.transfer.synRetransmissions++
+	c.invalidateRTTProbe()
+	c.congestion.afterSYNRetry(c.engine.Now())
+	c.rto.backOff()
+	c.sendSyn()
+}
+
+// armDataTimer restarts the current RTO for the oldest unconfirmed fragment.
+// New tail segments and duplicate ACKs leave an existing timer untouched.
+func (c *Sender) armDataTimer() {
+	c.cancelEvent(&c.dataTimer)
+	c.dataTimer = c.engine.ScheduleAfter(c.rto.state.CurrentRTO, c.retransmitData)
+}
+
+// retransmitData retries the oldest fragment and lengthens the next wait.
+// For an initial 1 s RTO, losses cause retransmissions at 1 s, 3 s and 7 s.
+func (c *Sender) retransmitData() {
+	c.dataTimer = 0
+	retryingRetransmission := c.oldestSegmentRetransmissions != 0 || c.wasECNRetransmitted(c.oldestUnackedSeq)
+	packet, retry := c.prepareDataRetry()
+	if !retry {
+		return
+	}
+	if c.sack.negotiated {
+		c.resetSACKAfterTimeout()
+	}
+	c.congestion.onDataTimeout(packet, c.bytesInFlight(), c.nextSendSeq, c.engine.Now(), retryingRetransmission)
+	c.rto.backOff()
+	c.armDataTimer()
+	c.emit(packet)
+}
+
+// fastRetransmitOldest repairs the same pending fragment before RTO expires.
+// A duplicate-ACK retry restarts RTO; a NewReno partial ACK already chose its deadline.
+func (c *Sender) fastRetransmitOldest(restartTimer bool) {
+	packet, retry := c.prepareDataRetry()
+	if !retry {
+		return
+	}
+	c.congestion.loss.fastRetransmissions++
+	if restartTimer {
+		c.armDataTimer()
+	}
+	c.emit(packet)
+}
+
+// prepareDataRetry shares retry limits and accounting between both loss paths.
+// Capture the packet before emitting: a synchronous ACK can remove it immediately.
+func (c *Sender) prepareDataRetry() (model.Packet, bool) {
+	if c.terminated || c.connection.finSent || !c.pendingSegments.hasPending() {
+		return model.Packet{}, false
+	}
+	if c.oldestSegmentRetransmissions >= model.MAX_RETRANSMISIONS {
+		c.ShutdownWithReason(model.TransferDataRetryLimit)
+		return model.Packet{}, false
+	}
+
+	packet := c.pendingSegments.oldest()
+	c.recordECNRetry(packet)
+	c.oldestSegmentRetransmissions++
+	c.transfer.dataRetransmissions++
+	c.invalidateRTTProbe()
+	c.congestion.recordDataSent(c.engine.Now(), packet.Size)
+	return packet, true
+}
+
+// armReadTimer starts the separate inactivity limit from the current virtual time.
+func (c *Sender) armReadTimer() {
+	c.cancelEvent(&c.readTimer)
+	if c.idleTimeout == 0 {
+		return
+	}
+
+	c.readTimer = c.engine.ScheduleAfter(c.idleTimeout, func() {
+		c.readTimer = 0
+		if !c.terminated {
+			c.ShutdownWithReason(model.TransferReadTimeout)
+		}
+	})
+}
