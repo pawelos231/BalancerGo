@@ -1,0 +1,144 @@
+package live
+
+import (
+	"testing"
+	"time"
+
+	"load-balancer/internal/contract"
+	"load-balancer/internal/presentation"
+	"load-balancer/internal/simulation"
+	"load-balancer/internal/testsupport"
+)
+
+// testsupport.PayloadScenario spaces segments apart so reception and its ACK can be inspected separately.
+
+// assertPayloadProgress checks the run totals and their headless representation.
+func assertPayloadProgress(t *testing.T, s *simulation.World, received, acknowledged uint64) {
+	t.Helper()
+	want := simulation.PayloadProgress{ReceivedBytes: received, AcknowledgedBytes: acknowledged}
+	if s.Info().Payload != want {
+		t.Fatalf("payload progress = %+v, want %+v", s.Info().Payload, want)
+	}
+	result := presentation.BuildResult(s, 0)
+	if result.ReceivedPayloadBytes != received || result.AcknowledgedPayloadBytes != acknowledged {
+		t.Fatalf("headless payload progress differs from the live totals: %+v", result)
+	}
+}
+
+// TestPayloadProgressIncludesUnfinishedTransfers keeps the two measurement boundaries distinct.
+func TestPayloadProgressIncludesUnfinishedTransfers(t *testing.T) {
+	input := testsupport.PayloadScenario()
+	// This test observes cleanup within 60 ms; use an explicit short TIME_WAIT profile.
+	msl := 5 * time.Millisecond
+	input.Fixed.TCP.Close.MSL = &msl
+	resolved := testsupport.Compile(t, input)
+	s := testsupport.NewWorld(resolved)
+	publisher := presentation.NewProjector("payload-run")
+	testsupport.Advance(t, s, 5*time.Millisecond)
+	first := payloadTelemetry(t, publisher, s)
+	assertPayloadProgress(t, s, 0, 0) // Only handshake traffic has arrived.
+
+	// A segment has reached the backend while its ACK is still travelling.
+	testsupport.Advance(t, s, 17*time.Millisecond)
+	assertPayloadProgress(t, s, 1024, 0)
+	if s.Info().CompletedStreams != 0 || s.Info().CompletedPayloadBytes != 0 {
+		t.Fatal("partial progress was counted as a completed stream")
+	}
+	received := payloadTelemetry(t, publisher, s)
+	if received.Document != nil || received.Topology.Revision != first.Topology.Revision {
+		t.Fatal("payload changes rebuilt the topology definitions")
+	}
+	if received.Topology.Nodes[0].Metrics["receivedPayloadBytes"] != 1024 ||
+		received.Topology.Nodes[0].Metrics["acknowledgedPayloadBytes"] != 0 ||
+		received.Servers[0].ReceivedPayloadBytes != 1024 {
+		t.Fatal("the live snapshot lost partial received payload")
+	}
+
+	// The same data is now ACK-confirmed, but the transfer remains incomplete.
+	testsupport.Advance(t, s, 19*time.Millisecond)
+	assertPayloadProgress(t, s, 1024, 1024)
+	confirmed := payloadTelemetry(t, publisher, s)
+	if confirmed.Servers[0].Clients[0].AcknowledgedPayloadBytes != 1024 {
+		t.Fatal("routed-client telemetry lost confirmed payload")
+	}
+	clientNode := confirmed.Topology.Nodes[len(confirmed.Topology.Nodes)-1]
+	if clientNode.Metrics["acknowledgedPayloadBytes"] != 1024 {
+		t.Fatal("client topology lost confirmed payload")
+	}
+	if s.Info().CompletedPayloadBytes != 0 || received.Servers[0].ReceivedPayloadBytes != 1024 {
+		t.Fatal("a later observation changed completion accounting or an earlier snapshot")
+	}
+
+	// The final segment is only two bytes; closure and backend failure retain historical totals.
+	testsupport.Advance(t, s, 60*time.Millisecond)
+	assertPayloadProgress(t, s, 2050, 2050)
+	if s.Info().CompletedStreams != 1 || payloadClients(s)[0].Active {
+		t.Fatal("the transfer did not complete and close")
+	}
+	var backendID string
+	s.VisitBackends(func(backend simulation.BackendObservation) {
+		backendID = backend.State.ID
+		if backend.State.ReceivedPayloadBytes != 2050 {
+			t.Fatal("connection cleanup erased the backend payload total")
+		}
+	})
+	if err := s.StopBackend(backendID); err != nil {
+		t.Fatal(err)
+	}
+	assertPayloadProgress(t, s, 2050, 2050)
+	fresh := testsupport.NewWorld(resolved)
+	assertPayloadProgress(t, fresh, 0, 0)
+}
+
+// TestPayloadSnapshotLifecycle checks actual WS totals, Stop and a fresh run.
+func TestPayloadSnapshotLifecycle(t *testing.T) {
+	h := newScenarioHarness(t)
+	idle := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
+		return snapshot.Simulation.Status == "idle"
+	})
+	if idle.Simulation.Payload != nil {
+		t.Fatal("idle snapshot reported payload from a nonexistent run")
+	}
+
+	input := testsupport.PayloadScenario()
+	input.Fixed.Execution.Speed = 0
+	receipt := startTelemetryScenario(t, h, input)
+	finished := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
+		return snapshot.Simulation.RunID == receipt.RunID && snapshot.Simulation.Status == "finished"
+	})
+	want := contract.PayloadProgress{ReceivedBytes: 2050, AcknowledgedBytes: 2050}
+	if finished.Simulation.Payload == nil || *finished.Simulation.Payload != want {
+		t.Fatalf("finished WS payload = %+v, want %+v", finished.Simulation.Payload, want)
+	}
+	stopTelemetryScenario(t, h)
+
+	// A new run ends before handshake completion and must start its own counters at zero.
+	input.Fixed.Execution.Duration = time.Microsecond
+	input.Fixed.Execution.SnapshotInterval = time.Microsecond
+	second := startTelemetryScenario(t, h, input)
+	fresh := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
+		return snapshot.Simulation.RunID == second.RunID && snapshot.Simulation.Status == "finished"
+	})
+	if fresh.Simulation.Payload == nil || *fresh.Simulation.Payload != (contract.PayloadProgress{}) {
+		t.Fatalf("fresh WS payload retained earlier work: %+v", fresh.Simulation.Payload)
+	}
+	if *finished.Simulation.Payload != want {
+		t.Fatal("a new run changed the previous detached payload totals")
+	}
+	stopTelemetryScenario(t, h)
+}
+
+func payloadTelemetry(t *testing.T, projector *presentation.Projector, world *simulation.World) presentation.Sample {
+	t.Helper()
+	sample, err := projector.Sample(world)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sample
+}
+
+func payloadClients(world *simulation.World) []simulation.ClientObservation {
+	var clients []simulation.ClientObservation
+	world.VisitClients(func(value simulation.ClientObservation) { clients = append(clients, value) })
+	return clients
+}

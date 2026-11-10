@@ -23,7 +23,10 @@ func TestArchitectureDependencyDirections(t *testing.T) {
 	}
 	rules := make([]rule, 0, len(domain)+2)
 	for _, directory := range domain {
-		rules = append(rules, rule{directory, []string{"internal/contract", "internal/presentation", "http"}})
+		rules = append(rules, rule{directory, []string{
+			"internal/contract", "internal/presentation", "http",
+			"internal/app", "internal/live", "internal/execution", "internal/testsupport",
+		}})
 	}
 	rules = append(rules,
 		// Congestion algorithms receive scalar facts; they cannot access hosts or the engine.
@@ -35,7 +38,20 @@ func TestArchitectureDependencyDirections(t *testing.T) {
 		// An empty package prefix forbids every import from this module: contract
 		// DTOs cannot acquire domain, presentation, transport or application types.
 		rule{"internal/contract", []string{""}},
-		rule{"http", []string{"internal/simulation", "internal/presentation", "model", "network"}},
+		rule{"http", []string{
+			"internal/simulation", "internal/presentation", "model", "network",
+			"internal/app", "internal/live", "internal/execution", "internal/testsupport",
+		}},
+		// Starting the application stays above interactive sessions and execution.
+		rule{"internal/live", []string{"internal/app", "internal/testsupport"}},
+		rule{"internal/execution", []string{
+			"internal/app", "internal/live", "internal/presentation", "http", "internal/testsupport",
+		}},
+		rule{"internal/presentation", []string{
+			"internal/app", "internal/live", "internal/execution", "http", "internal/testsupport",
+		}},
+		// Shared test fixtures must never become a production dependency.
+		rule{"internal/app", []string{"internal/testsupport"}},
 	)
 
 	const module = "load-balancer"

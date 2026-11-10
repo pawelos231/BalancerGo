@@ -31,7 +31,9 @@ publishing detached data. Packages under `simulator/` divide the work as follows
 | `internal/simulation/`                                       | World construction, client arrivals, wiring, RNG, typed operations and virtual-time sampling.   |
 | `internal/presentation/`                                     | Snapshot and CLI report projection, metric descriptions, display units and transfer aggregates. |
 | `internal/contract/`                                         | The existing HTTP, WebSocket and CLI data types and commands.                                   |
-| Application files in `simulator/`                            | Start/Stop, admission, run lifecycle, command handling, pacing and wall-time measurement.       |
+| `internal/app/`                                              | CLI flags, startup, execution-mode selection, scenario files, seed series and report output.    |
+| `internal/live/`                                             | HTTP service wiring, Start/Stop, admission, interactive lifecycle and ordered publication.      |
+| `internal/execution/`                                        | Shared world execution, wall-clock pacing, cancellation and experiment provenance.             |
 | `http/`                                                      | HTTP and WebSocket routing, encoding and delivery of prepared data.                             |
 
 `internal/contract` describes the current frontend and CLI interfaces. The shared
@@ -603,7 +605,7 @@ measurement excludes framing and compression and does not measure simulation spe
   or channel per client, connection or backend.
 - `internal/simulation/world.go` builds the normalized runtime and connects
   endpoints. `internal/simulation/clients.go` creates clients lazily from
-  compact groups. The application `runner.go` executes bounded event batches,
+  compact groups. `internal/execution/runner.go` executes bounded event batches,
   checks cancellation between batches and publishes at real-time intervals;
   `internal/presentation` builds snapshots.
   Client access links and backend return links reach their respective input
@@ -1240,7 +1242,9 @@ Run `go test ./...` from `simulator/`. From `visualizer/`, run `npm test`,
 
 Public-API Go unit tests live under each component's `tests/behavior/unit/`.
 Tests that need private state, or share fixtures with those checks, stay beside
-their implementation. This includes the main application's private wiring.
+their implementation under `internal/app/`, `internal/live/` and
+`internal/execution/`. Shared native scenarios and subprocess helpers live in
+`internal/testsupport/`; application configuration and controller state stay private.
 Tests of cooperation through public boundaries live under
 `simulator/tests/behavior/integration/`; architecture checks live under
 `simulator/tests/behavior/unit/`. Test helpers move with their suites.

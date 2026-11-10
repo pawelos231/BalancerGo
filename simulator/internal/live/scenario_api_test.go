@@ -1,0 +1,337 @@
+package live
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	httpserver "load-balancer/http"
+	"load-balancer/internal/contract"
+	"load-balancer/internal/testsupport"
+	"load-balancer/scenario"
+
+	"github.com/gorilla/websocket"
+)
+
+// scenarioHarness runs the real owner with HTTP and WebSocket connections.
+type scenarioHarness struct {
+	server      *httptest.Server
+	control     *runController
+	publication *httpserver.Publication
+	socket      *websocket.Conn
+	defaults    func() scenario.Scenario
+}
+
+func newScenarioHarness(t *testing.T) *scenarioHarness {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	control := newRunController(ctx)
+	publication := &httpserver.Publication{}
+	hub := httpserver.NewHub(func(command contract.Envelope, reply func(contract.CommandResultFrame)) error {
+		return submitFrontendCommand(control, ctx, command, reply)
+	})
+	go hub.Run(ctx)
+	defaults := testsupport.Scenario
+	api := &scenarioAPI{defaults: defaults, control: control, publication: publication}
+	server := httptest.NewServer(httpserver.NewServer(hub, "", api).Handler)
+	done := make(chan error, 1)
+	go func() { done <- runInteractive(ctx, testsupport.LegacySummary(), hub, control, publication) }()
+
+	url := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	socket, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		cancel()
+		server.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		socket.Close()
+		cancel()
+		server.Close()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("simulation owner: %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Error("simulation owner did not stop")
+		}
+	})
+	return &scenarioHarness{server: server, control: control, publication: publication, socket: socket, defaults: defaults}
+}
+
+func readScenarioSnapshot(t *testing.T, socket *websocket.Conn, ready func(contract.SimulationSnapshot) bool) contract.SimulationSnapshot {
+	t.Helper()
+	socket.SetReadDeadline(time.Now().Add(3 * time.Second))
+	for {
+		_, data, err := socket.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, _, err := decodeSnapshotMessage(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ready(snapshot) {
+			return snapshot
+		}
+	}
+}
+
+// End messages embed the final snapshot instead of sending it as replaceable telemetry.
+func decodeSnapshotMessage(data []byte) (contract.SimulationSnapshot, []byte, error) {
+	var message struct {
+		Type          string          `json:"type"`
+		FinalSnapshot json.RawMessage `json:"finalSnapshot"`
+	}
+	if err := json.Unmarshal(data, &message); err != nil {
+		return contract.SimulationSnapshot{}, nil, err
+	}
+	if message.Type == "simulationEnded" {
+		data = message.FinalSnapshot
+	}
+	var snapshot contract.SimulationSnapshot
+	err := json.Unmarshal(data, &snapshot)
+	return snapshot, data, err
+}
+
+func scenarioRequest(t *testing.T, server *httptest.Server, method, path string, document []byte, status int) []byte {
+	t.Helper()
+	request, err := http.NewRequest(method, server.URL+path, bytes.NewReader(document))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != status {
+		t.Fatalf("%s %s: HTTP %d, want %d: %s", method, path, response.StatusCode, status, body)
+	}
+	return body
+}
+
+// TestHTTPScenarioLifecycle checks profiles in the runtime and request-independent starts.
+func TestHTTPScenarioLifecycle(t *testing.T) {
+	h := newScenarioHarness(t)
+	input := h.defaults()
+	input.Fixed.Execution.Speed = 1
+	input.Fixed.Execution.Duration = 2 * time.Second
+	slowRate := int64(10_000_000)
+	input.Fixed.Network.Profiles = []scenario.LinkProfile{{
+		ID: "slow", Config: scenario.LinkPatch{BandwidthBitsPerSecond: &slowRate},
+	}}
+	{
+		initialState := input.States["0"]
+		initialState.Workload.ClientGroups = []scenario.ClientGroup{
+			{ID: "slow-clients", Count: 2, Network: scenario.EndpointNetworkConfig{Profile: "slow"}},
+			{ID: "fast-clients", Count: 1},
+		}
+		input.States["0"] = initialState
+	}
+	{
+		initialState := input.States["0"]
+		initialState.Resources.Backends[0].Network.Profile = "slow"
+		input.States["0"] = initialState
+	}
+	document, err := scenario.EncodeDocument(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Validation returns the original profiles and does not create a run.
+	validated := scenarioRequest(t, h.server, http.MethodPost, "/api/scenarios/validate", document, http.StatusOK)
+	var validation struct {
+		Scenario json.RawMessage
+		Summary  struct{ TotalClients int }
+	}
+	if err := json.Unmarshal(validated, &validation); err != nil {
+		t.Fatal(err)
+	}
+	if validation.Summary.TotalClients != 3 {
+		t.Fatal("validation did not resolve both groups")
+	}
+	scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusNotFound)
+
+	// The HTTP handler returns before the paced run finishes, closing its request context.
+	body := scenarioRequest(t, h.server, http.MethodPost, "/api/simulations", document, http.StatusAccepted)
+	var receipt contract.RunReceipt
+	if err := json.Unmarshal(body, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.RunID == "" || receipt.Status != "accepted" {
+		t.Fatalf("invalid receipt: %+v", receipt)
+	}
+	snapshot := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
+		return snapshot.Simulation.RunID == receipt.RunID && len(snapshot.Topology.Nodes) == 6
+	})
+	if snapshot.Simulation.Status != "running" || h.control.contextForRun().Err() != nil {
+		t.Fatal("the completed HTTP request canceled its accepted simulation")
+	}
+
+	// Both the slow backend and slow client group's real links use the profile.
+	body = scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current/topology", nil, http.StatusOK)
+	var structure struct {
+		RunID    string `json:"runId"`
+		Revision string `json:"revision"`
+		Links    []struct {
+			Config struct {
+				BandwidthBitsPerSecond int64 `json:"bandwidthBitsPerSecond"`
+			} `json:"config"`
+		} `json:"links"`
+	}
+	if err := json.Unmarshal(body, &structure); err != nil {
+		t.Fatal(err)
+	}
+	if structure.RunID != snapshot.Simulation.RunID || structure.Revision != snapshot.Topology.Revision {
+		t.Fatal("HTTP topology does not match the live run and revision")
+	}
+	slowLinks := 0
+	fastLinks := 0
+	for _, link := range structure.Links {
+		if link.Config.BandwidthBitsPerSecond == slowRate {
+			slowLinks++
+		} else {
+			fastLinks++
+		}
+	}
+	if slowLinks != 6 || fastLinks != 4 {
+		t.Fatalf("profile settings did not reach runtime links: slow=%d fast=%d", slowLinks, fastLinks)
+	}
+	body = scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusOK)
+	var record contract.RunRecord
+	if err := json.Unmarshal(body, &record); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := scenario.DecodeDocument(record.Scenario)
+	if err != nil || !reflect.DeepEqual(restored, input) {
+		t.Fatalf("current scenario changed: %v", err)
+	}
+	if record.RunID != receipt.RunID || record.Status != "running" {
+		t.Fatalf("wrong record: %+v", record)
+	}
+	assertInteractiveExperiment(t, document, input.Fixed.Execution.Speed, record.Experiment)
+	if snapshot.Simulation.Experiment == nil ||
+		!reflect.DeepEqual(*snapshot.Simulation.Experiment, record.Experiment) {
+		t.Fatal("HTTP and WebSocket described different experiments")
+	}
+
+	// HTTP and WS cannot start another model while this one owns the slot.
+	scenarioRequest(t, h.server, http.MethodPost, "/api/simulations", document, http.StatusConflict)
+	err = submitFrontendCommand(h.control, context.Background(), contract.Envelope{
+		Type: contract.StartSimulation, Payload: []byte(`{}`),
+	}, nil)
+	if !errors.Is(err, errSimulationBusy) {
+		t.Fatalf("WS bypassed HTTP admission: %v", err)
+	}
+	if err := h.socket.WriteJSON(contract.Envelope{
+		Type: contract.StopSimulation, RunID: receipt.RunID, CommandID: "stop-lifecycle",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	idle := readScenarioSnapshot(t, h.socket, func(snapshot contract.SimulationSnapshot) bool {
+		return snapshot.Simulation.Status == "idle"
+	})
+	if idle.Simulation.Experiment != nil || idle.Simulation.RunID != "" {
+		t.Fatal("Stop left the previous experiment's identity in the idle snapshot")
+	}
+	scenarioRequest(t, h.server, http.MethodGet, "/api/simulations/current", nil, http.StatusNotFound)
+}
+
+// A packets-only form edit keeps Bytes=-1 in the stored input. Runtime receives
+// the resolved byte count, while explicit zero timeouts and false flags stay exact.
+
+func TestScenarioStartAdmission(t *testing.T) {
+	serviceCtx, cancelService := context.WithCancel(context.Background())
+	defer cancelService()
+	control := newRunController(serviceCtx)
+	input := testsupport.Scenario()
+	resolved, err := scenario.Compile(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := scenario.EncodeDocument(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Many simultaneous HTTP requests share exactly one pending start slot.
+	const callers = 16
+	errorsCh := make(chan error, callers)
+	var workers sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			_, err := control.startTimeline(context.Background(), document, resolved)
+			errorsCh <- err
+		}()
+	}
+	workers.Wait()
+	close(errorsCh)
+	accepted := 0
+	for err := range errorsCh {
+		if err == nil {
+			accepted++
+		} else if !errors.Is(err, errSimulationBusy) {
+			t.Fatal(err)
+		}
+	}
+	if accepted != 1 || len(control.starts) != 1 {
+		t.Fatalf("accepted %d starts", accepted)
+	}
+	first := control.currentRun()
+	first.Scenario[0] = '!'
+	if control.currentRun().Scenario[0] != '{' {
+		t.Fatal("HTTP record exposed mutable configuration")
+	}
+
+	// Stop interrupts the reserved run and blocks new admission until the empty snapshot.
+	runCtx := control.contextForRun()
+	if err := submitFrontendCommand(control, context.Background(), contract.Envelope{
+		Type: contract.StopSimulation, RunID: first.RunID, CommandID: "stop-admission",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(runCtx.Err(), context.Canceled) {
+		t.Fatal("Stop did not cancel the run")
+	}
+	control.finishRun()
+	_, err = control.startTimeline(context.Background(), document, resolved)
+	if !errors.Is(err, errSimulationBusy) {
+		t.Fatal("new Start bypassed pending Stop")
+	}
+	control.applyStop(<-control.stops, func() (stopObservation, error) { return stopObservation{}, nil })
+
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	second, err := control.startTimeline(requestCtx, document, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelRequest()
+	if control.contextForRun().Err() != nil {
+		t.Fatal("request cancellation stopped the accepted model")
+	}
+	if second.RunID == first.RunID {
+		t.Fatal("new run reused its previous identity")
+	}
+	cancelService()
+	if control.contextForRun().Err() == nil {
+		t.Fatal("service shutdown did not cancel its model")
+	}
+}
