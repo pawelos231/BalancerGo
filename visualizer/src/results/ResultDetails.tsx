@@ -14,6 +14,7 @@ import {
 } from './presentation';
 import ResultResources from './ResultResources';
 import ResultCharts from './ResultCharts';
+import ResultExports from './ResultExports';
 
 interface Metric {
   label: string;
@@ -307,6 +308,7 @@ export default function ResultDetails({ result }: { result: RunResult }) {
         <Chip label={result.completion.reason === 'finished' ? 'Finished' : 'Stopped'} size="small" />
       </Stack>
       {executionError && <Alert severity="error">Source execution error: {executionError}</Alert>}
+      <ResultExports result={result} />
       <Summary result={result} />
       <Coverage result={result} />
       <ResultCharts result={result} />

@@ -412,3 +412,10 @@ break plotted lines. Topology revisions remain attached to inspected samples.
 Large series use a bounded display projection; the archived samples are unchanged.
 Global transfer latency p95/p99 remains unavailable because the source contract
 does not provide it.
+
+`Export JSON` downloads the complete `resultVersion: 1` artifact, including its
+executed scenario, definitions, every retained source sample, summary, coverage
+and provenance. Exact decimal strings and unknown fields are unchanged. This is
+separate from exporting `scenario.json` in the configuration editor. Export also
+works directly from an unsaved RAM candidate and does not require the backend or
+an available localStorage quota.
