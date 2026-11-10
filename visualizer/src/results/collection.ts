@@ -1,8 +1,11 @@
 import { telemetrySource } from '../telemetry/exact.ts';
+import type { CurrentSimulation, Scenario } from '../scenarios/types.ts';
 import type { SimulationSnapshot, TopologyDefinition } from '../telemetry/types.ts';
+import { freezeTree } from './immutable.ts';
 import {
   COLLECTION_VERSION,
   type CollectedRun,
+  type CollectedMetadata,
   type CollectedSample,
   type CollectionLimits,
   type CollectionUsage,
@@ -28,6 +31,7 @@ interface RunBuffer {
   sequences: Set<string>;
   revisions: Set<string>;
   bytes: number;
+  metadataBytes: number;
 }
 
 // Covers fixed JSON keys, punctuation and bounded numeric counters in each header.
@@ -37,14 +41,6 @@ const COLLECTION_HEADER_BYTES = 512;
 const encoder = new TextEncoder();
 const byteLength = (json: string) => encoder.encode(json).byteLength;
 const increment = (value: number) => Math.min(value + 1, Number.MAX_SAFE_INTEGER);
-
-function freezeTree<T>(value: T): T {
-  if (value !== null && typeof value === 'object') {
-    Object.values(value).forEach(freezeTree);
-    Object.freeze(value);
-  }
-  return value;
-}
 
 function requireTimestamp(value: number) {
   if (!Number.isFinite(value)) throw new Error('Collection timestamp must be finite.');
@@ -141,6 +137,29 @@ export class ResultsCollection {
     return true;
   }
 
+  submitted(runId: string, scenario: Scenario, receivedAt = Date.now()): boolean {
+    requireTimestamp(receivedAt);
+    const run = this.run(runId, receivedAt, false);
+    if (!run || run.data.metadata !== null) return false;
+    return this.captureMetadata(run, {
+      provenance: 'submitted', receivedAt, scenario: telemetrySource(scenario), experiment: null,
+    });
+  }
+
+  metadata(current: CurrentSimulation, receivedAt = Date.now()): boolean {
+    requireTimestamp(receivedAt);
+    const run = this.run(current.runId, receivedAt, false);
+    if (!run) return false;
+    const source = telemetrySource(current);
+    const previous = run.data.metadata;
+    if (previous?.provenance === 'backend'
+      && JSON.stringify(previous.scenario) === JSON.stringify(source.scenario)
+      && JSON.stringify(previous.experiment) === JSON.stringify(source.experiment)) return false;
+    return this.captureMetadata(run, {
+      provenance: 'backend', receivedAt, scenario: source.scenario, experiment: source.experiment,
+    });
+  }
+
   disconnected(receivedAt = Date.now()) {
     requireTimestamp(receivedAt);
     if (!this.connected) return;
@@ -190,14 +209,14 @@ export class ResultsCollection {
     const run: RunBuffer = {
       data: {
         collectionVersion: COLLECTION_VERSION, runId, createdAt: receivedAt,
-        samples, definitions, markers, firstObservedSequence: null,
-        highestObservedSequence: null, terminalPublicationSequence: null,
+        samples, definitions, markers, firstObservedSequence: null, firstObservedAt: null,
+        highestObservedSequence: null, terminalPublicationSequence: null, metadata: null,
         limits: {
-          memoryLimited: false, droppedSamples: 0, droppedDefinitions: 0,
+          memoryLimited: false, droppedSamples: 0, droppedDefinitions: 0, droppedMetadata: 0,
           droppedMarkers: 0, markerLimitReached: false, terminalSnapshotDropped: false,
         },
       },
-      samples, definitions, markers, sequences: new Set(), revisions: new Set(), bytes,
+      samples, definitions, markers, sequences: new Set(), revisions: new Set(), bytes, metadataBytes: 0,
     };
     this.runs.set(runId, run);
     this.bytes += bytes;
@@ -220,6 +239,23 @@ export class ResultsCollection {
     return true;
   }
 
+  private captureMetadata(run: RunBuffer, metadata: CollectedMetadata): boolean {
+    const json = JSON.stringify(metadata);
+    const bytes = byteLength(json) + 1;
+    const growth = bytes - run.metadataBytes;
+    if (growth > 0 && !this.charge(run, growth)) {
+      run.data.limits.droppedMetadata = increment(run.data.limits.droppedMetadata);
+      return false;
+    }
+    if (growth < 0) {
+      this.bytes += growth;
+      run.bytes += growth;
+    }
+    run.metadataBytes = bytes;
+    run.data.metadata = freezeTree(JSON.parse(json) as CollectedMetadata);
+    return true;
+  }
+
   private marker(run: RunBuffer, marker: ObservationMarker) {
     if (run.markers.length >= this.maxMarkersPerRun) {
       run.data.limits.markerLimitReached = true;
@@ -237,6 +273,7 @@ export class ResultsCollection {
     const previous = run.data.highestObservedSequence;
     if (previous === null) {
       run.data.firstObservedSequence = sequence;
+      run.data.firstObservedAt = receivedAt;
       if (sequence !== '1') this.marker(run, { kind: 'lateJoin', publicationSequence: sequence, receivedAt });
     } else if (BigInt(sequence) > BigInt(previous) + 1n) {
       this.marker(run, { kind: 'gap', afterSequence: previous, beforeSequence: sequence, receivedAt });

@@ -336,3 +336,14 @@ cannot fit are counted explicitly; earlier samples are never silently downsample
 Each run also retains at most 256 observation markers for gaps and reconnects.
 Saving completed results, history and export are implemented in the following
 Epic 3 stages; this collector does not write to the backend or localStorage.
+
+Run metadata is attached by its returned run ID. The HTTP run document takes
+priority; the admitted submitted document is a separately labelled fallback.
+Editing the form during a run never changes that run's retained input. A missing
+document or topology revision stays visible as missing metadata.
+
+Result assembly uses the terminal publication when available, or explicitly the
+latest retained observation. Cumulative counters are not summed across samples.
+Removed resources keep their last observation and its time, rather than being
+presented as current resources. Assembly creates an independent, versioned result;
+later metadata does not mutate an already assembled artifact.

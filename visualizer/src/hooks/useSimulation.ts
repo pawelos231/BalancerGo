@@ -29,6 +29,7 @@ const uncertainStopError = 'Connection lost before Stop was acknowledged. '
 
 interface HttpStart {
   controller: AbortController;
+  scenario: Scenario;
   runId?: string;
   observedRunIds: Set<string>;
 }
@@ -296,6 +297,8 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
 
     scenarioApi.current(controller.signal).then((current) => {
       if (controller.signal.aborted) return;
+      // Metadata belongs to its returned run, even if the live view already shows another one.
+      if (current) resultsRef.current!.metadata(current);
       if (current && stopCommandsRef.current.hasClearedRun(current.runId)) return;
       const latestSnapshot = simulationRef.current;
       const snapshotChanged = latestSnapshot?.runId !== requestRunId;
@@ -364,6 +367,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
 
     const request: HttpStart = {
       controller: new AbortController(),
+      scenario: structuredClone(scenario),
       observedRunIds: new Set(),
     };
     httpStartRef.current = request;
@@ -371,9 +375,11 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     setCommandError(null);
 
     try {
-      const receipt = await scenarioApi.start(scenario, request.controller.signal);
+      const receipt = await scenarioApi.start(request.scenario, request.controller.signal);
       if (!mountedRef.current || httpStartRef.current !== request) return false;
       request.runId = receipt.runId;
+      // Keep the admitted input separately from any edits made while the request was in flight.
+      resultsRef.current!.submitted(receipt.runId, request.scenario);
       setRunRefresh((revision) => revision + 1);
 
       // A speed-0 run may have already finished while its HTTP receipt was in flight.
