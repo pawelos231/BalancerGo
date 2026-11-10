@@ -320,3 +320,19 @@ also retain their own sources. Archive/export this source, not the numeric live 
 The accessor rejects unregistered unsafe numbers because their original digits cannot
 be recovered. Go node metrics also retain original integer tokens before conversion to
 their numeric display values; serialization uses those tokens without adding wire fields.
+
+## Results collection
+
+The application collects exact samples synchronously before live-view hydration and
+React updates. Each sample keeps its publication number, receipt time and virtual
+time. Different publications at the same virtual time remain separate. Topology
+definitions are archived once per run and revision, including definitions embedded
+in end and Stop acknowledgements.
+
+The collection retains up to 32 MiB of serialized UTF-8 data across eight runs,
+including a 2 MiB reserve for terminal measurements. This bounds the stored data
+representation, not the browser's JavaScript heap. Samples and definitions that
+cannot fit are counted explicitly; earlier samples are never silently downsampled.
+Each run also retains at most 256 observation markers for gaps and reconnects.
+Saving completed results, history and export are implemented in the following
+Epic 3 stages; this collector does not write to the backend or localStorage.

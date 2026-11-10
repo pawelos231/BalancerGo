@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CommandType } from '../commands';
+import { ResultsCollection } from '../results/collection';
 import { scenarioApi, websocketUrl } from '../scenarios/runtimeApi';
 import { httpStartAcknowledged } from '../scenarios/startAcknowledgement';
 import type { CurrentSimulation, Scenario } from '../scenarios/types';
@@ -64,6 +65,8 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
   const httpStartRef = useRef<HttpStart | null>(null);
   const mountedRef = useRef(false);
   const telemetryRef = useRef<TelemetryReceiver | null>(null);
+  const resultsRef = useRef<ResultsCollection | null>(null);
+  if (!resultsRef.current) resultsRef.current = new ResultsCollection();
   const lifecycleOptionsRef = useRef(options);
   lifecycleOptionsRef.current = options;
   const lifecycleRef = useRef<RunLifecycleReceiver | null>(null);
@@ -85,10 +88,15 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     mountedRef.current = true;
     const stopCommands = stopCommandsRef.current;
     const lifecycle = lifecycleRef.current!;
+    const results = resultsRef.current!;
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     const receiver = new TelemetryReceiver(
-      (signal) => scenarioApi.topology(signal),
+      async (signal) => {
+        const definition = await scenarioApi.topology(signal);
+        results.definition(definition);
+        return definition;
+      },
       (view) => {
         if (disposed) return;
         setData(view.data);
@@ -98,6 +106,14 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     );
     telemetryRef.current = receiver;
 
+    // End messages bring their own definition, even if this publication was already seen.
+    function collectFinal(sample: FinalSample | null) {
+      if (!sample) return;
+      const receivedAt = Date.now();
+      results.definition(sample.definition, receivedAt, true);
+      results.snapshot(sample.snapshot, receivedAt, true);
+    }
+
     function handleCommandError(message: Pick<CommandError, 'commandType' | 'error'>) {
       // A legacy Stop error has no identity and cannot settle this request.
       if (message.commandType === CommandType.StopSimulation) return;
@@ -105,6 +121,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     }
 
     function handleStopResult({ result: message, sample }: ParsedStopCommandResult) {
+      collectFinal(sample);
       const pending = stopCommands.pending;
       if (pending?.runId !== message.runId || pending.commandId !== message.commandId) return;
       // Deliver the validated sample before finish retires this run and clears its intent.
@@ -156,6 +173,8 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     function handleSnapshot(snapshot: SimulationSnapshot) {
       // Reject retired runs before tracking so cleared runs cannot become current again.
       if (!stopCommands.acceptsSnapshot(snapshot.simulation)) return;
+      // Preserve each publication before tracking or rendering can replace its view.
+      results.snapshot(snapshot);
       const observation = lifecycle.observeSnapshot(snapshot.simulation);
       if (!observation) return;
       setPublicationObservation(observation);
@@ -164,6 +183,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     }
 
     function handleRunEnded(parsed: ParsedSimulationEnded) {
+      collectFinal(parsed.sample);
       // This callback runs synchronously even if React renders only the following run B.
       const receipt = lifecycle.receiveEnd(parsed);
       const { event } = parsed;
@@ -189,6 +209,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
 
         // Wait for a fresh snapshot before enabling controls after reconnect.
         simulationRef.current = null;
+        results.reconnected();
         lifecycle.reconnect();
         receiver.reset();
         setCurrentRun(null);
@@ -228,6 +249,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
         if (disposed) return;
 
         simulationRef.current = null;
+        results.disconnected();
         lifecycle.disconnect();
         const uncertainRunId = lifecycle.terminationUncertainty;
         if (uncertainRunId) {
@@ -370,6 +392,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
   }
 
   return {
+    resultsCollection: resultsRef.current,
     data,
     connected,
     connectionEpoch,
