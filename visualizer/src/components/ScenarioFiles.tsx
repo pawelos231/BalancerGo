@@ -11,6 +11,7 @@ import {
 import { useRef } from 'react';
 import type { Scenario, ValidatedScenario } from '../scenarios/types';
 import ScenarioDocumentPreview from './ScenarioDocumentPreview';
+import ScenarioJsonEditor from './ScenarioJsonEditor';
 
 export interface ScenarioFileNotice {
   severity: 'success' | 'error';
@@ -24,6 +25,11 @@ interface ScenarioFilesProps {
   checking: boolean;
   invalid: boolean;
   notice: ScenarioFileNotice | null;
+  document: string;
+  unapplied: boolean;
+  onEditDocument: (document: string) => void;
+  onApplyDocument: () => void;
+  onDiscardDocument: () => void;
   onImport: (file: File) => void;
   onExport: () => void;
   onValidate: () => void;
@@ -37,12 +43,17 @@ function ScenarioFiles({
   checking,
   invalid,
   notice,
+  document,
+  unapplied,
+  onEditDocument,
+  onApplyDocument,
+  onDiscardDocument,
   onImport,
   onExport,
   onValidate,
 }: ScenarioFilesProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const canUseDraft = scenario !== null && !busy && !invalid;
+  const canUseDraft = scenario !== null && !busy && !invalid && !unapplied;
 
   return (
     <Card variant="outlined">
@@ -55,12 +66,23 @@ function ScenarioFiles({
             Files can be up to 2 MiB. Import does not start a simulation.
           </Typography>
 
+          {scenario && (
+            <ScenarioJsonEditor
+              document={document}
+              dirty={unapplied}
+              disabled={busy}
+              onChange={onEditDocument}
+              onApply={onApplyDocument}
+              onDiscard={onDiscardDocument}
+            />
+          )}
+
           <input
             ref={inputRef}
             type="file"
             accept=".json,application/json"
             aria-label="Scenario JSON file"
-            disabled={busy}
+            disabled={busy || unapplied}
             hidden
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
@@ -70,7 +92,7 @@ function ScenarioFiles({
             }}
           />
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button variant="outlined" disabled={busy} onClick={() => inputRef.current?.click()}>
+            <Button variant="outlined" disabled={busy || unapplied} onClick={() => inputRef.current?.click()}>
               Import JSON
             </Button>
             <Button variant="outlined" disabled={!canUseDraft} onClick={onExport}>
@@ -93,7 +115,7 @@ function ScenarioFiles({
               their last valid values.
             </Alert>
           )}
-          {validation && (
+          {validation && !unapplied && (
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Chip label="Draft validated" color="success" size="small" />
               <Chip label={`${validation.summary.totalClients} clients`} size="small" />
@@ -104,21 +126,21 @@ function ScenarioFiles({
 
           {scenario && (
             <ScenarioDocumentPreview
-              title="Native scenario"
+              title="Applied native scenario"
               document={scenario}
               description={
-                'The full draft used for export and Start. Profiles and overrides are preserved; ' +
-                'durations are in nanoseconds.'
+                'The last applied draft, retained while JSON edits are pending. ' +
+                'Profiles and overrides are preserved; durations are in nanoseconds.'
               }
             />
           )}
-          {validation?.resolved ? (
+          {validation?.resolved && !unapplied ? (
             <ScenarioDocumentPreview
               title="Effective configuration"
               document={validation.resolved}
               description={
                 'Read-only backend result after resolving inherited settings, profiles and overrides. ' +
-                'Groups remain compact. Export uses Native scenario.'
+                'Groups remain compact. Export uses the applied native scenario.'
               }
             />
           ) : (

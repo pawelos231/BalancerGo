@@ -36,6 +36,7 @@ interface ScenarioLibraryProps {
   loading: boolean;
   pending: boolean;
   validating: boolean;
+  unappliedDocument: boolean;
   candidate: PresetCandidate | null;
   applied: AppliedPreset | null;
   error: string | null;
@@ -50,6 +51,7 @@ function ScenarioLibrary({
   loading,
   pending,
   validating,
+  unappliedDocument,
   candidate,
   applied,
   error,
@@ -60,8 +62,8 @@ function ScenarioLibrary({
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [page, setPage] = useState(1);
-  const canChoose = defaultsReady && !validating && !pending;
-  const canValidate = candidate !== null && !validating && !pending;
+  const canChoose = defaultsReady && !validating && !pending && !unappliedDocument;
+  const canValidate = candidate !== null && !validating && !pending && !unappliedDocument;
   const query = search.trim().toLowerCase();
   const categories = presetCategories.map((entry) => ({
     ...entry,

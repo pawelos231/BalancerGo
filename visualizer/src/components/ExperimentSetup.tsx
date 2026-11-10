@@ -1,12 +1,13 @@
 import { Alert, Button, Card, CardContent, CardHeader, Stack } from '@mui/material';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { retainResourceIds, scenarioFormValues } from '../scenarios/draft';
 import type { ScenarioDraft, ScenarioField } from '../scenarios/draft';
 import { editScenarioForm, selectScenarioFormState } from '../scenarios/formState';
 import type { FieldErrors } from '../scenarios/formState';
 import { applyHostToAllBackends, editHostField, emptyHostEdits, retainHostEdits } from '../scenarios/host';
 import type { HostEdits, HostField, HostTarget, HostValues } from '../scenarios/host';
-import { readScenarioFile, serializeScenario } from '../scenarios/files';
+import { formatScenarioDocument, readScenarioFile, serializeScenario } from '../scenarios/files';
+import { validateEditorDocument } from '../scenarios/editor';
 import { scenarioPresets } from '../scenarios/presets';
 import { scenarioApi } from '../scenarios/runtimeApi';
 import { validateScenario } from '../scenarios/validation';
@@ -63,12 +64,16 @@ function ExperimentSetup({
   const [error, setError] = useState<string | null>(null);
   const [validation, setValidation] = useState<ValidatedScenario | null>(null);
   const [fileNotice, setFileNotice] = useState<ScenarioFileNotice | null>(null);
+  const [editedDocument, setEditedDocument] = useState<string | null>(null);
+  const editedDocumentRef = useRef<string | null>(null);
   const validationRef = useRef<AbortController | null>(null);
   const scenarioRef = useRef<Scenario | null>(null);
   const valuesRef = useRef<ScenarioDraft | null>(null);
   const errorsRef = useRef<FieldErrors>({});
   const hostEditsRef = useRef<HostEdits>(emptyHostEdits());
   const countEditRef = useRef<CountEdit | null>(null);
+  const appliedDocument = useMemo(() => scenario ? formatScenarioDocument(scenario) : '', [scenario]);
+  const unappliedDocument = editedDocument !== null;
 
   const setNativeScenario = useCallback((definition: Scenario) => {
     scenarioRef.current = definition;
@@ -106,6 +111,10 @@ function ExperimentSetup({
   // Rejected text remains in the form; only a complete valid document updates the plan.
   useEffect(() => {
     if (!scenario) return;
+    if (unappliedDocument) {
+      onPreviewChange(null, 'JSON edits have not been applied. Apply or discard them to update the planned topology.');
+      return;
+    }
     if (Object.keys(fieldErrors).length > 0 || Object.keys(hostEdits.errors).length > 0) {
       onPreviewChange(null, 'The form has invalid, unapplied input. Fix the highlighted fields to update the planned topology.');
       return;
@@ -118,10 +127,10 @@ function ExperimentSetup({
     } catch (failure) {
       onPreviewChange(null, failure instanceof Error ? failure.message : 'The draft is not a valid complete scenario.');
     }
-  }, [scenario, fieldErrors, hostEdits.errors, stagedHosts, onPreviewChange]);
+  }, [scenario, fieldErrors, hostEdits.errors, stagedHosts, unappliedDocument, onPreviewChange]);
 
   function choosePreset(id: string) {
-    if (!defaults || validationRef.current || pending) return;
+    if (!defaults || validationRef.current || pending || hasUnappliedDocument()) return;
     const preset = scenarioPresets.find((entry) => entry.id === id);
     if (!preset) return;
     setCandidate({ id, title: preset.title, scenario: preset.build(defaults) });
@@ -160,6 +169,8 @@ function ExperimentSetup({
       setHostEdits(hostEditsRef.current);
       // Remount only after document replacement, clearing staged Apply-to-all inputs.
       setHostRevision(revision => revision + 1);
+      editedDocumentRef.current = null;
+      setEditedDocument(null);
       setValidation(result);
       onApplied(result);
     } catch (failure) {
@@ -178,7 +189,7 @@ function ExperimentSetup({
   }
 
   function validatePreset() {
-    if (!candidate) return;
+    if (!candidate || hasUnappliedDocument()) return;
     const selected = candidate;
     void validateAndApply(
       (signal) => scenarioApi.validate(selected.scenario, signal),
@@ -196,6 +207,7 @@ function ExperimentSetup({
   }
 
   function importScenario(file: File) {
+    if (hasUnappliedDocument()) return;
     void validateAndApply(
       async (signal) => {
         const document = await readScenarioFile(file);
@@ -210,9 +222,42 @@ function ExperimentSetup({
     );
   }
 
+  function hasUnappliedDocument() {
+    return editedDocumentRef.current !== null;
+  }
+
+  function changeDocument(document: string) {
+    if (!scenarioRef.current || validationRef.current || pending) return;
+    const next = document === appliedDocument ? null : document;
+    editedDocumentRef.current = next;
+    setEditedDocument(next);
+    setFileNotice(null);
+  }
+
+  function discardDocument() {
+    if (validationRef.current || pending) return;
+    editedDocumentRef.current = null;
+    setEditedDocument(null);
+    setFileNotice(null);
+  }
+
+  function applyDocument() {
+    const document = editedDocumentRef.current;
+    if (document === null) return;
+    void validateAndApply(
+      signal => validateEditorDocument(document, scenarioApi, signal),
+      () => {
+        setCandidate(null);
+        setApplied(null);
+        setFileNotice({ severity: 'success', message: 'Applied JSON document. Ready for Start.' });
+      },
+      true,
+    );
+  }
+
   function validateDraft() {
     const current = scenarioRef.current;
-    if (!current || hasInvalidSettings()) return;
+    if (!current || hasInvalidSettings() || hasUnappliedDocument()) return;
     void validateAndApply(
       (signal) => scenarioApi.validate(current, signal),
       () => setFileNotice({
@@ -224,7 +269,7 @@ function ExperimentSetup({
 
   function exportScenario() {
     const current = scenarioRef.current;
-    if (!current || hasInvalidSettings()) return;
+    if (!current || hasInvalidSettings() || hasUnappliedDocument()) return;
 
     // Reuse an unchanged validated draft; edited settings are checked before saving.
     void validateAndApply(
@@ -250,7 +295,7 @@ function ExperimentSetup({
   function changeField(name: ScenarioField, raw: string) {
     const current = scenarioRef.current;
     const requested = valuesRef.current;
-    if (!current || !requested || validationRef.current || pending) return;
+    if (!current || !requested || validationRef.current || pending || hasUnappliedDocument()) return;
     setValidation(null);
     setFileNotice(null);
     setApplied((previous) => previous ? { ...previous, pristine: false } : null);
@@ -280,7 +325,7 @@ function ExperimentSetup({
 
   function selectState(at: string) {
     const current = scenarioRef.current;
-    if (!current?.states[at] || validationRef.current || pending) return;
+    if (!current?.states[at] || validationRef.current || pending || hasUnappliedDocument()) return;
     selectedAtRef.current = at;
     setSelectedAt(at);
     countEditRef.current = null;
@@ -314,14 +359,14 @@ function ExperimentSetup({
 
   function changeHostField(target: HostTarget, field: HostField, raw: string) {
     const current = scenarioRef.current;
-    if (!current || validationRef.current || pending) return;
+    if (!current || validationRef.current || pending || hasUnappliedDocument()) return;
     const next = editHostField(current, hostEditsRef.current, target, field, raw, selectedAtRef.current);
     updateHosts(next.scenario, next.edits);
   }
 
   function applyHostToAll(values: HostValues) {
     const current = scenarioRef.current;
-    if (!current || validationRef.current || pending) return;
+    if (!current || validationRef.current || pending || hasUnappliedDocument()) return;
     updateHosts(applyHostToAllBackends(current, values, selectedAtRef.current), retainHostEdits(current, hostEditsRef.current, true, selectedAtRef.current));
   }
 
@@ -340,7 +385,7 @@ function ExperimentSetup({
   function startSimulation() {
     const current = scenarioRef.current;
     const invalid = hasInvalidSettings();
-    if (!current || validationRef.current || pending || invalid) return;
+    if (!current || validationRef.current || pending || invalid || hasUnappliedDocument()) return;
     void onStart(current);
   }
 
@@ -357,6 +402,7 @@ function ExperimentSetup({
         loading={loading}
         pending={pending}
         validating={validating}
+        unappliedDocument={unappliedDocument}
         candidate={candidate}
         applied={applied}
         error={error}
@@ -372,6 +418,11 @@ function ExperimentSetup({
         checking={validating}
         invalid={Object.keys(fieldErrors).length > 0 || Object.keys(hostEdits.errors).length > 0}
         notice={fileNotice}
+        document={editedDocument ?? appliedDocument}
+        unapplied={unappliedDocument}
+        onEditDocument={changeDocument}
+        onApplyDocument={applyDocument}
+        onDiscardDocument={discardDocument}
         onImport={importScenario}
         onExport={exportScenario}
         onValidate={validateDraft}
@@ -388,6 +439,7 @@ function ExperimentSetup({
           running={simulation?.status === 'running'}
           pending={pending}
           validating={validating}
+          unappliedDocument={unappliedDocument}
           onChange={changeField}
           onFocus={focusField}
           onBlur={blurField}

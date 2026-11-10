@@ -110,6 +110,17 @@ With the throughput preset, transmission durations reach the model's 1 ns floor;
 the large configured bitrates do not represent literal unlimited bandwidth.
 
 `ExperimentSetup.tsx` owns one native scenario and its controlled form inputs.
+The **Scenario JSON document** editor shows the complete applied draft, including
+`fixed` settings and all `states`. Paste or edit JSON, then choose **Apply JSON**
+to check it with the same strict local parser and authoritative server validation.
+Invalid text stays editable and leaves the applied draft intact. **Discard JSON
+edits** restores that draft. Pending JSON edits disable the form, preset loading,
+file actions and Start, and the planned topology asks you to apply or discard them.
+The editor locks during validation, so a response cannot apply superseded text.
+JSON input and imported files are limited to 2 MiB of UTF-8 text; exact decimal
+integer strings and resource identities are preserved. Applying JSON replaces the
+whole document and does not start a simulation.
+
 `ScenarioLibrary.tsx` selects a candidate and applies it only after successful
 server validation. Loading a preset updates every input together; validation
 blocks editing and Start until it completes. `api.ts` wraps

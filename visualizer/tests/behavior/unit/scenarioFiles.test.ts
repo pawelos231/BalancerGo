@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   MAX_SCENARIO_BYTES,
+  formatScenarioDocument,
   readScenarioFile,
   serializeScenario,
 } from '../../../src/scenarios/files.ts';
@@ -136,6 +137,7 @@ test('pretty exports round trip the complete scenario with precise strings and e
   const imported = await readScenarioFile(textFile(exported));
 
   assert.equal(exported, `${JSON.stringify(scenario, null, 2)}\n`);
+  assert.equal(formatScenarioDocument(scenario), exported);
   assert.deepEqual(JSON.parse(imported), original);
   assert.deepEqual(scenario, original);
   assert.match(exported, /"seed": "-9007199254740993"/);
@@ -165,10 +167,13 @@ test('compact fallback accepts exactly 2 MiB including multibyte text', async ()
 
   assert.equal(utf8.encode(exported).byteLength, MAX_SCENARIO_BYTES);
   assert.equal(exported, JSON.stringify(scenario));
+  assert.equal(formatScenarioDocument(scenario), exported);
   assert.deepEqual(JSON.parse(await readScenarioFile(textFile(exported))), scenario);
 
   scenario.states['0'].resources.backends[0].name += 'ą';
   assert.throws(() => serializeScenario(scenario), /2 MiB export limit/);
+  // Keep an oversized draft visible so its text can be reduced in the editor.
+  assert.equal(formatScenarioDocument(scenario), JSON.stringify(scenario));
 });
 
 test('unserializable scenarios report an export error', () => {

@@ -32,19 +32,21 @@ export async function readScenarioFile(file: Pick<File, 'size' | 'text'>): Promi
   return document;
 }
 
-// Prefer readable JSON, retaining compact output when indentation exceeds the limit.
+// Editor and export use the same formatting, keeping large documents compact.
+// An oversized draft can still be displayed and reduced before Apply or export.
+export function formatScenarioDocument(scenario: Scenario): string {
+  const pretty = `${JSON.stringify(scenario, null, 2)}\n`;
+  return utf8.encode(pretty).byteLength <= MAX_SCENARIO_BYTES
+    ? pretty
+    : JSON.stringify(scenario);
+}
+
+// Refuse oversized downloads while allowing the editor to display them for repair.
 export function serializeScenario(scenario: Scenario): string {
   try {
-    const pretty = `${JSON.stringify(scenario, null, 2)}\n`;
-
-    if (utf8.encode(pretty).byteLength <= MAX_SCENARIO_BYTES) {
-      return pretty;
-    }
-
-    const compact = JSON.stringify(scenario);
-
-    if (utf8.encode(compact).byteLength <= MAX_SCENARIO_BYTES) {
-      return compact;
+    const document = formatScenarioDocument(scenario);
+    if (utf8.encode(document).byteLength <= MAX_SCENARIO_BYTES) {
+      return document;
     }
   } catch {
     throw new Error('Could not export the scenario as JSON. Validate it and try again.');

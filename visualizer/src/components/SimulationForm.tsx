@@ -34,6 +34,7 @@ interface SimulationFormProps {
   running: boolean;
   pending: boolean;
   validating: boolean;
+  unappliedDocument: boolean;
   onChange: (name: ScenarioField, raw: string) => void;
   onFocus: (name: ScenarioField) => void;
   onBlur: (name: ScenarioField) => void;
@@ -56,6 +57,7 @@ function SimulationForm({
   running,
   pending,
   validating,
+  unappliedDocument,
   onChange,
   onFocus,
   onBlur,
@@ -67,8 +69,8 @@ function SimulationForm({
   onStagedHostChange,
 }: SimulationFormProps) {
   const hasErrors = Object.keys(errors).length > 0 || Object.keys(hostEdits.errors).length > 0;
-  const canStart = connected && !running && !pending && !validating && !hasErrors;
-  const fieldsDisabled = !connected || pending || validating;
+  const canStart = connected && !running && !pending && !validating && !hasErrors && !unappliedDocument;
+  const fieldsDisabled = !connected || pending || validating || unappliedDocument;
   const groups = selectedScenarioState(scenario, selectedAt).workload.clientGroups;
   const displayedGroups = groups.slice(0, 12);
   const profiles = scenario.fixed.network.profiles ?? [];
@@ -95,6 +97,9 @@ function SimulationForm({
 
       <CardContent>
         <Stack spacing={2}>
+          {unappliedDocument && (
+            <Alert severity="warning">Apply or discard the JSON edits above before editing settings or starting.</Alert>
+          )}
           <TextField
             select label="Existing state (virtual nanoseconds)" value={selectedAt}
             disabled={fieldsDisabled} onChange={event => onSelectState(event.target.value)}
