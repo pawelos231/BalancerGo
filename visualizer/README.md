@@ -334,8 +334,8 @@ including a 2 MiB reserve for terminal measurements. This bounds the stored data
 representation, not the browser's JavaScript heap. Samples and definitions that
 cannot fit are counted explicitly; earlier samples are never silently downsampled.
 Each run also retains at most 256 observation markers for gaps and reconnects.
-History storage and export are implemented in the following Epic 3 stages;
-the collector itself does not write to the backend or localStorage.
+The collector itself does not write to the backend or localStorage.
+ResultsHistory stores completed artifacts separately from live collection.
 
 Run metadata is attached by its returned run ID. The HTTP run document takes
 priority; the admitted submitted document is a separately labelled fallback.
@@ -358,3 +358,30 @@ evidence arrives; it does not retry or silently save the run.
 Eligible results wait for a bounded metadata request and an in-flight local Start
 receipt before assembly. Missing data stays explicit after that attempt. Candidate
 metrics are independent of the reset live view and survive navigation.
+
+## Local result history
+
+Completed results are written to localStorage above the page routes. Storage has
+its own version, independent of `resultVersion`. Full immutable records are stored
+separately from the compact history index. Lists read the index and owned record
+keys; opening a result validates its complete document without changing exact
+counter strings or dropping unknown fields.
+Reopening a finished run can replay its cached end. A terminal-only replay is
+not stored again when a readable result for that run already exists; separate
+observations containing earlier publications remain independent.
+
+The record is written before the index. An index failure leaves the record
+recoverable and keeps the candidate in memory. Unindexed records remain visible
+by ID; recovery validates one record and restores its summary. Concurrent tabs
+can race when updating the index, so it is treated as a cache rather than a
+transactional source of truth. Storage events refresh the other tab's list.
+Each browser session generates fresh UUID result IDs. Collision checks protect
+already stored IDs; localStorage cannot atomically arbitrate two callers that
+concurrently reuse the same ID for different records.
+
+Unavailable storage, full storage, corrupted data and unsupported versions are
+reported without overwriting existing results. Failed saves remain in RAM until
+an explicit retry succeeds or the user discards them. Refreshing or closing the
+tab can lose those unsaved candidates. Defaults limit a selected stored record
+to 64 MiB and the index to 1 MiB before parsing; these are validation limits,
+not a guarantee that the browser's localStorage quota can hold that much data.

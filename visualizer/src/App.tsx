@@ -27,6 +27,7 @@ import useSimulation from './hooks/useSimulation';
 import SimulationPage from './pages/SimulationPage';
 import type { LoadBalancerState } from './types';
 import type { Scenario } from './scenarios/types';
+import useResults from './results/useResults';
 
 const TopologyPage = lazy(() => import('./pages/TopologyPage'));
 const PlannedTopologyPage = lazy(() => import('./pages/PlannedTopologyPage'));
@@ -34,7 +35,11 @@ const PlannedTopologyPage = lazy(() => import('./pages/PlannedTopologyPage'));
 function readDarkMode(): boolean {
   if (typeof window === 'undefined') return false;
 
-  return window.localStorage.getItem('lb-dark-mode') === 'true';
+  try {
+    return window.localStorage.getItem('lb-dark-mode') === 'true';
+  } catch {
+    return false;
+  }
 }
 
 function getTopology(data: LoadBalancerState | null) {
@@ -51,6 +56,7 @@ function getTopology(data: LoadBalancerState | null) {
 function App() {
   const { pathname } = useLocation();
   const {
+    resultsSession,
     data,
     connected,
     startPending,
@@ -67,6 +73,9 @@ function App() {
     stopAndSaveResults,
     startScenario,
   } = useSimulation();
+  const results = useResults(resultsSession);
+  const unsavedCount = results.state.candidates.length;
+  const firstSaveError = Object.values(results.state.saveErrors)[0];
   const [darkMode, setDarkMode] = useState(readDarkMode);
   const [plannedScenario, setPlannedScenario] = useState<Scenario | null>(null);
   const [plannedError, setPlannedError] = useState<string | null>(null);
@@ -82,6 +91,10 @@ function App() {
   const activeTab = pathname.startsWith('/planned-topology')
     ? '/planned-topology'
     : pathname.startsWith('/topology') ? '/topology' : '/';
+
+  function retryUnsavedResults() {
+    for (const candidate of results.state.candidates) results.history.retry(candidate.id);
+  }
 
   const theme = useMemo(
     () => createTheme({
@@ -103,7 +116,11 @@ function App() {
   );
 
   useEffect(() => {
-    window.localStorage.setItem('lb-dark-mode', String(darkMode));
+    try {
+      window.localStorage.setItem('lb-dark-mode', String(darkMode));
+    } catch {
+      // Keep the theme usable when browser storage is unavailable.
+    }
   }, [darkMode]);
 
   return (
@@ -147,6 +164,28 @@ function App() {
               label="Live topology"
             />
           </Tabs>
+
+          {results.state.warning && (
+            <Alert severity="warning" sx={{ mt: 2 }}>{results.state.warning}</Alert>
+          )}
+          {results.state.preparing.length > 0 && (
+            <Alert severity="info" sx={{ mt: 2 }}>Preparing result metadata…</Alert>
+          )}
+          {results.state.storageError && (
+            <Alert severity="warning" sx={{ mt: 2 }}>{results.state.storageError}</Alert>
+          )}
+          {unsavedCount > 0 && (
+            <Alert
+              severity="warning"
+              sx={{ mt: 2 }}
+              action={<Button color="inherit" onClick={retryUnsavedResults}>Retry save</Button>}
+            >
+              {unsavedCount} {unsavedCount === 1 ? 'result remains' : 'results remain'} in memory.
+              {' '}Keep this tab open
+              to retry saving or export them.
+              {firstSaveError && <Box component="span" sx={{ display: 'block' }}>{firstSaveError}</Box>}
+            </Alert>
+          )}
 
           {activeTab !== '/planned-topology' && topologyLoading && (
             <Alert severity="info" sx={{ mt: 2 }}>
