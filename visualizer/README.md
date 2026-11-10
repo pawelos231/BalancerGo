@@ -135,6 +135,24 @@ Integer strings and nanosecond durations retain their precision. Changing the
 total client count proportionally resizes existing groups; group counts remain
 visible, and edits that would invalidate explicit client overrides are rejected.
 
+The **Configuration timeline** selects complete states and supports **Add state**,
+**Copy state**, **Move state** and **Delete state**. Enter the destination in virtual
+seconds with up to nine decimal places; the document retains canonical, exact
+nanosecond keys. Every state must be strictly before the run duration, destination
+times must be unused, and the initial state at zero cannot be moved or deleted.
+Add copies the configuration active at the destination time; Copy duplicates the
+selected state. Delete selects its predecessor. Each operation validates the full
+candidate before replacing the draft, so rejected edits preserve the document and
+selection. Fixed settings apply to the whole run; scope chips identify sections
+that edit the selected state, including mixed traffic controls.
+
+Copies preserve resource identities, profiles, overrides and group lifetime birth
+budgets. They do not restart arrivals. Moving or deleting an early state can
+invalidate a group's fixed start time or a later client override; the editor
+explains these conflicts without silently changing identities or start times.
+Correct invalid form inputs and apply staged common CPU inputs before selecting
+or changing states. Unapplied JSON edits also lock the timeline controls.
+
 The single Start action sends the native draft through HTTP for server validation
 and admission. Invalid visible input blocks Start. Drafts survive Stop, navigation
 and reconnect.

@@ -8,8 +8,6 @@ import {
   CardContent,
   CardHeader,
   Chip,
-  MenuItem,
-  TextField,
   Stack,
   Typography,
 } from '@mui/material';
@@ -17,17 +15,21 @@ import Grid from '@mui/material/Grid';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import type { FormEvent } from 'react';
 import type { ScenarioDraft, ScenarioField } from '../scenarios/draft';
-import { scenarioStateTimes, selectedScenarioState } from '../scenarios/draft';
+import { scenarioFieldScope, selectedScenarioState } from '../scenarios/draft';
 import { scenarioFieldSections } from '../scenarios/formFields';
 import type { Scenario } from '../scenarios/types';
 import ScenarioFieldInput from './ScenarioFieldInput';
 import HostProcessingEditor from './HostProcessingEditor';
 import type { HostEdits, HostField, HostTarget, HostValues } from '../scenarios/host';
+import type { TimelineEdit } from '../scenarios/timelineEdits';
+import TimelineEditor from './TimelineEditor';
 
 interface SimulationFormProps {
   scenario: Scenario;
   selectedAt: string;
   onSelectState: (at: string) => void;
+  onEditTimeline: (edit: TimelineEdit) => string | undefined;
+  timelineBlockedReason?: string;
   values: ScenarioDraft;
   errors: Partial<Record<ScenarioField, string>>;
   connected: boolean;
@@ -51,6 +53,8 @@ function SimulationForm({
   scenario,
   selectedAt,
   onSelectState,
+  onEditTimeline,
+  timelineBlockedReason,
   values,
   errors,
   connected,
@@ -100,16 +104,14 @@ function SimulationForm({
           {unappliedDocument && (
             <Alert severity="warning">Apply or discard the JSON edits above before editing settings or starting.</Alert>
           )}
-          <TextField
-            select label="Existing state (virtual nanoseconds)" value={selectedAt}
-            disabled={fieldsDisabled} onChange={event => onSelectState(event.target.value)}
-            helperText="Resource, host and group settings edit this state. Experiment, TCP and shared defaults edit fixed settings."
-          >
-            {scenarioStateTimes(scenario).map(at => <MenuItem key={at} value={at}>{at}</MenuItem>)}
-          </TextField>
+          <TimelineEditor
+            scenario={scenario} selectedAt={selectedAt} disabled={fieldsDisabled}
+            blockedReason={timelineBlockedReason} onSelect={onSelectState} onEdit={onEditTimeline}
+          />
           <Alert severity="info">
             {groups.length} client groups and {profiles.length} link profiles are retained.
-            Traffic and link fields edit defaults; group, profile and client overrides stay in place.
+            {' '}Fixed settings apply to the whole run. Selected-state settings apply from the chosen time.
+            Group, profile and client overrides stay in place.
           </Alert>
 
           {scenarioFieldSections.map((section) => {
@@ -117,6 +119,9 @@ function SimulationForm({
             const summaryID = `settings-${section.id}-summary`;
             const panelID = `settings-${section.id}-panel`;
             const isTrafficSection = section.id === 'tcp-traffic';
+            const scopes = new Set(section.fields.map(scenarioFieldScope));
+            const scopeLabel = scopes.size > 1 ? 'Fixed + selected state'
+              : scopes.has('fixed') ? 'Fixed settings' : 'Selected state';
 
             return (
               <Accordion
@@ -132,10 +137,11 @@ function SimulationForm({
                   expandIcon={<ExpandMoreIcon />}
                 >
                   <Stack spacing={0.5} sx={{ pr: 2 }}>
-                    <Stack direction="row" spacing={1} alignItems="center">
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                       <Typography component="span" variant="subtitle1">
                         {section.title}
                       </Typography>
+                      <Chip label={scopeLabel} size="small" variant="outlined" />
 
                       {errorCount > 0 && (
                         <Chip label={`${errorCount} invalid`} color="error" size="small" />

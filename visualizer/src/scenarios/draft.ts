@@ -67,6 +67,11 @@ const fieldPaths: Record<DirectField, readonly string[]> = {
   ingressCongestionSignalProbability: ['resources', 'loadBalancer', 'ingress', 'congestionSignalProbability'],
 };
 
+export function scenarioFieldScope(field: ScenarioField): 'fixed' | 'state' {
+  if (field === 'clients' || field === 'servers' || field === 'clientGapMs') return 'state';
+  return fieldPaths[field][0] === 'fixed' ? 'fixed' : 'state';
+}
+
 const timeDecimals: Partial<Record<ScenarioField, number>> = {
   durationSeconds: 9,
   clientGapMs: 6,
@@ -157,7 +162,7 @@ function documentInteger(value: bigint): ExactInteger {
 }
 
 // Unit conversion uses decimal digits rather than floating-point multiplication.
-function duration(raw: string, decimals: number): bigint {
+export function parseDuration(raw: string, decimals: number): bigint {
   const match = /^(0|[1-9]\d*)(?:\.(\d+))?$/.exec(raw.trim());
   if (!match || (match[2]?.length ?? 0) > decimals) {
     throw new Error(`Enter a nonnegative decimal with at most ${decimals} fractional digits.`);
@@ -167,7 +172,7 @@ function duration(raw: string, decimals: number): bigint {
 }
 
 // Display exact seconds or milliseconds without rounding away a nanosecond.
-function durationText(value: ExactInteger, decimals: number): string {
+export function formatDuration(value: ExactInteger, decimals: number): string {
   const nanoseconds = integer(value);
   const scale = 10n ** BigInt(decimals);
   const whole = nanoseconds / scale;
@@ -230,7 +235,7 @@ export function validateScenarioField(
   const decimals = timeDecimals[field];
   try {
     if (decimals !== undefined) {
-      value = duration(text, decimals);
+      value = parseDuration(text, decimals);
     } else {
       if (!/^-?(0|[1-9]\d*)$/.test(text)) return 'Enter a whole decimal integer.';
       value = BigInt(text);
@@ -285,13 +290,13 @@ export function scenarioFormValues(scenario: Scenario, selectedAt = '0'): Scenar
     const decimals = timeDecimals[field];
     values[field] = decimals === undefined
       ? String(value)
-      : durationText(value as ExactInteger, decimals);
+      : formatDuration(value as ExactInteger, decimals);
   }
   const groups = selected.workload.clientGroups;
   values.clients = String(groups.reduce((sum, group) => sum + integer(group.count), 0n));
   values.servers = String(selected.resources.backends.length);
   const gaps = new Set(groups.map((group) => String(integer(group.clientGapNanoseconds))));
-  values.clientGapMs = gaps.size > 1 ? '' : durationText(groups[0]?.clientGapNanoseconds ?? 0, 6);
+  values.clientGapMs = gaps.size > 1 ? '' : formatDuration(groups[0]?.clientGapNanoseconds ?? 0, 6);
   return values;
 }
 
@@ -315,7 +320,7 @@ export function applyScenarioField(
     resizeBackends(selected, Number(raw), usedIds, scenario);
   } else if (field === 'clientGapMs') {
     if (selected.workload.clientGroups.length === 0) resizeClients(selected, 0, usedIds, selectedAt, scenario);
-    const value = documentInteger(duration(raw, 6));
+    const value = documentInteger(parseDuration(raw, 6));
     for (const group of selected.workload.clientGroups) group.clientGapNanoseconds = value;
   } else {
     const path = fieldPaths[field];
@@ -339,7 +344,7 @@ export function applyScenarioField(
     } else if (floatFields.has(field)) value = Number(raw);
     else {
       const decimals = timeDecimals[field];
-      const parsed = decimals === undefined ? BigInt(raw) : duration(raw, decimals);
+      const parsed = decimals === undefined ? BigInt(raw) : parseDuration(raw, decimals);
       value = documentInteger(parsed);
     }
     // Active threshold documents with omitted scalars already mean zero. Keep that

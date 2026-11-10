@@ -11,6 +11,8 @@ import { validateEditorDocument } from '../scenarios/editor';
 import { scenarioPresets } from '../scenarios/presets';
 import { scenarioApi } from '../scenarios/runtimeApi';
 import { validateScenario } from '../scenarios/validation';
+import { editScenarioTimeline } from '../scenarios/timelineEdits';
+import type { TimelineEdit } from '../scenarios/timelineEdits';
 import type { CurrentSimulation, Scenario, ValidatedScenario } from '../scenarios/types';
 import type { SimulationMetadata } from '../types';
 import ScenarioLibrary from './ScenarioLibrary';
@@ -71,9 +73,15 @@ function ExperimentSetup({
   const valuesRef = useRef<ScenarioDraft | null>(null);
   const errorsRef = useRef<FieldErrors>({});
   const hostEditsRef = useRef<HostEdits>(emptyHostEdits());
+  const stagedHostsRef = useRef(false);
   const countEditRef = useRef<CountEdit | null>(null);
   const appliedDocument = useMemo(() => scenario ? formatScenarioDocument(scenario) : '', [scenario]);
   const unappliedDocument = editedDocument !== null;
+
+  const changeStagedHosts = useCallback((staged: boolean) => {
+    stagedHostsRef.current = staged;
+    setStagedHosts(staged);
+  }, []);
 
   const setNativeScenario = useCallback((definition: Scenario) => {
     scenarioRef.current = definition;
@@ -169,6 +177,7 @@ function ExperimentSetup({
       setHostEdits(hostEditsRef.current);
       // Remount only after document replacement, clearing staged Apply-to-all inputs.
       setHostRevision(revision => revision + 1);
+      changeStagedHosts(false);
       editedDocumentRef.current = null;
       setEditedDocument(null);
       setValidation(result);
@@ -325,7 +334,7 @@ function ExperimentSetup({
 
   function selectState(at: string) {
     const current = scenarioRef.current;
-    if (!current?.states[at] || validationRef.current || pending || hasUnappliedDocument()) return;
+    if (!current?.states[at] || validationRef.current || pending || hasUnappliedDocument() || timelineInputNotice()) return;
     selectedAtRef.current = at;
     setSelectedAt(at);
     countEditRef.current = null;
@@ -334,7 +343,46 @@ function ExperimentSetup({
     hostEditsRef.current = emptyHostEdits();
     setHostEdits(hostEditsRef.current);
     setHostRevision(revision => revision + 1);
+    changeStagedHosts(false);
     setFormValues(selectScenarioFormState(current, at).values);
+  }
+
+  function timelineInputNotice(): string | undefined {
+    if (hasInvalidSettings()) {
+      return 'Correct the highlighted form and host settings before selecting or changing states. Your unapplied input is retained.';
+    }
+    if (stagedHostsRef.current) {
+      return 'Apply the common backend CPU inputs before selecting or changing states. Your staged inputs are retained.';
+    }
+  }
+
+  function changeTimeline(edit: TimelineEdit): string | undefined {
+    const current = scenarioRef.current;
+    if (!current || validationRef.current || pending) return 'Wait for the current draft action to finish.';
+    if (hasUnappliedDocument()) return 'Apply or discard the JSON edits before changing states.';
+    const blocked = timelineInputNotice();
+    if (blocked) return blocked;
+
+    try {
+      const next = editScenarioTimeline(current, selectedAtRef.current, edit);
+      const nextValues = scenarioFormValues(next.scenario, next.selectedAt);
+      selectedAtRef.current = next.selectedAt;
+      setSelectedAt(next.selectedAt);
+      countEditRef.current = null;
+      setNativeScenario(next.scenario);
+      setFormValues(nextValues);
+      errorsRef.current = {};
+      setFieldErrors({});
+      hostEditsRef.current = emptyHostEdits();
+      setHostEdits(hostEditsRef.current);
+      setHostRevision(revision => revision + 1);
+      changeStagedHosts(false);
+      setValidation(null);
+      setFileNotice(null);
+      setApplied(previous => previous ? { ...previous, pristine: false } : null);
+    } catch (failure) {
+      return failure instanceof Error ? failure.message : 'Cannot change the configuration timeline.';
+    }
   }
 
   function hasInvalidSettings() {
@@ -433,6 +481,8 @@ function ExperimentSetup({
           scenario={scenario}
           selectedAt={selectedAt}
           onSelectState={selectState}
+          onEditTimeline={changeTimeline}
+          timelineBlockedReason={timelineInputNotice()}
           values={values}
           errors={fieldErrors}
           connected={connected}
@@ -448,7 +498,7 @@ function ExperimentSetup({
           hostRevision={hostRevision}
           onHostChange={changeHostField}
           onApplyHostToAll={applyHostToAll}
-          onStagedHostChange={setStagedHosts}
+          onStagedHostChange={changeStagedHosts}
         />
       ) : (
         <Alert severity="info">Waiting for complete scenario defaults from the server…</Alert>

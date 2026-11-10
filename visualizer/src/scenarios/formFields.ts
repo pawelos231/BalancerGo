@@ -506,7 +506,7 @@ export const scenarioNumericFields: Record<NumericScenarioField, NumericFieldDef
 };
 
 export const algorithmHelp =
-  'Policy used to choose a backend for new connections at the start of the run. ' +
+  'Policy used to choose a backend for new connections from the selected state time. ' +
   'Round Robin rotates through eligible backends; Random chooses using the seeded random generator. ' +
   'Changing the policy during a run affects new connections while existing ones keep their backend.';
 
@@ -574,7 +574,7 @@ export const scenarioSelectFields = {
     ],
   },
   algorithm: {
-    label: 'Initial algorithm',
+    label: 'Algorithm',
     help: algorithmHelp,
     options: [
       { value: 'roundRobin', label: 'Round Robin' },
@@ -644,7 +644,7 @@ export const scenarioFieldSections: readonly ScenarioFieldSection[] = [
   {
     id: 'tcp-traffic',
     title: 'TCP traffic',
-    description: 'Set client arrivals, payload, receive buffering and pauses between segments.',
+    description: 'Client count and creation interval edit the selected state. Payload and TCP defaults apply to the whole run.',
     fields: [
       'clients', 'clientGapMs', 'packets', 'bytes', 'packetGapMs',
       'mssBytes', 'receiveBufferBytes', 'sackEnabled',

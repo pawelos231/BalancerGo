@@ -116,7 +116,7 @@ export default function HostProcessingEditor({
             {errorCount > 0 && <Chip size="small" color="error" label={`${errorCount} invalid`} />}
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Limit virtual CPU processing independently from network bandwidth. Set packet time to zero to disable it.
+            Edit CPU processing in the selected state independently from network bandwidth. Set packet time to zero to disable it.
           </Typography>
         </Stack>
       </AccordionSummary>
