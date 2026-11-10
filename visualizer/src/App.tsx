@@ -64,6 +64,7 @@ function App() {
     topologyError,
     refreshTopology,
     sendMessage,
+    stopAndSaveResults,
     startScenario,
   } = useSimulation();
   const [darkMode, setDarkMode] = useState(readDarkMode);
@@ -180,6 +181,7 @@ function App() {
               stopPending={stopPending}
               commandError={commandError}
               sendMessage={sendMessage}
+              onStopAndSave={stopAndSaveResults}
             >
               <ExperimentSetup
                 connected={connected}

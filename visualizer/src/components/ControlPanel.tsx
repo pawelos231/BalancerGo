@@ -21,6 +21,7 @@ interface ControlPanelProps {
   stopPending: boolean;
   commandError: string | null;
   sendMessage: (command: SimulationCommand) => boolean;
+  onStopAndSave: () => boolean;
   children: ReactNode;
 }
 
@@ -50,6 +51,7 @@ function ControlPanel({
   stopPending,
   commandError,
   sendMessage,
+  onStopAndSave,
   children,
 }: ControlPanelProps) {
   const lifecyclePending = startPending || stopPending;
@@ -76,6 +78,8 @@ function ControlPanel({
           <Stack
             direction={{ xs: 'column', sm: 'row' }}
             spacing={1}
+            useFlexGap
+            sx={{ flexWrap: 'wrap' }}
             alignItems={{ sm: 'center' }}
           >
             <Stack direction="row" spacing={0.5} alignItems="center">
@@ -114,6 +118,21 @@ function ControlPanel({
               <HelpTooltip label="About stopping and clearing">
                 Clear queued events and packets, link and TCP connection state,
                 and counters. Reset virtual time to 0; keep your configuration draft.
+              </HelpTooltip>
+            </Stack>
+
+            <Stack direction="row" spacing={0.5} alignItems="center">
+              <Button
+                variant="contained"
+                disabled={!canStop}
+                onClick={onStopAndSave}
+              >
+                Stop and save to Results
+              </Button>
+
+              <HelpTooltip label="About stopping with a result">
+                Stop this run and keep its observed metrics, including unfinished
+                transfers. Ordinary Stop and clear does not save a result.
               </HelpTooltip>
             </Stack>
           </Stack>

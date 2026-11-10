@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CommandType } from '../commands';
 import { ResultsCollection } from '../results/collection';
+import { ResultsSession } from '../results/session';
+import type { StopResultMode } from '../results/session';
 import { scenarioApi, websocketUrl } from '../scenarios/runtimeApi';
 import { httpStartAcknowledged } from '../scenarios/startAcknowledgement';
 import type { CurrentSimulation, Scenario } from '../scenarios/types';
@@ -32,6 +34,8 @@ interface HttpStart {
   scenario: Scenario;
   runId?: string;
   observedRunIds: Set<string>;
+  settled: Promise<void>;
+  markSettled: () => void;
 }
 
 interface SimulationLifecycleOptions {
@@ -42,6 +46,16 @@ interface SimulationLifecycleOptions {
 function newCommandId(): string {
   const randomBytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(randomBytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+// Result finalization waits until this request has attached its admitted input.
+function newHttpStart(scenario: Scenario): HttpStart {
+  let markSettled!: () => void;
+  const settled = new Promise<void>((resolve) => { markSettled = resolve; });
+  return {
+    controller: new AbortController(), scenario: structuredClone(scenario),
+    observedRunIds: new Set(), settled, markSettled,
+  };
 }
 
 function useSimulation(options: SimulationLifecycleOptions = {}) {
@@ -68,6 +82,22 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
   const telemetryRef = useRef<TelemetryReceiver | null>(null);
   const resultsRef = useRef<ResultsCollection | null>(null);
   if (!resultsRef.current) resultsRef.current = new ResultsCollection();
+  const resultSessionRef = useRef<ResultsSession | null>(null);
+  if (!resultSessionRef.current) {
+    const collection = resultsRef.current;
+    resultSessionRef.current = new ResultsSession(collection, {
+      prepareMetadata: async (runId, signal) => {
+        const startSettled = httpStartRef.current?.settled;
+        const context = scenarioApi.current(signal).then((current) => {
+          if (current?.runId === runId && resultSessionRef.current!.acceptsRun(runId)) {
+            collection.metadata(current);
+          }
+        });
+        // A fast run may finish before its Start receipt or current document arrives.
+        await Promise.allSettled([context, startSettled]);
+      },
+    });
+  }
   const lifecycleOptionsRef = useRef(options);
   lifecycleOptionsRef.current = options;
   const lifecycleRef = useRef<RunLifecycleReceiver | null>(null);
@@ -90,12 +120,13 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     const stopCommands = stopCommandsRef.current;
     const lifecycle = lifecycleRef.current!;
     const results = resultsRef.current!;
+    const resultSession = resultSessionRef.current!;
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     const receiver = new TelemetryReceiver(
       async (signal) => {
         const definition = await scenarioApi.topology(signal);
-        results.definition(definition);
+        if (resultSession.acceptsRun(definition.runId)) results.definition(definition);
         return definition;
       },
       (view) => {
@@ -109,7 +140,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
 
     // End messages bring their own definition, even if this publication was already seen.
     function collectFinal(sample: FinalSample | null) {
-      if (!sample) return;
+      if (!sample || !resultSession.acceptsRun(sample.definition.runId)) return;
       const receivedAt = Date.now();
       results.definition(sample.definition, receivedAt, true);
       results.snapshot(sample.snapshot, receivedAt, true);
@@ -123,6 +154,8 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
 
     function handleStopResult({ result: message, sample }: ParsedStopCommandResult) {
       collectFinal(sample);
+      // Results retains its own addressed intent across a disconnect or a newer run.
+      resultSession.receiveStopResult(message);
       const pending = stopCommands.pending;
       if (pending?.runId !== message.runId || pending.commandId !== message.commandId) return;
       // Deliver the validated sample before finish retires this run and clears its intent.
@@ -174,9 +207,14 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     function handleSnapshot(snapshot: SimulationSnapshot) {
       // Reject retired runs before tracking so cleared runs cannot become current again.
       if (!stopCommands.acceptsSnapshot(snapshot.simulation)) return;
-      // Preserve each publication before tracking or rendering can replace its view.
-      results.snapshot(snapshot);
       const observation = lifecycle.observeSnapshot(snapshot.simulation);
+      if (observation?.acceptSnapshot && snapshot.simulation.status !== 'idle') {
+        resultSession.observeRun(snapshot.simulation.runId);
+      }
+      // Keep unique receipts before rendering, including old publications rejected by the view.
+      if (snapshot.simulation.runId && resultSession.acceptsRun(snapshot.simulation.runId)) {
+        results.snapshot(snapshot);
+      }
       if (!observation) return;
       setPublicationObservation(observation);
       if (!observation.acceptSnapshot) return;
@@ -188,6 +226,12 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
       // This callback runs synchronously even if React renders only the following run B.
       const receipt = lifecycle.receiveEnd(parsed);
       const { event } = parsed;
+      if (receipt.display) {
+        resultSession.observeRun(event.runId);
+        // Adopting B may have freed an older failed collection; retry its final source.
+        collectFinal(parsed.sample);
+      }
+      resultSession.receiveEnd(event);
       if (!lifecycle.terminationUncertainty) setTerminationUncertainty(null);
       const httpStart = httpStartRef.current;
       httpStart?.observedRunIds.add(event.runId);
@@ -251,6 +295,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
 
         simulationRef.current = null;
         results.disconnected();
+        resultSession.disconnected();
         lifecycle.disconnect();
         const uncertainRunId = lifecycle.terminationUncertainty;
         if (uncertainRunId) {
@@ -281,6 +326,10 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
       clearTimeout(reconnectTimer);
       socketRef.current?.close();
       socketRef.current = null;
+      // Strict Mode repeats setup immediately; dispose only after a real unmount.
+      queueMicrotask(() => {
+        if (!mountedRef.current) resultSession.dispose();
+      });
     };
   }, [setStartPending]);
 
@@ -298,7 +347,9 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     scenarioApi.current(controller.signal).then((current) => {
       if (controller.signal.aborted) return;
       // Metadata belongs to its returned run, even if the live view already shows another one.
-      if (current) resultsRef.current!.metadata(current);
+      if (current && resultSessionRef.current!.acceptsRun(current.runId)) {
+        resultsRef.current!.metadata(current);
+      }
       if (current && stopCommandsRef.current.hasClearedRun(current.runId)) return;
       const latestSnapshot = simulationRef.current;
       const snapshotChanged = latestSnapshot?.runId !== requestRunId;
@@ -327,7 +378,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     telemetryRef.current?.retry();
   }, []);
 
-  function sendMessage(command: SimulationCommand): boolean {
+  function sendMessage(command: SimulationCommand, mode: StopResultMode = 'clear'): boolean {
     const socket = socketRef.current;
 
     if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -340,21 +391,34 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     if (commandPending || !simulation) return false;
     if (simulation.status === 'idle') return false;
 
+    const intent = { runId: simulation.runId, commandId: newCommandId() };
     try {
       if (command.Type === CommandType.StopSimulation) {
-        return stopCommandsRef.current.send(simulation.runId, newCommandId(), (intent) => {
+        const session = resultSessionRef.current!;
+        if (!session.requestStop(intent, mode)) {
+          setCommandError(session.state.warning || 'Wait for the previous Stop to be confirmed.');
+          return false;
+        }
+        const sent = stopCommandsRef.current.send(intent.runId, intent.commandId, (address) => {
           setStopPending(true);
           setCommandError(null);
-          socket.send(JSON.stringify({ ...command, ...intent }));
+          socket.send(JSON.stringify({ ...command, ...address }));
         });
+        if (!sent) session.cancelStop(intent);
+        return sent;
       }
       return false;
     } catch (error) {
+      resultSessionRef.current!.cancelStop(intent);
       setStopPending(false);
       setCommandError('Failed to send the command. Check the server connection.');
       console.error('Cannot send WebSocket command:', error);
       return false;
     }
+  }
+
+  function stopAndSaveResults(): boolean {
+    return sendMessage({ Type: CommandType.StopSimulation, Payload: {} }, 'save');
   }
 
   async function startScenario(scenario: Scenario): Promise<boolean> {
@@ -365,11 +429,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
       return false;
     }
 
-    const request: HttpStart = {
-      controller: new AbortController(),
-      scenario: structuredClone(scenario),
-      observedRunIds: new Set(),
-    };
+    const request = newHttpStart(scenario);
     httpStartRef.current = request;
     setStartPending(true);
     setCommandError(null);
@@ -379,7 +439,9 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
       if (!mountedRef.current || httpStartRef.current !== request) return false;
       request.runId = receipt.runId;
       // Keep the admitted input separately from any edits made while the request was in flight.
-      resultsRef.current!.submitted(receipt.runId, request.scenario);
+      if (resultSessionRef.current!.acceptsRun(receipt.runId)) {
+        resultsRef.current!.submitted(receipt.runId, request.scenario);
+      }
       setRunRefresh((revision) => revision + 1);
 
       // A speed-0 run may have already finished while its HTTP receipt was in flight.
@@ -394,11 +456,13 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
       setStartPending(false);
       setCommandError(error instanceof Error ? error.message : 'Failed to start the scenario.');
       return false;
+    } finally {
+      request.markSettled();
     }
   }
 
   return {
-    resultsCollection: resultsRef.current,
+    resultsSession: resultSessionRef.current,
     data,
     connected,
     connectionEpoch,
@@ -414,6 +478,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
     refreshTopology,
     refreshCurrent,
     sendMessage,
+    stopAndSaveResults,
     startScenario,
   };
 }

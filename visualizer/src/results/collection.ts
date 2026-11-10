@@ -84,6 +84,12 @@ export class ResultsCollection {
     });
   }
 
+  // A stopped run can legitimately have no delivered measurements.
+  begin(runId: string, receivedAt = Date.now(), terminal = false): boolean {
+    requireTimestamp(receivedAt);
+    return this.run(runId, receivedAt, terminal) !== undefined;
+  }
+
   snapshot(frame: SimulationSnapshot, receivedAt = Date.now(), finalSnapshot = false): boolean {
     requireTimestamp(receivedAt);
     if (frame.simulation.status === 'idle') return false;

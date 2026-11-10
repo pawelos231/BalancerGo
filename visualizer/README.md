@@ -334,8 +334,8 @@ including a 2 MiB reserve for terminal measurements. This bounds the stored data
 representation, not the browser's JavaScript heap. Samples and definitions that
 cannot fit are counted explicitly; earlier samples are never silently downsampled.
 Each run also retains at most 256 observation markers for gaps and reconnects.
-Saving completed results, history and export are implemented in the following
-Epic 3 stages; this collector does not write to the backend or localStorage.
+History storage and export are implemented in the following Epic 3 stages;
+the collector itself does not write to the backend or localStorage.
 
 Run metadata is attached by its returned run ID. The HTTP run document takes
 priority; the admitted submitted document is a separately labelled fallback.
@@ -347,3 +347,14 @@ latest retained observation. Cumulative counters are not summed across samples.
 Removed resources keep their last observation and its time, rather than being
 presented as current resources. Assembly creates an independent, versioned result;
 later metadata does not mutate an already assembled artifact.
+
+Results lifecycle keeps its own Stop intent, addressed by run and command ID.
+A successful end prepares one result; a plain `finished` snapshot alone does not.
+`Stop and save to Results` preserves observed data before reset, while ordinary
+`Stop and clear` suppresses saving. A rejected or unsent Stop restores normal
+end handling. A disconnect leaves its unresolved intent uncertain until matching
+evidence arrives; it does not retry or silently save the run.
+
+Eligible results wait for a bounded metadata request and an in-flight local Start
+receipt before assembly. Missing data stays explicit after that attempt. Candidate
+metrics are independent of the reset live view and survive navigation.
