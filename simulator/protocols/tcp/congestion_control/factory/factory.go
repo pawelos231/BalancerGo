@@ -1,16 +1,26 @@
-package congestioncontrol
+// Package factory validates settings and selects a congestion-control algorithm.
+// Algorithms depend only on the shared contracts, keeping selection out of that package.
+package factory
 
-import "load-balancer/model"
+import (
+	"load-balancer/model"
+	congestioncontrol "load-balancer/protocols/tcp/congestion_control"
+	"load-balancer/protocols/tcp/congestion_control/cubic"
+	"load-balancer/protocols/tcp/congestion_control/newreno"
+	"load-balancer/protocols/tcp/congestion_control/none"
+	"load-balancer/protocols/tcp/congestion_control/reno"
+	"load-balancer/protocols/tcp/congestion_control/tahoe"
+)
 
 // New selects one congestion-control algorithm before a connection starts.
 // Invalid settings panic before a transport connection starts.
-func New(config model.CongestionConfig) Policy {
+func New(config model.CongestionConfig) congestioncontrol.Policy {
 	return NewWithMSS(config, model.DefaultMSSBytes)
 }
 
 // NewWithMSS uses the connection's payload limit for window growth and recovery.
 // For example, four segments at MSS=1460 start with a 5840-byte window.
-func NewWithMSS(config model.CongestionConfig, mssBytes int) Policy {
+func NewWithMSS(config model.CongestionConfig, mssBytes int) congestioncontrol.Policy {
 	if !model.ValidMSSBytes(mssBytes) {
 		panic("tcp: MSS is outside the supported IPv4 payload range")
 	}
@@ -46,14 +56,14 @@ func NewWithMSS(config model.CongestionConfig, mssBytes int) Policy {
 
 	switch config.Mode {
 	case model.CongestionReno:
-		return &renoPolicy{classicWindow: newClassicWindow(config, mssBytes)}
+		return reno.New(config, mssBytes)
 	case model.CongestionNewReno:
-		return newNewRenoPolicy(config, mssBytes)
+		return newreno.New(config, mssBytes)
 	case model.CongestionTahoe:
-		return &tahoePolicy{classicWindow: newClassicWindow(config, mssBytes)}
+		return tahoe.New(config, mssBytes)
 	case model.CongestionCubic:
-		return newCubicPolicy(config, mssBytes)
+		return cubic.New(config, mssBytes)
 	default:
-		return unlimitedPolicy{}
+		return none.New()
 	}
 }

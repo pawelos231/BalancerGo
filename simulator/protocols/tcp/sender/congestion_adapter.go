@@ -5,6 +5,7 @@ import (
 
 	"load-balancer/model"
 	congestioncontrol "load-balancer/protocols/tcp/congestion_control"
+	"load-balancer/protocols/tcp/congestion_control/factory"
 )
 
 // congestionControl passes TCP events to the separate congestion_control package.
@@ -35,7 +36,7 @@ func newCongestionControl(config model.CongestionConfig) congestionControl {
 func newCongestionControlWithMSS(config model.CongestionConfig, mssBytes int) congestionControl {
 	return congestionControl{
 		config: config,
-		policy: congestioncontrol.NewWithMSS(config, mssBytes),
+		policy: factory.NewWithMSS(config, mssBytes),
 	}
 }
 

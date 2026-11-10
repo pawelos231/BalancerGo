@@ -1,6 +1,10 @@
-package congestioncontrol
+package cubic
 
-import "time"
+import (
+	"time"
+
+	congestioncontrol "load-balancer/protocols/tcp/congestion_control"
+)
 
 // cubicClock removes time during which local demand cannot use spare cwnd.
 // Waiting for ACKs with a full congestion window is ordinary network time, not a pause.
@@ -13,7 +17,7 @@ type cubicClock struct {
 
 // OnSenderState observes real sender constraints without inspecting queues on remote hosts.
 // A known 10 ms workload gap ends at readyAt even if the next observation arrives later.
-func (policy *cubicPolicy) OnSenderState(sender SenderState) {
+func (policy *cubicPolicy) OnSenderState(sender congestioncontrol.SenderState) {
 	clock := &policy.clock
 	if clock.limited {
 		end := sender.At
@@ -23,9 +27,9 @@ func (policy *cubicPolicy) OnSenderState(sender SenderState) {
 		clock.totalPaused += max(end-clock.pausedAt, 0)
 	}
 
-	hasSpareWindow := sender.FlightBytes < policy.congestionWindowBytes
+	hasSpareWindow := sender.FlightBytes < policy.CongestionWindowBytes
 	noData := !sender.HasData
-	receiverLimited := sender.ReceiveWindowBytes < policy.congestionWindowBytes
+	receiverLimited := sender.ReceiveWindowBytes < policy.CongestionWindowBytes
 	waitingForGap := sender.At < sender.ReadyAt
 	clock.limited = hasSpareWindow && (noData || receiverLimited || waitingForGap)
 	clock.pausedAt = sender.At

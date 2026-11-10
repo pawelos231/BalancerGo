@@ -1,10 +1,11 @@
-package congestioncontrol
+package cubic
 
 import (
 	"math"
 	"time"
 
 	"load-balancer/model"
+	congestioncontrol "load-balancer/protocols/tcp/congestion_control"
 )
 
 const (
@@ -31,7 +32,7 @@ func (policy *cubicPolicy) startEpoch(now time.Duration) {
 
 // growCongestionAvoidance implements RFC 9438 sections 4.2 through 4.5.
 // It compares the cubic curve at t with W_est, but aims at the curve one RTT ahead.
-func (policy *cubicPolicy) growCongestionAvoidance(ack ACK) {
+func (policy *cubicPolicy) growCongestionAvoidance(ack congestioncontrol.ACK) {
 	if !policy.epochStarted {
 		policy.startEpoch(ack.At)
 	}
@@ -43,7 +44,7 @@ func (policy *cubicPolicy) growCongestionAvoidance(ack ACK) {
 	if policy.renoWindowSegments >= policy.priorWindowSegments {
 		policy.renoAlpha = 1
 	}
-	segmentsACKed := float64(ack.NewBytes) / float64(policy.mssBytes)
+	segmentsACKed := float64(ack.NewBytes) / float64(policy.MSSBytes)
 	policy.renoWindowSegments += policy.renoAlpha * segmentsACKed / window
 	if policy.renoWindowSegments >= policy.priorWindowSegments {
 		policy.renoAlpha = 1
@@ -70,20 +71,20 @@ func (policy *cubicPolicy) curveWindow(elapsed float64) float64 {
 
 // storeFractionalWindow keeps sub-byte growth while publishing safe integer byte limits.
 func (policy *cubicPolicy) storeFractionalWindow() {
-	maximumBytes := policy.maximumWindowBytes
+	maximumBytes := policy.MaximumWindowBytes
 	if maximumBytes == 0 {
 		maximumBytes = model.MaxCongestionWindowBytes
 	}
-	maximum := float64(maximumBytes) / float64(policy.mssBytes)
+	maximum := float64(maximumBytes) / float64(policy.MSSBytes)
 	policy.windowSegments = max(1, min(policy.windowSegments, maximum))
 
-	bytes := policy.windowSegments * float64(policy.mssBytes)
+	bytes := policy.windowSegments * float64(policy.MSSBytes)
 	if bytes >= float64(maximumBytes) {
-		policy.congestionWindowBytes = maximumBytes
+		policy.CongestionWindowBytes = maximumBytes
 		return
 	}
 
-	policy.congestionWindowBytes = uint64(bytes)
+	policy.CongestionWindowBytes = uint64(bytes)
 }
 
 func cubicLossThreshold(flight, mssBytes uint64) uint64 {

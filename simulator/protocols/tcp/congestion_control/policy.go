@@ -120,19 +120,3 @@ type ECN struct {
 type LossResponse struct {
 	SuppressFastRetransmit bool
 }
-
-// unlimitedPolicy preserves the rwnd-only baseline without imposing a congestion window.
-// The frontend exposes this policy as "none" in the congestion-control selector.
-type unlimitedPolicy struct{}
-
-func (unlimitedPolicy) OnACK(ACK) ACKResponse     { return ACKResponse{} }
-func (unlimitedPolicy) OnSenderState(SenderState) {}
-func (unlimitedPolicy) OnDuplicateACK()           {}
-func (unlimitedPolicy) OnLoss(Loss) LossResponse  { return LossResponse{} }
-func (unlimitedPolicy) OnECN(ECN)                 {}
-func (unlimitedPolicy) OnSent(time.Duration, int) {}
-func (unlimitedPolicy) OnIdle()                   {}
-func (unlimitedPolicy) StopRecovery()             {}
-func (unlimitedPolicy) State() State {
-	return State{Phase: "disabled"}
-}

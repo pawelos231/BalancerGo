@@ -58,6 +58,19 @@ func TestArchitectureDependencyDirections(t *testing.T) {
 		rule{"internal/app", []string{"internal/testsupport"}},
 	)
 
+	// Algorithm packages share contracts and window rules, not each other's implementations.
+	const congestionRoot = "protocols/tcp/congestion_control/"
+	congestionAlgorithms := []string{"reno", "newreno", "tahoe", "cubic", "none"}
+	for _, algorithm := range congestionAlgorithms {
+		forbidden := []string{congestionRoot + "factory"}
+		for _, other := range congestionAlgorithms {
+			if other != algorithm {
+				forbidden = append(forbidden, congestionRoot+other)
+			}
+		}
+		rules = append(rules, rule{congestionRoot + algorithm, forbidden})
+	}
+
 	const module = "load-balancer"
 	// This test now lives three directories below the simulator source root.
 	sourceRoot := filepath.Join("..", "..", "..")

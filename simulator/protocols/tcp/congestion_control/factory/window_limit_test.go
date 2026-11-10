@@ -1,10 +1,11 @@
-package congestioncontrol
+package factory
 
 import (
 	"testing"
 	"time"
 
 	"load-balancer/model"
+	"load-balancer/protocols/tcp/congestion_control"
 )
 
 // A one-MSS ceiling stays at one MSS even when many ACKs would normally grow cwnd.
@@ -28,12 +29,12 @@ func TestMaximumWindowKeepsOneSegment(t *testing.T) {
 			}
 			for index := 1; index <= 20; index++ {
 				now := time.Duration(index) * time.Millisecond
-				policy.OnSenderState(SenderState{
+				policy.OnSenderState(congestioncontrol.SenderState{
 					At:                 now,
 					HasData:            true,
 					ReceiveWindowBytes: 65535,
 				})
-				policy.OnACK(ACK{
+				policy.OnACK(congestioncontrol.ACK{
 					At:            now,
 					NewBytes:      model.SEGMENT_SIZE,
 					CumulativeACK: uint64(index*model.SEGMENT_SIZE + 1),
@@ -43,8 +44,8 @@ func TestMaximumWindowKeepsOneSegment(t *testing.T) {
 					t.Fatalf("ACK %d grew cwnd past one MSS: %+v", index, state)
 				}
 			}
-			policy.OnECN(ECN{FlightBytes: model.SEGMENT_SIZE})
-			policy.OnLoss(Loss{Kind: TimeoutLoss, FlightBytes: model.SEGMENT_SIZE})
+			policy.OnECN(congestioncontrol.ECN{FlightBytes: model.SEGMENT_SIZE})
+			policy.OnLoss(congestioncontrol.Loss{Kind: congestioncontrol.TimeoutLoss, FlightBytes: model.SEGMENT_SIZE})
 			policy.OnIdle()
 			if state := policy.State(); state.WindowBytes != model.SEGMENT_SIZE {
 				t.Fatalf("loss/idle changed the one-MSS window: %+v", state)
@@ -66,8 +67,8 @@ func TestMaximumWindowBoundsRecoveryInflation(t *testing.T) {
 			config.Mode = mode
 			config.MaximumWindowSegments = 4
 			policy := New(config)
-			policy.OnLoss(Loss{
-				Kind:            FastRetransmitLoss,
+			policy.OnLoss(congestioncontrol.Loss{
+				Kind:            congestioncontrol.FastRetransmitLoss,
 				FlightBytes:     4 * model.SEGMENT_SIZE,
 				CumulativeACK:   2,
 				NextSendSeq:     4097,

@@ -1,10 +1,11 @@
-package congestioncontrol
+package factory
 
 import (
 	"fmt"
 	"testing"
 
 	"load-balancer/model"
+	"load-balancer/protocols/tcp/congestion_control"
 )
 
 // The same four-segment window is 5840 bytes at MSS=1460 and 35840 at MSS=8960.
@@ -29,14 +30,14 @@ func TestConfiguredMSSControlsWindowBytes(t *testing.T) {
 				}
 
 				// A fresh one-segment ACK adds one selected segment during slow start.
-				policy.OnACK(ACK{NewBytes: segmentBytes})
+				policy.OnACK(congestioncontrol.ACK{NewBytes: segmentBytes})
 				if got := policy.State().WindowBytes; got != 5*segmentBytes {
 					t.Fatalf("slow-start window=%d, want five selected segments", got)
 				}
 
 				// A timeout leaves one MSS; even a tiny flight keeps ssthresh at two MSS.
-				policy.OnLoss(Loss{
-					Kind:        TimeoutLoss,
+				policy.OnLoss(congestioncontrol.Loss{
+					Kind:        congestioncontrol.TimeoutLoss,
 					FlightBytes: segmentBytes,
 				})
 				state := policy.State()
@@ -45,7 +46,7 @@ func TestConfiguredMSSControlsWindowBytes(t *testing.T) {
 				}
 
 				// Repeated CE feedback cannot reduce the window below one selected MSS.
-				policy.OnECN(ECN{FlightBytes: segmentBytes})
+				policy.OnECN(congestioncontrol.ECN{FlightBytes: segmentBytes})
 				state = policy.State()
 				if state.WindowBytes != segmentBytes || state.ThresholdBytes != 2*segmentBytes {
 					t.Fatalf("ECN used a different MSS floor: %+v", state)
@@ -69,7 +70,7 @@ func TestConfiguredMSSControlsWindowCeiling(t *testing.T) {
 			config.MaximumWindowSegments = 1
 			policy := NewWithMSS(config, 1460)
 
-			policy.OnACK(ACK{NewBytes: 1460})
+			policy.OnACK(congestioncontrol.ACK{NewBytes: 1460})
 			if got := policy.State().WindowBytes; got != 1460 {
 				t.Fatalf("one-segment ceiling=%d, want 1460", got)
 			}

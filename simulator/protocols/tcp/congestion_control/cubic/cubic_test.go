@@ -1,4 +1,4 @@
-package congestioncontrol
+package cubic
 
 import (
 	"math"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"load-balancer/model"
+	"load-balancer/protocols/tcp/congestion_control"
 )
 
 // Virtual time zero is a real epoch: a second ACK must continue, not restart, its growth.
@@ -23,7 +24,7 @@ func TestCubicEpochAtZeroAndFractionalACKGrowth(t *testing.T) {
 	for count := 0; count < 8; count++ {
 		fractional.OnACK(cubicTestACK(0, 1))
 	}
-	if fractional.congestionWindowBytes <= 4096 {
+	if fractional.CongestionWindowBytes <= 4096 {
 		t.Fatal("sub-byte congestion growth was discarded")
 	}
 }
@@ -31,7 +32,7 @@ func TestCubicEpochAtZeroAndFractionalACKGrowth(t *testing.T) {
 // RFC 9438 uses the actual epoch window in K, even when flight was smaller than cwnd.
 func TestCubicEpochUsesActualReducedWindow(t *testing.T) {
 	policy := cubicTestPolicy(100)
-	policy.OnLoss(Loss{Kind: FastRetransmitLoss, FlightBytes: 80 * 1024})
+	policy.OnLoss(congestioncontrol.Loss{Kind: congestioncontrol.FastRetransmitLoss, FlightBytes: 80 * 1024})
 	policy.OnACK(cubicTestACK(0, 1024)) // Exit recovery at 56 MSS.
 	policy.OnACK(cubicTestACK(0, 1024)) // Equality with ssthresh grows slow start to 57 MSS.
 	policy.OnACK(cubicTestACK(0, 1024)) // Begin congestion avoidance at that actual window.
@@ -98,13 +99,13 @@ func TestCubicFastConvergenceIsOptional(t *testing.T) {
 		policy.fastConvergence = enabled
 		policy.previousMaximumSegments = 100
 		policy.setWindowBytes(80 * 1024)
-		policy.OnLoss(Loss{Kind: FastRetransmitLoss, FlightBytes: 80 * 1024})
+		policy.OnLoss(congestioncontrol.Loss{Kind: congestioncontrol.FastRetransmitLoss, FlightBytes: 80 * 1024})
 		wantMaximum := 80.0
 		if enabled {
 			wantMaximum = 68 // 80 * (1 + 0.7) / 2.
 		}
 		if policy.previousMaximumSegments != wantMaximum || policy.priorWindowSegments != 80 ||
-			policy.slowStartThresholdBytes != 56*1024 {
+			policy.SlowStartThresholdBytes != 56*1024 {
 			t.Fatalf("fast convergence=%v: %+v", enabled, policy)
 		}
 	}
@@ -113,12 +114,12 @@ func TestCubicFastConvergenceIsOptional(t *testing.T) {
 // Repeated RTOs preserve the first reduction; the next CA stage uses K=0 and a new maximum.
 func TestCubicTimeoutResetsNextEpochOnlyOnce(t *testing.T) {
 	policy := cubicTestPolicy(100)
-	policy.OnLoss(Loss{Kind: TimeoutLoss, FlightBytes: 100 * 1024})
-	policy.OnLoss(Loss{
-		Kind: TimeoutLoss, FlightBytes: 60 * 1024, AlreadyTimedOut: true,
+	policy.OnLoss(congestioncontrol.Loss{Kind: congestioncontrol.TimeoutLoss, FlightBytes: 100 * 1024})
+	policy.OnLoss(congestioncontrol.Loss{
+		Kind: congestioncontrol.TimeoutLoss, FlightBytes: 60 * 1024, AlreadyTimedOut: true,
 	})
-	if policy.slowStartThresholdBytes != 70*1024 || policy.priorWindowSegments != 100 ||
-		policy.congestionWindowBytes != 1024 {
+	if policy.SlowStartThresholdBytes != 70*1024 || policy.priorWindowSegments != 100 ||
+		policy.CongestionWindowBytes != 1024 {
 		t.Fatalf("a repeated timeout reduced the threshold again: %+v", policy)
 	}
 	policy.setWindowBytes(71 * 1024) // Slow start has just crossed the retained threshold.
@@ -131,9 +132,9 @@ func TestCubicTimeoutResetsNextEpochOnlyOnce(t *testing.T) {
 // A fresh fast loss supersedes the post-RTO reset, even if it happens during slow start.
 func TestCubicFreshFastLossReplacesPendingTimeoutEpoch(t *testing.T) {
 	policy := cubicTestPolicy(100)
-	policy.OnLoss(Loss{Kind: TimeoutLoss, FlightBytes: 100 * 1024})
+	policy.OnLoss(congestioncontrol.Loss{Kind: congestioncontrol.TimeoutLoss, FlightBytes: 100 * 1024})
 	policy.setWindowBytes(10 * 1024)
-	policy.OnLoss(Loss{Kind: FastRetransmitLoss, FlightBytes: 10 * 1024})
+	policy.OnLoss(congestioncontrol.Loss{Kind: congestioncontrol.FastRetransmitLoss, FlightBytes: 10 * 1024})
 	policy.OnACK(cubicTestACK(0, 1024))
 	policy.OnACK(cubicTestACK(0, 1024)) // Equality with the threshold still uses slow start.
 	policy.OnACK(cubicTestACK(0, 1024))
@@ -145,11 +146,11 @@ func TestCubicFreshFastLossReplacesPendingTimeoutEpoch(t *testing.T) {
 // Very large configured windows and a zero measured RTT must keep valid integer byte limits.
 func TestCubicWindowConversionStaysWithinByteLimit(t *testing.T) {
 	policy := cubicTestPolicy(100)
-	policy.OnACK(ACK{NewBytes: 1024})
+	policy.OnACK(congestioncontrol.ACK{NewBytes: 1024})
 	policy.windowSegments = float64(model.MaxCongestionWindowBytes)/1024 + 1000
 	policy.storeFractionalWindow()
-	if policy.congestionWindowBytes != model.MaxCongestionWindowBytes {
-		t.Fatalf("large floating-point window wrapped to %d", policy.congestionWindowBytes)
+	if policy.CongestionWindowBytes != model.MaxCongestionWindowBytes {
+		t.Fatalf("large floating-point window wrapped to %d", policy.CongestionWindowBytes)
 	}
 	threshold := cubicLossThreshold(model.MaxCongestionWindowBytes, model.DefaultMSSBytes)
 	if threshold > model.MaxCongestionWindowBytes {
@@ -164,6 +165,6 @@ func cubicTestPolicy(initialSegments int) *cubicPolicy {
 	return newCubicPolicy(config, model.DefaultMSSBytes)
 }
 
-func cubicTestACK(at time.Duration, bytes uint64) ACK {
-	return ACK{At: at, NewBytes: bytes, SmoothedRTT: 100 * time.Millisecond}
+func cubicTestACK(at time.Duration, bytes uint64) congestioncontrol.ACK {
+	return congestioncontrol.ACK{At: at, NewBytes: bytes, SmoothedRTT: 100 * time.Millisecond}
 }

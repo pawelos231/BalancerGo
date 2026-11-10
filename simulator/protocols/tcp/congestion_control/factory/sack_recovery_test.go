@@ -1,9 +1,10 @@
-package congestioncontrol
+package factory
 
 import (
 	"testing"
 
 	"load-balancer/model"
+	"load-balancer/protocols/tcp/congestion_control"
 )
 
 // An eight-segment flight enters SACK recovery without classic Reno's extra three MSS.
@@ -25,13 +26,13 @@ func TestSACKRecoveryKeepsWindowUntilWholeFlightIsAcknowledged(t *testing.T) {
 			}
 
 			// A partial ACK repairs an early hole, while later missing data remains.
-			partial := policy.OnACK(ACK{
+			partial := policy.OnACK(congestioncontrol.ACK{
 				CumulativeACK: 2049,
 				NewBytes:      2048,
 				FlightBytes:   6144,
 				SACKRecovery:  true,
 			})
-			if partial != (ACKResponse{}) || policy.State() != state {
+			if partial != (congestioncontrol.ACKResponse{}) || policy.State() != state {
 				t.Fatalf(
 					"partial SACK ACK changed recovery or requested another retry: response=%+v, state=%+v",
 					partial, policy.State(),
@@ -45,20 +46,20 @@ func TestSACKRecoveryKeepsWindowUntilWholeFlightIsAcknowledged(t *testing.T) {
 			}
 
 			// One cumulative ACK covers the original eight segments and ends recovery.
-			full := policy.OnACK(ACK{
+			full := policy.OnACK(congestioncontrol.ACK{
 				CumulativeACK:   8193,
 				NewBytes:        6144,
 				SACKRecovery:    true,
 				EndSACKRecovery: true,
 			})
 			finished := policy.State()
-			if full != (ACKResponse{}) || finished.Phase == "fastRecovery" ||
+			if full != (congestioncontrol.ACKResponse{}) || finished.Phase == "fastRecovery" ||
 				finished.WindowBytes != threshold {
 				t.Fatalf("full ACK failed to end recovery without extra growth: response=%+v, state=%+v", full, finished)
 			}
 
 			// Later ordinary ACKs resume the selected algorithm's normal growth.
-			policy.OnACK(ACK{NewBytes: threshold, CumulativeACK: 8193 + threshold})
+			policy.OnACK(congestioncontrol.ACK{NewBytes: threshold, CumulativeACK: 8193 + threshold})
 			if policy.State().WindowBytes != threshold+model.SEGMENT_SIZE {
 				t.Fatalf("normal growth did not resume after SACK recovery: %+v", policy.State())
 			}
@@ -72,8 +73,8 @@ func TestSACKRecoveryTimeoutRestartsSlowStart(t *testing.T) {
 		t.Run(string(mode), func(t *testing.T) {
 			policy := newSACKRecoveryTestPolicy(mode)
 			policy.OnLoss(sackRecoveryTestLoss())
-			policy.OnLoss(Loss{
-				Kind:          TimeoutLoss,
+			policy.OnLoss(congestioncontrol.Loss{
+				Kind:          congestioncontrol.TimeoutLoss,
 				FlightBytes:   6144,
 				NextSendSeq:   8193,
 				CumulativeACK: 2049,
@@ -85,7 +86,7 @@ func TestSACKRecoveryTimeoutRestartsSlowStart(t *testing.T) {
 			}
 
 			// Once the retry is acknowledged, growth starts from one segment again.
-			policy.OnACK(ACK{NewBytes: model.SEGMENT_SIZE, CumulativeACK: 3073})
+			policy.OnACK(congestioncontrol.ACK{NewBytes: model.SEGMENT_SIZE, CumulativeACK: 3073})
 			if policy.State().WindowBytes != 2*model.SEGMENT_SIZE {
 				t.Fatalf("timeout recovery did not grow from one to two segments: %+v", policy.State())
 			}
@@ -103,16 +104,16 @@ func sackRecoveryTestModes() []model.CongestionMode {
 }
 
 // Start with eight MSS; SACK detection is allowed even when the first data byte was lost.
-func newSACKRecoveryTestPolicy(mode model.CongestionMode) Policy {
+func newSACKRecoveryTestPolicy(mode model.CongestionMode) congestioncontrol.Policy {
 	config := model.DefaultCongestionConfig()
 	config.Mode = mode
 	config.InitialWindowSegments = 8
 	return New(config)
 }
 
-func sackRecoveryTestLoss() Loss {
-	return Loss{
-		Kind:            FastRetransmitLoss,
+func sackRecoveryTestLoss() congestioncontrol.Loss {
+	return congestioncontrol.Loss{
+		Kind:            congestioncontrol.FastRetransmitLoss,
 		FlightBytes:     8192,
 		CumulativeACK:   1,
 		NextSendSeq:     8193,

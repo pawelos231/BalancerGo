@@ -47,8 +47,12 @@ backend hosts use `protocols/tcp/receiver/`. The sender receives ACKs and the
 receiver sends them: these names describe payload direction. The two endpoints
 do not import each other. TCP-specific shared helpers can stay at the `tcp/`
 root when needed; shared native types remain in `model/`.
-Congestion algorithms live in `protocols/tcp/congestion_control/`,
-and reusable SACK range tracking lives in `protocols/tcp/sack/`.
+Congestion algorithms each have a package under `protocols/tcp/congestion_control/`:
+`reno/`, `newreno/`, `tahoe/`, `cubic/` and the disabled baseline `none/`.
+The root keeps shared contracts, events and window rules; `factory/` validates
+settings and selects an implementation. Algorithms depend only on that shared
+code, without importing the factory or one another.
+Reusable SACK range tracking lives in `protocols/tcp/sack/`.
 `protocols/udp/` reserves the protocol boundary for future UDP support.
 
 TCP pulls new payload through a small source interface. The client's finite
@@ -920,13 +924,13 @@ accounting, RTT/RTO and actual packet emission. The selected policy owns window
 growth, loss response and its observable phase; it cannot inspect remote links
 or schedule engine callbacks directly.
 
-The algorithms live in `simulator/protocols/tcp/congestion_control/`, a separate Go
-package named `congestioncontrol`. Its `Policy` interface accepts scalar ACK,
-sender and loss observations and returns a detached `State`. `New` validates
-configuration and selects the algorithm; concrete implementations stay private.
+The shared `congestioncontrol` package lives in `simulator/protocols/tcp/congestion_control/`.
+Its `Policy` interface accepts scalar ACK, sender and loss observations and
+returns a detached `State`. `factory.New` validates configuration and selects
+an implementation from its algorithm package; concrete policy types stay private.
 ACK responses can request a retry of the oldest fragment and preservation of
 the RTO deadline. Loss responses can suppress a stale fast-retransmit indication.
-The TCP package keeps `congestion_adapter.go` for translating transport events and
+The TCP sender package keeps `congestion_adapter.go` for translating transport events and
 `loss_detection.go` for shared duplicate-ACK/retry tracking. Congestion algorithms
 do not import the client, virtual-time engine, network or presentation layers.
 
