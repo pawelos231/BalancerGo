@@ -13,6 +13,7 @@ import {
   resultListEntry, sourceExecutionError, virtualRange,
 } from './presentation';
 import ResultResources from './ResultResources';
+import ResultCharts from './ResultCharts';
 
 interface Metric {
   label: string;
@@ -308,6 +309,7 @@ export default function ResultDetails({ result }: { result: RunResult }) {
       {executionError && <Alert severity="error">Source execution error: {executionError}</Alert>}
       <Summary result={result} />
       <Coverage result={result} />
+      <ResultCharts result={result} />
       <ResultResources result={result} />
       <Context result={result} />
     </Stack>

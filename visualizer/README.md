@@ -399,3 +399,16 @@ an explicit retry succeeds or the user discards them. Refreshing or closing the
 tab can lose those unsaved candidates. Defaults limit a selected stored record
 to 64 MiB and the index to 1 MiB before parsing; these are validation limits,
 not a guarantee that the browser's localStorage quota can hold that much data.
+
+Result charts use virtual seconds on the horizontal axis. Native wire rates
+describe the backend's reported sampling window; acknowledged payload goodput
+uses exact byte-counter differences between adjacent retained publications.
+Neither is the engine's packets-per-real-second performance measurement.
+Queue counters, modeled CPU host-lifetime means and the selected backend's
+reported connection-lifetime p95 keep their separate meanings and units.
+
+Missing publications, connection interruptions and unavailable resource values
+break plotted lines. Topology revisions remain attached to inspected samples.
+Large series use a bounded display projection; the archived samples are unchanged.
+Global transfer latency p95/p99 remains unavailable because the source contract
+does not provide it.
