@@ -419,3 +419,37 @@ and provenance. Exact decimal strings and unknown fields are unchanged. This is
 separate from exporting `scenario.json` in the configuration editor. Export also
 works directly from an unsaved RAM candidate and does not require the backend or
 an available localStorage quota.
+
+`Export XLSX` creates nine logical tables: `Run`, `Summary`, `Scenario`, `Samples`,
+`Nodes`, `Backends`, `LinksQueues`, `Clients` and `Definitions`. Each field has its
+source JSON Pointer, source type, resource and sample context, value, unit and
+availability. Unknown fields and empty containers are retained. Backend metrics
+come from `servers[]` as well as topology nodes, so backend-only measurements
+are not lost. Native units and clock scopes are preserved.
+
+Source strings stay text, including exact decimal counters and formula-looking
+labels. Numeric values that would lose precision in Excel also become text,
+with their original source type recorded. Unmeasured duration placeholders keep
+their raw value and an explicit unavailable status; they are not measured zeros.
+Subnormal numbers also remain text because Excel does not support that range
+([Microsoft's numeric limits](https://learn.microsoft.com/en-us/troubleshoot/microsoft-365-apps/excel/floating-point-arithmetic-inaccurate-result)).
+
+Large tables continue in numbered sheets. Long text cells continue in numbered
+segments with a shared record ID, including long paths and IDs. Concatenating a
+text column's segments reconstructs its source value without truncation.
+XML-incompatible characters and lone surrogates use JSON-string encoding;
+`encodedColumns` names the affected columns. Concatenate their segments first,
+then JSON-decode those cells. Ordinary strings keep their original text.
+Clearly marked `export-note` rows in `Run` describe layout version 1 and these
+reconstruction conventions; they are separate from source fields.
+
+The default limits are 25,000 rows per sheet, 100,000 rows across all sheets
+(both include headers), 750,000 populated cells, 16 MiB of UTF-8 text and 64
+sheets. Cells hold at most 32,767 UTF-16 code units; continuation preserves
+surrogate pairs. These limits count encoded and continued text as exported.
+
+Export preflight counts the expanded rows, populated cells and text before loading the
+spreadsheet library. Limits bound the export workload rather than guaranteeing
+a particular browser heap size. Oversized results produce an actionable error;
+the complete JSON export remains available. Spreadsheet support uses pinned
+ExcelJS 4.4.0, loaded on demand from the frontend build without a CDN.
