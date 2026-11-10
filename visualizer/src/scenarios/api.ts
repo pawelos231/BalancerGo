@@ -7,6 +7,7 @@ import type {
 import type { TopologyDefinition } from '../telemetry/types';
 import { isExperimentContext } from '../experiment.ts';
 import { validateScenario } from './validation.ts';
+import { readTelemetryJSON } from '../telemetry/exact.ts';
 
 // Keep API failures readable while retaining the status for expected cases such as 404.
 export class ScenarioApiError extends Error {
@@ -120,7 +121,8 @@ export class ScenarioApi {
         body: typeof scenario === 'string' ? scenario : scenario && JSON.stringify(scenario),
         signal: controller.signal,
       });
-      const body = await response.json().catch(() => null) as T | { error?: string } | null;
+      const body = await response.text()
+        .then(readTelemetryJSON).catch(() => null) as T | { error?: string } | null;
       // A transport may finish after cancellation, including during body decoding.
       controller.signal.throwIfAborted();
 

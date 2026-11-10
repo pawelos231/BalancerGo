@@ -1,6 +1,9 @@
 package contract
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const CurrentSnapshotVersion = 1
 
@@ -229,11 +232,13 @@ type TopologyNodeDefinition struct {
 }
 
 // TopologyMetricDefinition supplies labels once; static metrics also carry a value.
+// ExactValue keeps the original integer token when Value is rounded for display.
 type TopologyMetricDefinition struct {
-	Key   string   `json:"key"`
-	Label string   `json:"label"`
-	Unit  string   `json:"unit,omitempty"`
-	Value *float64 `json:"value,omitempty"`
+	Key        string       `json:"key"`
+	Label      string       `json:"label"`
+	Unit       string       `json:"unit,omitempty"`
+	Value      *float64     `json:"value,omitempty"`
+	ExactValue *json.Number `json:"-"`
 }
 
 // TopologyLinkDefinition describes one directed physical path without live counters.
@@ -278,13 +283,15 @@ type TelemetryTopology struct {
 
 // TelemetryNode contains changing values; metric labels and constants stay in HTTP.
 type TelemetryNode struct {
-	ID           string             `json:"id"`
-	Active       *bool              `json:"active,omitempty"`
-	Metrics      map[string]float64 `json:"metrics"`
-	Traffic      *TopologyTraffic   `json:"traffic,omitempty"`
-	TCPPhase     string             `json:"tcpPhase,omitempty"`
-	TCPState     string             `json:"tcpState,omitempty"`
-	CloseOutcome string             `json:"closeOutcome,omitempty"`
+	ID      string             `json:"id"`
+	Active  *bool              `json:"active,omitempty"`
+	Metrics map[string]float64 `json:"metrics"`
+	// ExactMetrics is used for JSON; Metrics remains a numeric projection for Go callers.
+	ExactMetrics map[string]json.Number `json:"-"`
+	Traffic      *TopologyTraffic       `json:"traffic,omitempty"`
+	TCPPhase     string                 `json:"tcpPhase,omitempty"`
+	TCPState     string                 `json:"tcpState,omitempty"`
+	CloseOutcome string                 `json:"closeOutcome,omitempty"`
 }
 
 // TelemetryLink sends one physical path's counters under its stable ID.

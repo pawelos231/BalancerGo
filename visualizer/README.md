@@ -306,3 +306,17 @@ test framework dependency.
 
 Build output is written to `dist/`. `VITE_WS_URL` is embedded at build time, so
 changing the backend URL for a static deployment requires rebuilding.
+
+## Exact telemetry for Results
+
+WebSocket messages and HTTP responses use `readTelemetryJSON`. It decodes JSON once,
+retaining a separate exact source for each decoded object. Large integer tokens become
+decimal strings in that source; fractional measurements remain numbers. Live views keep
+their existing numeric projections and may approximate large values for display.
+
+Use `telemetrySource(snapshot)` or `telemetrySource(definition)` before view hydration or
+coalescing when collecting Results. Embedded final snapshots and topology definitions
+also retain their own sources. Archive/export this source, not the numeric live view.
+The accessor rejects unregistered unsafe numbers because their original digits cannot
+be recovered. Go node metrics also retain original integer tokens before conversion to
+their numeric display values; serialization uses those tokens without adding wire fields.

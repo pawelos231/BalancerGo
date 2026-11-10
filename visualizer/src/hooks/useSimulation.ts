@@ -4,6 +4,7 @@ import { scenarioApi, websocketUrl } from '../scenarios/runtimeApi';
 import { httpStartAcknowledged } from '../scenarios/startAcknowledgement';
 import type { CurrentSimulation, Scenario } from '../scenarios/types';
 import { parseSnapshot } from '../telemetry/parse';
+import { readTelemetryJSON } from '../telemetry/exact';
 import type { PublicationObservation } from '../telemetry/publications';
 import { RunLifecycleReceiver } from '../telemetry/lifecycle';
 import type { FinalSampleNotification, RunEndedNotification } from '../telemetry/lifecycle';
@@ -203,7 +204,7 @@ function useSimulation(options: SimulationLifecycleOptions = {}) {
         if (disposed) return;
 
         try {
-          const message: unknown = JSON.parse(event.data);
+          const message: unknown = readTelemetryJSON(event.data);
           const error = readCommandError(message);
           const stopResult = parseStopCommandResult(message);
 

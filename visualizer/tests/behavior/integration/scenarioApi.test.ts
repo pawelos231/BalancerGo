@@ -3,6 +3,18 @@ import test from 'node:test';
 import { ScenarioApi, ScenarioApiError, resolveApiBase } from '../../../src/scenarios/api.ts';
 import { experimentFixture, scenarioFixture } from '../../scenarioFixture.ts';
 import { topologyDefinition } from '../../telemetryFixture.ts';
+import { telemetrySource } from '../../../src/telemetry/exact.ts';
+
+test('HTTP topology keeps exact large limits separately from numeric live settings', async () => {
+  const definition = topologyDefinition();
+  definition.links[0].config.bandwidthBitsPerSecond = 43;
+  const json = JSON.stringify(definition).replace(':43', ':9007199254740993');
+  const api = new ScenarioApi('http://backend.test', async () => new Response(json));
+
+  const received = await api.topology();
+  assert.equal(typeof received.links[0].config.bandwidthBitsPerSecond, 'number');
+  assert.equal(telemetrySource(received).links[0].config.bandwidthBitsPerSecond, '9007199254740993');
+});
 
 test('API address follows the WebSocket backend unless explicitly configured', () => {
   assert.equal(resolveApiBase(undefined, 'ws://localhost:8081/ws'), 'http://localhost:8081');

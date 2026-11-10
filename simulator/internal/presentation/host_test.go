@@ -56,7 +56,7 @@ func TestHostProjectionRetainsCPUHistoryAfterBypass(t *testing.T) {
 	metrics := appendHostMetrics(nil, state)
 	values := make(map[string]float64, len(metrics))
 	for _, metric := range metrics {
-		values[metric.key] = metric.value
+		values[metric.key] = numericMetric(t, metric.value)
 	}
 	if values["hostCPUEnabled"] != 0 || values["hostBusyCores"] != 2 ||
 		values["hostUtilization"] != 2.0/3.0 || values["hostAvailableCoreTimeSeconds"] != 3 {

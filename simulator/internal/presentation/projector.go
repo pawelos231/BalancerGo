@@ -122,7 +122,8 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 		id := simulation.BackendNodeID(server.ID)
 		active := server.Active
 		topology.Nodes = append(topology.Nodes, contract.TelemetryNode{
-			ID: id, Active: &active, Metrics: metricValues(metrics), Traffic: nodeTraffic(world, id),
+			ID: id, Active: &active, Metrics: metricValues(metrics), ExactMetrics: exactMetricValues(metrics),
+			Traffic: nodeTraffic(world, id),
 		})
 	})
 	if matches && (len(servers) != len(projector.document.Servers) || len(projector.document.Nodes) != 1+len(servers)+info.CreatedClients) {
@@ -194,7 +195,8 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 		}
 		active := client.Active
 		topology.Nodes = append(topology.Nodes, contract.TelemetryNode{
-			ID: client.ID, Active: &active, Metrics: metricValues(metrics), Traffic: nodeTraffic(world, client.ID),
+			ID: client.ID, Active: &active, Metrics: metricValues(metrics), ExactMetrics: exactMetricValues(metrics),
+			Traffic:  nodeTraffic(world, client.ID),
 			TCPPhase: state.Congestion.Phase,
 			TCPState: string(state.Connection.State), CloseOutcome: string(state.Connection.Outcome),
 		})
@@ -209,7 +211,8 @@ func (projector *Projector) Sample(world *simulation.World) (Sample, error) {
 	})
 	metrics := loadBalancerMetrics(info, ingress, len(servers), routed, transfers)
 	topology.Nodes[0] = contract.TelemetryNode{
-		ID: simulation.LoadBalancerNodeID, Metrics: metricValues(metrics), Traffic: nodeTraffic(world, simulation.LoadBalancerNodeID),
+		ID: simulation.LoadBalancerNodeID, Metrics: metricValues(metrics), ExactMetrics: exactMetricValues(metrics),
+		Traffic: nodeTraffic(world, simulation.LoadBalancerNodeID),
 	}
 
 	ensureLinks := func(prefix int) {

@@ -5,6 +5,8 @@ import type {
   TopologyTraffic,
 } from '../topology/types';
 
+// These are numeric live-view projections, not the exact archive representation.
+// Results uses telemetrySource() before hydration to retain original integer digits.
 // HTTP carries resource identities and settings only when the topology changes.
 export interface MetricDefinition {
   key: string;

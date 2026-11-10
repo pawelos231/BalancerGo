@@ -3,6 +3,7 @@
 package presentation
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -19,8 +20,21 @@ import (
 // current value. Definitions and live frames are projected from the same list.
 type nodeMetric struct {
 	key, label, unit string
-	value            float64
+	value            json.Number
 	static           bool
+}
+
+// integerMetric keeps all digits, e.g. 9007199254740993 wire bytes.
+func integerMetric[T ~int | ~int64 | ~uint8 | ~uint32 | ~uint64](value T) json.Number {
+	if value < 0 {
+		return json.Number(strconv.FormatInt(int64(value), 10))
+	}
+	return json.Number(strconv.FormatUint(uint64(value), 10))
+}
+
+// decimalMetric is for measured rates, ratios and durations expressed in seconds/ms.
+func decimalMetric(value float64) json.Number {
+	return json.Number(strconv.FormatFloat(value, 'g', -1, 64))
 }
 
 func linkLabel(link simulation.LinkObservation) string {
@@ -35,30 +49,30 @@ func ingressLabel(side string) string { return "From " + side }
 func loadBalancerMetrics(info simulation.Info, ingress simulation.IngressObservation, backends, routed int, transfers contract.TransferSummary) []nodeMetric {
 	forwarding := info.Forwarding
 	metrics := []nodeMetric{
-		{"ingressBitsPerSecond", "Shared physical input bandwidth", "bit/s", float64(ingress.Config.BandwidthBitsPerSecond), true},
-		{"ingressDeliveredPackets", "Packets delivered to LB", "packets", float64(ingress.Stats.DeliveredPackets), false},
-		{"ingressDeliveredBytes", "Wire bytes delivered to LB", "bytes", float64(ingress.Stats.DeliveredBytes), false},
-		{"backendCount", "Backends", "backends", float64(backends), true},
-		{"routedConnections", "Routed connections", "connections", float64(routed), false},
-		{"forwardingBitsPerSecond", "Shared forwarding limit", "bit/s", float64(forwarding.ForwardingBitsPerSecond), true},
-		{"forwardedPackets", "Packets started", "packets", float64(forwarding.ForwardedPackets), false},
-		{"forwardedBytes", "Wire bytes started", "bytes", float64(forwarding.ForwardedBytes), false},
-		{"forwardingQueuedPackets", "Packets waiting across LB outputs", "packets", float64(forwarding.QueuedPackets), false},
-		{"forwardingQueueDroppedPackets", "LB output queue drops", "packets", float64(forwarding.QueueDroppedPackets), false},
-		{"forwardingQueueDroppedBytes", "Bytes dropped by LB output queues", "bytes", float64(forwarding.QueueDroppedBytes), false},
-		{"forwardingBudgetWaitMs", "Time waiting for the shared budget", "ms", float64(forwarding.BudgetWait) / float64(time.Millisecond), false},
-		{"scheduledClients", "Scheduled clients", "clients", float64(info.ScheduledClients), false},
-		{"createdClients", "Created clients", "clients", float64(info.CreatedClients), true},
-		{"activeClients", "Active clients", "clients", float64(info.CreatedClients - info.ClosedClients), false},
-		{"completedStreams", "Completed streams", "streams", float64(info.CompletedStreams), false},
-		{"receivedPayloadBytes", "Unique payload received by backends", "bytes", float64(info.Payload.ReceivedBytes), false},
-		{"acknowledgedPayloadBytes", "Payload confirmed to clients by ACK", "bytes", float64(info.Payload.AcknowledgedBytes), false},
-		{"successfulTransfers", "Successful transfers", "transfers", float64(transfers.Succeeded), false},
-		{"failedTransfers", "Failed transfers", "transfers", float64(transfers.Failed), false},
-		{"inProgressTransfers", "Transfers still in progress", "transfers", float64(transfers.InProgress), false},
-		{"notStartedTransfers", "Scheduled clients not yet started", "clients", float64(transfers.NotStarted), false},
-		{"synRetransmissions", "Cumulative SYN retransmissions", "packets", float64(transfers.SynRetransmissions), false},
-		{"dataRetransmissions", "Cumulative data retransmissions", "packets", float64(transfers.DataRetransmissions), false},
+		{"ingressBitsPerSecond", "Shared physical input bandwidth", "bit/s", integerMetric(ingress.Config.BandwidthBitsPerSecond), true},
+		{"ingressDeliveredPackets", "Packets delivered to LB", "packets", integerMetric(ingress.Stats.DeliveredPackets), false},
+		{"ingressDeliveredBytes", "Wire bytes delivered to LB", "bytes", integerMetric(ingress.Stats.DeliveredBytes), false},
+		{"backendCount", "Backends", "backends", integerMetric(backends), true},
+		{"routedConnections", "Routed connections", "connections", integerMetric(routed), false},
+		{"forwardingBitsPerSecond", "Shared forwarding limit", "bit/s", integerMetric(forwarding.ForwardingBitsPerSecond), true},
+		{"forwardedPackets", "Packets started", "packets", integerMetric(forwarding.ForwardedPackets), false},
+		{"forwardedBytes", "Wire bytes started", "bytes", integerMetric(forwarding.ForwardedBytes), false},
+		{"forwardingQueuedPackets", "Packets waiting across LB outputs", "packets", integerMetric(forwarding.QueuedPackets), false},
+		{"forwardingQueueDroppedPackets", "LB output queue drops", "packets", integerMetric(forwarding.QueueDroppedPackets), false},
+		{"forwardingQueueDroppedBytes", "Bytes dropped by LB output queues", "bytes", integerMetric(forwarding.QueueDroppedBytes), false},
+		{"forwardingBudgetWaitMs", "Time waiting for the shared budget", "ms", decimalMetric(float64(forwarding.BudgetWait) / float64(time.Millisecond)), false},
+		{"scheduledClients", "Scheduled clients", "clients", integerMetric(info.ScheduledClients), false},
+		{"createdClients", "Created clients", "clients", integerMetric(info.CreatedClients), true},
+		{"activeClients", "Active clients", "clients", integerMetric(info.CreatedClients - info.ClosedClients), false},
+		{"completedStreams", "Completed streams", "streams", integerMetric(info.CompletedStreams), false},
+		{"receivedPayloadBytes", "Unique payload received by backends", "bytes", integerMetric(info.Payload.ReceivedBytes), false},
+		{"acknowledgedPayloadBytes", "Payload confirmed to clients by ACK", "bytes", integerMetric(info.Payload.AcknowledgedBytes), false},
+		{"successfulTransfers", "Successful transfers", "transfers", integerMetric(transfers.Succeeded), false},
+		{"failedTransfers", "Failed transfers", "transfers", integerMetric(transfers.Failed), false},
+		{"inProgressTransfers", "Transfers still in progress", "transfers", integerMetric(transfers.InProgress), false},
+		{"notStartedTransfers", "Scheduled clients not yet started", "clients", integerMetric(transfers.NotStarted), false},
+		{"synRetransmissions", "Cumulative SYN retransmissions", "packets", integerMetric(transfers.SynRetransmissions), false},
+		{"dataRetransmissions", "Cumulative data retransmissions", "packets", integerMetric(transfers.DataRetransmissions), false},
 	}
 	return appendHostMetrics(metrics, info.LoadBalancerHost)
 }
@@ -68,22 +82,22 @@ func backendMetrics(server model.ServerState) []nodeMetric {
 		{"physicalAvailable", "Physically available (1 = yes)", "", boolMetric(server.Active), false},
 		{"administrativeDrain", "Administrative drain (1 = yes)", "", boolMetric(server.Draining), false},
 		{"observedHealthy", "LB observed healthy (1 = yes)", "", boolMetric(server.HealthTCP), false},
-		{"activeConnections", "Active connections", "connections", float64(server.ActiveConnections), false},
-		{"halfOpenConnections", "Half-open connections", "connections", float64(server.HalfOpenConnections), false},
-		{"receivedPackets", "Packets delivered to backend TCP", "packets", float64(server.NumberOfHandledPackets), false},
-		{"receivedPayloadBytes", "Unique payload received", "bytes", float64(server.ReceivedPayloadBytes), false},
-		{"sentACKCount", "Standalone ACKs sent", "ACKs", float64(server.ACK.SentACKCount), false},
-		{"timerTriggeredACKCount", "ACKs sent when the delay timer expired", "ACKs", float64(server.ACK.TimerTriggeredACKCount), false},
+		{"activeConnections", "Active connections", "connections", integerMetric(server.ActiveConnections), false},
+		{"halfOpenConnections", "Half-open connections", "connections", integerMetric(server.HalfOpenConnections), false},
+		{"receivedPackets", "Packets delivered to backend TCP", "packets", integerMetric(server.NumberOfHandledPackets), false},
+		{"receivedPayloadBytes", "Unique payload received", "bytes", integerMetric(server.ReceivedPayloadBytes), false},
+		{"sentACKCount", "Standalone ACKs sent", "ACKs", integerMetric(server.ACK.SentACKCount), false},
+		{"timerTriggeredACKCount", "ACKs sent when the delay timer expired", "ACKs", integerMetric(server.ACK.TimerTriggeredACKCount), false},
 	}
 	metrics = appendHostMetrics(metrics, server.Host)
 	return appendECNMetrics(metrics, server.ECN)
 }
 
-func boolMetric(value bool) float64 {
+func boolMetric(value bool) json.Number {
 	if value {
-		return 1
+		return "1"
 	}
-	return 0
+	return "0"
 }
 
 func clientMetrics(client simulation.ClientObservation) []nodeMetric {
@@ -93,30 +107,30 @@ func clientMetrics(client simulation.ClientObservation) []nodeMetric {
 	}
 	state := client.State
 	metrics := []nodeMetric{
-		{"payloadBytes", "Payload per stream", "bytes", float64(client.Config.Stream.Bytes), true},
-		{"acknowledgedPayloadBytes", "Payload confirmed by ACK", "bytes", float64(state.AcknowledgedPayloadBytes), false},
-		{"completedStreams", "Completed streams", "streams", completed, false},
-		{"packetGapMs", "Pause before data segments", "ms", float64(client.Config.Stream.PacketGap) / float64(time.Millisecond), true},
-		{"synRetries", "Current SYN retries", "retries", float64(state.RetrySyn), false},
-		{"dataRetries", "Current segment retries", "retries", float64(state.RetryData), false},
-		{"synRetransmissions", "Cumulative SYN retransmissions", "packets", float64(state.Transfer.SynRetransmissions), false},
-		{"dataRetransmissions", "Cumulative data retransmissions", "packets", float64(state.Transfer.DataRetransmissions), false},
-		{"finRetransmissions", "Cumulative FIN retransmissions", "packets", float64(state.Connection.FINRetransmissions), false},
-		{"closeElapsedNanoseconds", "Elapsed connection closing time", "ns", float64(state.Connection.Elapsed), false},
-		{"bytesInFlight", "Payload awaiting cumulative ACK", "bytes", float64(state.Congestion.BytesInFlight), false},
-		{"duplicateACKs", "Current duplicate ACKs", "ACKs", float64(state.Congestion.DuplicateACKs), false},
-		{"fastRetransmissions", "Cumulative fast retransmissions", "packets", float64(state.Congestion.FastRetransmissions), false},
+		{"payloadBytes", "Payload per stream", "bytes", integerMetric(client.Config.Stream.Bytes), true},
+		{"acknowledgedPayloadBytes", "Payload confirmed by ACK", "bytes", integerMetric(state.AcknowledgedPayloadBytes), false},
+		{"completedStreams", "Completed streams", "streams", decimalMetric(completed), false},
+		{"packetGapMs", "Pause before data segments", "ms", decimalMetric(float64(client.Config.Stream.PacketGap) / float64(time.Millisecond)), true},
+		{"synRetries", "Current SYN retries", "retries", integerMetric(state.RetrySyn), false},
+		{"dataRetries", "Current segment retries", "retries", integerMetric(state.RetryData), false},
+		{"synRetransmissions", "Cumulative SYN retransmissions", "packets", integerMetric(state.Transfer.SynRetransmissions), false},
+		{"dataRetransmissions", "Cumulative data retransmissions", "packets", integerMetric(state.Transfer.DataRetransmissions), false},
+		{"finRetransmissions", "Cumulative FIN retransmissions", "packets", integerMetric(state.Connection.FINRetransmissions), false},
+		{"closeElapsedNanoseconds", "Elapsed connection closing time", "ns", integerMetric(state.Connection.Elapsed), false},
+		{"bytesInFlight", "Payload awaiting cumulative ACK", "bytes", integerMetric(state.Congestion.BytesInFlight), false},
+		{"duplicateACKs", "Current duplicate ACKs", "ACKs", integerMetric(state.Congestion.DuplicateACKs), false},
+		{"fastRetransmissions", "Cumulative fast retransmissions", "packets", integerMetric(state.Congestion.FastRetransmissions), false},
 	}
 	// Disabled congestion control has no cwnd; avoid displaying a false zero limit.
 	if state.Congestion.Mode != model.CongestionNone {
 		metrics = append(metrics,
 			nodeMetric{
 				key: "congestionWindowBytes", label: "Congestion window (cwnd)", unit: "bytes",
-				value: float64(state.Congestion.CongestionWindowBytes),
+				value: integerMetric(state.Congestion.CongestionWindowBytes),
 			},
 			nodeMetric{
 				key: "slowStartThresholdBytes", label: "Slow-start threshold (ssthresh)", unit: "bytes",
-				value: float64(state.Congestion.SlowStartThresholdBytes),
+				value: integerMetric(state.Congestion.SlowStartThresholdBytes),
 			},
 		)
 	}
@@ -133,12 +147,12 @@ func appendECNMetrics(metrics []nodeMetric, state model.ECNState) []nodeMetric {
 		negotiated = 1
 	}
 	return append(metrics,
-		nodeMetric{"ecnNegotiated", "ECN negotiated (1 = yes)", "", negotiated, false},
-		nodeMetric{"ecnReceivedCEPacketCount", "CE-marked packets received", "packets", float64(state.ReceivedCEPacketCount), false},
-		nodeMetric{"ecnSentECECount", "ECE feedback sent", "ACKs", float64(state.SentECECount), false},
-		nodeMetric{"ecnReceivedECECount", "ECE feedback received", "ACKs", float64(state.ReceivedECECount), false},
-		nodeMetric{"ecnSentCWRCount", "CWR signals sent", "packets", float64(state.SentCWRCount), false},
-		nodeMetric{"ecnResponseCount", "ECN responses", "responses", float64(state.ECNResponseCount), false},
+		nodeMetric{"ecnNegotiated", "ECN negotiated (1 = yes)", "", decimalMetric(negotiated), false},
+		nodeMetric{"ecnReceivedCEPacketCount", "CE-marked packets received", "packets", integerMetric(state.ReceivedCEPacketCount), false},
+		nodeMetric{"ecnSentECECount", "ECE feedback sent", "ACKs", integerMetric(state.SentECECount), false},
+		nodeMetric{"ecnReceivedECECount", "ECE feedback received", "ACKs", integerMetric(state.ReceivedECECount), false},
+		nodeMetric{"ecnSentCWRCount", "CWR signals sent", "packets", integerMetric(state.SentCWRCount), false},
+		nodeMetric{"ecnResponseCount", "ECN responses", "responses", integerMetric(state.ECNResponseCount), false},
 	)
 }
 
@@ -147,8 +161,10 @@ func metricDefinitions(metrics []nodeMetric) []contract.TopologyMetricDefinition
 	for _, metric := range metrics {
 		definition := contract.TopologyMetricDefinition{Key: metric.key, Label: metric.label, Unit: metric.unit}
 		if metric.static {
-			value := metric.value
+			value, _ := metric.value.Float64()
 			definition.Value = &value
+			exact := metric.value
+			definition.ExactValue = &exact
 		}
 		definitions = append(definitions, definition)
 	}
@@ -157,6 +173,16 @@ func metricDefinitions(metrics []nodeMetric) []contract.TopologyMetricDefinition
 
 func metricValues(metrics []nodeMetric) map[string]float64 {
 	values := make(map[string]float64, len(metrics))
+	for _, metric := range metrics {
+		if !metric.static {
+			values[metric.key], _ = metric.value.Float64()
+		}
+	}
+	return values
+}
+
+func exactMetricValues(metrics []nodeMetric) map[string]json.Number {
+	values := make(map[string]json.Number, len(metrics))
 	for _, metric := range metrics {
 		if !metric.static {
 			values[metric.key] = metric.value
@@ -250,7 +276,9 @@ func BuildTopology(world *simulation.World) contract.Topology {
 			if metric.Value != nil {
 				value = *metric.Value
 			}
-			metrics = append(metrics, contract.TopologyMetric{Key: metric.Key, Label: metric.Label, Unit: metric.Unit, Value: value})
+			metrics = append(metrics, contract.TopologyMetric{
+				Key: metric.Key, Label: metric.Label, Unit: metric.Unit, Value: value,
+			})
 		}
 		graph.Nodes = append(graph.Nodes, contract.TopologyNode{
 			ID: definition.ID, Kind: definition.Kind, Label: definition.Label, ResourceID: definition.ResourceID,

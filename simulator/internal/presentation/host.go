@@ -45,7 +45,7 @@ func appendHostMetrics(metrics []nodeMetric, state host.Stats) []nodeMetric {
 	}
 	metrics = append(metrics, nodeMetric{
 		key: "hostCPUEnabled", label: "CPU model enabled (1 = yes)",
-		value: enabled, static: true,
+		value: decimalMetric(enabled), static: true,
 	})
 	if !state.Enabled && state.BusyCores == 0 && state.BusyTime == 0 &&
 		state.QueuedPackets == 0 && state.MaxQueuedPackets == 0 &&
@@ -58,24 +58,24 @@ func appendHostMetrics(metrics []nodeMetric, state host.Stats) []nodeMetric {
 			(float64(time.Millisecond) * float64(state.StartedPackets))
 	}
 	return append(metrics,
-		nodeMetric{"hostCores", "Virtual CPU cores", "cores", float64(state.Cores), true},
-		nodeMetric{"hostPacketProcessingTimeUs", "Processing per packet", "µs", float64(state.PacketProcessingTime) / float64(time.Microsecond), true},
-		nodeMetric{"hostQueueCapacity", "CPU waiting slots", "packets", float64(state.QueueCapacity), true},
-		nodeMetric{"hostBusyCores", "Busy CPU cores now", "cores", float64(state.BusyCores), false},
-		nodeMetric{"hostQueuedPackets", "Packets waiting for CPU", "packets", float64(state.QueuedPackets), false},
-		nodeMetric{"hostMaxQueuedPackets", "Peak CPU queue", "packets", float64(state.MaxQueuedPackets), false},
-		nodeMetric{"hostUtilization", "CPU utilization (virtual run mean)", "ratio", state.Utilization(), false},
+		nodeMetric{"hostCores", "Virtual CPU cores", "cores", integerMetric(state.Cores), true},
+		nodeMetric{"hostPacketProcessingTimeUs", "Processing per packet", "µs", decimalMetric(float64(state.PacketProcessingTime) / float64(time.Microsecond)), true},
+		nodeMetric{"hostQueueCapacity", "CPU waiting slots", "packets", integerMetric(state.QueueCapacity), true},
+		nodeMetric{"hostBusyCores", "Busy CPU cores now", "cores", integerMetric(state.BusyCores), false},
+		nodeMetric{"hostQueuedPackets", "Packets waiting for CPU", "packets", integerMetric(state.QueuedPackets), false},
+		nodeMetric{"hostMaxQueuedPackets", "Peak CPU queue", "packets", integerMetric(state.MaxQueuedPackets), false},
+		nodeMetric{"hostUtilization", "CPU utilization (virtual run mean)", "ratio", decimalMetric(state.Utilization()), false},
 		nodeMetric{
 			key: "hostBusyTimeSeconds", label: "Cumulative occupied core time", unit: "s",
-			value: state.BusyTime.Seconds(),
+			value: decimalMetric(state.BusyTime.Seconds()),
 		},
 		nodeMetric{
 			key: "hostAvailableCoreTimeSeconds", label: "Cumulative available core time", unit: "s",
-			value: state.AvailableCoreTime.Seconds(),
+			value: decimalMetric(state.AvailableCoreTime.Seconds()),
 		},
-		nodeMetric{"hostQueueDroppedPackets", "CPU queue drops", "packets", float64(state.QueueDroppedPackets), false},
-		nodeMetric{"hostProcessedPackets", "Packets processed by CPU", "packets", float64(state.ProcessedPackets), false},
-		nodeMetric{"hostMeanQueueWaitMs", "Mean CPU queue wait (started packets)", "ms", meanWaitMs, false},
-		nodeMetric{"hostMaxQueueWaitMs", "Maximum observed CPU queue wait", "ms", float64(state.MaxQueueWait) / float64(time.Millisecond), false},
+		nodeMetric{"hostQueueDroppedPackets", "CPU queue drops", "packets", integerMetric(state.QueueDroppedPackets), false},
+		nodeMetric{"hostProcessedPackets", "Packets processed by CPU", "packets", integerMetric(state.ProcessedPackets), false},
+		nodeMetric{"hostMeanQueueWaitMs", "Mean CPU queue wait (started packets)", "ms", decimalMetric(meanWaitMs), false},
+		nodeMetric{"hostMaxQueueWaitMs", "Maximum observed CPU queue wait", "ms", decimalMetric(float64(state.MaxQueueWait) / float64(time.Millisecond)), false},
 	)
 }
