@@ -10,7 +10,9 @@ import { telemetryFrame, topologyDefinition } from '../../telemetryFixture.ts';
 
 class MemoryRepository implements ResultsRepository {
   readonly values = new Map<string, RunResult>();
+  readonly deletedRuns = new Set<string>();
   failSave = false;
+  failIndex = false;
   writes = 0;
 
   private entry(result: RunResult): ReadyResultEntry {
@@ -26,13 +28,19 @@ class MemoryRepository implements ResultsRepository {
 
   list() { return { entries: [...this.values.values()].map(result => this.entry(result)), warnings: [] }; }
   read(id: string) { return this.values.get(id) ?? null; }
-  remove(id: string) { this.values.delete(id); }
+  remove(id: string) {
+    const result = this.values.get(id);
+    if (result) this.deletedRuns.add(result.runId);
+    this.values.delete(id);
+  }
+  isDeletedRun(runId: string) { return this.deletedRuns.has(runId); }
   recover(id: string) { return this.read(id)!; }
 
   save(result: RunResult) {
     this.writes++;
     if (this.failSave) throw new Error('Storage quota reached.');
     this.values.set(result.id, result);
+    if (this.failIndex) throw new Error('Index write failed after storing the record.');
     return this.entry(result);
   }
 }
@@ -42,8 +50,9 @@ function setup(repository = new MemoryRepository(), localId = 'local-result') {
   const session = new ResultsSession(collection, { newId: () => localId });
   const history = new ResultsHistory(session, repository);
 
-  function finish() {
-    const frame = telemetryFrame();
+  function finish(withEarlierSample = false) {
+    if (withEarlierSample) collection.snapshot(telemetryFrame(), 90);
+    const frame = telemetryFrame('1', 'run-1', 1, withEarlierSample ? '2' : '1');
     frame.simulation.status = 'finished';
     frame.simulation.payload = { receivedBytes: 1024, acknowledgedBytes: 1024 };
     const definition = topologyDefinition();
@@ -173,4 +182,45 @@ test('terminal evidence missing from an older archive is kept as a new observati
     reopened.history.stop();
     reopened.session.dispose();
   }
+});
+
+// Removing the last result for a retained finished run must survive a page reload.
+test('deleted results are not recreated by cached terminal replay', async () => {
+  const original = setup();
+  original.history.start();
+  original.finish();
+  await settle();
+  assert.equal(original.history.remove('local-result'), true);
+  original.history.stop();
+  original.session.dispose();
+
+  const reopened = setup(original.repository, 'replayed-deleted');
+  reopened.history.start();
+  reopened.finish();
+  await settle();
+  assert.equal(reopened.repository.values.size, 0);
+  assert.equal(reopened.repository.writes, 1);
+  assert.equal(reopened.session.state.candidates.length, 0);
+  reopened.history.stop();
+  reopened.session.dispose();
+});
+
+// Index failure can leave one artifact in both storage and the retry queue.
+test('deleting a partly stored artifact also releases its retry candidate', async () => {
+  const current = setup();
+  current.repository.failIndex = true;
+  current.history.start();
+  current.finish(true);
+  await settle();
+  assert.equal(current.session.state.candidates.length, 1);
+  assert.equal(current.repository.values.size, 1);
+
+  assert.equal(current.history.remove('local-result'), true);
+  current.repository.failIndex = false;
+  current.history.retry('local-result');
+  assert.equal(current.session.state.candidates.length, 0);
+  assert.equal(current.repository.values.size, 0);
+  assert.equal(current.repository.writes, 1);
+  current.history.stop();
+  current.session.dispose();
 });

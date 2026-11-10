@@ -103,6 +103,7 @@ export class ResultsHistory {
   readonly remove = (id: string): boolean => {
     try {
       this.repository.remove(id);
+      this.session.release(id);
       this.refresh();
       return true;
     } catch (error) {
@@ -170,6 +171,7 @@ export class ResultsHistory {
     const samples = candidate.collection.samples;
     if (candidate.completion.reason !== 'finished' || samples.length !== 1
       || samples[0].publicationSequence !== candidate.collection.terminalPublicationSequence) return false;
+    if (this.repository.isDeletedRun(candidate.runId)) return true;
 
     const matching = this.repository.list().entries.filter(entry => (
       entry.status === 'ready' && entry.runId === candidate.runId

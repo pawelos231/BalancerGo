@@ -7,6 +7,8 @@ export const STORAGE_VERSION = 1;
 export const RESULTS_STORAGE_PREFIX = 'load-balancer:results:';
 export const RESULTS_INDEX_KEY = `${RESULTS_STORAGE_PREFIX}index`;
 const RECORD_PREFIX = `${RESULTS_STORAGE_PREFIX}record:`;
+const DELETED_RUN_PREFIX = `${RESULTS_STORAGE_PREFIX}deleted:`;
+export const DELETED_RUN_LIMIT = 256;
 const INDEX_BYTE_LIMIT = 1024 * 1024;
 
 export interface ResultsStorage {
@@ -53,6 +55,7 @@ export interface ResultsRepository {
   // arbitrate two tabs deliberately creating different payloads under one new ID.
   save(result: RunResult): ReadyResultEntry;
   remove(id: string): void;
+  isDeletedRun(runId: string): boolean;
   recover(id: string): RunResult;
 }
 
@@ -83,6 +86,10 @@ export interface RepositoryOptions {
 
 export function resultStorageKey(id: string): string {
   return `${RECORD_PREFIX}${encodeURIComponent(id)}`;
+}
+
+export function deletedRunStorageKey(runId: string): string {
+  return `${DELETED_RUN_PREFIX}${encodeURIComponent(runId)}`;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -152,8 +159,11 @@ function errorFor(error: unknown, operation: RepositoryOperation, id?: string, d
   }
   const name = record(error) || error instanceof Error ? error.name : undefined;
   const quota = name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED';
+  const quotaMessage = operation === 'save'
+    ? 'Local Results storage is full. The Results candidate remains in memory.'
+    : 'Local Results storage is full. This operation could not be completed.';
   return new RepositoryError(quota ? 'quota' : 'unavailable', operation,
-    quota ? 'Local Results storage is full. The Results candidate remains in memory.'
+    quota ? quotaMessage
       : 'Local Results storage is unavailable. Existing records have not been cleared.', id, durableRecord);
 }
 
@@ -170,6 +180,7 @@ export class LocalResultsRepository implements ResultsRepository {
   private readonly source: ResultsStorage | (() => ResultsStorage);
   private readonly recordByteLimit: number;
   private readonly indexByteLimit: number;
+  private markerCleanupWarning: string | null = null;
 
   constructor(storage: ResultsStorage | (() => ResultsStorage) = () => window.localStorage, options: RepositoryOptions = {}) {
     this.source = storage;
@@ -186,6 +197,7 @@ export class LocalResultsRepository implements ResultsRepository {
       const index = this.readIndex(storage);
       const ids = this.recordIds(storage);
       const warnings = index.warning === null ? [] : [index.warning];
+      if (this.markerCleanupWarning) warnings.push(this.markerCleanupWarning);
       const entries: ResultIndexEntry[] = [];
       for (const row of index.entries) {
         if (ids.delete(row.id)) entries.push(row);
@@ -233,12 +245,38 @@ export class LocalResultsRepository implements ResultsRepository {
     try {
       this.requireId(id);
       const storage = this.storage();
-      storage.removeItem(resultStorageKey(id));
       const index = this.readIndex(storage);
+      let runId = index.entries.find(entry => entry.id === id)?.runId ?? null;
+      try {
+        runId = this.readRecord(storage, id)?.runId ?? runId;
+      } catch {
+        // A damaged record can still be deleted using its validated index identity.
+      }
+      if (runId !== null) {
+        const key = deletedRunStorageKey(runId);
+        const existingMarker = storage.getItem(key);
+        if (existingMarker !== null) this.deletedAt(existingMarker);
+        // Remember the dismissal before deletion; cached end events must not restore it.
+        storage.setItem(key, JSON.stringify({
+          storageVersion: STORAGE_VERSION, deletedAt: Date.now(),
+        }));
+      }
+      storage.removeItem(resultStorageKey(id));
       if (index.unsupported) throw new RepositoryError('unsupported-version', 'remove', 'The record was removed, but this index version cannot be updated.', id);
       // Dropped/stale rows are harmless: list always intersects with record keys.
       this.writeIndex(storage, index.entries.filter((entry) => entry.id !== id));
+      if (runId !== null) this.pruneDeletedRuns(storage, deletedRunStorageKey(runId));
     } catch (error) { throw errorFor(error, 'remove', id); }
+  }
+
+  isDeletedRun(runId: string): boolean {
+    try {
+      this.requireId(runId);
+      const json = this.storage().getItem(deletedRunStorageKey(runId));
+      if (json === null) return false;
+      this.deletedAt(json);
+      return true;
+    } catch (error) { throw errorFor(error, 'read'); }
   }
 
   recover(id: string): RunResult {
@@ -258,6 +296,43 @@ export class LocalResultsRepository implements ResultsRepository {
     const storage = typeof this.source === 'function' ? this.source() : this.source;
     if (!storage) throw new Error('Storage is unavailable.');
     return storage;
+  }
+
+  private deletedAt(json: string): number {
+    requireJSONSize(json, 4096);
+    let marker: unknown;
+    try { marker = JSON.parse(json); } catch {
+      throw new ResultValidationError('invalid', 'A deleted-run marker contains invalid JSON.');
+    }
+    if (!record(marker)) throw new ResultValidationError('invalid', 'A deleted-run marker is invalid.');
+    if (marker.storageVersion !== STORAGE_VERSION) {
+      throw new ResultValidationError('unsupported-version', 'This deleted-run marker version is not supported.');
+    }
+    if (typeof marker.deletedAt !== 'number' || !Number.isFinite(marker.deletedAt)) {
+      throw new ResultValidationError('invalid', 'A deleted-run marker timestamp is invalid.');
+    }
+    return marker.deletedAt;
+  }
+
+  private pruneDeletedRuns(storage: ResultsStorage, newestKey: string) {
+    try {
+      const older: { key: string; deletedAt: number }[] = [];
+      for (let index = 0; index < storage.length; index++) {
+        const key = storage.key(index);
+        if (key === null || key === newestKey || !key.startsWith(DELETED_RUN_PREFIX)) continue;
+        const json = storage.getItem(key);
+        if (json === null) continue;
+        try { older.push({ key, deletedAt: this.deletedAt(json) }); } catch {
+          // Preserve unknown or damaged markers instead of weakening their suppression.
+        }
+      }
+      older.sort((left, right) => right.deletedAt - left.deletedAt || left.key.localeCompare(right.key));
+      for (const marker of older.slice(DELETED_RUN_LIMIT - 1)) storage.removeItem(marker.key);
+      this.markerCleanupWarning = null;
+    } catch {
+      // Extra markers are safer than undoing a successful deletion when cleanup fails.
+      this.markerCleanupWarning = 'The result was deleted, but old deletion markers could not be cleaned up.';
+    }
   }
 
   private requireId(id: string): void {

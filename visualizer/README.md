@@ -17,7 +17,7 @@ For Docker Compose, ports and build instructions, see the [root README](../READM
 ## Pages
 
 - **Simulation** (`/`): edit configuration, click **Start simulation**, monitor
-  backends, or **Stop and clear** the experiment. The **Scenario library** offers
+  backends, **Stop and clear**, or **Stop and save to Results**. The **Scenario library** offers
   ready experiments with different client/backend rates and shared LB bottlenecks.
   Choose and validate a preset to load its settings into the form, then use the
   single **Start simulation** button. Selection alone changes no run.
@@ -25,12 +25,17 @@ For Docker Compose, ports and build instructions, see the [root README](../READM
   node or directed link to inspect its settings and counters. Client groups start
   collapsed. Expand a group, select one of its members, or search for any client
   or physical link. Search covers the full graph, including hidden members.
+- **Planned topology** (`/planned-topology`): inspect the applied scenario's
+  topology at each configured state before starting it.
+- **Results** (`/results`): browse saved observations without the backend, inspect
+  summaries and coverage, retry unsaved candidates, recover records and delete
+  history entries. Lists and resource tables are paginated.
 
 `src/hooks/useSimulation.ts` owns the WebSocket, snapshots and lifecycle actions.
 It starts scenarios and retrieves the current run's configuration through HTTP.
-`src/App.tsx` shares that hook across both pages. The configuration form stays
+`src/App.tsx` shares that hook across pages. The configuration form stays
 mounted when switching pages, preserving
-its draft. Static hosting must serve `index.html` for `/topology`; the container's
+its draft. Static hosting must serve `index.html` for all page routes; the container's
 `local-web-server --spa index.html` already does this.
 
 ## Scenario library
@@ -48,13 +53,15 @@ cumulative SYN/data retransmissions, plus virtual duration sample counts and
 mean/min/max values. Payload/completion summaries include successes only;
 handshake summaries include every completed handshake. Zero samples means
 unavailable, while a measured zero duration is valid. Tooltips define each phase.
-Reaching the horizon preserves in-progress attempts; Stop clears the run's results.
+Reaching the horizon preserves in-progress attempts. Stop resets the live model;
+completed Results archives remain separate from that reset.
 
 `src/scenarios/types.ts` mirrors the backend document. Integer values may be safe
 JSON numbers or exact decimal strings; keep strings unchanged when sending or
 displaying the scenario. Nanosecond fields retain their explicit units. Scenario
 documents use `scenarioVersion: 2`; live and terminal snapshots use
-`snapshotVersion: 1`. Reports use `reportVersion: 1`. Each field versions its own
+`snapshotVersion: 1`. Reports use `reportVersion: 1`, completed Results use
+`resultVersion: 1`, and local storage envelopes use `storageVersion: 1`. Each field versions its own
 contract, and the generic `version` field is rejected. See the
 [scenario contract](../examples/scenarios/CONTRACT.md) for the document format.
 
@@ -378,6 +385,13 @@ transactional source of truth. Storage events refresh the other tab's list.
 Each browser session generates fresh UUID result IDs. Collision checks protect
 already stored IDs; localStorage cannot atomically arbitrate two callers that
 concurrently reuse the same ID for different records.
+
+Deleting a known run stores a small dismissal marker before removing its record.
+This prevents a cached backend end from recreating it after reload. Cleanup keeps
+the latest 256 known markers; unknown versions are preserved, and failed cleanup
+keeps extra markers rather than undoing a deletion. A failed marker write leaves
+the saved record intact. A damaged orphan without a trustworthy run ID can still
+be removed, but cannot provide run-level replay suppression.
 
 Unavailable storage, full storage, corrupted data and unsupported versions are
 reported without overwriting existing results. Failed saves remain in RAM until

@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   LocalResultsRepository, RepositoryError, RESULTS_INDEX_KEY, RESULTS_STORAGE_PREFIX,
   resultStorageKey, STORAGE_VERSION, type ResultsStorage,
+  deletedRunStorageKey, DELETED_RUN_LIMIT,
 } from '../../../src/results/repository.ts';
 import { parseRunResultJSON, ResultValidationError } from '../../../src/results/validation.ts';
 import type { RunResult } from '../../../src/results/types.ts';
@@ -323,7 +324,8 @@ test('a failed record deletion preserves its record and all existing index rows'
   const before = new Map(storage.values);
   storage.onRemove = () => { throw new DOMException('denied', 'SecurityError'); };
   expectError(() => repository.remove('a'), 'unavailable');
-  assert.deepEqual(storage.values, before);
+  for (const [key, value] of before) assert.equal(storage.values.get(key), value);
+  assert.equal(repository.isDeletedRun('run-1'), true);
 });
 
 test('two repository instances fresh-read the index instead of replacing earlier saved rows', () => {
@@ -429,4 +431,80 @@ test('an unsafe numeric seed in the compact index becomes recoverable instead of
   const row = repository.list().entries[0];
   assert.equal(row.status, 'ready');
   if (row.status === 'ready') assert.equal(row.seed, '-9007199254740993');
+});
+
+// A retained backend end must not recreate a result the user already deleted.
+test('deletion remembers the run across repository instances without listing markers as results', () => {
+  const storage = new MemoryStorage();
+  const repository = new LocalResultsRepository(storage);
+  repository.save(resultFixture('a', 'run-a'));
+  repository.save(resultFixture('b', 'run-b'));
+  repository.remove('a');
+
+  const reopened = new LocalResultsRepository(storage);
+  assert.equal(reopened.isDeletedRun('run-a'), true);
+  assert.equal(reopened.isDeletedRun('run-b'), false);
+  assert.equal(reopened.read('a'), null);
+  storage.reads.length = 0;
+  assert.deepEqual(reopened.list().entries.map(entry => entry.id), ['b']);
+  assert.deepEqual(storage.reads, [RESULTS_INDEX_KEY]);
+});
+
+// If dismissal cannot be stored, deletion stops before removing the only record.
+test('a failed deletion marker write leaves the saved result and index intact', () => {
+  const storage = new MemoryStorage();
+  const repository = new LocalResultsRepository(storage);
+  repository.save(resultFixture('a'));
+  const before = new Map(storage.values);
+  storage.onSet = (key) => {
+    if (key === deletedRunStorageKey('run-1')) throw new DOMException('full', 'QuotaExceededError');
+  };
+
+  expectError(() => repository.remove('a'), 'quota');
+  assert.deepEqual(storage.values, before);
+  assert.equal(repository.isDeletedRun('run-1'), false);
+});
+
+test('a damaged result can use its valid index identity for persistent deletion', () => {
+  const storage = new MemoryStorage();
+  const repository = new LocalResultsRepository(storage);
+  repository.save(resultFixture('a'));
+  storage.values.set(resultStorageKey('a'), '{broken');
+  repository.remove('a');
+  assert.equal(repository.isDeletedRun('run-1'), true);
+  assert.equal(repository.read('a'), null);
+});
+
+// Cleanup keeps the newest dismissal and does not destroy unknown marker versions.
+test('deleted-run markers are bounded and unsupported markers remain untouched', () => {
+  const storage = new MemoryStorage();
+  for (let index = 0; index < DELETED_RUN_LIMIT; index++) {
+    storage.values.set(deletedRunStorageKey(`old-${index}`), JSON.stringify({
+      storageVersion: STORAGE_VERSION, deletedAt: index,
+    }));
+  }
+  const futureKey = deletedRunStorageKey('future-run');
+  storage.values.set(futureKey, '{"storageVersion":99,"deletedAt":0}');
+  const repository = new LocalResultsRepository(storage);
+  repository.save(resultFixture('a'));
+  repository.remove('a');
+
+  assert.equal(repository.isDeletedRun('run-1'), true);
+  assert.equal(repository.isDeletedRun('old-0'), false);
+  assert.equal(storage.values.get(futureKey), '{"storageVersion":99,"deletedAt":0}');
+  expectError(() => repository.isDeletedRun('future-run'), 'unsupported-version');
+  const markerKeys = [...storage.values.keys()].filter(key => key.includes(':deleted:'));
+  assert.equal(markerKeys.length, DELETED_RUN_LIMIT + 1);
+});
+
+test('deleting a result cannot downgrade its existing future deletion marker', () => {
+  const storage = new MemoryStorage();
+  const repository = new LocalResultsRepository(storage);
+  repository.save(resultFixture('a', 'run-a'));
+  storage.values.set(deletedRunStorageKey('run-a'), '{"storageVersion":99,"futurePolicy":"keep"}');
+  const before = new Map(storage.values);
+
+  expectError(() => repository.remove('a'), 'unsupported-version');
+  assert.deepEqual(storage.values, before);
+  assert.equal(repository.read('a')!.runId, 'run-a');
 });

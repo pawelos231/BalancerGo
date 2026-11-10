@@ -31,6 +31,7 @@ import useResults from './results/useResults';
 
 const TopologyPage = lazy(() => import('./pages/TopologyPage'));
 const PlannedTopologyPage = lazy(() => import('./pages/PlannedTopologyPage'));
+const ResultsPage = lazy(() => import('./pages/ResultsPage'));
 
 function readDarkMode(): boolean {
   if (typeof window === 'undefined') return false;
@@ -88,9 +89,10 @@ function App() {
   const simulation = data?.simulation ?? null;
   const topology = getTopology(data);
   const showSimulation = pathname === '/';
-  const activeTab = pathname.startsWith('/planned-topology')
-    ? '/planned-topology'
-    : pathname.startsWith('/topology') ? '/topology' : '/';
+  const activeTab = pathname.startsWith('/results') ? '/results'
+    : pathname.startsWith('/planned-topology') ? '/planned-topology'
+      : pathname.startsWith('/topology') ? '/topology' : '/';
+  const showLiveMetrics = activeTab === '/' || activeTab === '/topology';
 
   function retryUnsavedResults() {
     for (const candidate of results.state.candidates) results.history.retry(candidate.id);
@@ -144,6 +146,9 @@ function App() {
           <Tabs
             value={activeTab}
             aria-label="Main navigation"
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
             sx={{
               borderBottom: 1,
               borderColor: 'divider',
@@ -163,6 +168,7 @@ function App() {
               value="/topology"
               label="Live topology"
             />
+            <Tab component={RouterLink} to="/results" value="/results" label="Results" />
           </Tabs>
 
           {results.state.warning && (
@@ -178,7 +184,7 @@ function App() {
             <Alert
               severity="warning"
               sx={{ mt: 2 }}
-              action={<Button color="inherit" onClick={retryUnsavedResults}>Retry save</Button>}
+              action={<Button color="inherit" onClick={retryUnsavedResults}>Retry all saves</Button>}
             >
               {unsavedCount} {unsavedCount === 1 ? 'result remains' : 'results remain'} in memory.
               {' '}Keep this tab open
@@ -187,7 +193,7 @@ function App() {
             </Alert>
           )}
 
-          {activeTab !== '/planned-topology' && topologyLoading && (
+          {showLiveMetrics && topologyLoading && (
             <Alert severity="info" sx={{ mt: 2 }}>
               Updating network topology. Controls remain available while it loads.
             </Alert>
@@ -197,7 +203,7 @@ function App() {
               {terminationUncertainty}
             </Alert>
           )}
-          {activeTab !== '/planned-topology' && topologyError && (
+          {showLiveMetrics && topologyError && (
             <Alert
               severity="error"
               sx={{ mt: 2 }}
@@ -207,7 +213,7 @@ function App() {
             </Alert>
           )}
 
-          {activeTab !== '/planned-topology' && (
+          {showLiveMetrics && (
             <SimulationPerformance performance={simulation?.performance} />
           )}
 
@@ -239,7 +245,7 @@ function App() {
             fallback={
               <Box sx={{ py: 4 }}>
                 <LinearProgress />
-                <Typography sx={{ mt: 1 }}>Loading topology…</Typography>
+                <Typography sx={{ mt: 1 }}>Loading view…</Typography>
               </Box>
             }
           >
@@ -258,6 +264,10 @@ function App() {
                     connected={connected}
                   />
                 }
+              />
+              <Route
+                path="/results"
+                element={<ResultsPage state={results.state} history={results.history} />}
               />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
