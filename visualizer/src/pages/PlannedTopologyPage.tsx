@@ -44,7 +44,7 @@ function PlannedTopologyPage({ scenario, error }: PlannedTopologyPageProps) {
           {error}
           {' '}
           <Button component={RouterLink} to="/" color="inherit" size="small">
-            Open form
+            Open JSON editor
           </Button>
         </Alert>
       )}

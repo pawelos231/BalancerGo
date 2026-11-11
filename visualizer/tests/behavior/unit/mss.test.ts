@@ -1,71 +1,65 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyScenarioField, scenarioFormValues, validateScenarioField } from '../../../src/scenarios/draft.ts';
 import { serializeScenario } from '../../../src/scenarios/files.ts';
-import { editScenarioForm } from '../../../src/scenarios/formState.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
+import { parseScenario, validateScenario } from '../../../src/scenarios/validation.ts';
 import { scenarioFixture } from '../../scenarioFixture.ts';
 
-// MSS controls segmentation, while the configured total payload keeps its own units.
-test('manual MSS suggestions and custom values round trip without changing workload', () => {
+test('MSS values round trip through JSON without changing workload or filling omitted MSS', () => {
   const original = scenarioFixture();
-  assert.equal(scenarioFormValues(original).mssBytes, '1024');
+  const validated = validateScenario(original);
+  assert.equal(Object.hasOwn(validated.fixed.tcp, 'mssBytes'), false);
+
+  for (const mssBytes of [536, 1024, 1452, 1460, 8960, 1234]) {
+    const scenario = structuredClone(original);
+    scenario.fixed.tcp.mssBytes = mssBytes;
+    const restored = parseScenario(serializeScenario(scenario));
+
+    assert.equal(restored.fixed.tcp.mssBytes, mssBytes);
+    assert.deepEqual(restored.fixed.workload, original.fixed.workload);
+    assert.deepEqual(restored.states, validated.states);
+  }
   assert.deepEqual(original.fixed.tcp, {});
+});
 
-  for (const mss of ['536', '1024', '1452', '1460', '8960', '1234']) {
-    const edited = applyScenarioField(original, 'mssBytes', mss);
-    assert.equal(edited.fixed.tcp?.mssBytes, Number(mss));
-    assert.deepEqual(edited.states['0'].workload, original.states['0'].workload);
+test('MSS JSON rejects invalid values and accepts the supported integer boundaries', () => {
+  for (const mssBytes of [0, -1, 65496, 1460.5, 'Ethernet']) {
+    const scenario = scenarioFixture();
+    scenario.fixed.tcp.mssBytes = mssBytes;
+    assert.throws(() => parseScenario(JSON.stringify(scenario)), /mssBytes/, String(mssBytes));
+  }
 
-    const restored = JSON.parse(serializeScenario(edited));
-    assert.equal(scenarioFormValues(restored).mssBytes, mss);
+  for (const mssBytes of [1, 1460, 65495]) {
+    const scenario = scenarioFixture();
+    scenario.fixed.tcp = {
+      mssBytes,
+      congestionControl: { initialSlowStartThresholdBytes: 2 * mssBytes },
+    };
+    assert.equal(parseScenario(JSON.stringify(scenario)).fixed.tcp.mssBytes, mssBytes);
   }
 });
 
-// A mistyped number stays visible until corrected to a supported integer.
-test('manual MSS validates numeric limits and clears a corrected input error', () => {
-  for (const invalid of ['0', '-1', '65496', '1460.5', 'Ethernet']) {
-    assert.ok(validateScenarioField('mssBytes', invalid), invalid);
-  }
-  for (const valid of ['1', '1460', '65495']) {
-    assert.equal(validateScenarioField('mssBytes', valid), undefined, valid);
-  }
-
+test('MSS validates the byte threshold and congestion-window arithmetic together', () => {
   const scenario = scenarioFixture();
-  const state = { scenario, values: scenarioFormValues(scenario), errors: {} };
-  const invalid = editScenarioForm(state, 'mssBytes', '0');
-  assert.ok(invalid.errors.mssBytes);
-  const corrected = editScenarioForm(invalid, 'mssBytes', '1460');
-  assert.deepEqual(corrected.errors, {});
-  assert.equal(corrected.scenario.fixed.tcp?.mssBytes, 1460);
+  scenario.fixed.tcp = { mssBytes: 65495 };
+  assert.throws(() => validateScenario(scenario), /initialSlowStartThresholdBytes.*130990/);
+
+  scenario.fixed.tcp.congestionControl = { initialSlowStartThresholdBytes: 130990 };
+  assert.doesNotThrow(() => validateScenario(scenario));
+
+  const maximumSegments = ((1n << 63n) - 1n) / 65495n;
+  scenario.fixed.tcp.congestionControl.maximumWindowSegments = String(maximumSegments);
+  assert.doesNotThrow(() => validateScenario(scenario));
+  scenario.fixed.tcp.congestionControl.maximumWindowSegments = String(maximumSegments + 1n);
+  assert.throws(() => validateScenario(scenario), /maximumWindowSegments/);
 });
 
-// A larger MSS cannot silently raise an explicit byte threshold.
-// Fixing that threshold also applies the MSS edit that was waiting on it.
-test('MSS-dependent window limits reconcile related pending edits', () => {
-  const scenario = scenarioFixture();
-  const state = { scenario, values: scenarioFormValues(scenario), errors: {} };
-  const large = editScenarioForm(state, 'mssBytes', '65495');
-  assert.match(large.errors.mssBytes!, /at least 130990 bytes/);
-  assert.deepEqual(large.scenario.fixed.tcp, {});
-
-  const corrected = editScenarioForm(large, 'initialSlowStartThresholdBytes', '130990');
-  assert.deepEqual(corrected.errors, {});
-  assert.equal(corrected.scenario.fixed.tcp?.mssBytes, 65495);
-
-  const small = applyScenarioField(scenario, 'mssBytes', '1');
-  assert.equal(validateScenarioField('initialSlowStartThresholdBytes', '2', 1), undefined);
-  assert.equal(applyScenarioField(small, 'initialSlowStartThresholdBytes', '2')
-    .fixed.tcp?.congestionControl?.initialSlowStartThresholdBytes, 2);
-});
-
-// A saved custom MSS must not silently alter the library's reference experiments.
-test('scenario library starts from the default MSS after a custom configuration', () => {
+test('scenario library starts from its reference MSS after a custom configuration', () => {
   const defaults = scenarioFixture();
   defaults.fixed.tcp = { mssBytes: 8960 };
   for (const preset of scenarioPresets) {
-    const expected = preset.category === 'host-cpu' || preset.category === 'timeline' ? '1460' : '1024';
-    assert.equal(scenarioFormValues(preset.build(defaults)).mssBytes, expected, preset.id);
+    const expected = preset.category === 'host-cpu' || preset.category === 'timeline' ? 1460 : 1024;
+    assert.equal(preset.build(defaults).fixed.tcp.mssBytes ?? 1024, expected, preset.id);
   }
 });

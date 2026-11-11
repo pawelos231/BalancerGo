@@ -50,8 +50,8 @@ export default function ScenarioJsonEditor({
       </Stack>
       {dirty && (
         <Alert severity="warning">
-          JSON edits have not been applied. Apply or discard them to use the form, presets,
-          import, export or Start. The applied draft is retained below.
+          JSON edits have not been applied. Apply or discard them to use presets,
+          import, export or Start. Planned topology keeps the last applied configuration.
         </Alert>
       )}
     </Stack>

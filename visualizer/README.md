@@ -19,21 +19,25 @@ For Docker Compose, ports and build instructions, see the [root README](../READM
 - **Simulation** (`/`): edit configuration, click **Start simulation**, monitor
   backends, **Stop and clear**, or **Stop and save to Results**. The **Scenario library** offers
   ready experiments with different client/backend rates and shared LB bottlenecks.
-  Choose and validate a preset to load its settings into the form, then use the
+  Choose and validate a preset to load its complete JSON into the applied draft, then use the
   single **Start simulation** button. Selection alone changes no run.
 - **Topology** (`/topology`): explore the live graph, pan and zoom, and select a
   node or directed link to inspect its settings and counters. Client groups start
   collapsed. Expand a group, select one of its members, or search for any client
   or physical link. Search covers the full graph, including hidden members.
 - **Planned topology** (`/planned-topology`): inspect the applied scenario's
-  topology at each configured state before starting it.
+  topology before starting it. The timestamp slider selects only declared states;
+  node and directed-link inspectors show configured resources and effective links.
+  Exact nanosecond keys remain intact, including values above 2^53. A single-state
+  scenario has a disabled slider at its only timestamp. This preview does not run
+  the model or predict traffic and counters.
 - **Results** (`/results`): browse saved observations without the backend, inspect
   summaries and coverage, retry unsaved candidates, recover records and delete
   history entries. Lists and resource tables are paginated.
 
 `src/hooks/useSimulation.ts` owns the WebSocket, snapshots and lifecycle actions.
 It starts scenarios and retrieves the current run's configuration through HTTP.
-`src/App.tsx` shares that hook across pages. The configuration form stays
+`src/App.tsx` shares that hook across pages. The scenario editor stays
 mounted when switching pages, preserving
 its draft. Static hosting must serve `index.html` for all page routes; the container's
 `local-web-server --spa index.html` already does this.
@@ -116,74 +120,51 @@ it. These rates measure simulator execution, independently of virtual-time TX/RX
 With the throughput preset, transmission durations reach the model's 1 ns floor;
 the large configured bitrates do not represent literal unlimited bandwidth.
 
-`ExperimentSetup.tsx` owns one native scenario and its controlled form inputs.
+`ExperimentSetup.tsx` owns one applied native scenario and its pending JSON text.
 The **Scenario JSON document** editor shows the complete applied draft, including
 `fixed` settings and all `states`. Paste or edit JSON, then choose **Apply JSON**
 to check it with the same strict local parser and authoritative server validation.
 Invalid text stays editable and leaves the applied draft intact. **Discard JSON
-edits** restores that draft. Pending JSON edits disable the form, preset loading,
+edits** restores that draft. Pending JSON edits disable preset loading,
 file actions and Start, and the planned topology asks you to apply or discard them.
 The editor locks during validation, so a response cannot apply superseded text.
 JSON input and imported files are limited to 2 MiB of UTF-8 text; exact decimal
 integer strings and resource identities are preserved. Applying JSON replaces the
 whole document and does not start a simulation.
 
-Form and host edits also check the complete timeline before updating the applied
-draft. Rejected text stays visible, and related pending values are retried when a
-correcting edit makes them valid. Common backend CPU inputs take effect only with
-**Apply to all backends**; a rejected Apply retains those inputs. Until pending
-inputs are corrected, applied or discarded, Start, file actions, JSON editing,
-preset loading and state changes stay disabled. **Discard unapplied form inputs**
-restores the form from the applied draft, preserving every accepted edit and
-resource identity. It does not reset the document or affect the active run.
+**Frontend simplification — 2026-11-11:** the complete JSON editor replaces the
+manual Experiment, TCP, CPU, link and resource accordions and the form/state
+mutators introduced in Epic 2. Edit `fixed`, complete `states`, resources and
+timestamps directly in JSON. The earlier form projection, staged CPU inputs,
+resource resizing and Add/Copy/Move/Delete state controls are historical behavior.
+The planned topology slider and resource/link inspectors remain available for
+read-only inspection. The backend contract and simulator behavior are unchanged.
 
 `ScenarioLibrary.tsx` selects a candidate and applies it only after successful
-server validation. Loading a preset updates every input together; validation
+server validation. Loading a preset replaces the complete applied document; validation
 blocks editing and Start until it completes. `api.ts` wraps
 the defaults, validate, Start and current-run endpoints; `runtimeApi.ts` selects
 the backend address. `ScenarioRunDetails.tsx` displays the exact initial run
-document. When a run has multiple client groups, the runtime Add clients control
-selects the group whose resolved network and stream settings should be used.
-
-`scenarios/draft.ts` projects native settings into form strings and applies
-individual field changes without flattening groups, profiles or overrides.
-Integer strings and nanosecond durations retain their precision. Changing the
-total client count proportionally resizes existing groups; group counts remain
-visible, and edits that would invalidate explicit client overrides are rejected.
-
-The **Configuration timeline** selects complete states and supports **Add state**,
-**Copy state**, **Move state** and **Delete state**. Enter the destination in virtual
-seconds with up to nine decimal places; the document retains canonical, exact
-nanosecond keys. Every state must be strictly before the run duration, destination
-times must be unused, and the initial state at zero cannot be moved or deleted.
-Add copies the configuration active at the destination time; Copy duplicates the
-selected state. Delete selects its predecessor. Each operation validates the full
-candidate before replacing the draft, so rejected edits preserve the document and
-selection. Fixed settings apply to the whole run; scope chips identify sections
-that edit the selected state, including mixed traffic controls.
-
-Copies preserve resource identities, profiles, overrides and group lifetime birth
-budgets. They do not restart arrivals. Moving or deleting an early state can
-invalidate a group's fixed start time or a later client override; the editor
-explains these conflicts without silently changing identities or start times.
-Correct invalid form inputs and apply staged common CPU inputs before selecting
-or changing states. Unapplied JSON edits also lock the timeline controls.
+document. Client-generator and routing changes are declared in the scenario
+states before Start.
 
 The single Start action sends the native draft through HTTP for server validation
-and admission. Invalid visible input blocks Start. Drafts survive Stop, navigation
+and admission. Unapplied JSON blocks Start. Drafts survive Stop, navigation
 and reconnect.
 
 ## Scenario files
 
-The **Scenario files** panel has **Import JSON**, **Export JSON** and
+The **Scenario configuration** panel has **Import JSON**, **Export JSON** and
 **Validate draft** actions. Import sends the original UTF-8 file text to the
 backend before browser JSON parsing, with a 2 MiB byte limit. Only successful
 validation replaces the draft; malformed or invalid files leave it unchanged.
-Import and validation never start a run. Correct or discard invalid form values
-and apply or discard common backend CPU inputs before using file actions.
+Import and validation never start a run. Apply or discard pending JSON edits before
+using file actions.
 
 Export downloads the current native draft with its groups, profiles and overrides,
-including manual edits. **Native scenario** previews that export/Start document.
+including applied JSON edits. The JSON editor displays that applied draft or your
+pending text; export and Start use the applied document after edits are applied
+or discarded.
 **Effective configuration** shows the optional `resolved` result from backend
 validation: inherited link settings and streams for backends, groups and explicit
 client overrides. It is read-only and is not an import format. The active run's
@@ -257,8 +238,8 @@ finished or failed runs retain their final snapshot.
 - Each link carries its own `config` and `stats`, including bandwidth, packet
   travel time, queue capacity, loss and current packet counters. The view already
   displays different bandwidths per link. The backend resolves settings from
-  scenario defaults, profiles and endpoint overrides. The form edits shared
-  defaults and ingress/forwarding limits while preserving detailed endpoint settings.
+  scenario defaults, profiles and endpoint overrides. The complete JSON editor
+  preserves shared limits and detailed endpoint settings in one document.
 - `src/topology/layout.ts` bounds the canvas to 200 nodes and 500 links while
   keeping every element searchable; selection brings its context into view.
   Search displays up to 50 matches. `structureKey` uses node IDs/kinds and link
@@ -346,7 +327,7 @@ ResultsHistory stores completed artifacts separately from live collection.
 
 Run metadata is attached by its returned run ID. The HTTP run document takes
 priority; the admitted submitted document is a separately labelled fallback.
-Editing the form during a run never changes that run's retained input. A missing
+Editing the scenario JSON during a run never changes that run's retained input. A missing
 document or topology revision stays visible as missing metadata.
 
 Result assembly uses the terminal publication when available, or explicitly the

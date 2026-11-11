@@ -16,19 +16,18 @@ import { useState } from 'react';
 import { presetCategories, scenarioPresets } from '../scenarios/presets';
 import type { Scenario, ScenarioSummary } from '../scenarios/types';
 
-// A chosen candidate stays separate from the scenario currently shown in the form.
+// Choosing a candidate does not replace the applied JSON document.
 export interface PresetCandidate {
   id: string;
   title: string;
   scenario: Scenario;
 }
 
-// Manual edits keep the loaded preset's name but invalidate its validation badge.
+// A loaded preset identifies the applied document until another document replaces it.
 export interface AppliedPreset {
   id: string;
   title: string;
   summary: ScenarioSummary;
-  pristine: boolean;
 }
 
 interface ScenarioLibraryProps {
@@ -45,7 +44,7 @@ interface ScenarioLibraryProps {
   onRetryDefaults: () => void;
 }
 
-// Validation loads a preset into the form; the form owns the single Start action.
+// Validation loads the preset into the JSON editor without starting a run.
 function ScenarioLibrary({
   defaultsReady,
   loading,
@@ -76,7 +75,7 @@ function ScenarioLibrary({
     return matchesCategory && text.includes(query);
   });
 
-  // Bound the list so a growing catalog keeps the experiment form within reach.
+  // Keep the JSON editor within reach as the catalog grows.
   const pageSize = 6;
   const pageCount = Math.ceil(matchingPresets.length / pageSize);
   const visiblePresets = matchingPresets.slice((page - 1) * pageSize, page * pageSize);
@@ -85,15 +84,15 @@ function ScenarioLibrary({
     <Card variant="outlined">
       <CardHeader
         title="Scenario library"
-        subheader="Choose a preset and validate it to load its settings into the form below."
+        subheader="Choose a preset and validate it to load its JSON into the editor below."
       />
       <CardContent>
         <Stack spacing={2}>
           <Typography variant="body2" color="text.secondary">
             Explore links, queues, loss, workloads, routing, reference experiments and edge cases, or run the
             unpaced simulator throughput benchmark.
-            Review its settings in the form before starting. Choosing a preset does not
-            change the form or start a run.
+            Review its JSON or planned topology before starting. Choosing a preset does not
+            change the applied document or start a run.
           </Typography>
 
           {loading && (
@@ -217,22 +216,18 @@ function ScenarioLibrary({
 
           {applied && (
             <Stack spacing={1}>
-              <Typography variant="subtitle2">Loaded into form: {applied.title}</Typography>
+              <Typography variant="subtitle2">Loaded into editor: {applied.title}</Typography>
               {unappliedInput ? (
                 <Typography variant="body2" color="text.secondary">
-                  Apply, correct or discard the unapplied inputs before using this draft.
+                  Apply or discard the JSON edits before using this draft.
                 </Typography>
-              ) : applied.pristine ? (
+              ) : (
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip label="Applied and validated" color="success" size="small" />
                   <Chip label={`${applied.summary.totalClients} clients`} size="small" />
                   <Chip label={`${applied.summary.backendCount} backends`} size="small" />
                   <Chip label={`${applied.summary.clientGroupCount} groups`} size="small" />
                 </Stack>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  Draft edited after loading. Start simulation validates the current settings again.
-                </Typography>
               )}
             </Stack>
           )}

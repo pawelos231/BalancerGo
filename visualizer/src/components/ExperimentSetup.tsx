@@ -1,20 +1,10 @@
 import { Alert, Button, Card, CardContent, CardHeader, Stack } from '@mui/material';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { rebaseScenarioCount, retainResourceIds, scenarioFormValues } from '../scenarios/draft';
-import type { ScenarioDraft, ScenarioField } from '../scenarios/draft';
-import { editScenarioForm, retryScenarioForm } from '../scenarios/formState';
-import type { FieldErrors, ScenarioFormState } from '../scenarios/formState';
-import {
-  applyHostToAllBackends, editHostField, emptyHostEdits, retainHostEdits, retryHostEdits,
-} from '../scenarios/host';
-import type { HostEdits, HostField, HostTarget, HostValues } from '../scenarios/host';
 import { formatScenarioDocument, readScenarioFile, serializeScenario } from '../scenarios/files';
 import { validateEditorDocument } from '../scenarios/editor';
 import { scenarioPresets } from '../scenarios/presets';
 import { scenarioApi } from '../scenarios/runtimeApi';
 import { validateScenario } from '../scenarios/validation';
-import { editScenarioTimeline } from '../scenarios/timelineEdits';
-import type { TimelineEdit } from '../scenarios/timelineEdits';
 import type { CurrentSimulation, Scenario, ValidatedScenario } from '../scenarios/types';
 import type { SimulationMetadata } from '../types';
 import ScenarioLibrary from './ScenarioLibrary';
@@ -22,7 +12,6 @@ import type { AppliedPreset, PresetCandidate } from './ScenarioLibrary';
 import ScenarioFiles from './ScenarioFiles';
 import type { ScenarioFileNotice } from './ScenarioFiles';
 import ScenarioRunDetails from './ScenarioRunDetails';
-import SimulationForm from './SimulationForm';
 
 interface ExperimentSetupProps {
   connected: boolean;
@@ -35,12 +24,7 @@ interface ExperimentSetupProps {
   onPreviewChange: (scenario: Scenario | null, error: string | null) => void;
 }
 
-interface CountEdit {
-  field: 'clients' | 'servers';
-  baseline: Scenario;
-}
-
-// One native document drives both presets and manual edits, independently of the active run.
+// JSON, files and presets share one applied scenario, independently of the active run.
 function ExperimentSetup({
   connected,
   simulation,
@@ -51,15 +35,8 @@ function ExperimentSetup({
   onStart,
   onPreviewChange,
 }: ExperimentSetupProps) {
-  const [selectedAt, setSelectedAt] = useState('0');
-  const selectedAtRef = useRef('0');
   const [defaults, setDefaults] = useState<Scenario | null>(null);
   const [scenario, setScenario] = useState<Scenario | null>(null);
-  const [values, setValues] = useState<ScenarioDraft | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [hostEdits, setHostEdits] = useState<HostEdits>(emptyHostEdits);
-  const [hostRevision, setHostRevision] = useState(0);
-  const [stagedHosts, setStagedHosts] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   const [candidate, setCandidate] = useState<PresetCandidate | null>(null);
@@ -72,30 +49,14 @@ function ExperimentSetup({
   const editedDocumentRef = useRef<string | null>(null);
   const validationRef = useRef<AbortController | null>(null);
   const scenarioRef = useRef<Scenario | null>(null);
-  const valuesRef = useRef<ScenarioDraft | null>(null);
-  const errorsRef = useRef<FieldErrors>({});
-  const hostEditsRef = useRef<HostEdits>(emptyHostEdits());
-  const stagedHostsRef = useRef(false);
-  const countEditRef = useRef<CountEdit | null>(null);
   const appliedDocument = useMemo(() => scenario ? formatScenarioDocument(scenario) : '', [scenario]);
   const unappliedDocument = editedDocument !== null;
-  const unappliedForm = Object.keys(fieldErrors).length > 0
-    || Object.keys(hostEdits.errors).length > 0 || stagedHosts;
-
-  const changeStagedHosts = useCallback((staged: boolean) => {
-    if (staged && !stagedHostsRef.current) setFileNotice(null);
-    stagedHostsRef.current = staged;
-    setStagedHosts(staged);
-  }, []);
+  const canStart = scenario !== null && connected && simulation?.status !== 'running'
+    && !loading && !pending && !validating && !unappliedDocument;
 
   const setNativeScenario = useCallback((definition: Scenario) => {
     scenarioRef.current = definition;
     setScenario(definition);
-  }, []);
-
-  const setFormValues = useCallback((draft: ScenarioDraft) => {
-    valuesRef.current = draft;
-    setValues(draft);
   }, []);
 
   useEffect(() => {
@@ -106,7 +67,6 @@ function ExperimentSetup({
       // A late defaults response must not overwrite an already imported draft.
       if (!scenarioRef.current) {
         setNativeScenario(definition);
-        setFormValues(scenarioFormValues(definition));
       }
       setError(null);
     }).catch((failure: unknown) => {
@@ -117,37 +77,32 @@ function ExperimentSetup({
     });
 
     return () => controller.abort();
-  }, [reload, setNativeScenario, setFormValues]);
+  }, [reload, setNativeScenario]);
 
   useEffect(() => () => {
     validationRef.current?.abort();
     validationRef.current = null;
   }, []);
 
-  // Rejected text remains in the form; only a complete valid document updates the plan.
+  // Preview the applied document; unfinished JSON edits never replace it.
   useEffect(() => {
     if (!scenario) return;
     if (unappliedDocument) {
       onPreviewChange(null, 'JSON edits have not been applied. Apply or discard them to update the planned topology.');
       return;
     }
-    if (Object.keys(fieldErrors).length > 0 || Object.keys(hostEdits.errors).length > 0) {
-      onPreviewChange(null, 'The form has invalid, unapplied input. Fix the highlighted fields to update the planned topology.');
-      return;
-    }
     try {
-      const notice = stagedHosts
-        ? 'Common backend CPU inputs have not been applied. Use Apply to all backends on the form to update those settings.'
-        : null;
-      onPreviewChange(validateScenario(scenario), notice);
+      // Fill omitted optional fields for the topology projection.
+      onPreviewChange(validateScenario(scenario), null);
     } catch (failure) {
-      onPreviewChange(null, failure instanceof Error ? failure.message : 'The draft is not a valid complete scenario.');
+      const message = failure instanceof Error ? failure.message : 'Cannot preview the applied scenario.';
+      onPreviewChange(null, message);
     }
-  }, [scenario, fieldErrors, hostEdits.errors, stagedHosts, unappliedDocument, onPreviewChange]);
+  }, [scenario, unappliedDocument, onPreviewChange]);
 
   function choosePreset(id: string) {
     if (!defaults || validationRef.current || pending
-      || hasUnappliedDocument() || hasUnappliedForm()) return;
+      || hasUnappliedDocument()) return;
     const preset = scenarioPresets.find((entry) => entry.id === id);
     if (!preset) return;
     setCandidate({ id, title: preset.title, scenario: preset.build(defaults) });
@@ -155,13 +110,12 @@ function ExperimentSetup({
   }
 
   // Lock every draft action until reading and server validation have both finished.
-  // The old document and form stay intact unless the complete operation succeeds.
+  // Keep the old applied document unless the complete operation succeeds.
   async function validateAndApply(
     load: (signal: AbortSignal) => Promise<ValidatedScenario>,
     onApplied: (result: ValidatedScenario) => void,
-    replaceDocument = false,
   ) {
-    if (validationRef.current || pending || hasUnappliedForm()) return;
+    if (validationRef.current || pending) return;
     const controller = new AbortController();
     validationRef.current = controller;
     setValidating(true);
@@ -171,10 +125,6 @@ function ExperimentSetup({
     try {
       const result = await load(controller.signal);
       if (controller.signal.aborted || validationRef.current !== controller) return;
-      const nextAt = result.scenario.states[selectedAtRef.current] ? selectedAtRef.current : '0';
-
-      if (!replaceDocument && scenarioRef.current) retainResourceIds(result.scenario, scenarioRef.current);
-      resetFormInputs(result.scenario, nextAt);
       setNativeScenario(result.scenario);
       editedDocumentRef.current = null;
       setEditedDocument(null);
@@ -196,7 +146,7 @@ function ExperimentSetup({
   }
 
   function validatePreset() {
-    if (!candidate || hasUnappliedDocument() || hasUnappliedForm()) return;
+    if (!candidate || hasUnappliedDocument()) return;
     const selected = candidate;
     void validateAndApply(
       (signal) => scenarioApi.validate(selected.scenario, signal),
@@ -205,16 +155,14 @@ function ExperimentSetup({
           id: selected.id,
           title: selected.title,
           summary: result.summary,
-          pristine: true,
         });
         setFileNotice({ severity: 'success', message: `Loaded preset: ${selected.title}.` });
       },
-      true,
     );
   }
 
   function importScenario(file: File) {
-    if (hasUnappliedDocument() || hasUnappliedForm()) return;
+    if (hasUnappliedDocument()) return;
     void validateAndApply(
       async (signal) => {
         const document = await readScenarioFile(file);
@@ -226,7 +174,6 @@ function ExperimentSetup({
         setApplied(null);
         setFileNotice({ severity: 'success', message: `Imported ${file.name}. Ready for Start.` });
       },
-      true,
     );
   }
 
@@ -235,7 +182,7 @@ function ExperimentSetup({
   }
 
   function changeDocument(document: string) {
-    if (!scenarioRef.current || validationRef.current || pending || hasUnappliedForm()) return;
+    if (!scenarioRef.current || validationRef.current || pending) return;
     const next = document === appliedDocument ? null : document;
     editedDocumentRef.current = next;
     setEditedDocument(next);
@@ -259,13 +206,12 @@ function ExperimentSetup({
         setApplied(null);
         setFileNotice({ severity: 'success', message: 'Applied JSON document. Ready for Start.' });
       },
-      true,
     );
   }
 
   function validateDraft() {
     const current = scenarioRef.current;
-    if (!current || hasUnappliedForm() || hasUnappliedDocument()) return;
+    if (!current || hasUnappliedDocument()) return;
     void validateAndApply(
       (signal) => scenarioApi.validate(current, signal),
       () => setFileNotice({
@@ -277,10 +223,10 @@ function ExperimentSetup({
 
   function exportScenario() {
     const current = scenarioRef.current;
-    if (!current || hasUnappliedForm() || hasUnappliedDocument()) return;
+    if (!current || hasUnappliedDocument()) return;
     let document = '';
 
-    // Reuse an unchanged validated draft; edited settings are checked before saving.
+    // Reuse validation while the applied document is unchanged.
     void validateAndApply(
       async (signal) => {
         const checked = validation?.scenario === current
@@ -297,183 +243,9 @@ function ExperimentSetup({
     );
   }
 
-  function changeField(name: ScenarioField, raw: string) {
-    const current = scenarioRef.current;
-    const requested = valuesRef.current;
-    if (!current || !requested || validationRef.current || pending || hasUnappliedDocument()) return;
-    setFileNotice(null);
-
-    if (name === 'clients' || name === 'servers') {
-      if (countEditRef.current?.field !== name) {
-        countEditRef.current = { field: name, baseline: current };
-      }
-    } else {
-      countEditRef.current = null;
-    }
-    const baseline = countEditRef.current?.baseline ?? current;
-
-    const next = editScenarioForm(
-      { scenario: current, values: requested, errors: errorsRef.current, selectedAt: selectedAtRef.current },
-      name, raw, baseline,
-    );
-    const hosts = retainHostEdits(
-      next.scenario, hostEditsRef.current, false, selectedAtRef.current,
-    );
-    commitFormInputs(next, hosts);
-  }
-
-  function selectState(at: string) {
-    const current = scenarioRef.current;
-    if (!current?.states[at] || validationRef.current || pending || hasUnappliedDocument() || timelineInputNotice()) return;
-    resetFormInputs(current, at);
-  }
-
-  function timelineInputNotice(): string | undefined {
-    if (hasInvalidSettings()) {
-      return 'Correct or discard the highlighted form and host inputs before selecting or changing states.';
-    }
-    if (stagedHostsRef.current) {
-      return 'Apply or discard the common backend CPU inputs before selecting or changing states.';
-    }
-  }
-
-  function changeTimeline(edit: TimelineEdit): string | undefined {
-    const current = scenarioRef.current;
-    if (!current || validationRef.current || pending) return 'Wait for the current draft action to finish.';
-    if (hasUnappliedDocument()) return 'Apply or discard the JSON edits before changing states.';
-    const blocked = timelineInputNotice();
-    if (blocked) return blocked;
-
-    try {
-      const next = editScenarioTimeline(current, selectedAtRef.current, edit);
-      resetFormInputs(next.scenario, next.selectedAt);
-      setNativeScenario(next.scenario);
-      markDraftEdited();
-    } catch (failure) {
-      return failure instanceof Error ? failure.message : 'Cannot change the configuration timeline.';
-    }
-  }
-
-  function hasInvalidSettings() {
-    return Object.keys(errorsRef.current).length > 0 || Object.keys(hostEditsRef.current.errors).length > 0;
-  }
-
-  function hasUnappliedForm() {
-    return hasInvalidSettings() || stagedHostsRef.current;
-  }
-
-  function markDraftEdited() {
-    setValidation(null);
-    setFileNotice(null);
-    setApplied(previous => previous ? { ...previous, pristine: false } : null);
-  }
-
-  function resetFormInputs(definition: Scenario, at = selectedAtRef.current) {
-    const projected = scenarioFormValues(definition, at);
-    countEditRef.current = null;
-    selectedAtRef.current = at;
-    setSelectedAt(at);
-    setFormValues(projected);
-    errorsRef.current = {};
-    setFieldErrors({});
-    hostEditsRef.current = emptyHostEdits();
-    setHostEdits(hostEditsRef.current);
-    changeStagedHosts(false);
-    // Clear local common controls only at an explicit reset or state replacement.
-    setHostRevision(revision => revision + 1);
-  }
-
-  function discardFormInputs() {
-    const current = scenarioRef.current;
-    if (!current || validationRef.current || pending || hasUnappliedDocument()) return;
-    resetFormInputs(current);
-    setFileNotice(null);
-  }
-
-  // Form and host constraints can depend on each other. Retry only rejected input;
-  // each successful retry removes an error and keeps the whole document valid.
-  function commitFormInputs(form: ScenarioFormState, hosts: HostEdits) {
-    let next = form;
-    let edits = hosts;
-    let previousErrors: number;
-    do {
-      previousErrors = Object.keys(next.errors).length + Object.keys(edits.errors).length;
-      const retried = retryHostEdits(next.scenario, edits, selectedAtRef.current);
-      edits = retried.edits;
-      next = retryScenarioForm(
-        { ...next, scenario: retried.scenario }, countEditRef.current?.baseline,
-      );
-    } while (Object.keys(next.errors).length + Object.keys(edits.errors).length < previousErrors);
-
-    const countEdit = countEditRef.current;
-    if (countEdit) {
-      countEdit.baseline = rebaseScenarioCount(
-        countEdit.baseline, next.scenario, countEdit.field, selectedAtRef.current,
-      );
-    }
-
-    if (next.scenario !== scenarioRef.current) {
-      setNativeScenario(next.scenario);
-      markDraftEdited();
-    }
-    setFormValues(next.values);
-    errorsRef.current = next.errors;
-    setFieldErrors(next.errors);
-    hostEditsRef.current = edits;
-    setHostEdits(edits);
-  }
-
-  // Host edits use the same native document while preserving unrelated rejected input.
-  function updateHosts(next: Scenario, edits: HostEdits) {
-    countEditRef.current = null;
-    setFileNotice(null);
-    const projected = scenarioFormValues(next, selectedAtRef.current);
-    for (const name of Object.keys(errorsRef.current) as ScenarioField[]) {
-      projected[name] = valuesRef.current?.[name] ?? projected[name];
-    }
-    commitFormInputs({
-      scenario: next, values: projected, errors: errorsRef.current,
-      selectedAt: selectedAtRef.current,
-    }, edits);
-  }
-
-  function changeHostField(target: HostTarget, field: HostField, raw: string) {
-    const current = scenarioRef.current;
-    if (!current || validationRef.current || pending || hasUnappliedDocument()) return;
-    const next = editHostField(current, hostEditsRef.current, target, field, raw, selectedAtRef.current);
-    updateHosts(next.scenario, next.edits);
-  }
-
-  function applyHostToAll(values: HostValues): string | undefined {
-    const current = scenarioRef.current;
-    if (!current || validationRef.current || pending || hasUnappliedDocument()) {
-      return 'Wait for the current draft action to finish.';
-    }
-    try {
-      const next = applyHostToAllBackends(current, values, selectedAtRef.current);
-      const edits = retainHostEdits(next, hostEditsRef.current, true, selectedAtRef.current);
-      updateHosts(next, edits);
-    } catch (failure) {
-      return failure instanceof Error ? failure.message : 'Cannot apply common backend CPU settings.';
-    }
-  }
-
-  // Intermediate count digits must not erase group proportions or custom backends.
-  function focusField(name: ScenarioField) {
-    const current = scenarioRef.current;
-    countEditRef.current = current && (name === 'clients' || name === 'servers')
-      ? { field: name, baseline: current }
-      : null;
-  }
-
-  function blurField(name: ScenarioField) {
-    if (countEditRef.current?.field === name) countEditRef.current = null;
-  }
-
   function startSimulation() {
     const current = scenarioRef.current;
-    if (!current || validationRef.current || pending
-      || hasUnappliedForm() || hasUnappliedDocument()) return;
+    if (!current || !canStart || validationRef.current || hasUnappliedDocument()) return;
     void onStart(current);
   }
 
@@ -490,7 +262,7 @@ function ExperimentSetup({
         loading={loading}
         pending={pending}
         validating={validating}
-        unappliedInput={unappliedDocument || unappliedForm}
+        unappliedInput={unappliedDocument}
         candidate={candidate}
         applied={applied}
         error={error}
@@ -504,8 +276,6 @@ function ExperimentSetup({
         validation={validation}
         busy={loading || pending || validating}
         checking={validating}
-        invalid={Object.keys(fieldErrors).length > 0 || Object.keys(hostEdits.errors).length > 0}
-        stagedHosts={stagedHosts}
         notice={fileNotice}
         document={editedDocument ?? appliedDocument}
         unapplied={unappliedDocument}
@@ -515,36 +285,12 @@ function ExperimentSetup({
         onImport={importScenario}
         onExport={exportScenario}
         onValidate={validateDraft}
+        canStart={canStart}
+        onStart={startSimulation}
       />
 
-      {scenario && values ? (
-        <SimulationForm
-          scenario={scenario}
-          selectedAt={selectedAt}
-          onSelectState={selectState}
-          onEditTimeline={changeTimeline}
-          timelineBlockedReason={timelineInputNotice()}
-          values={values}
-          errors={fieldErrors}
-          connected={connected}
-          running={simulation?.status === 'running'}
-          pending={pending}
-          validating={validating}
-          unappliedDocument={unappliedDocument}
-          unappliedForm={unappliedForm}
-          onDiscardFormInputs={discardFormInputs}
-          onChange={changeField}
-          onFocus={focusField}
-          onBlur={blurField}
-          onStart={startSimulation}
-          hostEdits={hostEdits}
-          hostRevision={hostRevision}
-          onHostChange={changeHostField}
-          onApplyHostToAll={applyHostToAll}
-          onStagedHostChange={changeStagedHosts}
-        />
-      ) : (
-        <Alert severity="info">Waiting for complete scenario defaults from the server…</Alert>
+      {!scenario && (
+        <Alert severity="info">Load the server defaults or import a scenario JSON file to begin.</Alert>
       )}
 
       {currentRunError && (

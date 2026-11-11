@@ -20,15 +20,7 @@ export interface ScenarioHostConfig {
   queueCapacity?: ExactInteger;
 }
 
-export const congestionModeOptions = [
-  { value: 'reno', label: 'Reno' },
-  { value: 'newReno', label: 'NewReno' },
-  { value: 'tahoe', label: 'Tahoe' },
-  { value: 'cubic', label: 'CUBIC' },
-  { value: 'none', label: 'None (receive window only)' },
-] as const;
-
-export type CongestionMode = (typeof congestionModeOptions)[number]['value'];
+export type CongestionMode = 'reno' | 'newReno' | 'tahoe' | 'cubic' | 'none';
 
 // The initial window counts segments; the slow-start threshold counts payload bytes.
 export interface ScenarioCongestionConfig {
@@ -83,7 +75,7 @@ export type ScenarioHostPatch = NullablePatch<ScenarioHostConfig>;
 export type ScenarioStreamPatch = NullablePatch<ScenarioStream>;
 
 // Fixed settings stay constant; state keys are exact decimal virtual nanoseconds.
-// The same document is used by files, the form and runtime admission.
+// The same document is used by the JSON editor, files and runtime admission.
 export interface Scenario {
   scenarioVersion: ExactInteger;
   fixed: {

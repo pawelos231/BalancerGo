@@ -1,70 +1,57 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyScenarioField, scenarioFormValues, validateScenarioField } from '../../../src/scenarios/draft.ts';
-import { editScenarioForm } from '../../../src/scenarios/formState.ts';
+
 import { serializeScenario } from '../../../src/scenarios/files.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
+import { parseScenario, validateScenario } from '../../../src/scenarios/validation.ts';
 import { scenarioFixture } from '../../scenarioFixture.ts';
 
-test('ECN is opt-in, retains the native spelling and reconciles pending mode dependencies', () => {
-  const original = scenarioFixture();
-  assert.equal(scenarioFormValues(original).ECNenabled, 'false');
-  const none = applyScenarioField(original, 'congestionControl', 'none');
-  const rejected = editScenarioForm({ scenario: none, values: scenarioFormValues(none), errors: {} }, 'ECNenabled', 'true');
-  assert.match(rejected.errors.ECNenabled!, /ECN requires/);
-  assert.equal(rejected.scenario.fixed.tcp?.ECNenabled, undefined);
-  const corrected = editScenarioForm(rejected, 'congestionControl', 'reno');
-  assert.deepEqual(corrected.errors, {});
-  assert.equal(corrected.scenario.fixed.tcp?.ECNenabled, true);
-  assert.equal(JSON.parse(serializeScenario(corrected.scenario)).fixed.tcp.ECNenabled, true);
+test('ECN JSON preserves omission, native spelling and congestion-control dependencies', () => {
+  const scenario = scenarioFixture();
+  assert.equal(validateScenario(scenario).fixed.tcp.ECNenabled, undefined);
 
-  const pendingNone = editScenarioForm(corrected, 'congestionControl', 'none');
-  assert.match(pendingNone.errors.congestionControl!, /ECN requires/);
-  const disabled = editScenarioForm(pendingNone, 'ECNenabled', 'false');
-  assert.deepEqual(disabled.errors, {});
-  assert.equal(disabled.scenario.fixed.tcp?.ECNenabled, false);
-  assert.equal(disabled.scenario.fixed.tcp?.congestionControl?.mode, 'none');
-  assert.equal(original.fixed.tcp?.ECNenabled, undefined);
+  scenario.fixed.tcp = { ECNenabled: true, congestionControl: { mode: 'none' } };
+  assert.throws(() => parseScenario(JSON.stringify(scenario)), /ECNenabled.*requires congestion control/);
+
+  scenario.fixed.tcp.congestionControl!.mode = 'reno';
+  assert.equal(parseScenario(serializeScenario(scenario)).fixed.tcp.ECNenabled, true);
+
+  scenario.fixed.tcp = { ECNenabled: false, congestionControl: { mode: 'none' } };
+  assert.equal(parseScenario(serializeScenario(scenario)).fixed.tcp.ECNenabled, false);
 });
 
-test('legacy queue values show zero and activating a threshold initializes only omitted settings', () => {
-  const original = scenarioFixture();
-  const initial = scenarioFormValues(original);
-  assert.equal(initial.queuePolicy, 'tailDrop');
-  assert.equal(initial.congestionThresholdPercent, '0');
-  assert.equal(initial.congestionSignalProbability, '0');
-  const active = editScenarioForm({ scenario: original, values: initial, errors: {} }, 'queuePolicy', 'threshold');
-  assert.equal(active.values.congestionThresholdPercent, '80');
-  assert.equal(active.values.congestionSignalProbability, '1');
-  assert.equal(active.scenario.fixed.network.defaults.congestionThresholdPercent, 80);
-  assert.equal(original.fixed.network.defaults.congestionThresholdPercent, undefined);
-
-  const explicit = structuredClone(original);
-  explicit.states['0'].resources.loadBalancer.ingress.congestionThresholdPercent = 0;
-  explicit.states['0'].resources.loadBalancer.ingress.congestionSignalProbability = 0;
-  const preserved = applyScenarioField(explicit, 'ingressQueuePolicy', 'threshold');
-  assert.equal(preserved.states['0'].resources.loadBalancer.ingress.congestionThresholdPercent, 0);
-  assert.equal(preserved.states['0'].resources.loadBalancer.ingress.congestionSignalProbability, 0);
-  assert.deepEqual(preserved.fixed.network, original.fixed.network);
-  const reloaded = structuredClone(original);
-  reloaded.fixed.network.defaults.queuePolicy = 'threshold';
-  const off = applyScenarioField(reloaded, 'queuePolicy', 'tailDrop');
-  const onAgain = applyScenarioField(off, 'queuePolicy', 'threshold');
-  assert.equal(onAgain.fixed.network.defaults.congestionThresholdPercent, 0);
-  assert.equal(onAgain.fixed.network.defaults.congestionSignalProbability, 0);
-  const canonicalLegacy = structuredClone(original);
-  canonicalLegacy.fixed.network.defaults.congestionThresholdPercent = 0;
-  canonicalLegacy.fixed.network.defaults.congestionSignalProbability = 0;
-  const activatedCanonical = applyScenarioField(canonicalLegacy, 'queuePolicy', 'threshold');
-  assert.equal(activatedCanonical.fixed.network.defaults.congestionThresholdPercent, 0);
-  assert.equal(activatedCanonical.fixed.network.defaults.congestionSignalProbability, 0);
-  for (const field of ['congestionThresholdPercent', 'ingressCongestionThresholdPercent'] as const) {
-    for (const raw of ['0', '100', '12.5']) assert.equal(validateScenarioField(field, raw), undefined);
-    for (const raw of ['-1', '100.1', 'NaN', 'Infinity']) assert.ok(validateScenarioField(field, raw));
+test('threshold queue JSON preserves explicit zeroes and validates both directional ranges', () => {
+  const scenario = scenarioFixture();
+  const links = [scenario.fixed.network.defaults, scenario.states['0'].resources.loadBalancer.ingress];
+  for (const link of links) {
+    link.queuePolicy = 'threshold';
+    link.congestionThresholdPercent = 0;
+    link.congestionSignalProbability = 0;
   }
-  for (const field of ['congestionSignalProbability', 'ingressCongestionSignalProbability'] as const) {
-    for (const raw of ['0', '1', '0.25']) assert.equal(validateScenarioField(field, raw), undefined);
-    for (const raw of ['-1', '1.01', 'NaN', 'Infinity']) assert.ok(validateScenarioField(field, raw));
+  const restored = parseScenario(serializeScenario(scenario));
+  assert.equal(restored.fixed.network.defaults.congestionThresholdPercent, 0);
+  assert.equal(restored.states['0'].resources.loadBalancer.ingress.congestionSignalProbability, 0);
+
+  for (const link of links) {
+    for (const value of [0, 100, 12.5]) {
+      link.congestionThresholdPercent = value;
+      assert.doesNotThrow(() => validateScenario(scenario));
+    }
+    for (const value of [-1, 100.1, NaN, Infinity]) {
+      link.congestionThresholdPercent = value;
+      assert.throws(() => validateScenario(scenario), /congestionThresholdPercent/);
+    }
+    link.congestionThresholdPercent = 0;
+
+    for (const value of [0, 1, 0.25]) {
+      link.congestionSignalProbability = value;
+      assert.doesNotThrow(() => validateScenario(scenario));
+    }
+    for (const value of [-1, 1.01, NaN, Infinity]) {
+      link.congestionSignalProbability = value;
+      assert.throws(() => validateScenario(scenario), /congestionSignalProbability/);
+    }
+    link.congestionSignalProbability = 0;
   }
 });
 
@@ -78,10 +65,10 @@ test('the ECN preset isolates its data bottleneck and old presets retain ECN and
     assert.notEqual(scenario.fixed.network.defaults.queuePolicy, 'threshold', preset.id);
     assert.notEqual(scenario.states['0'].resources.loadBalancer.ingress.queuePolicy, 'threshold', preset.id);
     if (preset.id !== 'ecn-congestion') {
-      assert.notEqual(scenario.fixed.tcp?.ECNenabled, true, preset.id);
+      assert.notEqual(scenario.fixed.tcp.ECNenabled, true, preset.id);
       continue;
     }
-    assert.equal(scenario.fixed.tcp?.ECNenabled, true);
+    assert.equal(scenario.fixed.tcp.ECNenabled, true);
     assert.equal(scenario.fixed.execution.durationNanoseconds, 180_000_000_000);
     assert.equal(scenario.fixed.execution.speed, 1);
     assert.equal(scenario.fixed.workload.defaults.bytes, 1_073_741_824);

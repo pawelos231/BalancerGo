@@ -1,4 +1,8 @@
-import type { Scenario, ScenarioClientGroup } from '../types.ts';
+import type { Scenario, ScenarioClientGroup, ScenarioHostConfig } from '../types.ts';
+
+export function idealHost(): ScenarioHostConfig {
+  return { cores: 1, packetProcessingTimeNanoseconds: 0, queueCapacity: 1024 };
+}
 
 // Each endpoint receives independent directional patches and its own resource ID.
 export function presetBackends(count: number): Scenario['states'][string]['resources']['backends'] {

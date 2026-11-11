@@ -1,6 +1,5 @@
 import type { CommandType } from './commands';
 import type { ExperimentContext } from './experiment';
-import type { CongestionMode } from './scenarios/types';
 import type { TopologyGraph } from './topology/types';
 import type { SimulationSnapshot, TopologyDefinition } from './telemetry/types';
 
@@ -105,65 +104,6 @@ export type SimulationCommand = {
   Type: CommandType.StopSimulation;
   Payload: Record<string, never>;
 };
-
-// Form field names remain used by the scenario form; these are not live settings.
-export interface SimulationConfig {
-  clients: number;
-  servers: number;
-  packets: number;
-  bytes: number;
-  mssBytes: number;
-  receiveBufferBytes: number;
-  sackEnabled: boolean;
-  ECNenabled: boolean;
-  delayedAckEnabled: boolean;
-  delayedAckSegments: number;
-  delayedAckMaxDelayMs: number;
-  congestionControl: CongestionMode;
-  fastRetransmit: boolean;
-  cubicFastConvergence: boolean;
-  initialCongestionWindowSegments: number;
-  maximumCongestionWindowSegments: number;
-  initialSlowStartThresholdBytes: number;
-  rtoMode: 'fixed' | 'adaptive';
-  rtoBackoff: boolean;
-  rtoInitialMs: number;
-  rtoMinimumMs: number;
-  rtoMaximumMs: number;
-  tcpMSLMs: number;
-  tcpFinWaitTimeoutMs: number;
-  tcpMaxFINRetries: number;
-  clientIdleTimeoutMs: number;
-  backendHalfOpenIdleTimeoutMs: number;
-  backendEstablishedIdleTimeoutMs: number;
-  lbHalfOpenIdleTimeoutMs: number;
-  lbEstablishedIdleTimeoutMs: number;
-  lbClosingIdleTimeoutMs: number;
-  lbResetIdleTimeoutMs: number;
-  durationSeconds: number;
-  clientGapMs: number;
-  packetGapMs: number;
-  snapshotIntervalMs: number;
-  bandwidthBitsPerSecond: number;
-  forwardingBitsPerSecond: number;
-  ingressBandwidthBitsPerSecond: number;
-  ingressPacketTravelTimeMs: number;
-  ingressQueueCapacity: number;
-  ingressLoss: number;
-  ingressQueuePolicy: '' | 'tailDrop' | 'threshold';
-  ingressCongestionThresholdPercent: number;
-  ingressCongestionSignalProbability: number;
-  packetTravelTimeMs: number;
-  linkQueue: number;
-  loss: number;
-  queuePolicy: '' | 'tailDrop' | 'threshold';
-  congestionThresholdPercent: number;
-  congestionSignalProbability: number;
-  seed: number;
-  algorithm: AlgorithmName;
-  speed: number;
-  maxEvents: number;
-}
 
 // Canonical positive uint64 decimal text; never convert publication IDs to Number.
 export type PublicationSequence = string;

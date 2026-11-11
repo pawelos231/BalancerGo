@@ -9,6 +9,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useRef } from 'react';
+import { Link as RouterLink } from 'react-router';
 import type { Scenario, ValidatedScenario } from '../scenarios/types';
 import ScenarioDocumentPreview from './ScenarioDocumentPreview';
 import ScenarioJsonEditor from './ScenarioJsonEditor';
@@ -23,8 +24,6 @@ interface ScenarioFilesProps {
   validation: ValidatedScenario | null;
   busy: boolean;
   checking: boolean;
-  invalid: boolean;
-  stagedHosts: boolean;
   notice: ScenarioFileNotice | null;
   document: string;
   unapplied: boolean;
@@ -34,6 +33,8 @@ interface ScenarioFilesProps {
   onImport: (file: File) => void;
   onExport: () => void;
   onValidate: () => void;
+  canStart: boolean;
+  onStart: () => void;
 }
 
 // Files and presets use the same draft; importing only prepares the next Start.
@@ -42,8 +43,6 @@ function ScenarioFiles({
   validation,
   busy,
   checking,
-  invalid,
-  stagedHosts,
   notice,
   document,
   unapplied,
@@ -53,18 +52,19 @@ function ScenarioFiles({
   onImport,
   onExport,
   onValidate,
+  canStart,
+  onStart,
 }: ScenarioFilesProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const pendingForm = invalid || stagedHosts;
-  const canUseDraft = scenario !== null && !busy && !pendingForm && !unapplied;
+  const canUseDraft = scenario !== null && !busy && !unapplied;
 
   return (
     <Card variant="outlined">
-      <CardHeader title="Scenario files" />
+      <CardHeader title="Scenario configuration" />
       <CardContent sx={{ pt: 0 }}>
         <Stack spacing={2} sx={{ minWidth: 0 }}>
           <Typography variant="body2" color="text.secondary">
-            Import a scenario JSON file to validate and load it into the form. Export saves
+            Edit the complete scenario here or import a JSON file. Export saves
             the full draft for the next Start, including profiles and client overrides.
             Files can be up to 2 MiB. Import does not start a simulation.
           </Typography>
@@ -73,7 +73,7 @@ function ScenarioFiles({
             <ScenarioJsonEditor
               document={document}
               dirty={unapplied}
-              disabled={busy || pendingForm}
+              disabled={busy}
               onChange={onEditDocument}
               onApply={onApplyDocument}
               onDiscard={onDiscardDocument}
@@ -85,7 +85,7 @@ function ScenarioFiles({
             type="file"
             accept=".json,application/json"
             aria-label="Scenario JSON file"
-            disabled={busy || unapplied || pendingForm}
+            disabled={busy || unapplied}
             hidden
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
@@ -96,7 +96,7 @@ function ScenarioFiles({
           />
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Button
-              variant="outlined" disabled={busy || unapplied || pendingForm}
+              variant="outlined" disabled={busy || unapplied}
               onClick={() => inputRef.current?.click()}
             >
               Import JSON
@@ -115,14 +115,7 @@ function ScenarioFiles({
               {notice.message}
             </Alert>
           )}
-          {pendingForm && (
-            <Alert severity="warning">
-              Correct highlighted form inputs, apply common backend CPU settings, or
-              use Discard unapplied form inputs below before editing JSON or using files.
-              The applied draft is retained.
-            </Alert>
-          )}
-          {validation && !unapplied && !pendingForm && (
+          {validation && !unapplied && (
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Chip label="Draft validated" color="success" size="small" />
               <Chip label={`${validation.summary.totalClients} clients`} size="small" />
@@ -131,17 +124,7 @@ function ScenarioFiles({
             </Stack>
           )}
 
-          {scenario && (
-            <ScenarioDocumentPreview
-              title="Applied native scenario"
-              document={scenario}
-              description={
-                'The last applied draft, retained while JSON edits are pending. ' +
-                'Profiles and overrides are preserved; durations are in nanoseconds.'
-              }
-            />
-          )}
-          {validation?.resolved && !unapplied && !pendingForm ? (
+          {validation?.resolved && !unapplied ? (
             <ScenarioDocumentPreview
               title="Effective configuration"
               document={validation.resolved}
@@ -155,6 +138,18 @@ function ScenarioFiles({
               Validate the draft to inspect its effective configuration.
             </Typography>
           )}
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Button variant="contained" disabled={!canStart} onClick={onStart}>
+              Start simulation
+            </Button>
+            <Button component={RouterLink} to="/planned-topology" variant="outlined">
+              Preview planned topology
+            </Button>
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            Start uses the applied JSON document. Planned topology shows its resources,
+            links and declared changes over time.
+          </Typography>
         </Stack>
       </CardContent>
     </Card>

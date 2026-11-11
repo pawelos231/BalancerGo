@@ -1,8 +1,7 @@
 import type { Scenario } from '../types.ts';
 import type { ScenarioHostConfig } from '../types.ts';
 import type { ScenarioPreset } from '../scenarioPresetTypes.ts';
-import { isolatedExperiment } from './base.ts';
-import { idealHost } from '../host.ts';
+import { idealHost, isolatedExperiment } from './base.ts';
 
 // These are assumed service budgets for experiments, not profiles of real CPUs.
 function cpu(cores: number, microseconds: number, queueCapacity = 128): ScenarioHostConfig {

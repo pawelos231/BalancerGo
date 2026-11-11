@@ -122,16 +122,18 @@ go run .
 
 The Go module remains named `load-balancer`, so package imports stay the same.
 The backend starts in an idle state and sends the Go configuration defaults to
-the frontend. Edit the form and click **Start simulation** to create and run an
+the frontend. Edit the complete scenario JSON, choose **Apply JSON**, then click
+**Start simulation** to create and run an
 experiment. The default is 200 clients, 10 backends, 10000 segments per client,
-120 virtual seconds and speed 1. Set speed to 0 in the form to run without pacing.
+120 virtual seconds and speed 1. Set `fixed.execution.speed` to `0` in the JSON
+to run without pacing.
 Go runtime tracing is optional: `go run . -trace trace.out`.
 
 The UI shows idle, running, finished or failed status and the virtual clock.
 After completion, the final snapshot remains available and another Start creates
 a fresh experiment. **Stop and clear** interrupts a run and discards its event
 queue, links, connections and counters. It also clears a finished experiment;
-the form configuration is preserved for the next Start.
+the applied scenario draft is preserved for the next Start.
 Reconnecting or refreshing the page restores the current
 state without starting or restarting the simulation.
 
@@ -273,7 +275,7 @@ than supplying independent replications. `WallTime` can still vary between runs.
 
 ### Simple CLI settings
 
-CLI flags provide the form defaults, and configure immediate headless runs.
+CLI flags provide the initial scenario defaults, and configure immediate headless runs.
 The browser sends its selected configuration when Start is clicked. Useful
 parameters (see `go run . -help` for all options):
 
@@ -346,7 +348,7 @@ Each output has one FIFO, configured by the destination's
 
 Scenario runs reject manual `setAlgorithm` and `spawnClient` commands at admission,
 including while Start is pending. Configuration changes belong in `states`; Stop
-remains available. The form has no manual algorithm or client-spawn controls.
+remains available. Declare algorithm and client-generator changes in the scenario JSON.
 
 Scenario duration fields have explicit `Nanoseconds` JSON names and retain native
 `time.Duration` precision in Go. HTTP documents use JSON numbers for safe integers
@@ -427,7 +429,8 @@ Invoke-RestMethod "$base/api/simulations/current"
 The frontend **Scenario library** has 37 presets across TCP transport, links,
 queues, host CPU, loss, workloads, routing, edge cases, performance, timeline changes and reference experiments. Search or filter the catalog;
 six cards appear per page. Choose a preset and click **Validate and load preset**
-to load it into the form, then use the single **Start simulation** button.
+to load its complete JSON document into the applied draft, then use the single
+**Start simulation** button.
 The catalog lives in `visualizer/src/scenarios/presets.ts`, with factories split
 into `scenarios/presets/`. The original four topology experiments inherit backend
 defaults; the other network and reference scenarios use an explicit repeatable baseline.
@@ -438,18 +441,22 @@ The [reference matrix](examples/scenarios/REFERENCE_EXPERIMENTS.md) contains eig
 60-second cases with two backends: backend 2 varies between 4/40 ms base travel
 RTT and a 1 Gbit/s/64 kbit/s return link, with 16 KiB/1 MiB per client.
 Backend 1 stays fixed; all other settings are shared across the matrix.
-Select an existing timestamp to edit that complete state. Form edits update only
-`fixed` settings or `states[selectedAt]`; all other states remain intact. State
-timestamps are ordered numerically, including exact integers above 2^53. Link
-defaults remain fixed; endpoint profiles and directional overrides remain intact.
-With multiple groups, changing the total client count redistributes it
-proportionally and shows the resulting group counts. Existing configured
-backends are retained when resizing the selected state; new backends use inherited
-settings and IDs reserved against the entire document. Shrinking a client group
-retains historical overrides; a new group in a later state starts no earlier
-than that state. This selector edits existing states; adding and removing states
-is a later editor feature.
+The **Scenario JSON document** editor owns the complete `fixed` and `states`
+document. Change settings, resource identities or timestamps directly in JSON,
+then choose **Apply JSON**. Strict local parsing and authoritative server validation
+must both succeed before replacing the applied draft. Invalid text leaves that
+draft intact; **Discard JSON edits** restores it. Pending edits block preset
+loading, file actions and Start until applied or discarded. Validation locks the
+editor so a late response cannot replace newer text. Exact decimal integer strings,
+profiles, directional overrides and every state remain part of the same document.
+JSON input is limited to 2 MiB of UTF-8 text, matching imported files.
 Validation and Start keep their errors visible and do not change the running model.
+
+**Frontend simplification — 2026-11-11:** JSON editing replaces the former
+Experiment, TCP, CPU, link and resource accordions and the manual state editor.
+Use JSON for adding, copying, moving or removing states and resources. The planned
+topology timestamp slider and resource/link inspectors remain read-only views.
+The backend contract and simulator behavior are unchanged.
 
 Three timeline presets use ordinary complete states at 0, 30 and 90 seconds:
 
@@ -509,23 +516,23 @@ commands are recorded in [perf_results.md](perf_results.md).
 
 ## Scenario files and effective configuration
 
-The **Scenario files** panel imports and exports the editable native scenario.
+The **Scenario configuration** panel imports and exports the editable native scenario.
 **Import JSON** submits the original UTF-8 file text to backend validation before
 browser JSON parsing, preserving integer tokens for exact validation. Files are
 limited to 2 MiB of UTF-8 bytes. A successful import loads the draft; a failure
 preserves the current draft. Import never starts an experiment.
 
-**Export JSON** downloads the current draft, including manual edits, profiles,
+**Export JSON** downloads the current applied draft, including JSON edits, profiles,
 groups and individual overrides. **Validate draft** checks the draft without
-starting it. The **Native scenario** preview is the source used for export and
-Start; **Effective configuration** shows the resolved defaults, inherited links,
+starting it. The JSON editor displays the applied draft until you edit it; apply
+or discard pending edits before export or Start. **Effective configuration**
+shows the optional resolved defaults, inherited links,
 streams and explicit overrides returned by validation. The resolved preview is
-read-only and is not the import format. Correct invalid form values before
-validation or export. The active run's original document remains separate.
+read-only and is not the import format. The active run's original document remains separate.
 
 Open **Planned topology** to inspect the last valid applied scenario before Start.
-Files, applied presets and valid form edits update this view; invalid or unapplied
-form input keeps the previous valid plan visible with a warning. This is separate
+Files, applied presets and successfully applied JSON update this view; invalid or
+unapplied JSON keeps the previous valid plan visible with a warning. This is separate
 from **Live topology**, which displays the current run's measurements.
 The timestamp slider selects only states declared in the configuration. Its
 positions use indices while the timestamp keys retain exact nanoseconds, even
@@ -581,7 +588,7 @@ through `/api/simulations/current`, independently of runtime changes.
 The frontend coalesces graph requests and applies metrics only to a matching run
 and revision. Reconnect invalidates the old graph cache, including after a backend
 restart. Finished runs remain readable; Stop clears the graph and counters while
-preserving the form draft. The topology definition endpoint retains no history.
+preserving the scenario draft. The topology definition endpoint retains no history.
 The backend and browser use the same telemetry protocol and should be rebuilt together.
 
 For an active fixture with 2000 routed clients at 100 virtual milliseconds, the
@@ -722,8 +729,8 @@ window. ACK identifies the next missing byte and can jump across buffered ranges
 when a gap is filled. Duplicate and overlapping data count only newly received
 bytes; those bytes may be counted before they are cumulatively acknowledged.
 
-Set `fixed.tcp.receiveBufferBytes` in a scenario, use the **TCP receive buffer per
-connection** form field, or pass `-tcp-receive-buffer` with the CLI.
+Set `fixed.tcp.receiveBufferBytes` in the scenario JSON or pass
+`-tcp-receive-buffer` with the CLI.
 The default is 65535 bytes, and supported capacities are 1..65535 without window
 scaling. An omitted scenario setting inherits the default; explicit zero is
 invalid. Received contiguous bytes are consumed immediately, so the advertised
@@ -752,8 +759,8 @@ closing or terminated clients report zero pending payload after abandoning their
 ### Selective acknowledgments
 
 `fixed.tcp.sackEnabled` enables the optional SACK profile; its default is `false`.
-Use **Selective acknowledgements (SACK)** in the TCP traffic form or
-`-sack-enabled=true` in the CLI. The effective choice appears in
+Set it in the scenario JSON or use `-sack-enabled=true` in the CLI.
+The effective choice appears in
 `result.TCP.SACKEnabled` and in the experiment's scenario manifest.
 This profile supports Reno, NewReno and CUBIC with fast retransmit enabled;
 other combinations are rejected explicitly.
@@ -783,7 +790,7 @@ options consume modeled wire bytes: an offered SYN is 44 bytes, an ACK with one
 block is 52 bytes, and one with four blocks is 76 bytes. ACKs are still immediate;
 delayed ACK remains a separate planned mechanism.
 
-The **TCP congestion control** form section configures `fixed.tcp.congestionControl`:
+Configure congestion control in the scenario JSON at `fixed.tcp.congestionControl`:
 
 - `mode`: `reno` by default, `newReno` for partial-ACK recovery without SACK,
   `tahoe` for the historical loss-response comparison,
@@ -974,7 +981,7 @@ retried, adaptive data starts with at least 3 s, capped by the configured maximu
 These rules follow the selected [RFC 6298](https://www.rfc-editor.org/rfc/rfc6298.html)
 profile; fixed mode deliberately retains its configured base instead.
 
-The **TCP timers** form section configures `fixed.tcp.rto.mode` (`adaptive` or `fixed`),
+Configure TCP timers in the scenario JSON at `fixed.tcp.rto.mode` (`adaptive` or `fixed`),
 `exponentialBackoff`, and `initialTimeoutNanoseconds`, `minimumTimeoutNanoseconds`,
 `maximumTimeoutNanoseconds`. Limits must be positive and ordered
 `minimum <= initial <= maximum`. Mode and backoff are independent: fixed mode
@@ -1037,7 +1044,7 @@ Backend cleanup is configured under `tcp`:
   When enabled, valid incoming traffic refreshes the backend's idle deadline.
 
 The CLI flags are `-backend-half-open-idle-timeout` and
-`-backend-established-idle-timeout`; both settings also appear in the form and
+`-backend-established-idle-timeout`; both settings also appear in the scenario JSON and
 effective TCP report. Zero disables either limit. Closing uses its own timers.
 
 The LB keeps only a phase and last activity time for each flow mapping. Its four
@@ -1052,7 +1059,7 @@ idle limits are independent of endpoint RTO, MSL and FIN-wait settings:
 
 Omission inherits the default; zero disables expiry for that phase only. CLI flags
 are `-lb-half-open-idle-timeout`, `-lb-established-idle-timeout`,
-`-lb-closing-idle-timeout` and `-lb-reset-idle-timeout`. The form exposes all four,
+`-lb-closing-idle-timeout` and `-lb-reset-idle-timeout`. The scenario JSON exposes all four,
 and reports record them in `LBIdleTimeouts`.
 
 Supported matching packets from either direction refresh activity when seen by the
@@ -1107,7 +1114,7 @@ final ACK and retains TIME_WAIT so a repeated peer FIN can receive another ACK.
 ACK and FIN can be combined, and a peer FIN ends only that peer's sending half.
 Accepted client payload can still finish after an early backend FIN.
 
-The **TCP closing** form section configures `fixed.tcp.close`:
+Configure TCP closing in the scenario JSON at `fixed.tcp.close`:
 
 - `mslNanoseconds`: default 30 seconds, so TIME_WAIT lasts 60 virtual seconds;
 - `finWaitTimeoutNanoseconds`: default 60 seconds waiting for the peer FIN
@@ -1190,7 +1197,7 @@ show incoming access links, the two input FIFOs with one shared receiver, and LB
 outputs with their common forwarding budget. Configured rates are limits;
 delivery and drop counters refer
 to each physical hop. Profiles and endpoint overrides can give links different
-settings; the current simple form sets uniform endpoint defaults.
+settings; the complete JSON editor preserves these distinct configurations.
 Additional topologies or load-balancer resources require corresponding backend
 models and snapshot projections. See [the visualizer guide](visualizer/README.md)
 for the frontend extension points.

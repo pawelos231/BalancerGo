@@ -1,7 +1,6 @@
 import type { ScenarioPreset } from '../scenarioPresetTypes.ts';
 import type { Scenario } from '../types.ts';
-import { idealHost } from '../host.ts';
-import { isolatedExperiment, presetClientGroup } from './base.ts';
+import { idealHost, isolatedExperiment, presetClientGroup } from './base.ts';
 
 const overloadAt = '30000000000';
 const recoveryAt = '90000000000';

@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import { isIPv4 } from 'node:net';
 import test from 'node:test';
-import { scenarioFormValues, validateScenarioField } from '../../../src/scenarios/draft.ts';
-import type { ScenarioField } from '../../../src/scenarios/draft.ts';
 import { serializeScenario } from '../../../src/scenarios/files.ts';
 import { presetCategories, scenarioPresets } from '../../../src/scenarios/presets.ts';
 import type { ScenarioEndpointNetwork } from '../../../src/scenarios/types.ts';
+import { parseScenario, validateScenario } from '../../../src/scenarios/validation.ts';
 import { scenarioFixture } from '../../scenarioFixture.ts';
 
 const originalNetworkIds = [
@@ -137,10 +136,7 @@ test('throughput preset keeps demand bounded, reproducible and independent of ne
     }
   }
 
-  const fields = scenarioFormValues(scenario);
-  for (const [name, raw] of Object.entries(fields)) {
-    assert.equal(validateScenarioField(name as ScenarioField, raw), undefined, name);
-  }
+  assert.doesNotThrow(() => validateScenario(scenario));
   assert.deepEqual(defaults, before);
   assert.deepEqual(preset.build(defaults), scenario);
   scenario.states['0'].resources.backends[0].network.fromLoadBalancer.lossRate = 1;
@@ -221,22 +217,18 @@ test('limits benchmark configures independent endpoints and bounded zero-delay p
   }
 });
 
-test('limits benchmark preserves unsafe integer rates through form projection and JSON export', () => {
+test('limits benchmark preserves unsafe integer rates through JSON export and import', () => {
   const scenario = buildPreset('simulator-limits');
-  const fields = scenarioFormValues(scenario);
   const exactSharedRate = '80000000000000000';
 
-  assert.equal(fields.forwardingBitsPerSecond, exactSharedRate);
-  assert.equal(fields.ingressBandwidthBitsPerSecond, exactSharedRate);
-  for (const [name, raw] of Object.entries(fields)) {
-    assert.equal(validateScenarioField(name as ScenarioField, raw), undefined, name);
-  }
+  assert.equal(scenario.states['0'].resources.loadBalancer.forwardingBitsPerSecond, exactSharedRate);
+  assert.equal(scenario.states['0'].resources.loadBalancer.ingress.bandwidthBitsPerSecond, exactSharedRate);
 
   const document = serializeScenario(scenario);
-  const roundTripped = JSON.parse(document) as typeof scenario;
+  const roundTripped = parseScenario(document);
   assert.equal(roundTripped.states['0'].resources.loadBalancer.forwardingBitsPerSecond, exactSharedRate);
   assert.equal(roundTripped.states['0'].resources.loadBalancer.ingress.bandwidthBitsPerSecond, exactSharedRate);
-  assert.deepEqual(roundTripped, scenario);
+  assert.deepEqual(roundTripped, validateScenario(scenario));
 });
 
 test('catalog pins the limits benchmark and keeps unique categories and original relative order', () => {
@@ -516,7 +508,6 @@ test('routing and empty-network cases retain their distinguishing native configu
   assert.equal(random.states['0'].resources.loadBalancer.algorithm, 'random');
   assert.ok(random.states['0'].resources.backends.length > 2);
   assert.equal(random.fixed.execution.seed, '9007199254740993');
-  assert.equal(scenarioFormValues(random).seed, '9007199254740993');
 
   const missing = buildPreset('no-backends');
   assert.equal(missing.states['0'].resources.backends.length, 0);
