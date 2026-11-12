@@ -428,9 +428,10 @@ Invoke-RestMethod "$base/api/simulations/current"
 
 The frontend **Scenario library** has 37 presets across TCP transport, links,
 queues, host CPU, loss, workloads, routing, edge cases, performance, timeline changes and reference experiments. Search or filter the catalog;
-six cards appear per page. Choose a preset and click **Validate and load preset**
-to load its complete JSON document into the applied draft, then use the single
-**Start simulation** button.
+six cards appear per page. Click **Load preset** on a card to validate its complete
+JSON document and apply it to the editor and planned topology. Failed validation
+keeps the previous applied document. Loading a preset does not start a run; use
+the single **Start simulation** button when ready.
 The catalog lives in `visualizer/src/scenarios/presets.ts`, with factories split
 into `scenarios/presets/`. The original four topology experiments inherit backend
 defaults; the other network and reference scenarios use an explicit repeatable baseline.

@@ -14,14 +14,7 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import { presetCategories, scenarioPresets } from '../scenarios/presets';
-import type { Scenario, ScenarioSummary } from '../scenarios/types';
-
-// Choosing a candidate does not replace the applied JSON document.
-export interface PresetCandidate {
-  id: string;
-  title: string;
-  scenario: Scenario;
-}
+import type { ScenarioSummary } from '../scenarios/types';
 
 // A loaded preset identifies the applied document until another document replaces it.
 export interface AppliedPreset {
@@ -36,11 +29,9 @@ interface ScenarioLibraryProps {
   pending: boolean;
   validating: boolean;
   unappliedInput: boolean;
-  candidate: PresetCandidate | null;
   applied: AppliedPreset | null;
   error: string | null;
-  onChoose: (id: string) => void;
-  onValidate: () => void;
+  onLoad: (id: string) => void;
   onRetryDefaults: () => void;
 }
 
@@ -51,18 +42,15 @@ function ScenarioLibrary({
   pending,
   validating,
   unappliedInput,
-  candidate,
   applied,
   error,
-  onChoose,
-  onValidate,
+  onLoad,
   onRetryDefaults,
 }: ScenarioLibraryProps) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [page, setPage] = useState(1);
-  const canChoose = defaultsReady && !validating && !pending && !unappliedInput;
-  const canValidate = candidate !== null && !validating && !pending && !unappliedInput;
+  const canLoad = defaultsReady && !loading && !validating && !pending && !unappliedInput;
   const query = search.trim().toLowerCase();
   const categories = presetCategories.map((entry) => ({
     ...entry,
@@ -84,15 +72,15 @@ function ScenarioLibrary({
     <Card variant="outlined">
       <CardHeader
         title="Scenario library"
-        subheader="Choose a preset and validate it to load its JSON into the editor below."
+        subheader="Load a preset to validate it and replace the JSON in the editor below."
       />
       <CardContent>
         <Stack spacing={2}>
           <Typography variant="body2" color="text.secondary">
             Explore links, queues, loss, workloads, routing, reference experiments and edge cases, or run the
             unpaced simulator throughput benchmark.
-            Review its JSON or planned topology before starting. Choosing a preset does not
-            change the applied document or start a run.
+            Loading a preset updates the JSON and planned topology after validation.
+            Review them before starting a run.
           </Typography>
 
           {loading && (
@@ -158,14 +146,14 @@ function ScenarioLibrary({
 
           <Grid container spacing={2}>
             {visiblePresets.map((preset) => {
-              const selected = candidate?.id === preset.id;
+              const isApplied = applied?.id === preset.id;
               return (
                 <Grid key={preset.id} size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
                   <Card
                     variant="outlined"
                     sx={{
                       width: '100%',
-                      borderColor: selected ? 'primary.main' : 'divider',
+                      borderColor: isApplied ? 'primary.main' : 'divider',
                     }}
                   >
                     <CardContent>
@@ -180,12 +168,12 @@ function ScenarioLibrary({
                           {preset.description}
                         </Typography>
                         <Button
-                          variant={selected ? 'contained' : 'outlined'}
-                          disabled={!canChoose || selected}
-                          aria-label={`Choose ${preset.title}`}
-                          onClick={() => onChoose(preset.id)}
+                          variant={isApplied ? 'contained' : 'outlined'}
+                          disabled={!canLoad}
+                          aria-label={`Load preset: ${preset.title}`}
+                          onClick={() => onLoad(preset.id)}
                         >
-                          {selected ? 'Chosen' : 'Choose'}
+                          Load preset
                         </Button>
                       </Stack>
                     </CardContent>
@@ -203,15 +191,6 @@ function ScenarioLibrary({
               color="primary"
               size="small"
             />
-          )}
-
-          {candidate && (
-            <Stack spacing={1} alignItems="flex-start">
-              <Typography variant="subtitle2">Selected candidate: {candidate.title}</Typography>
-              <Button variant="outlined" disabled={!canValidate} onClick={onValidate}>
-                {validating ? 'Validating…' : 'Validate and load preset'}
-              </Button>
-            </Stack>
           )}
 
           {applied && (

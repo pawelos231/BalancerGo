@@ -19,8 +19,9 @@ For Docker Compose, ports and build instructions, see the [root README](../READM
 - **Simulation** (`/`): edit configuration, click **Start simulation**, monitor
   backends, **Stop and clear**, or **Stop and save to Results**. The **Scenario library** offers
   ready experiments with different client/backend rates and shared LB bottlenecks.
-  Choose and validate a preset to load its complete JSON into the applied draft, then use the
-  single **Start simulation** button. Selection alone changes no run.
+  Click **Load preset** on a card to validate and apply its complete JSON to the editor
+  and planned topology, then use the single **Start simulation** button. Loading a
+  preset does not start a run.
 - **Topology** (`/topology`): explore the live graph, pan and zoom, and select a
   node or directed link to inspect its settings and counters. Client groups start
   collapsed. Expand a group, select one of its members, or search for any client
@@ -71,7 +72,8 @@ contract, and the generic `version` field is rejected. See the
 
 `presets.ts` exposes 37 scenarios across links, queues, loss, workloads, routing,
 edge cases, performance and reference experiments. Search by title/description or filter by category;
-the library shows six cards per page. Choosing or filtering never starts a run.
+the library shows six cards per page. Each card has a **Load preset** button;
+loading or filtering never starts a run.
 The original four topology presets still inherit backend defaults. The other
 network and reference factories in `scenarios/presets/` use a fixed baseline so CLI overrides
 do not silently change the experiment being tested. Ordinary experiments run
@@ -140,9 +142,10 @@ resource resizing and Add/Copy/Move/Delete state controls are historical behavio
 The planned topology slider and resource/link inspectors remain available for
 read-only inspection. The backend contract and simulator behavior are unchanged.
 
-`ScenarioLibrary.tsx` selects a candidate and applies it only after successful
-server validation. Loading a preset replaces the complete applied document; validation
-blocks editing and Start until it completes. `api.ts` wraps
+`ScenarioLibrary.tsx` validates and applies a preset directly from its card's
+**Load preset** button. Successful validation replaces the complete applied document
+and planned topology; failure preserves the previous document. Pending JSON edits
+block loading, and validation blocks editing and Start until it completes. `api.ts` wraps
 the defaults, validate, Start and current-run endpoints; `runtimeApi.ts` selects
 the backend address. `ScenarioRunDetails.tsx` displays the exact initial run
 document. Client-generator and routing changes are declared in the scenario

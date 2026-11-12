@@ -8,7 +8,7 @@ import { validateScenario } from '../scenarios/validation';
 import type { CurrentSimulation, Scenario, ValidatedScenario } from '../scenarios/types';
 import type { SimulationMetadata } from '../types';
 import ScenarioLibrary from './ScenarioLibrary';
-import type { AppliedPreset, PresetCandidate } from './ScenarioLibrary';
+import type { AppliedPreset } from './ScenarioLibrary';
 import ScenarioFiles from './ScenarioFiles';
 import type { ScenarioFileNotice } from './ScenarioFiles';
 import ScenarioRunDetails from './ScenarioRunDetails';
@@ -39,7 +39,6 @@ function ExperimentSetup({
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
-  const [candidate, setCandidate] = useState<PresetCandidate | null>(null);
   const [applied, setApplied] = useState<AppliedPreset | null>(null);
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,15 +99,6 @@ function ExperimentSetup({
     }
   }, [scenario, unappliedDocument, onPreviewChange]);
 
-  function choosePreset(id: string) {
-    if (!defaults || validationRef.current || pending
-      || hasUnappliedDocument()) return;
-    const preset = scenarioPresets.find((entry) => entry.id === id);
-    if (!preset) return;
-    setCandidate({ id, title: preset.title, scenario: preset.build(defaults) });
-    setError(null);
-  }
-
   // Lock every draft action until reading and server validation have both finished.
   // Keep the old applied document unless the complete operation succeeds.
   async function validateAndApply(
@@ -145,18 +135,21 @@ function ExperimentSetup({
     }
   }
 
-  function validatePreset() {
-    if (!candidate || hasUnappliedDocument()) return;
-    const selected = candidate;
+  // A single click validates the preset; only success replaces the applied document.
+  function loadPreset(id: string) {
+    if (!defaults || loading || validationRef.current || pending || hasUnappliedDocument()) return;
+    const preset = scenarioPresets.find(entry => entry.id === id);
+    if (!preset) return;
+
     void validateAndApply(
-      (signal) => scenarioApi.validate(selected.scenario, signal),
+      (signal) => scenarioApi.validate(preset.build(defaults), signal),
       (result) => {
         setApplied({
-          id: selected.id,
-          title: selected.title,
+          id: preset.id,
+          title: preset.title,
           summary: result.summary,
         });
-        setFileNotice({ severity: 'success', message: `Loaded preset: ${selected.title}.` });
+        setFileNotice({ severity: 'success', message: `Loaded preset: ${preset.title}.` });
       },
     );
   }
@@ -170,7 +163,6 @@ function ExperimentSetup({
         return scenarioApi.validateDocument(document, signal);
       },
       () => {
-        setCandidate(null);
         setApplied(null);
         setFileNotice({ severity: 'success', message: `Imported ${file.name}. Ready for Start.` });
       },
@@ -202,7 +194,6 @@ function ExperimentSetup({
     void validateAndApply(
       signal => validateEditorDocument(document, scenarioApi, signal),
       () => {
-        setCandidate(null);
         setApplied(null);
         setFileNotice({ severity: 'success', message: 'Applied JSON document. Ready for Start.' });
       },
@@ -263,11 +254,9 @@ function ExperimentSetup({
         pending={pending}
         validating={validating}
         unappliedInput={unappliedDocument}
-        candidate={candidate}
         applied={applied}
         error={error}
-        onChoose={choosePreset}
-        onValidate={validatePreset}
+        onLoad={loadPreset}
         onRetryDefaults={reloadDefaults}
       />
 
