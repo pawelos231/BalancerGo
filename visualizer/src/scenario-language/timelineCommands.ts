@@ -1,11 +1,13 @@
 import type { ScenarioState } from '../scenarios/types.ts';
 import { backendFields, balancerFields, clientStreamFields, mutableClientFields } from './bindings.ts';
-import type { FieldWriter } from './fields.ts';
+import { FieldWriter } from './fields.ts';
 import { endpointName, prefixName } from './identity.ts';
 import { writeEndpointNetwork } from './network.ts';
 import { LanguageError } from './source.ts';
 import type { Command } from './syntax.ts';
 import { exactInteger } from './values.ts';
+import { compileBackend } from './resources.ts';
+import type { BackendPlan } from './resources.ts';
 
 // Apply source commands to a private copy; the builder publishes one complete state afterward.
 export function applyTimelineCommands(
@@ -13,12 +15,30 @@ export function applyTimelineCommands(
   state: ScenarioState,
   writer: FieldWriter,
   path: string,
+  backendPlan: BackendPlan,
 ): void {
   const backendIndices = new Map(state.resources.backends.map((backend, index) => [backend.id, index]));
   const groupIndices = new Map(state.workload.clientGroups.map((group, index) => [group.id, index]));
   const overrideIndices = new Map<string, Map<bigint, number>>();
 
   for (const command of commands) {
+    if (command.kind === 'add') {
+      const declarations = backendPlan.additions.get(command);
+      if (!declarations) {
+        throw new LanguageError(`${command.declaration.keyword.text} additions are not available yet.`, command.range);
+      }
+      for (const declaration of declarations) {
+        const id = endpointName(declaration.argument!);
+        const index = state.resources.backends.length;
+        const backend = compileBackend(
+          declaration, backendPlan.addresses.get(id)!, new FieldWriter(writer.locations),
+          `${path}.resources.backends[${index}]`,
+        );
+        state.resources.backends.push(backend);
+        backendIndices.set(id, index);
+      }
+      continue;
+    }
     if (command.kind !== 'set') {
       throw new LanguageError(`${command.kind} compilation is not available yet.`, command.range);
     }

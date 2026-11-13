@@ -76,3 +76,34 @@ at 1s {
   assert.equal(overrides[1].index, 499);
   assert.deepEqual(overrides[1].stream, { bytes: 2000, packetGapNanoseconds: 1_000_000 });
 });
+
+// Even a future ID sorted before the initial backend is reserved before state zero is built.
+test('language timeline reserves future backend identities and supports add then set atomically', () => {
+  const result = compileScenario(`run 10s
+balancer lb {}
+backend zebra-0 {}
+at 1s {
+    add backends api { count 2 link 10MB }
+    set backend api-0 link 20MB
+}
+at 2s { set backend zebra-0 host { packet-time 10us } }
+`);
+  const initial = result.states['0'].resources.backends;
+  assert.equal(initial.length, 1);
+  assert.equal(initial[0].address, '10.0.0.3');
+  const added = result.states['1000000000'].resources.backends;
+  assert.deepEqual(added.map(backend => backend.id), ['zebra-0', 'api-0', 'api-1']);
+  assert.equal(added[1].network.toLoadBalancer.bandwidthBitsPerSecond, 160_000_000);
+  assert.equal(added[2].network.toLoadBalancer.bandwidthBitsPerSecond, 80_000_000);
+  assert.equal(result.states['2000000000'].resources.backends[0].address, initial[0].address);
+});
+
+// A reference must follow its addition, while IDs and counts are reserved across the whole source.
+test('language timeline backend additions reject duplicate IDs, premature references and global excess', () => {
+  assert.throws(() => compileScenario(`${base}at 1s { add backend api-0 {} }`), /Duplicate backend/);
+  assert.throws(() => compileScenario(`${base}at 1s {
+    set backend added-0 link 1MB
+    add backend added-0 {}
+  }`), /Unknown backend/);
+  assert.throws(() => compileScenario(`${base}at 1s { add backends extra { count 10000 } }`), /10,000 backends/);
+});

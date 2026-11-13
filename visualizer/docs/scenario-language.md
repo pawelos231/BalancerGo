@@ -13,8 +13,8 @@ Static compilation supports `run`, network defaults, current TCP settings, one L
 backends and compact client groups, including CPU and directional link settings.
 Named network profiles, bulk backend shorthand and inheritance are supported.
 Individual client overrides are supported. The full transfer fixture is executable.
-Timeline `set` commands compile to complete atomic native states. Other timeline
-commands and the editor remain unavailable and fail explicitly. The builder
+Timeline `set` and backend `add` commands compile to complete atomic native states.
+Other timeline commands and the editor remain unavailable and fail explicitly. The builder
 checks exact ordering, independent state copies and output-size bounds.
 Native validation errors are mapped back to the nearest supplied source field
 or containing block, including profiles and expanded backend templates.
@@ -291,7 +291,9 @@ Block settings can follow `set`, for example
 leaves drain without changing physical availability. `up` does not cancel drain.
 
 Within one `at`, commands are read in source order: a resource must already exist
-when referenced. `add` may be followed by `set` for that new resource. Writing
+when referenced. `add` may be followed by `set` for that new resource: its
+initializer establishes starting values, which a following setter may replace.
+Conflict checks apply between subsequent mutations, not against that initializer. Writing
 the same native leaf twice is an error, including overlapping shorthand writes:
 `link` overlaps `to-lb.link`, and `down` overlaps `available`. Separate properties
 of one resource may change in the same block. The final state is validated after

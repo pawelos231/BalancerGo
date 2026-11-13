@@ -2,18 +2,18 @@ import type { ScenarioBackendState } from '../scenarios/types.ts';
 import { backendFields } from './bindings.ts';
 import { defaultHost } from './defaults.ts';
 import { FieldWriter } from './fields.ts';
-import { endpointName, prefixName } from './identity.ts';
+import { backendAddresses, endpointName, prefixName } from './identity.ts';
 import { selectEndpointProfile, writeEndpointNetwork } from './network.ts';
 import { LanguageError } from './source.ts';
-import type { Declaration, Property } from './syntax.ts';
+import type { Command, Declaration, Program, Property } from './syntax.ts';
 import { countValue } from './values.ts';
 
 // Expand only backend templates; clients remain compact runtime generators.
-export function expandBackends(declarations: Declaration[]): Declaration[] {
+export function expandBackends(declarations: Declaration[], capacity = 10_000): Declaration[] {
   const expanded: Declaration[] = [];
   for (const declaration of declarations) {
     if (declaration.keyword.text === 'backend') {
-      if (expanded.length === 10_000) {
+      if (expanded.length === capacity) {
         throw new LanguageError('At most 10,000 backends are supported.', declaration.range);
       }
       expanded.push(declaration);
@@ -37,7 +37,7 @@ export function expandBackends(declarations: Declaration[]): Declaration[] {
       throw new LanguageError('Bulk backends require a count setting.', declaration.range);
     }
     const count = Number(settings.count);
-    if (count > 10_000 - expanded.length) {
+    if (count > capacity - expanded.length) {
       throw new LanguageError('At most 10,000 backends are supported.', declaration.range);
     }
 
@@ -50,6 +50,38 @@ export function expandBackends(declarations: Declaration[]): Declaration[] {
     }
   }
   return expanded;
+}
+
+export interface BackendPlan {
+  initial: Declaration[];
+  declarations: Declaration[];
+  additions: ReadonlyMap<Command, Declaration[]>;
+  addresses: ReadonlyMap<string, string>;
+}
+
+// Reserve identities for the whole source before emitting even the initial state.
+export function planBackends(program: Program): BackendPlan {
+  const initial = expandBackends(program.declarations.filter(declaration => {
+    return declaration.keyword.text === 'backend' || declaration.keyword.text === 'backends';
+  }));
+  const declarations = [...initial];
+  const additions = new Map<Command, Declaration[]>();
+  for (const block of program.timeline) {
+    for (const command of block.commands) {
+      if (command.kind !== 'add' || !['backend', 'backends'].includes(command.declaration.keyword.text)) continue;
+      const expanded = expandBackends([command.declaration], 10_000 - declarations.length);
+      declarations.push(...expanded);
+      additions.set(command, expanded);
+    }
+  }
+
+  const ids = new Set<string>();
+  for (const declaration of declarations) {
+    const id = endpointName(declaration.argument!);
+    if (ids.has(id)) throw new LanguageError(`Duplicate backend ${id}.`, declaration.argument!.range);
+    ids.add(id);
+  }
+  return { initial, declarations, additions, addresses: backendAddresses([...ids]) };
 }
 
 // One expanded backend uses the same construction path as an explicitly declared one.

@@ -2,10 +2,10 @@ import type { Scenario } from '../scenarios/types.ts';
 import { balancerFields, executionFields, linkFields, streamFields, tcpFields } from './bindings.ts';
 import { LANGUAGE_VERSION, scenarioDefaults } from './defaults.ts';
 import { FieldWriter } from './fields.ts';
-import { backendAddresses, endpointName, prefixName } from './identity.ts';
+import { endpointName, prefixName } from './identity.ts';
 import { parse } from './parser.ts';
 import { compileProfiles } from './network.ts';
-import { compileBackend, expandBackends } from './resources.ts';
+import { compileBackend, planBackends } from './resources.ts';
 import { LanguageError } from './source.ts';
 import type { Declaration, Program, Property } from './syntax.ts';
 import { countValue, timeValue } from './values.ts';
@@ -64,19 +64,13 @@ export function compileScenario(source: string): Scenario {
   }
   writer.apply(balancer.properties, balancerFields, lb, 'states["0"].resources.loadBalancer');
 
-  const declarations = expandBackends(program.declarations.filter(item => {
-    return item.keyword.text === 'backend' || item.keyword.text === 'backends';
-  }));
+  const backendPlan = planBackends(program);
+  const declarations = backendPlan.declarations;
   const ids = declarations.map(item => endpointName(item.argument!));
-  const used = new Set<string>();
-  for (const [index, id] of ids.entries()) {
-    if (used.has(id)) throw new LanguageError(`Duplicate backend ${id}.`, declarations[index].argument!.range);
-    used.add(id);
-  }
-  const addresses = backendAddresses(ids);
-  state.resources.backends = declarations.map((declaration, index) => {
+  state.resources.backends = backendPlan.initial.map((declaration, index) => {
     return compileBackend(
-      declaration, addresses.get(ids[index])!, writer, `states["0"].resources.backends[${index}]`,
+      declaration, backendPlan.addresses.get(endpointName(declaration.argument!))!,
+      writer, `states["0"].resources.backends[${index}]`,
     );
   });
   const groups = program.declarations.filter(item => item.keyword.text === 'clients');
@@ -91,7 +85,9 @@ export function compileScenario(source: string): Scenario {
   // A backend called regular-1 cannot also denote the second client in group regular.
   const timeline = new TimelineBuilder(scenario, writer.locations, program.range);
   for (const block of program.timeline) {
-    timeline.append(block, (draft, changes, path) => applyTimelineCommands(block.commands, draft, changes, path));
+    timeline.append(block, (draft, changes, path) => {
+      applyTimelineCommands(block.commands, draft, changes, path, backendPlan);
+    });
   }
   const slots = new Map<string, bigint>();
   for (const snapshot of Object.values(scenario.states)) {
