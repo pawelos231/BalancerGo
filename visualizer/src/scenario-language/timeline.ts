@@ -7,7 +7,7 @@ import type { SourceRange } from './source.ts';
 import type { TimelineBlock } from './syntax.ts';
 import { timeValue } from './values.ts';
 
-type ApplyChanges = (state: ScenarioState, writer: FieldWriter, path: string) => void;
+type ApplyChanges = (state: ScenarioState, writer: FieldWriter, path: string, at: bigint) => void;
 const utf8 = new TextEncoder();
 
 // Build complete native states before Start; this never schedules runtime callbacks.
@@ -48,7 +48,7 @@ export class TimelineBuilder {
     // Inherited settings retain their original source; this block replaces only changed origins.
     for (const [relativePath, origin] of this.previousOrigins) locations.set(path + relativePath, origin);
     const writer = new FieldWriter(locations);
-    apply(draft, writer, path);
+    apply(draft, writer, path, at);
 
     // Count only the added entry, keeping size checks linear rather than serializing all prior states.
     const addedBytes = utf8.encode(JSON.stringify({ [key]: draft })).byteLength - 2 + 1;

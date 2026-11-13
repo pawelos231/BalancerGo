@@ -8,6 +8,7 @@ import type { Command } from './syntax.ts';
 import { exactInteger } from './values.ts';
 import { compileBackend } from './resources.ts';
 import type { BackendPlan } from './resources.ts';
+import { compileClientGroup } from './workload.ts';
 
 // Apply source commands to a private copy; the builder publishes one complete state afterward.
 export function applyTimelineCommands(
@@ -15,7 +16,7 @@ export function applyTimelineCommands(
   state: ScenarioState,
   writer: FieldWriter,
   path: string,
-  backendPlan: BackendPlan,
+  context: { backends: BackendPlan; at: bigint },
 ): void {
   const backendIndices = new Map(state.resources.backends.map((backend, index) => [backend.id, index]));
   const groupIndices = new Map(state.workload.clientGroups.map((group, index) => [group.id, index]));
@@ -23,7 +24,21 @@ export function applyTimelineCommands(
 
   for (const command of commands) {
     if (command.kind === 'add') {
-      const declarations = backendPlan.additions.get(command);
+      if (command.declaration.keyword.text === 'clients') {
+        const id = prefixName(command.declaration.argument!);
+        if (groupIndices.has(id)) {
+          throw new LanguageError(`Duplicate client group ${id}.`, command.declaration.argument!.range);
+        }
+        const index = state.workload.clientGroups.length;
+        const group = compileClientGroup(
+          command.declaration, new FieldWriter(writer.locations),
+          `${path}.workload.clientGroups[${index}]`, exactInteger(context.at),
+        );
+        state.workload.clientGroups.push(group);
+        groupIndices.set(id, index);
+        continue;
+      }
+      const declarations = context.backends.additions.get(command);
       if (!declarations) {
         throw new LanguageError(`${command.declaration.keyword.text} additions are not available yet.`, command.range);
       }
@@ -31,7 +46,7 @@ export function applyTimelineCommands(
         const id = endpointName(declaration.argument!);
         const index = state.resources.backends.length;
         const backend = compileBackend(
-          declaration, backendPlan.addresses.get(id)!, new FieldWriter(writer.locations),
+          declaration, context.backends.addresses.get(id)!, new FieldWriter(writer.locations),
           `${path}.resources.backends[${index}]`,
         );
         state.resources.backends.push(backend);

@@ -107,3 +107,41 @@ test('language timeline backend additions reject duplicate IDs, premature refere
   }`), /Unknown backend/);
   assert.throws(() => compileScenario(`${base}at 1s { add backends extra { count 10000 } }`), /10,000 backends/);
 });
+
+// New generators begin at insertion time; later states retain their original start and lifetime budget.
+test('language timeline adds compact client groups without restarting retained generators', () => {
+  const result = compileScenario(`${base}
+at 1s {
+    add clients burst { count 3 payload 1KB every 10ms }
+    set client burst-1 payload 2KB
+}
+at 2s {
+    set balancer egress 100MB
+    add clients later { count 1 start 3s }
+}`);
+  assert.equal(result.states['0'].workload.clientGroups.length, 1);
+  const first = result.states['1000000000'].workload.clientGroups;
+  assert.equal(first[0].startAtNanoseconds, 0);
+  assert.equal(first[1].id, 'burst');
+  assert.equal(first[1].startAtNanoseconds, 1_000_000_000);
+  assert.equal(first[1].overrides![0].index, 1);
+  const second = result.states['2000000000'].workload.clientGroups;
+  assert.equal(second[1].startAtNanoseconds, first[1].startAtNanoseconds);
+  assert.equal(second[1].count, 3);
+  assert.equal(second[2].startAtNanoseconds, 3_000_000_000);
+});
+
+// Groups cannot appear in the past or reuse an ID; reducing a budget never frees reserved slots.
+test('language timeline client additions reject past starts, duplicates and exhausted reservations', () => {
+  assert.throws(() => compileScenario(`${base}at 1s { add clients regular {} }`), /Duplicate client group/);
+  assert.throws(() => compileScenario(`${base}at 1s { add clients past { start 0ns } }`), /at or after/);
+  const full = base.replace('count 4', 'count 16777215');
+  assert.throws(() => compileScenario(`${full}at 1s {
+    set clients regular count 0
+    add clients extra { count 1 }
+  }`), /total reserved clients/);
+  assert.throws(() => compileScenario(`${base}at 1s {
+    set clients burst count 2
+    add clients burst {}
+  }`), /Unknown client group/);
+});

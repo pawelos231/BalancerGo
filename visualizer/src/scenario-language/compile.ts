@@ -85,8 +85,8 @@ export function compileScenario(source: string): Scenario {
   // A backend called regular-1 cannot also denote the second client in group regular.
   const timeline = new TimelineBuilder(scenario, writer.locations, program.range);
   for (const block of program.timeline) {
-    timeline.append(block, (draft, changes, path) => {
-      applyTimelineCommands(block.commands, draft, changes, path, backendPlan);
+    timeline.append(block, (draft, changes, path, at) => {
+      applyTimelineCommands(block.commands, draft, changes, path, { backends: backendPlan, at });
     });
   }
   const slots = new Map<string, bigint>();

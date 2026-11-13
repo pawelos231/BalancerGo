@@ -13,8 +13,9 @@ Static compilation supports `run`, network defaults, current TCP settings, one L
 backends and compact client groups, including CPU and directional link settings.
 Named network profiles, bulk backend shorthand and inheritance are supported.
 Individual client overrides are supported. The full transfer fixture is executable.
-Timeline `set` and backend `add` commands compile to complete atomic native states.
-Other timeline commands and the editor remain unavailable and fail explicitly. The builder
+Timeline `set` and backend/client-group `add` commands compile to complete atomic
+native states. Availability, drain, stop-arrivals commands and the editor remain
+unavailable and fail explicitly. The builder
 checks exact ordering, independent state copies and output-size bounds.
 Native validation errors are mapped back to the nearest supplied source field
 or containing block, including profiles and expanded backend templates.
