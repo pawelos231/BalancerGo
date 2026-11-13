@@ -7,8 +7,9 @@ does not compile this language. No simulation behavior changes in this epic.
 **Implementation status:** the lexer recognizes structure, exact numeric tokens,
 quoted text and comments. The parser reads scalar declarations, named resources,
 profile selection, nested settings and timeline commands. Quantity and scalar
-conversion is implemented, with exact integer arithmetic. Field schemas,
-semantic validation, compilation and the editor are not available yet.
+conversion is implemented, with exact integer arithmetic. Versioned defaults and
+shared field rules handle unknown/duplicate settings, aliases, omission and null.
+Resource bindings, compilation and the editor are not available yet.
 Examples are fixtures for later commits.
 
 ## Quick start
