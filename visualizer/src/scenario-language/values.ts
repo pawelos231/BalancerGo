@@ -81,6 +81,15 @@ export function textValue(token: Token): string {
   return token.value;
 }
 
+// Short language names map explicitly to existing native values, such as rr -> roundRobin.
+export function choice(token: Token, choices: Readonly<Record<string, string>>): string {
+  const known = token.kind === 'word' && Object.prototype.hasOwnProperty.call(choices, token.text);
+  if (!known) {
+    throw new LanguageError(`Expected one of: ${Object.keys(choices).join(', ')}.`, token.range);
+  }
+  return choices[token.text];
+}
+
 // Keep decimal digits exact until units are applied: 0.001KB is exactly one byte.
 export function decimalParts(token: Token): { numerator: bigint; denominator: bigint; unit: string } {
   if (token.kind !== 'number') throw new LanguageError('Expected a numeric value.', token.range);

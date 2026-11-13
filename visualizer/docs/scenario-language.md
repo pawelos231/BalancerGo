@@ -9,8 +9,9 @@ quoted text and comments. The parser reads scalar declarations, named resources,
 profile selection, nested settings and timeline commands. Quantity and scalar
 conversion is implemented, with exact integer arithmetic. Versioned defaults and
 shared field rules handle unknown/duplicate settings, aliases, omission and null.
-Resource bindings, compilation and the editor are not available yet.
-Examples are fixtures for later commits.
+Static compilation supports `run`, network defaults, basic TCP, one LB and single
+backends, including the quick-start fixture. Other resource families, timeline
+compilation and the editor remain unavailable and fail explicitly.
 
 ## Quick start
 
@@ -125,6 +126,20 @@ direction. `host.queue` counts waiting CPU work; network `queue` counts waiting
 packets. Active transmission and packet travel do not occupy queue slots.
 
 ## Resources, inheritance and identity
+
+### Currently implemented static fields
+
+| Declaration | Fields |
+| --- | --- |
+| `run duration` | `seed`, `speed`, `snapshots` (positive real-time interval), `max-events` |
+| `defaults` | `link`, `travel`, `queue`, `loss` |
+| `tcp` | `congestion` (reno, newreno, tahoe, cubic, none), `mss` |
+| `balancer name` | `algo` (rr, ran), `ingress`, `egress` |
+| `backend prefix-index` | `link`, `name` (quoted display name) |
+
+Network defaults apply to endpoint links. Only their bandwidth also supplies the
+initial LB ingress and forwarding rates; other ingress settings retain their
+separate pinned defaults. `none` disables the default fast-retransmit switch.
 
 `backend api-0` declares one backend. `backends api { count 4 ... }` expands
 into independent backends `api-0` through `api-3`; `from 10` starts at `api-10`.
