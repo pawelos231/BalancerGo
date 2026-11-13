@@ -1,0 +1,31 @@
+# Clients keep arriving across the outage and recovery.
+run 8s seed 2333 speed 0
+defaults link 100MB travel 1ms queue 128
+tcp congestion newreno mss 1460B sack true
+
+balancer lb {
+    algo rr
+    ingress 100MB
+    egress 100MB
+}
+
+backends api {
+    count 2
+    link 100MB
+}
+
+clients regular {
+    count 60
+    start 1s
+    payload 100KB
+    every 100ms
+    link 10MB
+}
+
+at 3s {
+    down backend api-0
+}
+
+at 5s {
+    up backend api-0
+}

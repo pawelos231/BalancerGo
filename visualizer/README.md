@@ -122,29 +122,30 @@ it. These rates measure simulator execution, independently of virtual-time TX/RX
 With the throughput preset, transmission durations reach the model's 1 ns floor;
 the large configured bitrates do not represent literal unlimited bandwidth.
 
-`ExperimentSetup.tsx` owns one applied native scenario and its pending JSON text.
+`ExperimentSetup.tsx` owns one applied native scenario. The configuration panel
+has **JSON** and **Language** formats, each with a retained text buffer.
 The **Scenario JSON document** editor shows the complete applied draft, including
 `fixed` settings and all `states`. Paste or edit JSON, then choose **Apply JSON**
 to check it with the same strict local parser and authoritative server validation.
 Invalid text stays editable and leaves the applied draft intact. **Discard JSON
-edits** restores that draft. Pending JSON edits disable preset loading,
+edits** restores that draft. Pending edits disable preset loading,
 file actions and Start, and the planned topology asks you to apply or discard them.
 The editor locks during validation, so a response cannot apply superseded text.
 JSON input and imported files are limited to 2 MiB of UTF-8 text; exact decimal
 integer strings and resource identities are preserved. Applying JSON replaces the
 whole document and does not start a simulation.
 
-**Frontend simplification — 2026-11-11:** the complete JSON editor replaces the
-manual Experiment, TCP, CPU, link and resource accordions and the form/state
-mutators introduced in Epic 2. Edit `fixed`, complete `states`, resources and
-timestamps directly in JSON. The earlier form projection, staged CPU inputs,
-resource resizing and Add/Copy/Move/Delete state controls are historical behavior.
-The planned topology slider and resource/link inspectors remain available for
-read-only inspection. The backend contract and simulator behavior are unchanged.
+In **Language**, edit the shorter declarative `.lb` source, then choose
+**Compile and apply**. The frontend compiles it to native JSON and validates it
+through the same server API. Presets and imported JSON select JSON without
+overwriting retained source. Returning to source that no longer describes the
+applied draft blocks Start until compiled and applied again or JSON is selected.
+Apply or discard pending edits before switching formats. No reverse translation
+from JSON or extra configuration accordions are needed.
 
 `ScenarioLibrary.tsx` validates and applies a preset directly from its card's
 **Load preset** button. Successful validation replaces the complete applied document
-and planned topology; failure preserves the previous document. Pending JSON edits
+and planned topology; failure preserves the previous document. Pending edits
 block loading, and validation blocks editing and Start until it completes. `api.ts` wraps
 the defaults, validate, Start and current-run endpoints; `runtimeApi.ts` selects
 the backend address. `ScenarioRunDetails.tsx` displays the exact initial run
@@ -152,14 +153,17 @@ document. Client-generator and routing changes are declared in the scenario
 states before Start.
 
 The single Start action sends the native draft through HTTP for server validation
-and admission. Unapplied JSON blocks Start. Drafts survive Stop, navigation
+and admission. Pending edits or unapplied active source block Start. Drafts survive Stop, navigation
 and reconnect.
 
 ## Scenario files
 
-The planned frontend language is specified in
-[Scenario language](docs/scenario-language.md). It compiles to the same JSON v2;
-its implementation status and checked input/output examples are documented there.
+The implemented frontend language is documented in
+[Scenario language](docs/scenario-language.md), with a quick start, field/default
+reference, timeline rules and five checked experiment recipes. It compiles to the
+same JSON v2; the Go CLI continues to accept only native JSON. **Import source**
+and **Export source** load/save `.lb` text, preserving comments and unfinished
+edits. Import does not apply or start it; choose **Compile and apply** explicitly.
 
 The **Scenario configuration** panel has **Import JSON**, **Export JSON** and
 **Validate draft** actions. Import sends the original UTF-8 file text to the
@@ -184,8 +188,9 @@ fields use exact virtual nanoseconds, bandwidth uses decimal bit/s and capacitie
 count waiting packets. Keep large integer decimal strings intact. The same file,
 seed, code/model version and runtime command timing reproduce virtual results;
 elapsed real time and simulator throughput still vary with host load and pacing.
-Configured link rates are maxima: stop-and-wait ACK feedback can prevent their
-sum from saturating the LB. Drop totals describe physical hops, not unique payloads.
+Configured link rates are maxima: TCP windows, ACK feedback and other bottlenecks
+can prevent their sum from saturating the LB. Drop totals describe physical hops,
+not unique payloads.
 
 ## Topology data and extension points
 
@@ -278,9 +283,11 @@ share one forwarding budget.
 
 Queue slots exclude active transmissions and packets already travelling. A
 bundle's queue slots are spread across independent queues, so one member may
-drop packets while another has space. The transport model currently uses
-stop-and-wait and fixed retry timers; it does not model congestion control or
-kernel RX processing. Queue losses describe this model rather than real TCP.
+drop packets while another has space. TCP uses sliding receive/congestion windows,
+fixed or adaptive RTO and selectable loss recovery. SACK, ECN and delayed ACK
+are optional. CPU is a configurable processing-cost model; kernel RX queues,
+RSS/NAPI and a complete Linux stack are outside the current model. Queue losses
+and throughput describe this simulator, not a validated kernel implementation.
 
 For additional topologies or load-balancer resources, implement the backend
 model and extend its topology projection first. Then update DTOs and renderers

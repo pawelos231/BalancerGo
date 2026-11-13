@@ -1,0 +1,22 @@
+# Fast links expose host processing time and the smaller CPU queues.
+run 6s seed 2333 speed 0
+defaults link 1GB travel 100us queue 128
+tcp congestion newreno mss 1460B sack true
+
+balancer lb {
+    ingress { link 1GB queue 128 }
+    egress 1GB
+    host { cores 1 packet-time 10us queue 32 }
+}
+
+backend api-0 {
+    link 1GB
+    host { cores 1 packet-time 50us queue 32 }
+}
+
+clients regular {
+    count 16
+    payload 100KB
+    every 1ms
+    link 1GB
+}

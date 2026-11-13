@@ -1,0 +1,21 @@
+# ACKs return through the slower backend-to-LB direction.
+run 6s seed 2333 speed 0
+defaults link 100MB travel 1ms queue 128
+tcp congestion newreno mss 1460B sack true
+
+balancer lb {
+    ingress 100MB
+    egress 100MB
+}
+
+backend api-0 {
+    to-lb { link 1MB travel 5ms }
+    from-lb { link 100MB travel 1ms }
+}
+
+clients regular {
+    count 8
+    payload 100KB
+    every 20ms
+    link 100MB
+}

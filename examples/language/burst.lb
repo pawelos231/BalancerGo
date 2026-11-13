@@ -1,0 +1,34 @@
+# Add a burst at 2s, then stop future births at 4s.
+run 6s seed 2333 speed 0
+defaults link 100MB travel 1ms queue 128
+tcp congestion newreno mss 1460B sack true
+
+balancer lb {
+    ingress 100MB
+    egress 100MB
+}
+
+backends api {
+    count 2
+    link 100MB
+}
+
+clients steady {
+    count 4
+    payload 20KB
+    every 500ms
+    link 10MB
+}
+
+at 2s {
+    add clients burst {
+        count 1000
+        payload 20KB
+        every 10ms
+        link 10MB
+    }
+}
+
+at 4s {
+    stop arrivals burst
+}

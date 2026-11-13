@@ -16,6 +16,12 @@ This repository contains both parts of the project:
 - `simulator/` - Go backend, including `main.go`, `go.mod`, and all Go packages.
 - `visualizer/` - React, TypeScript, and Vite frontend.
 
+Configure experiments in the frontend using native JSON v2 or the shorter `.lb`
+language. Choose **Language**, import/paste source, then **Compile and apply**
+before previewing or starting. The frontend exports native JSON for the Go CLI;
+the backend contract is unchanged. See the
+[language guide and experiment recipes](visualizer/docs/scenario-language.md).
+
 ## Code organization
 
 The simulator keeps one owner for the world and reads it synchronously before

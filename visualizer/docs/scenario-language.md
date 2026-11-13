@@ -1,31 +1,21 @@
 # Scenario language, version 1
 
-This is the specification for the frontend configuration language. Its compiler
-will produce the existing scenario JSON v2. The Go CLI consumes that JSON; it
-does not compile this language. No simulation behavior changes in this epic.
+The frontend compiles this declarative language to the existing
+[scenario JSON v2](../../examples/scenarios/CONTRACT.md). It describes resources,
+traffic and prepared changes in virtual time. It does not change the simulator's
+TCP, routing or event execution. The Go CLI accepts the exported JSON; it does
+not parse `.lb` source. Language version 1 and scenario version 2 are independent.
 
-**Implementation status:** the lexer recognizes structure, exact numeric tokens,
-quoted text and comments. The parser reads scalar declarations, named resources,
-profile selection, nested settings and timeline commands. Quantity and scalar
-conversion is implemented, with exact integer arithmetic. Versioned defaults and
-shared field rules handle unknown/duplicate settings, aliases, omission and null.
-Static compilation supports `run`, network defaults, current TCP settings, one LB and single
-backends and compact client groups, including CPU and directional link settings.
-Named network profiles, bulk backend shorthand and inheritance are supported.
-Individual client overrides are supported. The full transfer fixture is executable.
-Timeline `set` and backend/client-group `add` commands compile to complete atomic
-native states. Backend availability/drain and stop-arrivals actions are supported.
-The CodeMirror source editor supports syntax highlighting, retained drafts,
-located errors and Compile and apply. Only successful local compilation and
-server JSON validation replace the applied draft and planned topology. The editor
-also supports `.lb` import/export (see source files below). The timeline builder
-checks exact ordering, independent state copies and output-size bounds.
-Native validation errors are mapped back to the nearest supplied source field
-or containing block, including profiles and expanded backend templates.
+**Implemented:** static resources, TCP/CPU/link settings, profiles, compact client
+groups, individual overrides and the timeline commands in this reference. The
+CodeMirror editor supports highlighting, located diagnostics, retained drafts,
+`.lb` import/export and Compile and apply. Compilation and native validation
+complete before the applied JSON and planned topology are replaced.
 
 ## Quick start
 
 ```text
+language 1
 run 180s seed 2333 speed 1
 defaults link 1GB travel 1ms queue 1024
 tcp congestion reno mss 1460B
@@ -39,22 +29,40 @@ balancer lb {
 backend api-0 {
     link 250MB
 }
+
+clients regular {
+    count 2
+    payload 10KB
+    every 10ms
+    link 10MB
+}
 ```
 
-This declares one LB and one backend, with no clients yet. `1GB` in a link field
+This declares one LB, one backend and two clients, each sending 10,000 payload
+bytes. `1GB` in a link field
 means 1,000,000,000 bytes per second, emitted as 8,000,000,000 bits per second.
 `egress` is the LB's shared forwarding budget, not another physical link.
-The matching files are [basic.lb](../../examples/language/basic.lb) and
-[basic.json](../../examples/language/basic.json).
-Expected output comparisons validate both JSON documents first: the native
-decoder fills ordinary omitted fields such as empty display names and arrays.
+The checked source/JSON pair is [transfer.lb](../../examples/language/transfer.lb)
+and [transfer.json](../../examples/language/transfer.json); the optional language
+line is shown here explicitly. [basic.lb](../../examples/language/basic.lb) is a
+smaller example without clients.
+
+1. Open Simulation, choose **Language** in Scenario configuration, then paste
+   source or choose **Import source**.
+2. Click **Compile and apply**. Fix any located errors; failure preserves the
+   previous applied configuration.
+3. Inspect **Planned topology** at the declared timestamps. It shows configured
+   state, without predicting traffic or measured throughput.
+4. Use **Start simulation**, or switch to JSON and **Export JSON** for Go CLI.
+   Loading or compiling source never starts a run.
 
 ## Source and grammar
 
 The frontend TypeScript module lives in `src/scenario-language/`. It has no
 React or editor dependency. The current language and default set are version 1;
 changing their meaning requires a new documented version. An optional first
-line `language 1` pins that version; omission means version 1. Other versions
+declaration `language 1` pins that version; omission means version 1. Leading
+comments and blank lines are allowed. Other versions
 are errors, never silently interpreted as the current one.
 
 - Files use UTF-8 with extension `.lb`. LF and CRLF have the same meaning.
@@ -75,19 +83,20 @@ are errors, never silently interpreted as the current one.
 - Blocks can nest, for example `host`, `to-lb`, `from-lb`, `rto`, `close`,
   `delayed-ack`, `congestion-control` and `mapping-timeouts`.
 
-The compiler checks unknown declarations and fields. A syntactically recognized
-feature is rejected until its semantic implementation is available.
+The compiler rejects unknown declarations and fields. There are no variables,
+loops, arbitrary expressions or embedded JavaScript.
 
 ## Units and exact numbers
 
 | Context | Accepted units | Meaning |
 | --- | --- | --- |
-| Payload, MSS, windows | B, KB, MB, GB, TB, PB, EB | Decimal bytes, powers of 1000 |
+| Payload, MSS, receive buffer, ssthresh | B, KB, MB, GB, TB, PB, EB | Decimal bytes, powers of 1000 |
 | Link or forwarding rate | B, KB, MB, GB, TB, PB, EB | Decimal bytes **per second** |
 | Time | ns, us, ms, s, m | Exact nanoseconds; m is 60 seconds |
 | Loss or signal probability | % | Percentage; `1%` becomes 0.01 |
 | ECN threshold | % | Queue occupancy percentage; `80%` becomes 80 |
 | Counts, seed, speed | No suffix | Count, exact seed or playback multiplier |
+| Initial / maximum congestion window | No suffix | Number of MSS-sized segments |
 
 Conversions to integer native fields must be exact: `0.5ms` is valid;
 `0.1ns` is invalid. Field limits still apply after conversion. In particular,
@@ -117,6 +126,7 @@ The version-1 defaults are independent of the running backend and its CLI flags:
 | LB ingress travel / algorithm | 0ns / rr |
 | LB ingress and forwarding rates | Network default bandwidth |
 | Host cores / packet time / queue | 1 / 0ns (bypass) / 1024 |
+| Backend availability / administration | true / active |
 | Stream packets / payload / segment gap | 10,000 / -1 (packets × 1024 bytes) / 0ns |
 | Client count / start / birth gap | 1 / 0ns / 0ns |
 | MSS / receive buffer | 1024B / 65,535B |
@@ -129,7 +139,7 @@ The version-1 defaults are independent of the running backend and its CLI flags:
 | MSL / FIN wait / FIN retries | 30s / 60s / 5 |
 | Client / backend half-open / backend established idle | 20s / 5s / 0ns |
 | Mapping half-open / established / closing / reset idle | 5s / 50s / 120s / 10s |
-| Network queue policy / ECN threshold / signal probability | tailDrop / 0% / 100% |
+| Network queue policy / ECN threshold / signal probability | tail-drop / 0% / 100% |
 
 `link` sets both endpoint directions. `to-lb` and `from-lb` override only that
 direction. `host.queue` counts waiting CPU work; network `queue` counts waiting
@@ -137,40 +147,77 @@ packets. Active transmission and packet travel do not occupy queue slots.
 
 ## Resources, inheritance and identity
 
-### Currently implemented static fields
+### Execution and top-level fields
 
-| Declaration | Fields |
+| Declaration / field | Meaning and limits |
 | --- | --- |
-| `run duration` | `seed`, `speed`, `snapshots` (positive real-time interval), `max-events` |
-| `defaults` | `link`, `travel`, `queue`, `loss`, `payload`, `packets`, `segment-gap` |
-| `tcp` | See the TCP table below |
-| `balancer name` | `algo` (rr, ran), `ingress`, `egress` |
-| `backend prefix-index` | `link`, `name` (quoted display name) |
-| `clients group` | `count`, `start`, `every`, `payload`, `packets`, `segment-gap`, `link` |
+| `language 1` | Optional first declaration; only version 1 is supported |
+| `run duration` | Required positive virtual duration |
+| `run.seed` | Signed int64, -9,223,372,036,854,775,808 through 9,223,372,036,854,775,807 |
+| `run.speed` | Finite nonnegative playback multiplier; 0 runs without wall-clock pacing |
+| `run.snapshots` | Positive **real-time** interval between UI observations |
+| `run.max-events` | 1 through 18,446,744,073,709,551,615 DES events |
+| `defaults` | Network fields below plus `payload`, `packets`, `segment-gap`; fixed for the run |
+| `profile name` | Named network patch, with the network fields below; fixed for the run |
+| `tcp` | Fixed transport settings; see TCP fields |
 
-Every endpoint also accepts `travel`, `queue`, `loss`, `queue-policy`
-(tail-drop/threshold), `ecn-threshold` (0–100%) and `signal-probability` (0–100%).
-These network fields are also available in `defaults` and the LB ingress block.
+Times fit a signed int64 number of nanoseconds. Positive speed must also keep
+the paced duration within that range. `speed` changes wall-clock playback, not
+virtual transmission/CPU cost. Seed controls the model's existing random streams
+(routing, link loss and probabilistic queue signaling), not generated addresses.
+
+### Network, host and balancer fields
+
+The same network fields are accepted by `defaults`, `profile`, endpoint settings,
+endpoint `to-lb`/`from-lb` blocks and the LB's `ingress` block:
+
+| Field | Meaning and limits |
+| --- | --- |
+| `link` | Positive byte/s rate; after multiplying by eight, bit/s must fit int64 |
+| `travel` | Nonnegative virtual packet travel time after transmission |
+| `queue` | 0 through int64 maximum waiting packet slots; full queues drop arrivals |
+| `loss` | Random loss probability, 0% through 100% |
+| `queue-policy` | `tail-drop` or `threshold` |
+| `ecn-threshold` | Waiting occupancy threshold, 0% through 100%; used by `threshold` |
+| `signal-probability` | Probability of signaling above the threshold, 0% through 100% |
+
+With `threshold`, waiting occupancy includes the incoming packet. Eligible ECN
+packets can be CE-marked; packets without ECN capability can be dropped early.
+Full queues still drop packets. `tail-drop` does not use the threshold or signal
+probability. For example, `queue-policy threshold ecn-threshold 80%
+signal-probability 100%` signals every eligible waiting arrival at that occupancy.
+Threshold 0% is valid; it does not disable a selected threshold policy. Use
+`tail-drop` or signal probability 0% to disable early signaling.
+
+| Declaration / block | Fields |
+| --- | --- |
+| `balancer name` | `algo` (`rr`, `ran`), `ingress` (rate or network block), `egress` (rate), `host`, `mapping-timeouts` |
+| `backend prefix-index` | Network settings, `use`, `to-lb`, `from-lb`, `name` (quoted display text), `host`, `available`, `admin` |
+| `backends prefix` | Same backend settings plus required `count` and optional `from`; see identities below |
+| `host` | `cores` (1-1024), `packet-time` (nonnegative time), `queue` (0-1,000,000 waiting CPU packets) |
+| `mapping-timeouts` | `half-open`, `established`, `closing`, `reset` (nonnegative time; zero disables cleanup) |
+| `backend.available` | `true` / `false`: physical availability |
+| `backend.admin` | `active` / `drain`: administrative admission |
+
 `to-lb { ... }` and `from-lb { ... }` override those fields in one direction.
 Directional settings take precedence regardless of textual order; explicit null
 removes that directional patch and restores native inheritance.
 
-`balancer.ingress` accepts either a rate or a block with the same link settings.
-`egress` remains a shared rate budget. LB and backends accept
-`host { cores 2 packet-time 10us queue 1024 }`: 1–1024 cores, nonnegative packet
-time (zero bypasses CPU), and 0–1,000,000 waiting CPU packets. These are distinct
-from network FIFO slots. The native duration/resource-overflow check still applies.
-LB `mapping-timeouts` accepts `half-open`, `established`, `closing`, and `reset`
-as nonnegative times; zero disables cleanup. Host and timeout patches accept null.
-Backends also accept `available true/false` and `admin active/drain`, including
-nullable native patches. `down` and `up` change only physical availability;
+For example, `host { cores 2 packet-time 10us queue 1024 }` models two workers
+and 1024 waiting packets. Packet time zero bypasses CPU. Queue slots are separate
+from network FIFOs. The native duration/resource-overflow check still applies:
+duration times the relevant core/queue bound must fit int64. Nullable CPU and
+mapping timeout leaves restore model defaults. `down` and `up` change only physical availability;
 `drain` changes only administrative admission. Use `set backend api-0 admin active`
 to leave drain. Health observed by the LB remains runtime state, not a language
 field. No action removes the backend, terminates clients or migrates active TCP.
 
 Network defaults apply to endpoint links. Only their bandwidth also supplies the
 initial LB ingress and forwarding rates; other ingress settings retain their
-separate pinned defaults. `none` disables the default fast-retransmit switch.
+separate pinned defaults. Ingress is one shared physical receiver for client and
+backend arrivals. Egress controls the shared forwarding budget over separate
+output FIFOs/links, not one FIFO per client group. These are configured limits,
+not promised per-client throughput. No RSS/NAPI or full Linux stack is implied.
 
 ### TCP fields
 
@@ -193,8 +240,32 @@ threshold must be at least twice MSS. SACK requires Reno/NewReno/CUBIC with fast
 retransmit. ECN requires congestion control. `none` defaults fast retransmit to
 false, but an explicitly incompatible setting is rejected. `congestion` and
 `congestion-control.mode` are aliases and cannot both be supplied.
+`none` also forbids a nonzero maximum-window cap.
+
+Initial and maximum windows cannot exceed `floor(int64 maximum / MSS)` segments.
+The slow-start threshold cannot exceed int64 maximum bytes. MSL cannot exceed
+half the int64 nanosecond range because TIME_WAIT lasts twice MSL. Other times
+must fit int64. A high MSS may require raising the default slow-start threshold.
+Packet sizes are manually configured; the language adds no MSS negotiation.
 
 ### Resource identities and workloads
+
+| Declaration | Fields |
+| --- | --- |
+| `clients group` | `count`, `start`, `every`, `payload`, `packets`, `segment-gap`, network settings, `use`, `to-lb`, `from-lb` |
+| `client group-index` | `payload`, `packets`, `segment-gap`, network settings, `use`, `to-lb`, `from-lb` |
+| Stream `payload` | Nonnegative bytes per client, or `-1` for the packet-count fallback |
+| Stream `packets` | Nonnegative count of 1024-byte payload units, used only when effective payload is -1 |
+| Stream `segment-gap` | Nonnegative virtual delay between original TCP segment sends |
+| Group `count` | 0-16,777,215 lifetime client slots, also bounded by the whole timeline's reservations |
+| Group `start` | Nonnegative absolute virtual time; fixed once the group exists |
+| Group `every` | Nonnegative virtual time between client births; zero schedules births together |
+
+Explicit payload takes precedence over packet count; 0B is an empty transfer.
+Effective payload must not exceed int64 maximum minus 40 bytes. Packet-count
+fallback must fit that same bound after multiplication by 1024. CPU settings
+belong to the LB and backends, not client generators. Births after the horizon
+remain unstarted, so a group's configured count need not equal its created count.
 
 See [transfer.lb](../../examples/language/transfer.lb) and its matching
 [transfer.json](../../examples/language/transfer.json) for an executable workload.
@@ -224,6 +295,8 @@ Client aliases and explicit backend IDs must not collide. LB and group IDs also
 share the native resource namespace; profile names have a separate namespace.
 Client indices refer to historically reserved slots, not current active clients.
 Total reserved slots across the timeline cannot exceed 16,777,215.
+This total is the sum of each group's historical maximum count, not the current
+number of active connections.
 
 An initial `client regular-1 { ... }` accepts endpoint network settings, a profile,
 `payload`, `packets` and `segment-gap`. It may precede its group's declaration.
@@ -244,6 +317,14 @@ Profile definitions cannot change inside `at`; endpoints may select an existing
 profile there. Explicit zero overrides an inherited value. A nullable
 patch's `null` means inherit, as in native JSON. Resetting a previous DSL override
 to `null` removes that patch; it does not inherit the preceding state's value.
+
+Only nullable scalar leaves accept `null`: TCP settings, CPU settings, mapping
+timeouts, backend availability/admin, endpoint/profile link patches and
+group/individual stream patches. Whole blocks, complete network defaults and LB
+ingress settings do not. An individual stream null inherits its resolved group
+stream; group stream null inherits fixed workload defaults. `use` takes a profile
+name, not a null inheritance instruction or a quoted string. Select an empty
+named profile to return to the unmodified profile base.
 
 `count` is the group's lifetime birth budget, `every` the time between births,
 and `payload` the total bytes per client. `segment-gap` controls new TCP segment
@@ -370,14 +451,61 @@ an omitted default points to its supplied containing declaration instead.
 | Setting the same ingress bandwidth twice | Conflicting writes |
 | Adding a group with `start` before its insertion time | Clients cannot be born in the past |
 
-## Documentation roadmap
+## Five experiment recipes
 
-The static and timeline rules above are specified; compilation is not yet
-implemented. Each implementation commit adds its field mappings, ranges,
-dependencies and examples here. The final reference will include recipes for
-bursts, failure/recovery, slow backends, CPU bottlenecks and asymmetric links.
+Each recipe has a checked `.lb` source and native JSON companion. They run for
+6-8 virtual seconds with speed 0 so CLI checks finish without playback delays.
+Change speed to 1 for live observation, or lengthen duration/payloads for longer
+experiments. These are illustrative configurations, not calibrated hardware
+profiles or guaranteed measurement outcomes.
 
-The compiler validates its complete output with the existing frontend validator.
-Apply and Start retain authoritative backend JSON validation. Diagnostics will
-report source positions and a short explanation. Import or Apply never starts
-a simulation automatically.
+| Recipe | Source / native JSON | What to inspect |
+| --- | --- | --- |
+| Burst and stop | [burst.lb](../../examples/language/burst.lb) / [JSON](../../examples/language/burst.json) | At 2s add staggered clients; at 4s stop future births while created clients continue |
+| Backend failure and return | [backend-failure.lb](../../examples/language/backend-failure.lb) / [JSON](../../examples/language/backend-failure.json) | Physical failure at 3s and return at 5s; transport retries and observed health evolve separately |
+| Slow backend | [slow-backend.lb](../../examples/language/slow-backend.lb) / [JSON](../../examples/language/slow-backend.json) | 1MB/s versus 100MB/s backend links; inspect queues and measured transfer rates |
+| CPU bottleneck | [cpu-bottleneck.lb](../../examples/language/cpu-bottleneck.lb) / [JSON](../../examples/language/cpu-bottleneck.json) | Finite CPU queues with 10us LB and 50us backend processing costs; compare with packet-time 0ns |
+| Asymmetric links | [asymmetric-links.lb](../../examples/language/asymmetric-links.lb) / [JSON](../../examples/language/asymmetric-links.json) | Different data/ACK path rates and travel times; `to-lb` is the backend's return direction |
+
+For a longer combined timeline, see [timeline.lb](../../examples/language/timeline.lb)
+and [timeline.json](../../examples/language/timeline.json). It combines a burst,
+capacity change, failure/recovery and stopped arrivals. The language provides
+ordinary settings and timed state changes; a burst needs no separate runtime
+traffic mechanism.
+
+To run an exported native JSON from the repository root:
+
+```sh
+cd simulator
+go run . -scenario ../examples/language/burst.json -output ../burst-report.json
+```
+
+Report output must be a new file; the CLI refuses to overwrite existing reports.
+Scenario file mode runs without playback pacing. The report records the scenario
+and simulated outcomes; a finished run need not mean every transfer completed
+before the horizon or every TCP connection left TIME_WAIT.
+
+## Limits and extension boundaries
+
+- Source and compiled native JSON each have a 2 MiB UTF-8 size limit. Complete
+  state snapshots can make the output larger than the source.
+- The lexer allows at most 200,000 tokens; setting blocks nest at most 64 levels.
+  Numeric literals contain at most 128 characters. Resource identifiers are
+  bounded by the native 128-byte limit.
+- Compilation rejects the whole document on any invalid field, identity,
+  timestamp, conflict or native cross-field dependency. No partial state is
+  applied, and no validation is deferred into event execution.
+- Unsupported constructs include `remove`/`delete`, dotted property syntax,
+  mutable profiles/defaults/TCP, custom backend addresses or ports, client CPU,
+  direct observed-health settings, multiple LBs and `mss auto`.
+- New congestion algorithms, probability distributions and a full Linux host
+  stack are separate future work. This language does not emulate them.
+
+The compiler lives entirely in `src/scenario-language/`, with no React,
+CodeMirror or backend dependency. The editor calls this one compiler, then the
+existing JSON validation API. Start retains authoritative backend validation.
+There is no reverse compiler, second Go/CLI parser or new runtime config schema.
+
+The frontend test suite checks syntax, exact conversions, field dependencies,
+source locations, fixtures and editor/apply behavior. From `visualizer/`, run
+`npm test`, `npm run lint` and `npm run build`.
