@@ -36,7 +36,7 @@ test('language static compiler rejects invalid identities, duplicates and unavai
   assert.throws(() => compileScenario(`${minimal}\nbalancer another {}`), /Only one balancer/);
   assert.throws(() => compileScenario('run 1s'), /one balancer/);
   assert.throws(() => compileScenario(`${minimal}\nclient regular-0 {}`), /outside its declared group/);
-  assert.throws(() => compileScenario(`${minimal}\nat 1ms {}`), /Timeline compilation/);
+  assert.throws(() => compileScenario(`${minimal}\nat 1ms {}`), /at least one command/);
   assert.throws(() => compileScenario(`language 2\n${minimal}`), /between 1 and 1/);
   assert.throws(() => compileScenario(minimal.replace('lb {}', 'lb { algo p2c }')), /Expected one of/);
 });

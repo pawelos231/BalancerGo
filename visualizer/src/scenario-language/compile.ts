@@ -11,6 +11,7 @@ import type { Declaration, Program, Property } from './syntax.ts';
 import { countValue, timeValue } from './values.ts';
 import { compileClientGroup, compileClientOverrides } from './workload.ts';
 import { TimelineBuilder } from './timeline.ts';
+import { applyTimelineCommands } from './timelineCommands.ts';
 
 // Compile once before Start; the engine and Go CLI receive the unchanged JSON v2 contract.
 export function compileScenario(source: string): Scenario {
@@ -88,7 +89,17 @@ export function compileScenario(source: string): Scenario {
   );
 
   // A backend called regular-1 cannot also denote the second client in group regular.
-  const slots = new Map(state.workload.clientGroups.map(group => [group.id, BigInt(group.count)]));
+  const timeline = new TimelineBuilder(scenario, writer.locations, program.range);
+  for (const block of program.timeline) {
+    timeline.append(block, (draft, changes, path) => applyTimelineCommands(block.commands, draft, changes, path));
+  }
+  const slots = new Map<string, bigint>();
+  for (const snapshot of Object.values(scenario.states)) {
+    for (const group of snapshot.workload.clientGroups) {
+      const previous = slots.get(group.id) ?? 0n;
+      if (BigInt(group.count) > previous) slots.set(group.id, BigInt(group.count));
+    }
+  }
   for (const [index, id] of ids.entries()) {
     const dash = id.lastIndexOf('-');
     const count = slots.get(id.slice(0, dash)) ?? 0n;
@@ -97,7 +108,7 @@ export function compileScenario(source: string): Scenario {
     }
   }
 
-  return new TimelineBuilder(scenario, writer.locations, program.range).finish();
+  return timeline.finish();
 }
 
 // Reject recognized future syntax explicitly instead of silently dropping it from the JSON.
@@ -111,9 +122,6 @@ function checkSupported(program: Program): void {
         `${declaration.keyword.text} compilation is not available yet.`, declaration.keyword.range,
       );
     }
-  }
-  if (program.timeline.length > 0) {
-    throw new LanguageError('Timeline compilation is not available yet.', program.timeline[0].range);
   }
 }
 

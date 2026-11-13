@@ -1,12 +1,12 @@
 import type { ScenarioBackendState } from '../scenarios/types.ts';
-import { hostFields } from './bindings.ts';
+import { backendFields } from './bindings.ts';
 import { defaultHost } from './defaults.ts';
 import { FieldWriter } from './fields.ts';
 import { endpointName, prefixName } from './identity.ts';
 import { selectEndpointProfile, writeEndpointNetwork } from './network.ts';
 import { LanguageError } from './source.ts';
 import type { Declaration, Property } from './syntax.ts';
-import { countValue, textValue } from './values.ts';
+import { countValue } from './values.ts';
 
 // Expand only backend templates; clients remain compact runtime generators.
 export function expandBackends(declarations: Declaration[]): Declaration[] {
@@ -68,9 +68,6 @@ export function compileBackend(
   };
   selectEndpointProfile(declaration.profile, backend.network, writer, `${path}.network`);
   const other = writeEndpointNetwork(declaration.properties, backend.network, writer, `${path}.network`);
-  writer.apply(other, {
-    name: { path: 'name', read: textValue },
-    host: { path: 'host', fields: hostFields },
-  }, backend, path);
+  writer.apply(other, backendFields, backend, path);
   return backend;
 }

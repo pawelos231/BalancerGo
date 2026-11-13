@@ -14,6 +14,7 @@ export function writeEndpointNetwork(
   network: ScenarioEndpointNetwork,
   writer: FieldWriter,
   path: string,
+  options: { allowDirectionalOverrides?: boolean } = {},
 ): Property[] {
   const shared: Property[] = [];
   const directions: Property[] = [];
@@ -32,7 +33,7 @@ export function writeEndpointNetwork(
   writer.apply(shared, linkPatchFields, network.fromLoadBalancer, `${path}.fromLoadBalancer`);
 
   // A directional setting intentionally replaces its shared shorthand, rather than conflicting.
-  const directionalWriter = new FieldWriter(writer.locations);
+  const directionalWriter = options.allowDirectionalOverrides === false ? writer : new FieldWriter(writer.locations);
   directionalWriter.apply(directions, {
     'to-lb': { path: 'toLoadBalancer', fields: linkPatchFields },
     'from-lb': { path: 'fromLoadBalancer', fields: linkPatchFields },

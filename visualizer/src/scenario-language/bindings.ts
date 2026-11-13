@@ -2,7 +2,7 @@ import type { FieldRules } from './fields.ts';
 import type { Token } from './lexer.ts';
 import {
   bitRate, booleanValue, choice, countValue, dataBytes, eventLimit,
-  percentage, probability, seedValue, speedValue, timeValue,
+  percentage, probability, seedValue, speedValue, textValue, timeValue,
 } from './values.ts';
 
 export const executionFields: FieldRules = {
@@ -123,3 +123,13 @@ export const balancerFields: FieldRules = {
   host: { path: 'host', fields: hostFields },
   'mapping-timeouts': { path: 'mappingTimeouts', fields: mappingFields },
 };
+
+export const backendFields: FieldRules = {
+  name: { path: 'name', read: textValue },
+  host: { path: 'host', fields: hostFields },
+};
+
+// Existing generators retain their initial start time; other supported settings stay mutable.
+export const mutableClientFields: FieldRules = Object.fromEntries(
+  Object.entries(clientFields).filter(([name]) => name !== 'start'),
+);
