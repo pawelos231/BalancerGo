@@ -157,6 +157,10 @@ and reconnect.
 
 ## Scenario files
 
+The planned frontend language is specified in
+[Scenario language](docs/scenario-language.md). It compiles to the same JSON v2;
+its implementation status and checked input/output examples are documented there.
+
 The **Scenario configuration** panel has **Import JSON**, **Export JSON** and
 **Validate draft** actions. Import sends the original UTF-8 file text to the
 backend before browser JSON parsing, with a 2 MiB byte limit. Only successful

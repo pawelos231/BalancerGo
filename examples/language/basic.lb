@@ -1,0 +1,13 @@
+run 180s seed 2333 speed 1
+defaults link 1GB travel 1ms queue 1024
+tcp congestion reno mss 1460B
+
+balancer lb {
+    algo rr
+    ingress 1GB
+    egress 1GB
+}
+
+backend api-0 {
+    link 250MB
+}
