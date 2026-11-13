@@ -3,11 +3,10 @@ pytanie naukowe: minimalny koszt obliczeniowy potrzebny do wiarygodnego badania 
 Jaki jest minimalny poziom szczegółowości symulacji sieci, który pozwala wiarygodnie oceniać i porównywać algorytmy load balancingu?
 Punkt odniesienia: ns-3 z dokładnym TCP, kolejkami, przepustowością i opóźnieniami.
 
-Twój symulator: stopniowo usuwasz lub upraszczasz mechanizmy — TCP congestion control, jitter, retransmisje, kolejki, model serwera itd.
+stopniowo usuwamy lub upraszczamy mechanizmy TCP - congestion control, jitter, retransmisje, kolejki, model serwera itd.
+porównanie do ns-3
 
-Porównanie: sprawdzasz, kiedy wyniki zaczynają znacząco odbiegać od ns-3.
-
-Optymalizacja: identyfikujesz najtańszy obliczeniowo model, który zachowuje wiarygodność.
+identyfikacja minimalnego modelu który dalej ma dużą dokładność dla takich topologi jak w ns-3
 
 # Intelligent load balancer
 
@@ -31,7 +30,7 @@ publishing detached data. Packages under `simulator/` divide the work as follows
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `engine/`                                                    | Ordered events, virtual time, cancellation and execution limits.                                |
 | `network/`, `client/`, `server/`, `balancer/`, `algorithms/` | Links and queues, client workloads, backend hosts, forwarding and backend selection.            |
-| `protocols/tcp/sender/`                                      | Packetization, send windows, ACK handling, RTT/RTO, loss recovery and sender observations.        |
+| `protocols/tcp/sender/`                                      | Packetization, send windows, ACK handling, RTT/RTO, loss recovery and sender observations.      |
 | `protocols/tcp/receiver/`                                    | Accepted connections, receive ranges, receive windows, ACK policy and receiver observations.    |
 | `model/`                                                     | Native shared packet, connection and measurement types.                                         |
 | `scenario/`                                                  | Scenario documents, exact integer encoding, validation and normalization.                       |
@@ -40,7 +39,7 @@ publishing detached data. Packages under `simulator/` divide the work as follows
 | `internal/contract/`                                         | The existing HTTP, WebSocket and CLI data types and commands.                                   |
 | `internal/app/`                                              | CLI flags, startup, execution-mode selection, scenario files, seed series and report output.    |
 | `internal/live/`                                             | HTTP service wiring, Start/Stop, admission, interactive lifecycle and ordered publication.      |
-| `internal/execution/`                                        | Shared world execution, wall-clock pacing, cancellation and experiment provenance.             |
+| `internal/execution/`                                        | Shared world execution, wall-clock pacing, cancellation and experiment provenance.              |
 | `http/`                                                      | HTTP and WebSocket routing, encoding and delivery of prepared data.                             |
 
 `internal/contract` describes the current frontend and CLI interfaces. The shared
@@ -197,13 +196,13 @@ continues to print its original result format.
 
 The report uses `reportVersion: 1` and groups results with information needed to repeat them:
 
-| Field      | Meaning                                                            |
-| ---------- | ------------------------------------------------------------------ |
+| Field           | Meaning                                                            |
+| --------------- | ------------------------------------------------------------------ |
 | `reportVersion` | Report schema version, currently `1`.                              |
-| `status`   | Runner outcome: `finished`, `failed` or `cancelled`.               |
-| `error`    | Error message for a failed or cancelled run, when present.         |
-| `manifest` | Model, input, effective execution settings and build metadata.     |
-| `result`   | The existing CLI result, including transfer outcomes and counters. |
+| `status`        | Runner outcome: `finished`, `failed` or `cancelled`.               |
+| `error`         | Error message for a failed or cancelled run, when present.         |
+| `manifest`      | Model, input, effective execution settings and build metadata.     |
+| `result`        | The existing CLI result, including transfer outcomes and counters. |
 
 `manifest.scenario` retains the canonical input document, including its original
 requested speed. `scenarioSha256` is the SHA-256 of its compact canonical JSON,
@@ -320,9 +319,9 @@ published port.
 
 `simulator/scenario/` defines the current scenario configuration, identified by `scenarioVersion: 2`:
 
-| Part        | Contents                                                           |
-| ----------- | ------------------------------------------------------------------ |
-| `fixed` | Run-wide execution, TCP, LB identity, link profiles and stream defaults. |
+| Part     | Contents                                                                                     |
+| -------- | -------------------------------------------------------------------------------------------- |
+| `fixed`  | Run-wide execution, TCP, LB identity, link profiles and stream defaults.                     |
 | `states` | Complete resource and workload configurations keyed by decimal nanoseconds, including `"0"`. |
 
 `scenario.Normalize` resolves profiles and overrides into independent states,
@@ -399,7 +398,7 @@ and one complete scenario object, with a maximum body of 2 MiB.
 
 | Method | Route                               | Result                                                                                       |
 | ------ | ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| GET    | `/api/scenarios/defaults`           | Scenario document derived from the Go/CLI settings.                                        |
+| GET    | `/api/scenarios/defaults`           | Scenario document derived from the Go/CLI settings.                                          |
 | POST   | `/api/scenarios/validate`           | Canonical scenario, counts and resolved effective configuration; no model is created.        |
 | POST   | `/api/simulations`                  | `202` with `runId` and `status: "accepted"`.                                                 |
 | GET    | `/api/simulations/current`          | Run ID, lifecycle status and full canonical admitted scenario; `404` when none exists.       |
@@ -1057,12 +1056,12 @@ effective TCP report. Zero disables either limit. Closing uses its own timers.
 The LB keeps only a phase and last activity time for each flow mapping. Its four
 idle limits are independent of endpoint RTO, MSL and FIN-wait settings:
 
-| Observed phase | Native field under `states[at].resources.loadBalancer.mappingTimeouts` | Default |
-|---|---|---:|
-| `halfOpen`: new client SYN | `halfOpenIdleTimeoutNanoseconds` | 5 s |
-| `established`: client ACK or DATA+ACK | `establishedIdleTimeoutNanoseconds` | 50 s |
-| `closing`: FIN from either side | `closingIdleTimeoutNanoseconds` | 120 s |
-| `reset`: RST from either side | `resetIdleTimeoutNanoseconds` | 10 s |
+| Observed phase                        | Native field under `states[at].resources.loadBalancer.mappingTimeouts` | Default |
+| ------------------------------------- | ---------------------------------------------------------------------- | ------: |
+| `halfOpen`: new client SYN            | `halfOpenIdleTimeoutNanoseconds`                                       |     5 s |
+| `established`: client ACK or DATA+ACK | `establishedIdleTimeoutNanoseconds`                                    |    50 s |
+| `closing`: FIN from either side       | `closingIdleTimeoutNanoseconds`                                        |   120 s |
+| `reset`: RST from either side         | `resetIdleTimeoutNanoseconds`                                          |    10 s |
 
 Omission inherits the default; zero disables expiry for that phase only. CLI flags
 are `-lb-half-open-idle-timeout`, `-lb-established-idle-timeout`,
@@ -1291,6 +1290,5 @@ optimization, while also checking that the simulated outcomes remain comparable.
 
 Dependencies, build output, runtime traces, and local repository backups are
 excluded from Git by the root `.gitignore`.
-
 
 Current benchmark scripts require `scenarioVersion: 2`, including archived campaign inputs. Historical archives retain their original field names and require their matching simulator and tools; replay does not convert them.

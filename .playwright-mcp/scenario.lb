@@ -1,0 +1,5 @@
+# CRLF comment: przykład
+run 2s speed 0
+tcp congestion none ecn true
+balancer lb {}
+backend api-0 {}

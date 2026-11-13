@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"load-balancer/model"
-	"load-balancer/protocols/tcp/congestion_control"
+	congestioncontrol "load-balancer/protocols/tcp/congestion_control"
 )
 
 // A one-MSS ceiling stays at one MSS even when many ACKs would normally grow cwnd.
