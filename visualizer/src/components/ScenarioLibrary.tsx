@@ -198,7 +198,7 @@ function ScenarioLibrary({
               <Typography variant="subtitle2">Loaded into editor: {applied.title}</Typography>
               {unappliedInput ? (
                 <Typography variant="body2" color="text.secondary">
-                  Apply or discard the JSON edits before using this draft.
+                  Apply or discard the configuration edits before using this draft.
                 </Typography>
               ) : (
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>

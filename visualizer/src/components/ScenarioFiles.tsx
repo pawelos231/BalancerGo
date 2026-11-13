@@ -27,6 +27,8 @@ interface ScenarioFilesProps {
   notice: ScenarioFileNotice | null;
   document: string;
   unapplied: boolean;
+  jsonDirty: boolean;
+  jsonBlocked: boolean;
   onEditDocument: (document: string) => void;
   onApplyDocument: () => void;
   onDiscardDocument: () => void;
@@ -46,6 +48,8 @@ function ScenarioFiles({
   notice,
   document,
   unapplied,
+  jsonDirty,
+  jsonBlocked,
   onEditDocument,
   onApplyDocument,
   onDiscardDocument,
@@ -72,8 +76,8 @@ function ScenarioFiles({
           {scenario && (
             <ScenarioJsonEditor
               document={document}
-              dirty={unapplied}
-              disabled={busy}
+              dirty={jsonDirty}
+              disabled={busy || jsonBlocked}
               onChange={onEditDocument}
               onApply={onApplyDocument}
               onDiscard={onDiscardDocument}

@@ -1,5 +1,6 @@
 import { Alert, Button, Card, CardContent, CardHeader, Stack } from '@mui/material';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { initialLanguageSource } from '../scenario-language/editor';
 import { formatScenarioDocument, readScenarioFile, serializeScenario } from '../scenarios/files';
 import { validateEditorDocument } from '../scenarios/editor';
 import { scenarioPresets } from '../scenarios/presets';
@@ -12,6 +13,8 @@ import type { AppliedPreset } from './ScenarioLibrary';
 import ScenarioFiles from './ScenarioFiles';
 import type { ScenarioFileNotice } from './ScenarioFiles';
 import ScenarioRunDetails from './ScenarioRunDetails';
+
+const ScenarioLanguageEditor = lazy(() => import('./ScenarioLanguageEditor'));
 
 interface ExperimentSetupProps {
   connected: boolean;
@@ -46,10 +49,14 @@ function ExperimentSetup({
   const [fileNotice, setFileNotice] = useState<ScenarioFileNotice | null>(null);
   const [editedDocument, setEditedDocument] = useState<string | null>(null);
   const editedDocumentRef = useRef<string | null>(null);
+  const [languageSource, setLanguageSource] = useState(initialLanguageSource);
+  const languageSourceRef = useRef(initialLanguageSource);
   const validationRef = useRef<AbortController | null>(null);
   const scenarioRef = useRef<Scenario | null>(null);
   const appliedDocument = useMemo(() => scenario ? formatScenarioDocument(scenario) : '', [scenario]);
-  const unappliedDocument = editedDocument !== null;
+  const unappliedJSON = editedDocument !== null;
+  const unappliedLanguage = languageSource !== initialLanguageSource;
+  const unappliedDocument = unappliedJSON || unappliedLanguage;
   const canStart = scenario !== null && connected && simulation?.status !== 'running'
     && !loading && !pending && !validating && !unappliedDocument;
 
@@ -87,7 +94,7 @@ function ExperimentSetup({
   useEffect(() => {
     if (!scenario) return;
     if (unappliedDocument) {
-      onPreviewChange(null, 'JSON edits have not been applied. Apply or discard them to update the planned topology.');
+      onPreviewChange(null, 'Configuration edits have not been applied. Apply or discard them to update the planned topology.');
       return;
     }
     try {
@@ -170,11 +177,11 @@ function ExperimentSetup({
   }
 
   function hasUnappliedDocument() {
-    return editedDocumentRef.current !== null;
+    return editedDocumentRef.current !== null || languageSourceRef.current !== initialLanguageSource;
   }
 
   function changeDocument(document: string) {
-    if (!scenarioRef.current || validationRef.current || pending) return;
+    if (!scenarioRef.current || validationRef.current || pending || languageSourceRef.current !== initialLanguageSource) return;
     const next = document === appliedDocument ? null : document;
     editedDocumentRef.current = next;
     setEditedDocument(next);
@@ -185,6 +192,20 @@ function ExperimentSetup({
     if (validationRef.current || pending) return;
     editedDocumentRef.current = null;
     setEditedDocument(null);
+    setFileNotice(null);
+  }
+
+  function changeLanguage(source: string) {
+    if (validationRef.current || pending || editedDocumentRef.current !== null) return;
+    languageSourceRef.current = source;
+    setLanguageSource(source);
+    setFileNotice(null);
+  }
+
+  function discardLanguage() {
+    if (validationRef.current || pending) return;
+    languageSourceRef.current = initialLanguageSource;
+    setLanguageSource(initialLanguageSource);
     setFileNotice(null);
   }
 
@@ -268,6 +289,8 @@ function ExperimentSetup({
         notice={fileNotice}
         document={editedDocument ?? appliedDocument}
         unapplied={unappliedDocument}
+        jsonDirty={unappliedJSON}
+        jsonBlocked={unappliedLanguage}
         onEditDocument={changeDocument}
         onApplyDocument={applyDocument}
         onDiscardDocument={discardDocument}
@@ -277,6 +300,21 @@ function ExperimentSetup({
         canStart={canStart}
         onStart={startSimulation}
       />
+
+      <Card variant="outlined">
+        <CardHeader title="Scenario language" />
+        <CardContent>
+          <Suspense fallback={<Alert severity="info">Loading source editor…</Alert>}>
+            <ScenarioLanguageEditor
+              source={languageSource}
+              dirty={unappliedLanguage}
+              disabled={loading || pending || validating || unappliedJSON}
+              onChange={changeLanguage}
+              onDiscard={discardLanguage}
+            />
+          </Suspense>
+        </CardContent>
+      </Card>
 
       {!scenario && (
         <Alert severity="info">Load the server defaults or import a scenario JSON file to begin.</Alert>
