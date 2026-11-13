@@ -1,6 +1,8 @@
 import { Alert, Button, Card, CardContent, CardHeader, Stack } from '@mui/material';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { initialLanguageSource, validateLanguageDocument } from '../scenario-language/editor';
+import {
+  initialLanguageSource, loadLanguageSource, serializeLanguageSource, validateLanguageDocument,
+} from '../scenario-language/editor';
 import { LanguageError } from '../scenario-language/source';
 import { formatScenarioDocument, readScenarioFile, serializeScenario } from '../scenarios/files';
 import { validateEditorDocument } from '../scenarios/editor';
@@ -243,6 +245,46 @@ function ExperimentSetup({
     );
   }
 
+  async function importLanguage(file: File) {
+    if (hasUnappliedDocument() || validationRef.current || pending) return;
+    const controller = new AbortController();
+    validationRef.current = controller;
+    setValidating(true);
+    setFileNotice(null);
+    try {
+      const loaded = await loadLanguageSource(file, controller.signal);
+      if (controller.signal.aborted || validationRef.current !== controller) return;
+      languageSourceRef.current = loaded.source;
+      setLanguageSource(loaded.source);
+      setLanguageError(loaded.diagnostic);
+      setFileNotice({
+        severity: loaded.diagnostic ? 'error' : 'success',
+        message: `Loaded ${file.name} into the source draft. Compile and apply when ready.`,
+      });
+    } catch (failure) {
+      if (!controller.signal.aborted && validationRef.current === controller) {
+        setFileNotice({
+          severity: 'error', message: failure instanceof Error ? failure.message : 'Could not load source.',
+        });
+      }
+    } finally {
+      if (validationRef.current === controller) {
+        validationRef.current = null;
+        if (!controller.signal.aborted) setValidating(false);
+      }
+    }
+  }
+
+  function exportLanguage() {
+    if (validationRef.current || pending) return;
+    try {
+      downloadConfiguration(serializeLanguageSource(languageSourceRef.current), 'scenario.lb', 'text/plain');
+      setFileNotice({ severity: 'success', message: 'Exported scenario.lb source.' });
+    } catch (failure) {
+      setFileNotice({ severity: 'error', message: failure instanceof Error ? failure.message : 'Could not export source.' });
+    }
+  }
+
   function applyDocument() {
     const document = editedDocumentRef.current;
     if (document === null) return;
@@ -286,7 +328,7 @@ function ExperimentSetup({
       result => {
         // Browser side effects run only after the current-operation guard.
         if (languageScenarioRef.current === current) bindLanguageScenario(result.scenario);
-        downloadScenario(document);
+        downloadConfiguration(document);
         setFileNotice({ severity: 'success', message: 'Exported scenario.json.' });
       },
     );
@@ -349,6 +391,8 @@ function ExperimentSetup({
               applied={languageApplied}
               diagnostic={languageError}
               onApply={applyLanguage}
+              onImport={file => { void importLanguage(file); }}
+              onExport={exportLanguage}
               onChange={changeLanguage}
               onDiscard={discardLanguage}
             />
@@ -385,13 +429,13 @@ function ExperimentSetup({
 export default ExperimentSetup;
 
 // A temporary attached link lets the browser save the validated native document.
-function downloadScenario(contents: string) {
-  const blob = new Blob([contents], { type: 'application/json;charset=utf-8' });
+function downloadConfiguration(contents: string, name = 'scenario.json', mime = 'application/json') {
+  const blob = new Blob([contents], { type: `${mime};charset=utf-8` });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   try {
     anchor.href = url;
-    anchor.download = 'scenario.json';
+    anchor.download = name;
     document.body.appendChild(anchor);
     anchor.click();
   } finally {

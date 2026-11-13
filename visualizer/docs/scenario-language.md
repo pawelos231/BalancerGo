@@ -17,7 +17,8 @@ Timeline `set` and backend/client-group `add` commands compile to complete atomi
 native states. Backend availability/drain and stop-arrivals actions are supported.
 The CodeMirror source editor supports syntax highlighting, retained drafts,
 located errors and Compile and apply. Only successful local compilation and
-server JSON validation replace the applied draft and planned topology. The builder
+server JSON validation replace the applied draft and planned topology. The editor
+also supports `.lb` import/export (see source files below). The timeline builder
 checks exact ordering, independent state copies and output-size bounds.
 Native validation errors are mapped back to the nearest supplied source field
 or containing block, including profiles and expanded backend templates.
@@ -324,6 +325,23 @@ It retains the group's identity, start, links, stream and historical overrides.
 It conflicts with another count mutation in the same `at`, and requires an
 already existing group. The complete [timeline.lb](../../examples/language/timeline.lb)
 now compiles to its checked [timeline.json](../../examples/language/timeline.json).
+
+## Source files
+
+Import source accepts UTF-8 `.lb` files up to 2 MiB. It loads the text into the
+source draft and runs the same local compiler for diagnostics. An unfinished
+source remains editable; an unreadable, empty or oversized file leaves the old
+draft unchanged. No import starts a run or replaces applied JSON. Apply or discard
+pending edits before importing another file.
+
+Export source saves the current text, including comments and unfinished edits,
+without compiling it. Imported line endings are preserved until text is edited;
+the editor may normalize them to LF on editing. Diagnostics use line/column
+positions so CRLF files highlight the correct text too.
+
+After Compile and apply, use the existing Export JSON action to save the native
+scenario for Go CLI. JSON export and source export are separate formats; neither
+requires a second compiler or a backend language endpoint.
 
 ## Invalid examples
 
