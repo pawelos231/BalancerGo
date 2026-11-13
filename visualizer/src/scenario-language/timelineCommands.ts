@@ -54,6 +54,20 @@ export function applyTimelineCommands(
       }
       continue;
     }
+    if (command.kind === 'down' || command.kind === 'up' || command.kind === 'drain') {
+      const id = endpointName(command.name);
+      const index = backendIndices.get(id);
+      if (index === undefined) throw new LanguageError(`Unknown backend ${id}.`, command.name.range);
+      const administrative = command.kind === 'drain';
+      const field = administrative ? 'admin' : 'available';
+      const value = administrative ? 'drain' : command.kind === 'up' ? 'true' : 'false';
+      // Actions share the same field writer as set, so overlapping writes are still errors.
+      writer.apply([{
+        key: { kind: 'word', text: field, range: command.range },
+        value: { kind: 'word', text: value, range: command.range },
+      }], backendFields, state.resources.backends[index], `${path}.resources.backends[${index}]`);
+      continue;
+    }
     if (command.kind !== 'set') {
       throw new LanguageError(`${command.kind} compilation is not available yet.`, command.range);
     }

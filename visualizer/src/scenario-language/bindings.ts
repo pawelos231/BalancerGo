@@ -127,6 +127,8 @@ export const balancerFields: FieldRules = {
 export const backendFields: FieldRules = {
   name: { path: 'name', read: textValue },
   host: { path: 'host', fields: hostFields },
+  available: { path: 'physicalAvailable', read: booleanValue, nullable: true },
+  admin: { path: 'administrativeState', read: token => choice(token, { active: 'active', drain: 'drain' }), nullable: true },
 };
 
 // Existing generators retain their initial start time; other supported settings stay mutable.

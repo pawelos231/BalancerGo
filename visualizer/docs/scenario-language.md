@@ -14,8 +14,8 @@ backends and compact client groups, including CPU and directional link settings.
 Named network profiles, bulk backend shorthand and inheritance are supported.
 Individual client overrides are supported. The full transfer fixture is executable.
 Timeline `set` and backend/client-group `add` commands compile to complete atomic
-native states. Availability, drain, stop-arrivals commands and the editor remain
-unavailable and fail explicitly. The builder
+native states. Backend availability/drain actions are supported. Stop-arrivals
+and the editor remain unavailable and fail explicitly. The builder
 checks exact ordering, independent state copies and output-size bounds.
 Native validation errors are mapped back to the nearest supplied source field
 or containing block, including profiles and expanded backend templates.
@@ -159,6 +159,11 @@ time (zero bypasses CPU), and 0–1,000,000 waiting CPU packets. These are disti
 from network FIFO slots. The native duration/resource-overflow check still applies.
 LB `mapping-timeouts` accepts `half-open`, `established`, `closing`, and `reset`
 as nonnegative times; zero disables cleanup. Host and timeout patches accept null.
+Backends also accept `available true/false` and `admin active/drain`, including
+nullable native patches. `down` and `up` change only physical availability;
+`drain` changes only administrative admission. Use `set backend api-0 admin active`
+to leave drain. Health observed by the LB remains runtime state, not a language
+field. No action removes the backend, terminates clients or migrates active TCP.
 
 Network defaults apply to endpoint links. Only their bandwidth also supplies the
 initial LB ingress and forwarding rates; other ingress settings retain their

@@ -145,3 +145,36 @@ test('language timeline client additions reject past starts, duplicates and exha
     add clients burst {}
   }`), /Unknown client group/);
 });
+
+// Drain and physical availability are independent; neither action changes the client workload.
+test('language backend lifecycle maps availability and drain without removing resources', () => {
+  const result = compileScenario(`${base}
+at 1s {
+    down backend api-0
+    drain backend api-0
+}
+at 2s { up backend api-0 }
+at 3s { set backend api-0 admin active }
+`);
+  const first = result.states['1000000000'];
+  assert.equal(first.resources.backends[0].physicalAvailable, false);
+  assert.equal(first.resources.backends[0].administrativeState, 'drain');
+  const restored = result.states['2000000000'].resources.backends[0];
+  assert.equal(restored.physicalAvailable, true);
+  assert.equal(restored.administrativeState, 'drain');
+  assert.equal(result.states['3000000000'].resources.backends[0].administrativeState, 'active');
+  assert.deepEqual(first.workload, result.states['0'].workload);
+  assert.equal(first.resources.backends[0].address, result.states['0'].resources.backends[0].address);
+});
+
+// Action aliases conflict with direct setters to the same field; observed health is never config input.
+test('language backend lifecycle validates static fields and rejects overlapping or unknown actions', () => {
+  const initial = compileScenario(base.replace('api-0 {}', 'api-0 { available false admin drain }'));
+  assert.equal(initial.states['0'].resources.backends[0].physicalAvailable, false);
+  assert.throws(() => compileScenario(`${base}at 1s {
+    down backend api-0
+    set backend api-0 available true
+  }`), /overlaps/);
+  assert.throws(() => compileScenario(`${base}at 1s { drain backend absent-0 }`), /Unknown backend/);
+  assert.throws(() => compileScenario(base.replace('api-0 {}', 'api-0 { health healthy }')), /Unknown setting/);
+});
