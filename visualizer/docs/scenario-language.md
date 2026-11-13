@@ -6,8 +6,9 @@ does not compile this language. No simulation behavior changes in this epic.
 
 **Implementation status:** the lexer recognizes structure, exact numeric tokens,
 quoted text and comments. The parser reads scalar declarations, named resources,
-profile selection, nested settings and timeline commands. Value conversion,
-semantic validation, compilation and the editor are not available yet.
+profile selection, nested settings and timeline commands. Byte and bandwidth
+conversion is exact. Other value conversion, semantic validation, compilation
+and the editor are not available yet.
 Examples are fixtures for later commits.
 
 ## Quick start
@@ -55,7 +56,8 @@ are errors, never silently interpreted as the current one.
 - Identifiers use lowercase letters and internal hyphens. Individual endpoint
   names append a canonical decimal index, for example `api-0` or `web-api-12`.
   Digits elsewhere, empty components and leading index zeroes are errors.
-- Values are decimal integers or fractions, optionally negative where allowed.
+- Values are decimal integers or fractions, optionally negative where allowed;
+  numeric literals have at most 128 characters to bound exact conversion work.
   Exponents, separators and leading `+` are unsupported. Booleans are `true`
   and `false`; `null` is allowed only for an existing nullable patch field.
 - Blocks can nest, for example `host`, `to-lb`, `from-lb`, `rto`, `close`,
