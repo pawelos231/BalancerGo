@@ -118,10 +118,128 @@ The version-1 defaults are independent of the running backend and its CLI flags:
 direction. `host.queue` counts waiting CPU work; network `queue` counts waiting
 packets. Active transmission and packet travel do not occupy queue slots.
 
+## Resources, inheritance and identity
+
+`backend api-0` declares one backend. `backends api { count 4 ... }` expands
+into independent backends `api-0` through `api-3`; `from 10` starts at `api-10`.
+It does not create a runtime backend group. Counts are checked before expansion
+against the existing limit of 10,000 backends. Generated IDs must fit 128 bytes.
+
+Backend addresses are assigned in lexical ID order across the **whole source**,
+including later additions: `10.0.0.1` through `10.0.0.254`, then `10.0.1.1`
+through `10.0.1.254`, continuing in the third octet, with port 80.
+Each address belongs to its ID for the entire document. A retained backend's
+address and port never change between states. Reordering declarations does not
+change addresses; adding another ID may change the address allocation of a
+separately compiled document, which is a different experiment.
+
+`clients regular` declares a compact native client group. `regular-1` refers to
+index 1 in that group; `client regular-1 { ... }` declares a sparse override.
+It never allocates a second client. Runtime IDs remain `client/regular/1`.
+Client aliases and explicit backend IDs must not collide. LB and group IDs also
+share the native resource namespace; profile names have a separate namespace.
+Client indices refer to historically reserved slots, not current active clients.
+Total reserved slots across the timeline cannot exceed 16,777,215.
+
+Endpoint link precedence is defaults → selected profile → endpoint settings →
+directional settings. A client override applies after its resolved group links.
+Profiles describe network settings only; `use mobile` selects a declared profile.
+Profile definitions cannot change inside `at`; endpoints may select an existing
+profile there. Explicit zero overrides an inherited value. A nullable
+patch's `null` means inherit, as in native JSON. Resetting a previous DSL override
+to `null` removes that patch; it does not inherit the preceding state's value.
+
+`count` is the group's lifetime birth budget, `every` the time between births,
+and `payload` the total bytes per client. `segment-gap` controls new TCP segment
+spacing separately. `start` is fixed for an existing group. Without an explicit
+start, an initial group starts at zero and an added group starts at its `at` time.
+Lowering count never kills existing clients or releases their reserved IDs.
+
+## Timeline and atomic states
+
+```text
+at 30s {
+    set balancer ingress 100MB
+    down backend api-0
+    add clients burst {
+        count 10000
+        payload 20MB
+        every 10ms
+    }
+}
+
+at 60s {
+    up backend api-0
+}
+
+at 90s {
+    stop arrivals burst
+}
+```
+
+All initial declarations must precede the first `at`. Times must be strictly
+increasing, unique and satisfy `0 < time < run duration`. They are converted
+exactly to nanoseconds; `1s` and `1000ms` identify the same timestamp.
+Each block produces **one complete native state** cloned from the preceding
+state, then modified and validated. It is not a sequence of runtime callbacks.
+The existing DES applies that prepared state atomically at its timestamp.
+
+Commands use these forms:
+
+| Form | Effect |
+| --- | --- |
+| `set balancer ingress 100MB` | Change a mutable LB setting |
+| `set backend api-0 link 10MB` | Change an existing backend's settings |
+| `set clients regular count 400` | Change a group's budget or other mutable setting |
+| `set client regular-1 payload 20KB` | Change an individual override |
+| `add backend api-2 { ... }` | Add a new independent backend |
+| `add backends extra { count 2 ... }` | Add several independent backends |
+| `add clients burst { ... }` | Add a new client generator |
+| `down backend api-0` / `up backend api-0` | Change physical availability only |
+| `drain backend api-0` | Prevent new mappings; retain existing mappings |
+| `stop arrivals regular` | Set the group's birth budget to zero; keep existing clients |
+
+Block settings can follow `set`, for example
+`set backend api-0 { host { packet-time 10us } }`. `set backend api-0 admin active`
+leaves drain without changing physical availability. `up` does not cancel drain.
+
+Within one `at`, commands are read in source order: a resource must already exist
+when referenced. `add` may be followed by `set` for that new resource. Writing
+the same native leaf twice is an error, including overlapping shorthand writes:
+`link` overlaps `to-lb.link`, and `down` overlaps `available`. Separate properties
+of one resource may change in the same block. The final state is validated after
+all commands, so temporary incomplete combinations are not observed by packets.
+
+| Fixed throughout the run | Mutable in states |
+| --- | --- |
+| Run duration, seed, pacing, snapshots, event limit | LB algorithm, ingress, forwarding and mapping idle timeouts |
+| TCP and default stream settings | Host cores, packet processing time and CPU queue |
+| Global link defaults and profile definitions | Endpoint links and selected existing network profile |
+| LB ID; backend ID/address/port; retained group ID/start | Backend display name, physical availability and drain |
+| Resource role and historical identity reservations | Group count, birth gap, stream and sparse client overrides |
+
+A backend failure does not instantly update health observed by the LB, notify
+clients or reroute established TCP. Stopping arrivals does not terminate existing
+connections. The language exposes the current simulator's behavior only.
+
+## Invalid examples
+
+| Input | Why it fails |
+| --- | --- |
+| `at 30s { ... }` followed by `at 20s { ... }` | Timeline must be strictly increasing |
+| Two `at 1s` blocks, including `at 1000ms` | One atomic block per timestamp |
+| `at 180s` in a 180s run | State must precede the simulation end |
+| `set tcp mss 1200B` inside `at` | TCP is fixed |
+| Declaring `api-01` or `api2-0` | Noncanonical endpoint ID |
+| Bulk `api` count 2 and explicit `api-1` | Duplicate expanded ID |
+| `set backend absent-0 ...` | Unknown resource |
+| Setting the same ingress bandwidth twice | Conflicting writes |
+| Adding a group with `start` before its insertion time | Clients cannot be born in the past |
+
 ## Documentation roadmap
 
-The next specification step defines timeline semantics and complete resource
-identity rules. Each implementation commit adds its field mappings, ranges,
+The static and timeline rules above are specified; compilation is not yet
+implemented. Each implementation commit adds its field mappings, ranges,
 dependencies and examples here. The final reference will include recipes for
 bursts, failure/recovery, slow backends, CPU bottlenecks and asymmetric links.
 

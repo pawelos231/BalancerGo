@@ -1,0 +1,41 @@
+run 180s seed 2333 speed 1
+defaults link 1GB travel 1ms queue 1024
+tcp congestion reno mss 1460B
+
+balancer lb {
+    algo rr
+    ingress 1GB
+    egress 1GB
+}
+
+backends api {
+    count 2
+    link 250MB
+}
+
+clients regular {
+    count 20
+    payload 100MB
+    every 100ms
+    link 10MB
+}
+
+at 30s {
+    set balancer ingress 100MB
+    down backend api-0
+    add clients burst {
+        count 10000
+        payload 20MB
+        every 10ms
+        link 10MB
+    }
+}
+
+at 60s {
+    set balancer ingress 1GB
+    up backend api-0
+}
+
+at 90s {
+    stop arrivals burst
+}

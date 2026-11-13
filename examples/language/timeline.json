@@ -1,0 +1,494 @@
+{
+  "scenarioVersion": 2,
+  "fixed": {
+    "execution": {
+      "durationNanoseconds": 180000000000,
+      "snapshotIntervalNanoseconds": 100000000,
+      "seed": 2333,
+      "speed": 1,
+      "maxEvents": 5000000000
+    },
+    "tcp": {
+      "mssBytes": 1460,
+      "receiveBufferBytes": 65535,
+      "sackEnabled": false,
+      "ECNenabled": false,
+      "congestionControl": {
+        "mode": "reno",
+        "fastRetransmit": true,
+        "cubicFastConvergence": true,
+        "initialWindowSegments": 4,
+        "maximumWindowSegments": 0,
+        "initialSlowStartThresholdBytes": 65535
+      },
+      "rto": {
+        "mode": "adaptive",
+        "exponentialBackoff": true,
+        "initialTimeoutNanoseconds": 1000000000,
+        "minimumTimeoutNanoseconds": 200000000,
+        "maximumTimeoutNanoseconds": 60000000000
+      },
+      "close": {
+        "mslNanoseconds": 30000000000,
+        "finWaitTimeoutNanoseconds": 60000000000,
+        "maxFINRetries": 5
+      },
+      "delayedAck": {
+        "enabled": false,
+        "segmentsPerACK": 2,
+        "maxDelayNanoseconds": 40000000
+      },
+      "clientIdleTimeoutNanoseconds": 20000000000,
+      "backendHalfOpenIdleTimeoutNanoseconds": 5000000000,
+      "backendEstablishedIdleTimeoutNanoseconds": 0
+    },
+    "loadBalancer": {
+      "id": "lb"
+    },
+    "network": {
+      "defaults": {
+        "bandwidthBitsPerSecond": 8000000000,
+        "packetTravelTimeNanoseconds": 1000000,
+        "queueCapacity": 1024,
+        "lossRate": 0,
+        "queuePolicy": "tailDrop",
+        "congestionThresholdPercent": 0,
+        "congestionSignalProbability": 1
+      },
+      "profiles": []
+    },
+    "workload": {
+      "defaults": {
+        "packets": 10000,
+        "bytes": -1,
+        "packetGapNanoseconds": 0
+      }
+    }
+  },
+  "states": {
+    "0": {
+      "resources": {
+        "loadBalancer": {
+          "algorithm": "roundRobin",
+          "ingress": {
+            "bandwidthBitsPerSecond": 8000000000,
+            "packetTravelTimeNanoseconds": 0,
+            "queueCapacity": 1024,
+            "lossRate": 0,
+            "queuePolicy": "tailDrop",
+            "congestionThresholdPercent": 0,
+            "congestionSignalProbability": 1
+          },
+          "forwardingBitsPerSecond": 8000000000,
+          "mappingTimeouts": {
+            "halfOpenIdleTimeoutNanoseconds": 5000000000,
+            "establishedIdleTimeoutNanoseconds": 50000000000,
+            "closingIdleTimeoutNanoseconds": 120000000000,
+            "resetIdleTimeoutNanoseconds": 10000000000
+          },
+          "host": {
+            "cores": 1,
+            "packetProcessingTimeNanoseconds": 0,
+            "queueCapacity": 1024
+          }
+        },
+        "backends": [
+          {
+            "id": "api-0",
+            "address": "10.0.0.1",
+            "port": 80,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              }
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
+            }
+          },
+          {
+            "id": "api-1",
+            "address": "10.0.0.2",
+            "port": 80,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              }
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
+            }
+          }
+        ]
+      },
+      "workload": {
+        "clientGroups": [
+          {
+            "id": "regular",
+            "count": 20,
+            "startAtNanoseconds": 0,
+            "clientGapNanoseconds": 100000000,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              }
+            },
+            "stream": {
+              "bytes": 100000000
+            },
+            "overrides": []
+          }
+        ]
+      }
+    },
+    "30000000000": {
+      "resources": {
+        "loadBalancer": {
+          "algorithm": "roundRobin",
+          "ingress": {
+            "bandwidthBitsPerSecond": 800000000,
+            "packetTravelTimeNanoseconds": 0,
+            "queueCapacity": 1024,
+            "lossRate": 0,
+            "queuePolicy": "tailDrop",
+            "congestionThresholdPercent": 0,
+            "congestionSignalProbability": 1
+          },
+          "forwardingBitsPerSecond": 8000000000,
+          "mappingTimeouts": {
+            "halfOpenIdleTimeoutNanoseconds": 5000000000,
+            "establishedIdleTimeoutNanoseconds": 50000000000,
+            "closingIdleTimeoutNanoseconds": 120000000000,
+            "resetIdleTimeoutNanoseconds": 10000000000
+          },
+          "host": {
+            "cores": 1,
+            "packetProcessingTimeNanoseconds": 0,
+            "queueCapacity": 1024
+          }
+        },
+        "backends": [
+          {
+            "id": "api-0",
+            "address": "10.0.0.1",
+            "port": 80,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              }
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
+            },
+            "physicalAvailable": false
+          },
+          {
+            "id": "api-1",
+            "address": "10.0.0.2",
+            "port": 80,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              }
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
+            }
+          }
+        ]
+      },
+      "workload": {
+        "clientGroups": [
+          {
+            "id": "regular",
+            "count": 20,
+            "startAtNanoseconds": 0,
+            "clientGapNanoseconds": 100000000,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              }
+            },
+            "stream": {
+              "bytes": 100000000
+            },
+            "overrides": []
+          },
+          {
+            "id": "burst",
+            "count": 10000,
+            "startAtNanoseconds": 30000000000,
+            "clientGapNanoseconds": 10000000,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              }
+            },
+            "stream": {
+              "bytes": 20000000
+            },
+            "overrides": []
+          }
+        ]
+      }
+    },
+    "60000000000": {
+      "resources": {
+        "loadBalancer": {
+          "algorithm": "roundRobin",
+          "ingress": {
+            "bandwidthBitsPerSecond": 8000000000,
+            "packetTravelTimeNanoseconds": 0,
+            "queueCapacity": 1024,
+            "lossRate": 0,
+            "queuePolicy": "tailDrop",
+            "congestionThresholdPercent": 0,
+            "congestionSignalProbability": 1
+          },
+          "forwardingBitsPerSecond": 8000000000,
+          "mappingTimeouts": {
+            "halfOpenIdleTimeoutNanoseconds": 5000000000,
+            "establishedIdleTimeoutNanoseconds": 50000000000,
+            "closingIdleTimeoutNanoseconds": 120000000000,
+            "resetIdleTimeoutNanoseconds": 10000000000
+          },
+          "host": {
+            "cores": 1,
+            "packetProcessingTimeNanoseconds": 0,
+            "queueCapacity": 1024
+          }
+        },
+        "backends": [
+          {
+            "id": "api-0",
+            "address": "10.0.0.1",
+            "port": 80,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              }
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
+            },
+            "physicalAvailable": true
+          },
+          {
+            "id": "api-1",
+            "address": "10.0.0.2",
+            "port": 80,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              }
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
+            }
+          }
+        ]
+      },
+      "workload": {
+        "clientGroups": [
+          {
+            "id": "regular",
+            "count": 20,
+            "startAtNanoseconds": 0,
+            "clientGapNanoseconds": 100000000,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              }
+            },
+            "stream": {
+              "bytes": 100000000
+            },
+            "overrides": []
+          },
+          {
+            "id": "burst",
+            "count": 10000,
+            "startAtNanoseconds": 30000000000,
+            "clientGapNanoseconds": 10000000,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              }
+            },
+            "stream": {
+              "bytes": 20000000
+            },
+            "overrides": []
+          }
+        ]
+      }
+    },
+    "90000000000": {
+      "resources": {
+        "loadBalancer": {
+          "algorithm": "roundRobin",
+          "ingress": {
+            "bandwidthBitsPerSecond": 8000000000,
+            "packetTravelTimeNanoseconds": 0,
+            "queueCapacity": 1024,
+            "lossRate": 0,
+            "queuePolicy": "tailDrop",
+            "congestionThresholdPercent": 0,
+            "congestionSignalProbability": 1
+          },
+          "forwardingBitsPerSecond": 8000000000,
+          "mappingTimeouts": {
+            "halfOpenIdleTimeoutNanoseconds": 5000000000,
+            "establishedIdleTimeoutNanoseconds": 50000000000,
+            "closingIdleTimeoutNanoseconds": 120000000000,
+            "resetIdleTimeoutNanoseconds": 10000000000
+          },
+          "host": {
+            "cores": 1,
+            "packetProcessingTimeNanoseconds": 0,
+            "queueCapacity": 1024
+          }
+        },
+        "backends": [
+          {
+            "id": "api-0",
+            "address": "10.0.0.1",
+            "port": 80,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              }
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
+            },
+            "physicalAvailable": true
+          },
+          {
+            "id": "api-1",
+            "address": "10.0.0.2",
+            "port": 80,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 2000000000
+              }
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
+            }
+          }
+        ]
+      },
+      "workload": {
+        "clientGroups": [
+          {
+            "id": "regular",
+            "count": 20,
+            "startAtNanoseconds": 0,
+            "clientGapNanoseconds": 100000000,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              }
+            },
+            "stream": {
+              "bytes": 100000000
+            },
+            "overrides": []
+          },
+          {
+            "id": "burst",
+            "count": 0,
+            "startAtNanoseconds": 30000000000,
+            "clientGapNanoseconds": 10000000,
+            "network": {
+              "profile": "",
+              "toLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              },
+              "fromLoadBalancer": {
+                "bandwidthBitsPerSecond": 80000000
+              }
+            },
+            "stream": {
+              "bytes": 20000000
+            },
+            "overrides": []
+          }
+        ]
+      }
+    }
+  }
+}
