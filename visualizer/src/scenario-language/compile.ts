@@ -8,7 +8,7 @@ import { backendAddresses, endpointName, prefixName } from './identity.ts';
 import { parse } from './parser.ts';
 import { compileProfiles } from './network.ts';
 import { compileBackend, expandBackends } from './resources.ts';
-import { LanguageError } from './source.ts';
+import { LanguageError, locateValidationError } from './source.ts';
 import type { Declaration, Program, Property } from './syntax.ts';
 import { countValue, timeValue } from './values.ts';
 import { compileClientGroup, compileClientOverrides } from './workload.ts';
@@ -23,6 +23,8 @@ export function compileScenario(source: string): Scenario {
 
   const scenario = scenarioDefaults(timeValue(run.argument!, 1n));
   const writer = new FieldWriter();
+  writer.locations.set('fixed.execution', run.range);
+  writer.locations.set('fixed.execution.durationNanoseconds', run.argument!.range);
   writer.apply(run.properties, executionFields, scenario.fixed.execution, 'fixed.execution');
 
   const defaults = optionalDeclaration(program, 'defaults');
@@ -40,13 +42,18 @@ export function compileScenario(source: string): Scenario {
     program.declarations.filter(declaration => declaration.keyword.text === 'profile'), writer,
   );
   const tcp = optionalDeclaration(program, 'tcp');
-  if (tcp) writer.apply(tcp.properties, tcpFields, scenario.fixed.tcp, 'fixed.tcp');
+  if (tcp) {
+    writer.locations.set('fixed.tcp', tcp.range);
+    writer.apply(tcp.properties, tcpFields, scenario.fixed.tcp, 'fixed.tcp');
+  }
   const fastRetransmitWasSet = writer.hasWritten('fixed.tcp.congestionControl.fastRetransmit');
   if (scenario.fixed.tcp.congestionControl?.mode === 'none' && !fastRetransmitWasSet) {
     scenario.fixed.tcp.congestionControl.fastRetransmit = false;
   }
 
   scenario.fixed.loadBalancer.id = prefixName(balancer.argument!);
+  writer.locations.set('fixed.loadBalancer.id', balancer.argument!.range);
+  writer.locations.set('states["0"].resources.loadBalancer', balancer.range);
   const state = scenario.states['0'];
   const lb = state.resources.loadBalancer;
   // Global endpoint defaults supply initial LB rates, while its physical ingress stays separate.
@@ -96,8 +103,7 @@ export function compileScenario(source: string): Scenario {
     serializeScenario(checked);
     return checked;
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Invalid compiled scenario.';
-    throw new LanguageError(message, program.range);
+    throw locateValidationError(error, writer.locations, program.range);
   }
 }
 

@@ -14,6 +14,8 @@ backends and compact client groups, including CPU and directional link settings.
 Named network profiles, bulk backend shorthand and inheritance are supported.
 Individual client overrides are supported. The full transfer fixture is executable.
 Timeline compilation and the editor remain unavailable and fail explicitly.
+Native validation errors are mapped back to the nearest supplied source field
+or containing block, including profiles and expanded backend templates.
 
 ## Quick start
 
@@ -306,6 +308,12 @@ clients or reroute established TCP. Stopping arrivals does not terminate existin
 connections. The language exposes the current simulator's behavior only.
 
 ## Invalid examples
+
+Errors carry UTF-16 source offsets and one-based line/column positions. Syntax,
+conversion and field errors retain their direct token ranges. Native cross-field
+errors keep their JSON path and explanation, highlight the closest source
+setting, and add a short fix suggestion when one is known. A native failure for
+an omitted default points to its supplied containing declaration instead.
 
 | Input | Why it fails |
 | --- | --- |

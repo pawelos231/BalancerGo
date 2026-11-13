@@ -59,6 +59,8 @@ export function compileBackend(
   writer: FieldWriter,
   path: string,
 ): ScenarioBackendState {
+  writer.locations.set(path, declaration.range);
+  writer.locations.set(`${path}.id`, declaration.argument!.range);
   const backend: ScenarioBackendState = {
     id: endpointName(declaration.argument!), address, port: 80,
     host: defaultHost(),

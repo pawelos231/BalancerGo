@@ -14,6 +14,8 @@ export function compileClientGroup(
   path: string,
   startAt: ExactInteger = 0,
 ): ScenarioClientGroup {
+  writer.locations.set(path, declaration.range);
+  writer.locations.set(`${path}.id`, declaration.argument!.range);
   const group: ScenarioClientGroup = {
     id: prefixName(declaration.argument!), count: 1,
     startAtNanoseconds: startAt, clientGapNanoseconds: 0,

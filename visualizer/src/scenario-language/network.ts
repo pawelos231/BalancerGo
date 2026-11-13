@@ -67,6 +67,7 @@ export function compileProfiles(
     }
 
     const config = {};
+    writer.locations.set(`fixed.network.profiles[${index}]`, declaration.range);
     writer.apply(declaration.properties, linkPatchFields, config, `fixed.network.profiles[${index}].config`);
     return { id, config };
   });
