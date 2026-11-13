@@ -28,7 +28,8 @@ export function compileScenario(source: string): Scenario {
   }
   const tcp = optionalDeclaration(program, 'tcp');
   if (tcp) writer.apply(tcp.properties, tcpFields, scenario.fixed.tcp, 'fixed.tcp');
-  if (scenario.fixed.tcp.congestionControl?.mode === 'none') {
+  const fastRetransmitWasSet = writer.hasWritten('fixed.tcp.congestionControl.fastRetransmit');
+  if (scenario.fixed.tcp.congestionControl?.mode === 'none' && !fastRetransmitWasSet) {
     scenario.fixed.tcp.congestionControl.fastRetransmit = false;
   }
 

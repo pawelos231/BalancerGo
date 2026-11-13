@@ -1,6 +1,7 @@
 import type { FieldRules } from './fields.ts';
+import type { Token } from './lexer.ts';
 import {
-  bitRate, choice, countValue, dataBytes, eventLimit,
+  bitRate, booleanValue, choice, countValue, dataBytes, eventLimit,
   probability, seedValue, speedValue, timeValue,
 } from './values.ts';
 
@@ -18,12 +19,58 @@ export const linkFields: FieldRules = {
   loss: { path: 'lossRate', read: probability },
 };
 
+const congestionMode = (token: Token) => choice(token, {
+  reno: 'reno', newreno: 'newReno', tahoe: 'tahoe', cubic: 'cubic', none: 'none',
+});
+
+const congestionFields: FieldRules = {
+  mode: { path: 'mode', read: congestionMode, nullable: true },
+  'fast-retransmit': { path: 'fastRetransmit', read: booleanValue, nullable: true },
+  'fast-convergence': { path: 'cubicFastConvergence', read: booleanValue, nullable: true },
+  'initial-window': { path: 'initialWindowSegments', read: token => countValue(token, 1n), nullable: true },
+  'maximum-window': { path: 'maximumWindowSegments', read: token => countValue(token), nullable: true },
+  ssthresh: { path: 'initialSlowStartThresholdBytes', read: token => dataBytes(token), nullable: true },
+};
+
+const rtoFields: FieldRules = {
+  mode: { path: 'mode', read: token => choice(token, { fixed: 'fixed', adaptive: 'adaptive' }), nullable: true },
+  backoff: { path: 'exponentialBackoff', read: booleanValue, nullable: true },
+  initial: { path: 'initialTimeoutNanoseconds', read: token => timeValue(token, 1n), nullable: true },
+  minimum: { path: 'minimumTimeoutNanoseconds', read: token => timeValue(token, 1n), nullable: true },
+  maximum: { path: 'maximumTimeoutNanoseconds', read: token => timeValue(token, 1n), nullable: true },
+};
+
+const closeFields: FieldRules = {
+  msl: { path: 'mslNanoseconds', read: token => timeValue(token, 1n), nullable: true },
+  'fin-wait': { path: 'finWaitTimeoutNanoseconds', read: token => timeValue(token, 1n), nullable: true },
+  'fin-retries': { path: 'maxFINRetries', read: token => countValue(token, 0n, 30n), nullable: true },
+};
+
+const delayedACKFields: FieldRules = {
+  enabled: { path: 'enabled', read: booleanValue, nullable: true },
+  segments: { path: 'segmentsPerACK', read: token => countValue(token, 1n, 2n), nullable: true },
+  'max-delay': { path: 'maxDelayNanoseconds', read: token => timeValue(token, 1n), nullable: true },
+};
+
 export const tcpFields: FieldRules = {
-  mss: { path: 'mssBytes', read: token => dataBytes(token, 1n, 65_495n) },
+  mss: { path: 'mssBytes', read: token => dataBytes(token, 1n, 65_495n), nullable: true },
   congestion: {
-    path: 'congestionControl.mode',
-    read: token => choice(token, { reno: 'reno', newreno: 'newReno', tahoe: 'tahoe', cubic: 'cubic', none: 'none' }),
+    path: 'congestionControl.mode', read: congestionMode, nullable: true,
   },
+  'receive-buffer': { path: 'receiveBufferBytes', read: token => dataBytes(token, 1n, 65_535n), nullable: true },
+  sack: { path: 'sackEnabled', read: booleanValue, nullable: true },
+  ecn: { path: 'ECNenabled', read: booleanValue, nullable: true },
+  'client-idle': { path: 'clientIdleTimeoutNanoseconds', read: token => timeValue(token), nullable: true },
+  'backend-half-open-idle': {
+    path: 'backendHalfOpenIdleTimeoutNanoseconds', read: token => timeValue(token), nullable: true,
+  },
+  'backend-established-idle': {
+    path: 'backendEstablishedIdleTimeoutNanoseconds', read: token => timeValue(token), nullable: true,
+  },
+  rto: { path: 'rto', fields: rtoFields },
+  close: { path: 'close', fields: closeFields },
+  'delayed-ack': { path: 'delayedAck', fields: delayedACKFields },
+  'congestion-control': { path: 'congestionControl', fields: congestionFields },
 };
 
 export const balancerFields: FieldRules = {

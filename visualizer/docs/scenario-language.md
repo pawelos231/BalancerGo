@@ -9,7 +9,7 @@ quoted text and comments. The parser reads scalar declarations, named resources,
 profile selection, nested settings and timeline commands. Quantity and scalar
 conversion is implemented, with exact integer arithmetic. Versioned defaults and
 shared field rules handle unknown/duplicate settings, aliases, omission and null.
-Static compilation supports `run`, network defaults, basic TCP, one LB and single
+Static compilation supports `run`, network defaults, current TCP settings, one LB and single
 backends, including the quick-start fixture. Other resource families, timeline
 compilation and the editor remain unavailable and fail explicitly.
 
@@ -133,13 +133,35 @@ packets. Active transmission and packet travel do not occupy queue slots.
 | --- | --- |
 | `run duration` | `seed`, `speed`, `snapshots` (positive real-time interval), `max-events` |
 | `defaults` | `link`, `travel`, `queue`, `loss` |
-| `tcp` | `congestion` (reno, newreno, tahoe, cubic, none), `mss` |
+| `tcp` | See the TCP table below |
 | `balancer name` | `algo` (rr, ran), `ingress`, `egress` |
 | `backend prefix-index` | `link`, `name` (quoted display name) |
 
 Network defaults apply to endpoint links. Only their bandwidth also supplies the
 initial LB ingress and forwarding rates; other ingress settings retain their
 separate pinned defaults. `none` disables the default fast-retransmit switch.
+
+### TCP fields
+
+All settings remain fixed for the run. Scalar TCP settings accept `null` to use
+the existing model's default; explicit zero only works where the native field
+permits it. Existing cross-field validation remains authoritative.
+
+| Block | Fields and units |
+| --- | --- |
+| `tcp` | `congestion` (reno, newreno, tahoe, cubic, none), `mss`, `receive-buffer` (bytes), `sack`, `ecn` (boolean) |
+| `tcp` idle timers | `client-idle`, `backend-half-open-idle`, `backend-established-idle` (time; zero disables) |
+| `congestion-control` | `mode`, `fast-retransmit`, `fast-convergence`, `initial-window`, `maximum-window` (segments), `ssthresh` (bytes) |
+| `rto` | `mode` (fixed/adaptive), `backoff`, `initial`, `minimum`, `maximum` (positive time; minimum ≤ initial ≤ maximum) |
+| `close` | `msl`, `fin-wait` (positive time), `fin-retries` (0–30) |
+| `delayed-ack` | `enabled`, `segments` (1–2), `max-delay` (positive time, at most 500ms) |
+
+MSS is 1–65,495 bytes and the receive buffer is 1–65,535 bytes. The initial
+window is positive; maximum-window zero disables its explicit cap. The slow-start
+threshold must be at least twice MSS. SACK requires Reno/NewReno/CUBIC with fast
+retransmit. ECN requires congestion control. `none` defaults fast retransmit to
+false, but an explicitly incompatible setting is rejected. `congestion` and
+`congestion-control.mode` are aliases and cannot both be supplied.
 
 `backend api-0` declares one backend. `backends api { count 4 ... }` expands
 into independent backends `api-0` through `api-3`; `from 10` starts at `api-10`.
