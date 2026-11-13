@@ -14,6 +14,9 @@ backends and compact client groups, including CPU and directional link settings.
 Named network profiles, bulk backend shorthand and inheritance are supported.
 Individual client overrides are supported. The full transfer fixture is executable.
 Timeline compilation and the editor remain unavailable and fail explicitly.
+The internal timeline builder is tested for exact ordering, complete independent
+states, atomic construction and output-size bounds; language commands are not
+connected to it yet.
 Native validation errors are mapped back to the nearest supplied source field
 or containing block, including profiles and expanded backend templates.
 

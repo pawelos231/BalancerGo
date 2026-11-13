@@ -1,6 +1,4 @@
 import type { Scenario } from '../scenarios/types.ts';
-import { serializeScenario } from '../scenarios/files.ts';
-import { validateScenario } from '../scenarios/validation.ts';
 import { balancerFields, executionFields, linkFields, streamFields, tcpFields } from './bindings.ts';
 import { LANGUAGE_VERSION, scenarioDefaults } from './defaults.ts';
 import { FieldWriter } from './fields.ts';
@@ -8,10 +6,11 @@ import { backendAddresses, endpointName, prefixName } from './identity.ts';
 import { parse } from './parser.ts';
 import { compileProfiles } from './network.ts';
 import { compileBackend, expandBackends } from './resources.ts';
-import { LanguageError, locateValidationError } from './source.ts';
+import { LanguageError } from './source.ts';
 import type { Declaration, Program, Property } from './syntax.ts';
 import { countValue, timeValue } from './values.ts';
 import { compileClientGroup, compileClientOverrides } from './workload.ts';
+import { TimelineBuilder } from './timeline.ts';
 
 // Compile once before Start; the engine and Go CLI receive the unchanged JSON v2 contract.
 export function compileScenario(source: string): Scenario {
@@ -98,13 +97,7 @@ export function compileScenario(source: string): Scenario {
     }
   }
 
-  try {
-    const checked = validateScenario(scenario);
-    serializeScenario(checked);
-    return checked;
-  } catch (error) {
-    throw locateValidationError(error, writer.locations, program.range);
-  }
+  return new TimelineBuilder(scenario, writer.locations, program.range).finish();
 }
 
 // Reject recognized future syntax explicitly instead of silently dropping it from the JSON.
