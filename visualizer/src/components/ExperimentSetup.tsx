@@ -14,7 +14,7 @@ import type { SimulationMetadata } from '../types';
 import ScenarioLibrary from './ScenarioLibrary';
 import type { AppliedPreset } from './ScenarioLibrary';
 import ScenarioFiles from './ScenarioFiles';
-import type { ScenarioFileNotice } from './ScenarioFiles';
+import type { ScenarioEditorMode, ScenarioFileNotice } from './ScenarioFiles';
 import ScenarioRunDetails from './ScenarioRunDetails';
 
 const ScenarioLanguageEditor = lazy(() => import('./ScenarioLanguageEditor'));
@@ -59,13 +59,18 @@ function ExperimentSetup({
   const [languageScenario, setLanguageScenario] = useState<Scenario | null>(null);
   const languageScenarioRef = useRef<Scenario | null>(null);
   const [languageError, setLanguageError] = useState<LanguageError | null>(null);
+  const [editorMode, setEditorMode] = useState<ScenarioEditorMode>('json');
+  const editorModeRef = useRef<ScenarioEditorMode>('json');
+  const [languageOpened, setLanguageOpened] = useState(false);
   const validationRef = useRef<AbortController | null>(null);
   const scenarioRef = useRef<Scenario | null>(null);
   const appliedDocument = useMemo(() => scenario ? formatScenarioDocument(scenario) : '', [scenario]);
   const unappliedJSON = editedDocument !== null;
   const unappliedLanguage = languageSource !== languageBaseline;
   const languageApplied = languageScenario !== null && languageScenario === scenario && !unappliedLanguage;
-  const unappliedDocument = unappliedJSON || unappliedLanguage;
+  const pendingEdits = unappliedJSON || unappliedLanguage;
+  const sourceNeedsApply = editorMode === 'language' && !languageApplied;
+  const unappliedDocument = pendingEdits || sourceNeedsApply;
   const canStart = scenario !== null && connected && simulation?.status !== 'running'
     && !loading && !pending && !validating && !unappliedDocument;
 
@@ -103,7 +108,10 @@ function ExperimentSetup({
   useEffect(() => {
     if (!scenario) return;
     if (unappliedDocument) {
-      onPreviewChange(null, 'Configuration edits have not been applied. Apply or discard them to update the planned topology.');
+      const message = sourceNeedsApply && !pendingEdits
+        ? 'Language source does not describe the applied JSON. Compile and apply it or select JSON.'
+        : 'Configuration edits have not been applied. Apply or discard them to update the planned topology.';
+      onPreviewChange(null, message);
       return;
     }
     try {
@@ -113,7 +121,7 @@ function ExperimentSetup({
       const message = failure instanceof Error ? failure.message : 'Cannot preview the applied scenario.';
       onPreviewChange(null, message);
     }
-  }, [scenario, unappliedDocument, onPreviewChange]);
+  }, [scenario, unappliedDocument, pendingEdits, sourceNeedsApply, onPreviewChange]);
 
   // Lock every draft action until reading and server validation have both finished.
   // Keep the old applied document unless the complete operation succeeds.
@@ -162,6 +170,7 @@ function ExperimentSetup({
     void validateAndApply(
       (signal) => scenarioApi.validate(preset.build(defaults), signal),
       (result) => {
+        setEditorFormat('json');
         setApplied({
           id: preset.id,
           title: preset.title,
@@ -181,6 +190,7 @@ function ExperimentSetup({
         return scenarioApi.validateDocument(document, signal);
       },
       () => {
+        setEditorFormat('json');
         setApplied(null);
         setFileNotice({ severity: 'success', message: `Imported ${file.name}. Ready for Start.` });
       },
@@ -191,7 +201,28 @@ function ExperimentSetup({
     return editedDocumentRef.current !== null || languageSourceRef.current !== languageBaselineRef.current;
   }
 
+  function hasUnappliedActiveSource() {
+    return editorModeRef.current === 'language' && (
+      languageScenarioRef.current === null
+      || languageScenarioRef.current !== scenarioRef.current
+      || languageSourceRef.current !== languageBaselineRef.current
+    );
+  }
+
+  // Programmatic loads choose their format only after success; text buffers stay intact.
+  function setEditorFormat(mode: ScenarioEditorMode) {
+    editorModeRef.current = mode;
+    setEditorMode(mode);
+    if (mode === 'language') setLanguageOpened(true);
+  }
+
+  function changeEditorFormat(mode: ScenarioEditorMode) {
+    if (validationRef.current || pending || hasUnappliedDocument()) return;
+    setEditorFormat(mode);
+  }
+
   function changeDocument(document: string) {
+    if (editorModeRef.current !== 'json') return;
     if (!scenarioRef.current || validationRef.current || pending) return;
     if (languageSourceRef.current !== languageBaselineRef.current) return;
     const next = document === appliedDocument ? null : document;
@@ -208,6 +239,7 @@ function ExperimentSetup({
   }
 
   function changeLanguage(source: string) {
+    if (editorModeRef.current !== 'language') return;
     if (validationRef.current || pending || editedDocumentRef.current !== null) return;
     languageSourceRef.current = source;
     setLanguageSource(source);
@@ -229,12 +261,14 @@ function ExperimentSetup({
   }
 
   function applyLanguage() {
+    if (editorModeRef.current !== 'language') return;
     if (editedDocumentRef.current !== null) return;
     const source = languageSourceRef.current;
     setLanguageError(null);
     void validateAndApply(
       signal => validateLanguageDocument(source, scenarioApi, signal),
       result => {
+        setEditorFormat('language');
         languageBaselineRef.current = source;
         setLanguageBaseline(source);
         bindLanguageScenario(result.scenario);
@@ -254,6 +288,7 @@ function ExperimentSetup({
     try {
       const loaded = await loadLanguageSource(file, controller.signal);
       if (controller.signal.aborted || validationRef.current !== controller) return;
+      setEditorFormat('language');
       languageSourceRef.current = loaded.source;
       setLanguageSource(loaded.source);
       setLanguageError(loaded.diagnostic);
@@ -286,11 +321,13 @@ function ExperimentSetup({
   }
 
   function applyDocument() {
+    if (editorModeRef.current !== 'json') return;
     const document = editedDocumentRef.current;
     if (document === null) return;
     void validateAndApply(
       signal => validateEditorDocument(document, scenarioApi, signal),
       () => {
+        setEditorFormat('json');
         setApplied(null);
         setFileNotice({ severity: 'success', message: 'Applied JSON document. Ready for Start.' });
       },
@@ -299,7 +336,7 @@ function ExperimentSetup({
 
   function validateDraft() {
     const current = scenarioRef.current;
-    if (!current || hasUnappliedDocument()) return;
+    if (!current || hasUnappliedDocument() || hasUnappliedActiveSource()) return;
     void validateAndApply(
       (signal) => scenarioApi.validate(current, signal),
       result => {
@@ -313,7 +350,7 @@ function ExperimentSetup({
 
   function exportScenario() {
     const current = scenarioRef.current;
-    if (!current || hasUnappliedDocument()) return;
+    if (!current || hasUnappliedDocument() || hasUnappliedActiveSource()) return;
     let document = '';
 
     // Reuse validation while the applied document is unchanged.
@@ -336,7 +373,7 @@ function ExperimentSetup({
 
   function startSimulation() {
     const current = scenarioRef.current;
-    if (!current || !canStart || validationRef.current || hasUnappliedDocument()) return;
+    if (!current || !canStart || validationRef.current || hasUnappliedDocument() || hasUnappliedActiveSource()) return;
     void onStart(current);
   }
 
@@ -353,7 +390,7 @@ function ExperimentSetup({
         loading={loading}
         pending={pending}
         validating={validating}
-        unappliedInput={unappliedDocument}
+        unappliedInput={pendingEdits}
         applied={applied}
         error={error}
         onLoad={loadPreset}
@@ -370,6 +407,25 @@ function ExperimentSetup({
         unapplied={unappliedDocument}
         jsonDirty={unappliedJSON}
         jsonBlocked={unappliedLanguage}
+        pendingEdits={pendingEdits}
+        editorMode={editorMode}
+        onEditorModeChange={changeEditorFormat}
+        languageEditor={languageOpened && (
+          <Suspense fallback={<Alert severity="info">Loading source editor…</Alert>}>
+            <ScenarioLanguageEditor
+              source={languageSource}
+              dirty={unappliedLanguage}
+              disabled={loading || pending || validating || unappliedJSON || editorMode !== 'language'}
+              applied={languageApplied}
+              diagnostic={languageError}
+              onApply={applyLanguage}
+              onImport={file => { void importLanguage(file); }}
+              onExport={exportLanguage}
+              onChange={changeLanguage}
+              onDiscard={discardLanguage}
+            />
+          </Suspense>
+        )}
         onEditDocument={changeDocument}
         onApplyDocument={applyDocument}
         onDiscardDocument={discardDocument}
@@ -380,25 +436,6 @@ function ExperimentSetup({
         onStart={startSimulation}
       />
 
-      <Card variant="outlined">
-        <CardHeader title="Scenario language" />
-        <CardContent>
-          <Suspense fallback={<Alert severity="info">Loading source editor…</Alert>}>
-            <ScenarioLanguageEditor
-              source={languageSource}
-              dirty={unappliedLanguage}
-              disabled={loading || pending || validating || unappliedJSON}
-              applied={languageApplied}
-              diagnostic={languageError}
-              onApply={applyLanguage}
-              onImport={file => { void importLanguage(file); }}
-              onExport={exportLanguage}
-              onChange={changeLanguage}
-              onDiscard={discardLanguage}
-            />
-          </Suspense>
-        </CardContent>
-      </Card>
 
       {!scenario && (
         <Alert severity="info">Load the server defaults or import a scenario JSON file to begin.</Alert>

@@ -1,5 +1,6 @@
 import {
   Alert,
+  Box,
   Button,
   Card,
   CardContent,
@@ -7,8 +8,11 @@ import {
   Chip,
   Stack,
   Typography,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import { useRef } from 'react';
+import type { ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router';
 import type { Scenario, ValidatedScenario } from '../scenarios/types';
 import ScenarioDocumentPreview from './ScenarioDocumentPreview';
@@ -18,6 +22,8 @@ export interface ScenarioFileNotice {
   severity: 'success' | 'error';
   message: string;
 }
+
+export type ScenarioEditorMode = 'json' | 'language';
 
 interface ScenarioFilesProps {
   scenario: Scenario | null;
@@ -29,6 +35,10 @@ interface ScenarioFilesProps {
   unapplied: boolean;
   jsonDirty: boolean;
   jsonBlocked: boolean;
+  pendingEdits: boolean;
+  editorMode: ScenarioEditorMode;
+  onEditorModeChange: (mode: ScenarioEditorMode) => void;
+  languageEditor: ReactNode;
   onEditDocument: (document: string) => void;
   onApplyDocument: () => void;
   onDiscardDocument: () => void;
@@ -50,6 +60,10 @@ function ScenarioFiles({
   unapplied,
   jsonDirty,
   jsonBlocked,
+  pendingEdits,
+  editorMode,
+  onEditorModeChange,
+  languageEditor,
   onEditDocument,
   onApplyDocument,
   onDiscardDocument,
@@ -68,28 +82,42 @@ function ScenarioFiles({
       <CardContent sx={{ pt: 0 }}>
         <Stack spacing={2} sx={{ minWidth: 0 }}>
           <Typography variant="body2" color="text.secondary">
-            Edit the complete scenario here or import a JSON file. Export saves
-            the full draft for the next Start, including profiles and client overrides.
-            Files can be up to 2 MiB. Import does not start a simulation.
+            JSON and Language prepare one applied scenario for Start and planned topology.
+            Apply or discard pending edits before changing format. Loading JSON or a preset
+            preserves your source text; it does not translate JSON back into the language.
           </Typography>
+          <ToggleButtonGroup
+            value={editorMode} exclusive size="small" aria-label="Configuration format"
+            disabled={busy || pendingEdits}
+            onChange={(_, value: ScenarioEditorMode | null) => { if (value) onEditorModeChange(value); }}
+            sx={{ alignSelf: 'flex-start' }}
+          >
+            <ToggleButton value="json">JSON</ToggleButton>
+            <ToggleButton value="language">Language</ToggleButton>
+          </ToggleButtonGroup>
 
-          {scenario && (
-            <ScenarioJsonEditor
-              document={document}
-              dirty={jsonDirty}
-              disabled={busy || jsonBlocked}
-              onChange={onEditDocument}
-              onApply={onApplyDocument}
-              onDiscard={onDiscardDocument}
-            />
-          )}
+          <Box sx={{ display: editorMode === 'json' ? 'block' : 'none' }}>
+            {scenario && (
+              <ScenarioJsonEditor
+                document={document}
+                dirty={jsonDirty}
+                disabled={busy || jsonBlocked || editorMode !== 'json'}
+                onChange={onEditDocument}
+                onApply={onApplyDocument}
+                onDiscard={onDiscardDocument}
+              />
+            )}
+          </Box>
+          <Box sx={{ display: editorMode === 'language' ? 'block' : 'none', minWidth: 0 }}>
+            {languageEditor}
+          </Box>
 
           <input
             ref={inputRef}
             type="file"
             accept=".json,application/json"
             aria-label="Scenario JSON file"
-            disabled={busy || unapplied}
+            disabled={busy || pendingEdits}
             hidden
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
@@ -100,7 +128,7 @@ function ScenarioFiles({
           />
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Button
-              variant="outlined" disabled={busy || unapplied}
+              variant="outlined" disabled={busy || pendingEdits}
               onClick={() => inputRef.current?.click()}
             >
               Import JSON

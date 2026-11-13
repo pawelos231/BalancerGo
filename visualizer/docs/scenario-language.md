@@ -328,6 +328,13 @@ now compiles to its checked [timeline.json](../../examples/language/timeline.jso
 
 ## Source files
 
+The configuration panel has explicit JSON and Language formats. Both use one
+applied native scenario. Pending edits block switching until applied or discarded.
+Loading a preset or JSON selects JSON and preserves the source buffer. Returning
+to a source that no longer matches the applied scenario shows a warning and
+blocks Start/native export until Compile and apply or selecting JSON.
+Neither mode reverse-translates JSON into source or reconstructs comments.
+
 Import source accepts UTF-8 `.lb` files up to 2 MiB. It loads the text into the
 source draft and runs the same local compiler for diagnostics. An unfinished
 source remains editable; an unreadable, empty or oversized file leaves the old

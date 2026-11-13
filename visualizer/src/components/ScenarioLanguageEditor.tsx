@@ -148,7 +148,7 @@ export default function ScenarioLanguageEditor({
         color={applied ? 'success' : 'default'} size="small" sx={{ alignSelf: 'flex-start' }}
       />
       <Box ref={container} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }} />
-      <Stack direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Button variant="contained" disabled={disabled || (applied && !dirty)} onClick={onApply}>
           Compile and apply
         </Button>
@@ -163,7 +163,7 @@ export default function ScenarioLanguageEditor({
           if (file) onImport(file);
         }}
       />
-      <Stack direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Button disabled={disabled || dirty} onClick={() => fileInput.current?.click()}>Import source</Button>
         <Button disabled={disabled || source.trim() === ''} onClick={onExport}>Export source</Button>
       </Stack>
@@ -172,6 +172,11 @@ export default function ScenarioLanguageEditor({
         Export source includes comments and unapplied edits.
       </Typography>
       {diagnostic && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{diagnostic.message}</Alert>}
+      {!applied && !dirty && (
+        <Alert severity="info">
+          This source does not describe the applied JSON. Compile and apply it to replace that configuration.
+        </Alert>
+      )}
       {dirty && <Alert severity="warning">Compile and apply or discard the source edits before using this draft.</Alert>}
     </Stack>
   );
