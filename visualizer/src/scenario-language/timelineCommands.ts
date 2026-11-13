@@ -68,6 +68,17 @@ export function applyTimelineCommands(
       }], backendFields, state.resources.backends[index], `${path}.resources.backends[${index}]`);
       continue;
     }
+    if (command.kind === 'stop') {
+      const id = prefixName(command.name);
+      const index = groupIndices.get(id);
+      if (index === undefined) throw new LanguageError(`Unknown client group ${id}.`, command.name.range);
+      // Zero stops future births; the group and its reserved slots remain in every later state.
+      writer.apply([{
+        key: { kind: 'word', text: 'count', range: command.range },
+        value: { kind: 'number', text: '0', range: command.range },
+      }], mutableClientFields, state.workload.clientGroups[index], `${path}.workload.clientGroups[${index}]`);
+      continue;
+    }
     if (command.kind !== 'set') {
       throw new LanguageError(`${command.kind} compilation is not available yet.`, command.range);
     }

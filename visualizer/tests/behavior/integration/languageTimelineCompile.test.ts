@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { compileScenario } from '../../../src/scenario-language/compile.ts';
+import { parseScenario } from '../../../src/scenarios/validation.ts';
 
 const base = `run 10s
 balancer lb {}
@@ -177,4 +179,33 @@ test('language backend lifecycle validates static fields and rejects overlapping
   }`), /overlaps/);
   assert.throws(() => compileScenario(`${base}at 1s { drain backend absent-0 }`), /Unknown backend/);
   assert.throws(() => compileScenario(base.replace('api-0 {}', 'api-0 { health healthy }')), /Unknown setting/);
+});
+
+// The complete specification fixture covers burst creation, outage/recovery and stopped arrivals.
+test('language compiler matches the complete documented timeline native JSON', () => {
+  const fixture = (name: string) => readFileSync(new URL(`../../../../examples/language/${name}`, import.meta.url), 'utf8');
+  assert.deepEqual(compileScenario(fixture('timeline.lb')), parseScenario(fixture('timeline.json')));
+});
+
+// Stopping only replaces count: stream settings, existing overrides and start time survive.
+test('language stop arrivals retains generator identity and historical client overrides', () => {
+  const result = compileScenario(`${base}
+client regular-3 { payload 1KB }
+at 1s { stop arrivals regular }
+at 2s { set client regular-3 segment-gap 1ms }
+`);
+  const initial = result.states['0'].workload.clientGroups[0];
+  const stopped = result.states['1000000000'].workload.clientGroups[0];
+  assert.equal(stopped.count, 0);
+  assert.deepEqual(stopped, { ...initial, count: 0 });
+  assert.equal(result.states['2000000000'].workload.clientGroups[0].overrides![0].index, 3);
+});
+
+// Stop and a count setter are the same native leaf; unknown generators cannot be stopped.
+test('language stop arrivals rejects duplicate mutations and unknown groups', () => {
+  assert.throws(() => compileScenario(`${base}at 1s {
+    stop arrivals regular
+    set clients regular count 2
+  }`), /overlaps/);
+  assert.throws(() => compileScenario(`${base}at 1s { stop arrivals absent }`), /Unknown client group/);
 });

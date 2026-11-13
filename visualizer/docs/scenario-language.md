@@ -14,8 +14,8 @@ backends and compact client groups, including CPU and directional link settings.
 Named network profiles, bulk backend shorthand and inheritance are supported.
 Individual client overrides are supported. The full transfer fixture is executable.
 Timeline `set` and backend/client-group `add` commands compile to complete atomic
-native states. Backend availability/drain actions are supported. Stop-arrivals
-and the editor remain unavailable and fail explicitly. The builder
+native states. Backend availability/drain and stop-arrivals actions are supported.
+The editor is not integrated yet. The builder
 checks exact ordering, independent state copies and output-size bounds.
 Native validation errors are mapped back to the nearest supplied source field
 or containing block, including profiles and expanded backend templates.
@@ -316,6 +316,12 @@ all commands, so temporary incomplete combinations are not observed by packets.
 A backend failure does not instantly update health observed by the LB, notify
 clients or reroute established TCP. Stopping arrivals does not terminate existing
 connections. The language exposes the current simulator's behavior only.
+
+`stop arrivals regular` writes count zero through the same field rules as `set`.
+It retains the group's identity, start, links, stream and historical overrides.
+It conflicts with another count mutation in the same `at`, and requires an
+already existing group. The complete [timeline.lb](../../examples/language/timeline.lb)
+now compiles to its checked [timeline.json](../../examples/language/timeline.json).
 
 ## Invalid examples
 
