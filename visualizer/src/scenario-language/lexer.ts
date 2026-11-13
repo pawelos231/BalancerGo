@@ -2,8 +2,9 @@ import { LanguageError } from './source.ts';
 import type { SourcePoint, SourceRange } from './source.ts';
 
 export interface Token {
-  kind: 'word' | 'number' | 'newline' | '{' | '}' | 'eof';
+  kind: 'word' | 'number' | 'string' | 'newline' | '{' | '}' | 'eof';
   text: string;
+  value?: string;
   range: SourceRange;
 }
 
@@ -40,9 +41,16 @@ class Lexer {
         this.advance();
         continue;
       }
+      if (character === '#') {
+        while (this.offset < this.source.length && !/[\r\n]/.test(this.source[this.offset])) {
+          this.advance();
+        }
+        continue;
+      }
 
       const start = this.point();
       let kind: Token['kind'];
+      let value: string | undefined;
 
       if (character === '\n' || character === '\r') {
         kind = 'newline';
@@ -56,12 +64,15 @@ class Lexer {
       } else if (/[0-9-]/.test(character)) {
         kind = 'number';
         this.readNumber(start);
+      } else if (character === '"') {
+        kind = 'string';
+        value = this.readString(start);
       } else {
         this.advance();
         throw new LanguageError(`Unexpected character ${JSON.stringify(character)}.`, this.range(start));
       }
 
-      tokens.push({ kind, text: this.source.slice(start.offset, this.offset), range: this.range(start) });
+      tokens.push({ kind, text: this.source.slice(start.offset, this.offset), value, range: this.range(start) });
       if (tokens.length > maxTokens) {
         throw new LanguageError('Source contains too many tokens.', this.range(start));
       }
@@ -82,6 +93,32 @@ class Lexer {
     if (!valid) {
       throw new LanguageError('Invalid number; use a decimal value and optional unit.', this.range(start));
     }
+  }
+
+  // Skip escaped quotes, then let JSON check escapes such as \n and \u0041.
+  private readString(start: SourcePoint): string {
+    this.advance();
+    while (this.offset < this.source.length) {
+      const character = this.source[this.offset];
+      if (character === '\r' || character === '\n') break;
+
+      this.advance();
+      if (character === '"') {
+        const raw = this.source.slice(start.offset, this.offset);
+        try {
+          return JSON.parse(raw) as string;
+        } catch {
+          throw new LanguageError('Invalid string escape or control character.', this.range(start));
+        }
+      }
+      if (character === '\\') {
+        const escaped = this.source[this.offset];
+        if (escaped === undefined || escaped === '\r' || escaped === '\n') break;
+        this.advance();
+      }
+    }
+
+    throw new LanguageError('Unterminated string; close it on the same line.', this.range(start));
   }
 
   // CRLF advances one line, just like LF; no real time is involved.

@@ -4,9 +4,9 @@ This is the specification for the frontend configuration language. Its compiler
 will produce the existing scenario JSON v2. The Go CLI consumes that JSON; it
 does not compile this language. No simulation behavior changes in this epic.
 
-**Implementation status:** the lexer recognizes structure and exact numeric
-tokens with suffixes. Strings, comments, parsing, value conversion, compilation
-and the editor are not available yet. Examples are fixtures for later commits.
+**Implementation status:** the lexer recognizes structure, exact numeric tokens,
+quoted text and comments. Parsing, value conversion, compilation and the editor
+are not available yet. Examples are fixtures for later commits.
 
 ## Quick start
 

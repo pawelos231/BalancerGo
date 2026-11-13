@@ -58,3 +58,24 @@ test('language lexer rejects malformed numeric spelling with its source position
   assert.deepEqual(tokenize('-1 -2').slice(0, -1).map(token => token.text), ['-1', '-2']);
   assert.throws(() => tokenize('+1'), /Unexpected character/);
 });
+
+// A # inside a display name is text; a # after the quote begins a comment.
+test('language lexer distinguishes comments from escaped quoted text', () => {
+  const tokens = tokenize('# heading\r\nname "API #1 \\"fast\\" \\u0041" # ignored\nhost {}');
+  const text = tokens.find(token => token.kind === 'string');
+  assert.ok(text);
+  assert.equal(text.value, 'API #1 "fast" A');
+  assert.equal(text.range.start.line, 2);
+  assert.equal(text.range.start.column, 6);
+  assert.deepEqual(tokens.filter(token => token.kind === 'word').map(token => token.text), ['name', 'host']);
+  assert.equal(tokens.filter(token => token.kind === 'newline').length, 2);
+});
+
+// Bad escapes and literal newlines must identify the beginning of the quoted value.
+test('language lexer reports invalid and unfinished strings', () => {
+  for (const value of ['"bad\\q"', '"bad\\u12ZZ"', '"open', '"line\nbreak"', '"slash\\\n']) {
+    assert.throws(() => tokenize(`name\n  ${value}`), /2:3: (Invalid string|Unterminated string)/);
+  }
+  assert.equal(tokenize('""')[0].value, '');
+  assert.equal(tokenize('"😀"')[0].value, '😀');
+});
