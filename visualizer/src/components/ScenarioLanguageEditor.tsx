@@ -4,11 +4,16 @@ import { basicSetup, EditorView } from 'codemirror';
 import { Compartment, EditorState } from '@codemirror/state';
 import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
+import { setDiagnostics } from '@codemirror/lint';
+import type { LanguageError } from '../scenario-language/source';
 
 interface ScenarioLanguageEditorProps {
   source: string;
   dirty: boolean;
   disabled: boolean;
+  applied: boolean;
+  diagnostic: LanguageError | null;
+  onApply: () => void;
   onChange: (source: string) => void;
   onDiscard: () => void;
 }
@@ -45,7 +50,7 @@ const language = StreamLanguage.define({
 });
 
 export default function ScenarioLanguageEditor({
-  source, dirty, disabled, onChange, onDiscard,
+  source, dirty, disabled, applied, diagnostic, onApply, onChange, onDiscard,
 }: ScenarioLanguageEditorProps) {
   const container = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -91,6 +96,19 @@ export default function ScenarioLanguageEditor({
     ]) });
   }, [disabled, readonly]);
 
+  // Source spans use the editor's UTF-16 offsets; clear obsolete marks after an edit.
+  useEffect(() => {
+    const editor = view.current;
+    if (!editor) return;
+    const errors = diagnostic ? [{
+      from: Math.min(diagnostic.range.start.offset, editor.state.doc.length),
+      to: Math.min(diagnostic.range.end.offset, editor.state.doc.length),
+      severity: 'error' as const,
+      message: diagnostic.message,
+    }] : [];
+    editor.dispatch(setDiagnostics(editor.state, errors));
+  }, [diagnostic]);
+
   useEffect(() => {
     const dark = theme.palette.mode === 'dark';
     view.current?.dispatch({ effects: appearance.reconfigure([
@@ -114,15 +132,23 @@ export default function ScenarioLanguageEditor({
   return (
     <Stack spacing={1.5} sx={{ minWidth: 0 }}>
       <Typography variant="body2" color="text.secondary">
-        Prepare a scenario source draft. Link units are bytes/s: 1GB means 8 Gbit/s.
-        Editing never starts a simulation or changes the applied JSON.
+        Link units are bytes/s: 1GB means 8 Gbit/s. Compile and apply validates the
+        generated JSON locally and on the server before replacing the applied draft.
+        It never starts a simulation.
       </Typography>
-      <Chip label={dirty ? 'Unapplied source edits' : 'Source draft'} size="small" sx={{ alignSelf: 'flex-start' }} />
+      <Chip
+        label={dirty ? 'Unapplied source edits' : applied ? 'Source applied' : 'Source draft'}
+        color={applied ? 'success' : 'default'} size="small" sx={{ alignSelf: 'flex-start' }}
+      />
       <Box ref={container} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }} />
-      <Button disabled={disabled || !dirty} onClick={onDiscard} sx={{ alignSelf: 'flex-start' }}>
-        Discard source edits
-      </Button>
-      {dirty && <Alert severity="warning">Source edits have not been applied. Discard them before using the JSON draft.</Alert>}
+      <Stack direction="row" spacing={1}>
+        <Button variant="contained" disabled={disabled || (applied && !dirty)} onClick={onApply}>
+          Compile and apply
+        </Button>
+        <Button disabled={disabled || !dirty} onClick={onDiscard}>Discard source edits</Button>
+      </Stack>
+      {diagnostic && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{diagnostic.message}</Alert>}
+      {dirty && <Alert severity="warning">Compile and apply or discard the source edits before using this draft.</Alert>}
     </Stack>
   );
 }

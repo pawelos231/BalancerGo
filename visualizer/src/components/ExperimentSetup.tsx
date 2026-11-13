@@ -1,6 +1,7 @@
 import { Alert, Button, Card, CardContent, CardHeader, Stack } from '@mui/material';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { initialLanguageSource } from '../scenario-language/editor';
+import { initialLanguageSource, validateLanguageDocument } from '../scenario-language/editor';
+import { LanguageError } from '../scenario-language/source';
 import { formatScenarioDocument, readScenarioFile, serializeScenario } from '../scenarios/files';
 import { validateEditorDocument } from '../scenarios/editor';
 import { scenarioPresets } from '../scenarios/presets';
@@ -51,11 +52,17 @@ function ExperimentSetup({
   const editedDocumentRef = useRef<string | null>(null);
   const [languageSource, setLanguageSource] = useState(initialLanguageSource);
   const languageSourceRef = useRef(initialLanguageSource);
+  const [languageBaseline, setLanguageBaseline] = useState(initialLanguageSource);
+  const languageBaselineRef = useRef(initialLanguageSource);
+  const [languageScenario, setLanguageScenario] = useState<Scenario | null>(null);
+  const languageScenarioRef = useRef<Scenario | null>(null);
+  const [languageError, setLanguageError] = useState<LanguageError | null>(null);
   const validationRef = useRef<AbortController | null>(null);
   const scenarioRef = useRef<Scenario | null>(null);
   const appliedDocument = useMemo(() => scenario ? formatScenarioDocument(scenario) : '', [scenario]);
   const unappliedJSON = editedDocument !== null;
-  const unappliedLanguage = languageSource !== initialLanguageSource;
+  const unappliedLanguage = languageSource !== languageBaseline;
+  const languageApplied = languageScenario !== null && languageScenario === scenario && !unappliedLanguage;
   const unappliedDocument = unappliedJSON || unappliedLanguage;
   const canStart = scenario !== null && connected && simulation?.status !== 'running'
     && !loading && !pending && !validating && !unappliedDocument;
@@ -111,6 +118,7 @@ function ExperimentSetup({
   async function validateAndApply(
     load: (signal: AbortSignal) => Promise<ValidatedScenario>,
     onApplied: (result: ValidatedScenario) => void,
+    onFailed?: (failure: unknown) => void,
   ) {
     if (validationRef.current || pending) return;
     const controller = new AbortController();
@@ -129,6 +137,7 @@ function ExperimentSetup({
       onApplied(result);
     } catch (failure) {
       if (!controller.signal.aborted && validationRef.current === controller) {
+        onFailed?.(failure);
         setFileNotice({
           severity: 'error',
           message: failure instanceof Error ? failure.message : 'Scenario validation failed.',
@@ -177,11 +186,12 @@ function ExperimentSetup({
   }
 
   function hasUnappliedDocument() {
-    return editedDocumentRef.current !== null || languageSourceRef.current !== initialLanguageSource;
+    return editedDocumentRef.current !== null || languageSourceRef.current !== languageBaselineRef.current;
   }
 
   function changeDocument(document: string) {
-    if (!scenarioRef.current || validationRef.current || pending || languageSourceRef.current !== initialLanguageSource) return;
+    if (!scenarioRef.current || validationRef.current || pending) return;
+    if (languageSourceRef.current !== languageBaselineRef.current) return;
     const next = document === appliedDocument ? null : document;
     editedDocumentRef.current = next;
     setEditedDocument(next);
@@ -199,14 +209,38 @@ function ExperimentSetup({
     if (validationRef.current || pending || editedDocumentRef.current !== null) return;
     languageSourceRef.current = source;
     setLanguageSource(source);
+    setLanguageError(null);
     setFileNotice(null);
   }
 
   function discardLanguage() {
     if (validationRef.current || pending) return;
-    languageSourceRef.current = initialLanguageSource;
-    setLanguageSource(initialLanguageSource);
+    languageSourceRef.current = languageBaselineRef.current;
+    setLanguageSource(languageBaselineRef.current);
+    setLanguageError(null);
     setFileNotice(null);
+  }
+
+  function bindLanguageScenario(definition: Scenario) {
+    languageScenarioRef.current = definition;
+    setLanguageScenario(definition);
+  }
+
+  function applyLanguage() {
+    if (editedDocumentRef.current !== null) return;
+    const source = languageSourceRef.current;
+    setLanguageError(null);
+    void validateAndApply(
+      signal => validateLanguageDocument(source, scenarioApi, signal),
+      result => {
+        languageBaselineRef.current = source;
+        setLanguageBaseline(source);
+        bindLanguageScenario(result.scenario);
+        setApplied(null);
+        setFileNotice({ severity: 'success', message: 'Applied compiled source. Ready for Start.' });
+      },
+      failure => setLanguageError(failure instanceof LanguageError ? failure : null),
+    );
   }
 
   function applyDocument() {
@@ -226,10 +260,12 @@ function ExperimentSetup({
     if (!current || hasUnappliedDocument()) return;
     void validateAndApply(
       (signal) => scenarioApi.validate(current, signal),
-      () => setFileNotice({
-        severity: 'success',
-        message: 'Draft validated. Effective configuration is available below.',
-      }),
+      result => {
+        if (languageScenarioRef.current === current) bindLanguageScenario(result.scenario);
+        setFileNotice({
+          severity: 'success', message: 'Draft validated. Effective configuration is available below.',
+        });
+      },
     );
   }
 
@@ -247,8 +283,9 @@ function ExperimentSetup({
         document = serializeScenario(checked.scenario);
         return checked;
       },
-      () => {
+      result => {
         // Browser side effects run only after the current-operation guard.
+        if (languageScenarioRef.current === current) bindLanguageScenario(result.scenario);
         downloadScenario(document);
         setFileNotice({ severity: 'success', message: 'Exported scenario.json.' });
       },
@@ -309,6 +346,9 @@ function ExperimentSetup({
               source={languageSource}
               dirty={unappliedLanguage}
               disabled={loading || pending || validating || unappliedJSON}
+              applied={languageApplied}
+              diagnostic={languageError}
+              onApply={applyLanguage}
               onChange={changeLanguage}
               onDiscard={discardLanguage}
             />

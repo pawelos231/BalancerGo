@@ -20,3 +20,21 @@ clients regular {
     link 10MB
 }
 `;
+import type { ScenarioApi } from '../scenarios/api.ts';
+import type { ValidatedScenario } from '../scenarios/types.ts';
+import { compileScenario } from './compile.ts';
+
+// Compilation is local; only ready JSON reaches the existing authoritative validation endpoint.
+export async function validateLanguageDocument(
+  source: string,
+  api: Pick<ScenarioApi, 'validate'>,
+  signal: AbortSignal,
+): Promise<ValidatedScenario> {
+  signal.throwIfAborted();
+  const scenario = compileScenario(source);
+  signal.throwIfAborted();
+  const checked = await api.validate(scenario, signal);
+  signal.throwIfAborted();
+  return checked;
+}
+

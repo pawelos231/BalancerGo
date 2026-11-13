@@ -15,8 +15,9 @@ Named network profiles, bulk backend shorthand and inheritance are supported.
 Individual client overrides are supported. The full transfer fixture is executable.
 Timeline `set` and backend/client-group `add` commands compile to complete atomic
 native states. Backend availability/drain and stop-arrivals actions are supported.
-The CodeMirror source editor supports syntax highlighting and retained drafts;
-Apply integration follows next. The builder
+The CodeMirror source editor supports syntax highlighting, retained drafts,
+located errors and Compile and apply. Only successful local compilation and
+server JSON validation replace the applied draft and planned topology. The builder
 checks exact ordering, independent state copies and output-size bounds.
 Native validation errors are mapped back to the nearest supplied source field
 or containing block, including profiles and expanded backend templates.
