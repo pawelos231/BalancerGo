@@ -6,7 +6,7 @@ import { defaultHost, LANGUAGE_VERSION, scenarioDefaults } from './defaults.ts';
 import { FieldWriter } from './fields.ts';
 import { backendAddresses, endpointName, prefixName } from './identity.ts';
 import { parse } from './parser.ts';
-import { writeEndpointNetwork } from './network.ts';
+import { compileProfiles, selectEndpointProfile, writeEndpointNetwork } from './network.ts';
 import { LanguageError } from './source.ts';
 import type { Declaration, Program, Property } from './syntax.ts';
 import { countValue, textValue, timeValue } from './values.ts';
@@ -35,6 +35,9 @@ export function compileScenario(source: string): Scenario {
     writer.apply(network, linkFields, scenario.fixed.network.defaults, 'fixed.network.defaults');
     writer.apply(stream, streamFields, scenario.fixed.workload.defaults, 'fixed.workload.defaults');
   }
+  scenario.fixed.network.profiles = compileProfiles(
+    program.declarations.filter(declaration => declaration.keyword.text === 'profile'), writer,
+  );
   const tcp = optionalDeclaration(program, 'tcp');
   if (tcp) writer.apply(tcp.properties, tcpFields, scenario.fixed.tcp, 'fixed.tcp');
   const fastRetransmitWasSet = writer.hasWritten('fixed.tcp.congestionControl.fastRetransmit');
@@ -96,15 +99,13 @@ function compileBackend(
   writer: FieldWriter,
   index: number,
 ): ScenarioBackendState {
-  if (declaration.profile) {
-    throw new LanguageError('Profile compilation is not available yet.', declaration.profile.range);
-  }
   const backend: ScenarioBackendState = {
     id: endpointName(declaration.argument!), address, port: 80,
     host: defaultHost(),
     network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
   };
   const path = `states["0"].resources.backends[${index}]`;
+  selectEndpointProfile(declaration.profile, backend.network, writer, `${path}.network`);
   const other = writeEndpointNetwork(declaration.properties, backend.network, writer, `${path}.network`);
   writer.apply(other, {
     name: { path: 'name', read: textValue },
@@ -115,7 +116,7 @@ function compileBackend(
 
 // Reject recognized future syntax explicitly instead of silently dropping it from the JSON.
 function checkSupported(program: Program): void {
-  const supported = ['language', 'run', 'defaults', 'tcp', 'balancer', 'backend', 'clients'];
+  const supported = ['language', 'run', 'defaults', 'tcp', 'balancer', 'backend', 'clients', 'profile'];
   for (const declaration of program.declarations) {
     if (!supported.includes(declaration.keyword.text)) {
       throw new LanguageError(

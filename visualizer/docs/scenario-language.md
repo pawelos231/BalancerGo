@@ -11,7 +11,8 @@ conversion is implemented, with exact integer arithmetic. Versioned defaults and
 shared field rules handle unknown/duplicate settings, aliases, omission and null.
 Static compilation supports `run`, network defaults, current TCP settings, one LB and single
 backends and compact client groups, including CPU and directional link settings.
-The full transfer fixture is executable. Other resource families, timeline
+Named network profiles and inheritance are supported. The full transfer fixture
+is executable. Other resource families, timeline
 compilation and the editor remain unavailable and fail explicitly.
 
 ## Quick start
@@ -141,6 +142,7 @@ packets. Active transmission and packet travel do not occupy queue slots.
 
 Every endpoint also accepts `travel`, `queue`, `loss`, `queue-policy`
 (tail-drop/threshold), `ecn-threshold` (0–100%) and `signal-probability` (0–100%).
+These network fields are also available in `defaults` and the LB ingress block.
 `to-lb { ... }` and `from-lb { ... }` override those fields in one direction.
 Directional settings take precedence regardless of textual order; explicit null
 removes that directional patch and restores native inheritance.
@@ -211,6 +213,11 @@ Total reserved slots across the timeline cannot exceed 16,777,215.
 Endpoint link precedence is defaults → selected profile → endpoint settings →
 directional settings. A client override applies after its resolved group links.
 Profiles describe network settings only; `use mobile` selects a declared profile.
+Definitions can follow their first use. Select with a declaration header or a
+`use mobile` body field; supplying both is a duplicate, not an override. An empty
+profile can represent the unmodified global defaults. Profiles cannot select
+other profiles or contain directional/CPU settings. Even unused definitions
+are validated. The generated JSON retains native named profiles and patches.
 Profile definitions cannot change inside `at`; endpoints may select an existing
 profile there. Explicit zero overrides an inherited value. A nullable
 patch's `null` means inherit, as in native JSON. Resetting a previous DSL override

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { compileScenario } from '../../../src/scenario-language/compile.ts';
 import { parseScenario } from '../../../src/scenarios/validation.ts';
+import { resolveNetwork } from '../../../src/scenarios/settings.ts';
 
 const fixture = (name: string) => readFileSync(new URL(`../../../../examples/language/${name}`, import.meta.url), 'utf8');
 const minimal = 'run 1s\nbalancer lb {}\nbackend api-0 {}';
@@ -160,4 +161,44 @@ test('language network and CPU binding rejects invalid settings and keeps null p
   const scenario = compileScenario(minimal.replace('api-0 {}', 'api-0 { travel null host { packet-time 0ns } }'));
   assert.equal(scenario.states['0'].resources.backends[0].network.toLoadBalancer.packetTravelTimeNanoseconds, null);
   assert.equal(scenario.states['0'].resources.backends[0].host?.packetProcessingTimeNanoseconds, 0);
+});
+
+// Resolve native patches to prove defaults -> profile -> shared endpoint -> direction precedence.
+test('language compiler supports forward profiles and existing native inheritance', () => {
+  const source = `run 1s
+balancer lb {}
+backend api-0 use mobile { link 20MB from-lb { link 30MB } }
+clients regular use mobile { to-lb { travel 0ns queue 0 } }
+profile mobile { link 10MB travel 20ms queue 7 loss 1% }
+`;
+  const scenario = compileScenario(source);
+  const base = { toLoadBalancer: scenario.fixed.network.defaults, fromLoadBalancer: scenario.fixed.network.defaults };
+  const profiles = new Map(scenario.fixed.network.profiles.map(profile => [profile.id, profile.config]));
+  const backend = resolveNetwork(base, scenario.states['0'].resources.backends[0].network, profiles, 'test');
+  const clients = resolveNetwork(base, scenario.states['0'].workload.clientGroups[0].network, profiles, 'test');
+  assert.equal(backend.toLoadBalancer.bandwidthBitsPerSecond, 160_000_000);
+  assert.equal(backend.fromLoadBalancer.bandwidthBitsPerSecond, 240_000_000);
+  assert.equal(clients.toLoadBalancer.packetTravelTimeNanoseconds, 0);
+  assert.equal(clients.toLoadBalancer.queueCapacity, 0);
+  assert.equal(clients.fromLoadBalancer.packetTravelTimeNanoseconds, 20_000_000);
+  assert.equal(clients.fromLoadBalancer.lossRate, 0.01);
+
+  // Inline settings must produce the same physical links as the selected profile.
+  const inlineSource = minimal.replace('api-0 {}', 'api-0 { link 10MB travel 20ms queue 7 loss 1% }');
+  const inline = compileScenario(inlineSource);
+  const inlineLinks = resolveNetwork(base, inline.states['0'].resources.backends[0].network, new Map(), 'test');
+  const profileOnly = compileScenario(source.replace('link 20MB from-lb { link 30MB }', ''));
+  const profileLinks = resolveNetwork(base, profileOnly.states['0'].resources.backends[0].network, profiles, 'test');
+  assert.deepEqual(profileLinks, inlineLinks);
+});
+
+// Unused definitions are checked too; missing names and duplicate selections never disappear.
+test('language profiles reject invalid definitions, missing references and duplicate selections', () => {
+  assert.throws(() => compileScenario(`${minimal}\nprofile mobile {}\nprofile mobile {}`), /Duplicate profile/);
+  assert.throws(() => compileScenario(minimal.replace('api-0 {}', 'api-0 use missing {}')), /unknown profile/);
+  assert.throws(() => compileScenario(`${minimal}\nprofile invalid { queue -1 }`), /between/);
+  assert.throws(
+    () => compileScenario(`${minimal.replace('api-0 {}', 'api-0 use mobile { use mobile }')}\nprofile mobile {}`),
+    /overlaps/,
+  );
 });
