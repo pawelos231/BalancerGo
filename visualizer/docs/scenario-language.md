@@ -4,8 +4,9 @@ This is the specification for the frontend configuration language. Its compiler
 will produce the existing scenario JSON v2. The Go CLI consumes that JSON; it
 does not compile this language. No simulation behavior changes in this epic.
 
-**Implementation status:** specification only. The lexer, compiler and editor
-are not available yet. Examples are input/output fixtures for later commits.
+**Implementation status:** the structural lexer recognizes names, braces and
+newlines with source positions. Numbers, strings, parsing, compilation and the
+editor are not available yet. Examples are fixtures for later commits.
 
 ## Quick start
 
@@ -35,7 +36,7 @@ decoder fills ordinary omitted fields such as empty display names and arrays.
 
 ## Source and grammar
 
-The frontend TypeScript module will live in `src/scenario-language/`. It has no
+The frontend TypeScript module lives in `src/scenario-language/`. It has no
 React or editor dependency. The current language and default set are version 1;
 changing their meaning requires a new documented version. An optional first
 line `language 1` pins that version; omission means version 1. Other versions
