@@ -33,3 +33,28 @@ test('language lexer bounds UTF-8 bytes and token count', () => {
   assert.throws(() => tokenize(' '.repeat(MAX_SOURCE_BYTES + 1)), /2 MiB/);
   assert.throws(() => tokenize('{} '.repeat(100_001)), /too many tokens/);
 });
+
+// Units are recognized as part of the token, but are not interpreted or rounded yet.
+test('language lexer preserves exact numbers, suffixes and percentages', () => {
+  const values = ['1460B', '1GB', '1EB', '0.5ms', '1%', '-9007199254740993', '18446744073709551615'];
+  const tokens = tokenize(values.join(' '));
+  assert.deepEqual(tokens.slice(0, -1).map(token => token.kind), values.map(() => 'number'));
+  assert.deepEqual(tokens.slice(0, -1).map(token => token.text), values);
+
+  // A later semantic step rejects unsupported units such as GiB.
+  assert.equal(tokenize('1GiB')[0].text, '1GiB');
+});
+
+// Malformed decimals must not be split into several apparently valid numbers.
+test('language lexer rejects malformed numeric spelling with its source position', () => {
+  for (const value of ['01', '1.2.3ms', '1e3', '1e-3', '1E-3ms', '1e+3', '1-2', '-', '1%%', '1.']) {
+    assert.throws(() => tokenize(`run\n  ${value}`), error => {
+      assert.ok(error instanceof LanguageError);
+      assert.match(error.message, /2:3: Invalid number/);
+      assert.equal(error.range.end.offset - error.range.start.offset, value.length);
+      return true;
+    });
+  }
+  assert.deepEqual(tokenize('-1 -2').slice(0, -1).map(token => token.text), ['-1', '-2']);
+  assert.throws(() => tokenize('+1'), /Unexpected character/);
+});

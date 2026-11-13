@@ -2,7 +2,7 @@ import { LanguageError } from './source.ts';
 import type { SourcePoint, SourceRange } from './source.ts';
 
 export interface Token {
-  kind: 'word' | 'newline' | '{' | '}' | 'eof';
+  kind: 'word' | 'number' | 'newline' | '{' | '}' | 'eof';
   text: string;
   range: SourceRange;
 }
@@ -53,6 +53,9 @@ class Lexer {
       } else if (/[A-Za-z_]/.test(character)) {
         kind = 'word';
         while (/[A-Za-z0-9_-]/.test(this.source[this.offset] ?? '')) this.advance();
+      } else if (/[0-9-]/.test(character)) {
+        kind = 'number';
+        this.readNumber(start);
       } else {
         this.advance();
         throw new LanguageError(`Unexpected character ${JSON.stringify(character)}.`, this.range(start));
@@ -67,6 +70,18 @@ class Lexer {
     const end = this.point();
     tokens.push({ kind: 'eof', text: '', range: this.range(end) });
     return tokens;
+  }
+
+  // Keep 1.5GB or a large seed as text; field conversion happens after parsing.
+  private readNumber(start: SourcePoint): void {
+    if (this.source[this.offset] === '-') this.advance();
+    while (/[0-9.A-Za-z%+-]/.test(this.source[this.offset] ?? '')) this.advance();
+
+    const text = this.source.slice(start.offset, this.offset);
+    const valid = /^-?(0|[1-9][0-9]*)(\.[0-9]+)?([A-Za-z]+|%)?$/.test(text);
+    if (!valid) {
+      throw new LanguageError('Invalid number; use a decimal value and optional unit.', this.range(start));
+    }
   }
 
   // CRLF advances one line, just like LF; no real time is involved.
