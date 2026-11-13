@@ -1,7 +1,7 @@
 import type { Scenario, ScenarioBackendState } from '../scenarios/types.ts';
 import { serializeScenario } from '../scenarios/files.ts';
 import { validateScenario } from '../scenarios/validation.ts';
-import { balancerFields, executionFields, linkFields, streamFields, tcpFields } from './bindings.ts';
+import { balancerFields, executionFields, hostFields, linkFields, streamFields, tcpFields } from './bindings.ts';
 import { defaultHost, LANGUAGE_VERSION, scenarioDefaults } from './defaults.ts';
 import { FieldWriter } from './fields.ts';
 import { backendAddresses, endpointName, prefixName } from './identity.ts';
@@ -106,7 +106,10 @@ function compileBackend(
   };
   const path = `states["0"].resources.backends[${index}]`;
   const other = writeEndpointNetwork(declaration.properties, backend.network, writer, `${path}.network`);
-  writer.apply(other, { name: { path: 'name', read: textValue } }, backend, path);
+  writer.apply(other, {
+    name: { path: 'name', read: textValue },
+    host: { path: 'host', fields: hostFields },
+  }, backend, path);
   return backend;
 }
 

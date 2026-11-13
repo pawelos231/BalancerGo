@@ -2,7 +2,7 @@ import type { FieldRules } from './fields.ts';
 import type { Token } from './lexer.ts';
 import {
   bitRate, booleanValue, choice, countValue, dataBytes, eventLimit,
-  probability, seedValue, speedValue, timeValue,
+  percentage, probability, seedValue, speedValue, timeValue,
 } from './values.ts';
 
 export const executionFields: FieldRules = {
@@ -17,6 +17,27 @@ export const linkFields: FieldRules = {
   travel: { path: 'packetTravelTimeNanoseconds', read: token => timeValue(token) },
   queue: { path: 'queueCapacity', read: token => countValue(token) },
   loss: { path: 'lossRate', read: probability },
+  'queue-policy': { path: 'queuePolicy', read: token => choice(token, { 'tail-drop': 'tailDrop', threshold: 'threshold' }) },
+  'ecn-threshold': { path: 'congestionThresholdPercent', read: percentage },
+  'signal-probability': { path: 'congestionSignalProbability', read: probability },
+};
+
+// Endpoint patches preserve null as inheritance; complete links keep concrete values.
+export const linkPatchFields: FieldRules = Object.fromEntries(
+  Object.entries(linkFields).map(([name, rule]) => [name, { ...rule, nullable: true }]),
+);
+
+export const hostFields: FieldRules = {
+  cores: { path: 'cores', read: token => countValue(token, 1n, 1024n), nullable: true },
+  'packet-time': { path: 'packetProcessingTimeNanoseconds', read: token => timeValue(token), nullable: true },
+  queue: { path: 'queueCapacity', read: token => countValue(token, 0n, 1_000_000n), nullable: true },
+};
+
+const mappingFields: FieldRules = {
+  'half-open': { path: 'halfOpenIdleTimeoutNanoseconds', read: token => timeValue(token), nullable: true },
+  established: { path: 'establishedIdleTimeoutNanoseconds', read: token => timeValue(token), nullable: true },
+  closing: { path: 'closingIdleTimeoutNanoseconds', read: token => timeValue(token), nullable: true },
+  reset: { path: 'resetIdleTimeoutNanoseconds', read: token => timeValue(token), nullable: true },
 };
 
 // -1 keeps the native packets × 1024 fallback; other payloads use explicit byte units.
@@ -93,6 +114,8 @@ export const tcpFields: FieldRules = {
 
 export const balancerFields: FieldRules = {
   algo: { path: 'algorithm', read: token => choice(token, { rr: 'roundRobin', ran: 'random' }) },
-  ingress: { path: 'ingress.bandwidthBitsPerSecond', read: bitRate },
+  ingress: { path: 'ingress', fields: linkFields, shorthand: 'link' },
   egress: { path: 'forwardingBitsPerSecond', read: bitRate },
+  host: { path: 'host', fields: hostFields },
+  'mapping-timeouts': { path: 'mappingTimeouts', fields: mappingFields },
 };

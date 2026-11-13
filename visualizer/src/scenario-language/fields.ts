@@ -5,7 +5,7 @@ import type { Property } from './syntax.ts';
 
 export type FieldRule =
   | { path: string; read: (token: Token) => unknown; nullable?: boolean }
-  | { path: string; fields: FieldRules };
+  | { path: string; fields: FieldRules; shorthand?: string };
 export type FieldRules = Readonly<Record<string, FieldRule>>;
 
 // Translate known fields and remember their origins; no resource-family rules live here.
@@ -34,12 +34,16 @@ export class FieldWriter {
       const rule = rules[name];
       const nativePath = path ? `${path}.${rule.path}` : rule.path;
       if ('fields' in rule) {
-        if (!Array.isArray(property.value)) {
+        let children = property.value;
+        if (!Array.isArray(children) && rule.shorthand) {
+          children = [{ key: { ...property.key, text: rule.shorthand }, value: children }];
+        }
+        if (!Array.isArray(children)) {
           throw new LanguageError(`Expected a block for ${name}.`, property.key.range);
         }
         const nested = this.destination(target, rule.path);
         this.locations.set(nativePath, property.key.range);
-        this.apply(property.value, rule.fields, nested, nativePath);
+        this.apply(children, rule.fields, nested, nativePath);
         continue;
       }
 

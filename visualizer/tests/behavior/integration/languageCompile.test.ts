@@ -119,3 +119,45 @@ test('language TCP binding preserves dependency checks and explicit nullable set
   );
   assert.equal(compileScenario(`${minimal}\ntcp receive-buffer null`).fixed.tcp.receiveBufferBytes, null);
 });
+
+// CPU queues and physical ingress/endpoint queues remain separate native resources.
+test('language compiler binds CPU, ingress and directional network settings', () => {
+  const result = compileScenario(`run 10s
+defaults queue 50
+balancer lb {
+    ingress { link 100MB queue 32 travel 2us queue-policy threshold ecn-threshold 80% signal-probability 25% }
+    host { cores 2 packet-time 10us queue 64 }
+    mapping-timeouts { established 20s }
+}
+backend api-0 {
+    link 1MB
+    travel 2ms
+    queue 16
+    loss 1%
+    to-lb { link 10MB travel 0ns queue 0 loss 0% }
+    host { cores 4 packet-time 5us queue 128 }
+}
+clients regular { from-lb { link 2MB } link 5MB }
+`);
+  const state = result.states['0'];
+  assert.equal(state.resources.loadBalancer.ingress.bandwidthBitsPerSecond, 800_000_000);
+  assert.equal(state.resources.loadBalancer.ingress.congestionSignalProbability, 0.25);
+  assert.equal(state.resources.loadBalancer.host?.packetProcessingTimeNanoseconds, 10_000);
+  assert.equal(state.resources.loadBalancer.mappingTimeouts.establishedIdleTimeoutNanoseconds, 20_000_000_000);
+  const backend = state.resources.backends[0];
+  assert.equal(backend.network.toLoadBalancer.bandwidthBitsPerSecond, 80_000_000);
+  assert.equal(backend.network.toLoadBalancer.queueCapacity, 0);
+  assert.equal(backend.network.fromLoadBalancer.bandwidthBitsPerSecond, 8_000_000);
+  assert.equal(backend.host?.queueCapacity, 128);
+  assert.equal(state.workload.clientGroups[0].network.fromLoadBalancer.bandwidthBitsPerSecond, 16_000_000);
+});
+
+// Concrete CPU/ingress values cannot bypass their native limits or become client host settings.
+test('language network and CPU binding rejects invalid settings and keeps null patches', () => {
+  assert.throws(() => compileScenario(minimal.replace('api-0 {}', 'api-0 { host { cores 0 } }')), /between/);
+  assert.throws(() => compileScenario(`${minimal}\nclients regular { host { cores 2 } }`), /Unknown setting/);
+  assert.throws(() => compileScenario(minimal.replace('lb {}', 'lb { ingress { loss 101% } }')), /percentage/);
+  const scenario = compileScenario(minimal.replace('api-0 {}', 'api-0 { travel null host { packet-time 0ns } }'));
+  assert.equal(scenario.states['0'].resources.backends[0].network.toLoadBalancer.packetTravelTimeNanoseconds, null);
+  assert.equal(scenario.states['0'].resources.backends[0].host?.packetProcessingTimeNanoseconds, 0);
+});

@@ -10,7 +10,8 @@ profile selection, nested settings and timeline commands. Quantity and scalar
 conversion is implemented, with exact integer arithmetic. Versioned defaults and
 shared field rules handle unknown/duplicate settings, aliases, omission and null.
 Static compilation supports `run`, network defaults, current TCP settings, one LB and single
-backends and compact client groups, including a full transfer fixture. Other resource families, timeline
+backends and compact client groups, including CPU and directional link settings.
+The full transfer fixture is executable. Other resource families, timeline
 compilation and the editor remain unavailable and fail explicitly.
 
 ## Quick start
@@ -137,6 +138,20 @@ packets. Active transmission and packet travel do not occupy queue slots.
 | `balancer name` | `algo` (rr, ran), `ingress`, `egress` |
 | `backend prefix-index` | `link`, `name` (quoted display name) |
 | `clients group` | `count`, `start`, `every`, `payload`, `packets`, `segment-gap`, `link` |
+
+Every endpoint also accepts `travel`, `queue`, `loss`, `queue-policy`
+(tail-drop/threshold), `ecn-threshold` (0–100%) and `signal-probability` (0–100%).
+`to-lb { ... }` and `from-lb { ... }` override those fields in one direction.
+Directional settings take precedence regardless of textual order; explicit null
+removes that directional patch and restores native inheritance.
+
+`balancer.ingress` accepts either a rate or a block with the same link settings.
+`egress` remains a shared rate budget. LB and backends accept
+`host { cores 2 packet-time 10us queue 1024 }`: 1–1024 cores, nonnegative packet
+time (zero bypasses CPU), and 0–1,000,000 waiting CPU packets. These are distinct
+from network FIFO slots. The native duration/resource-overflow check still applies.
+LB `mapping-timeouts` accepts `half-open`, `established`, `closing`, and `reset`
+as nonnegative times; zero disables cleanup. Host and timeout patches accept null.
 
 Network defaults apply to endpoint links. Only their bandwidth also supplies the
 initial LB ingress and forwarding rates; other ingress settings retain their
