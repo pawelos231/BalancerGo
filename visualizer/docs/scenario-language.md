@@ -10,7 +10,7 @@ profile selection, nested settings and timeline commands. Quantity and scalar
 conversion is implemented, with exact integer arithmetic. Versioned defaults and
 shared field rules handle unknown/duplicate settings, aliases, omission and null.
 Static compilation supports `run`, network defaults, current TCP settings, one LB and single
-backends, including the quick-start fixture. Other resource families, timeline
+backends and compact client groups, including a full transfer fixture. Other resource families, timeline
 compilation and the editor remain unavailable and fail explicitly.
 
 ## Quick start
@@ -132,10 +132,11 @@ packets. Active transmission and packet travel do not occupy queue slots.
 | Declaration | Fields |
 | --- | --- |
 | `run duration` | `seed`, `speed`, `snapshots` (positive real-time interval), `max-events` |
-| `defaults` | `link`, `travel`, `queue`, `loss` |
+| `defaults` | `link`, `travel`, `queue`, `loss`, `payload`, `packets`, `segment-gap` |
 | `tcp` | See the TCP table below |
 | `balancer name` | `algo` (rr, ran), `ingress`, `egress` |
 | `backend prefix-index` | `link`, `name` (quoted display name) |
+| `clients group` | `count`, `start`, `every`, `payload`, `packets`, `segment-gap`, `link` |
 
 Network defaults apply to endpoint links. Only their bandwidth also supplies the
 initial LB ingress and forwarding rates; other ingress settings retain their
@@ -162,6 +163,14 @@ threshold must be at least twice MSS. SACK requires Reno/NewReno/CUBIC with fast
 retransmit. ECN requires congestion control. `none` defaults fast retransmit to
 false, but an explicitly incompatible setting is rejected. `congestion` and
 `congestion-control.mode` are aliases and cannot both be supplied.
+
+### Resource identities and workloads
+
+See [transfer.lb](../../examples/language/transfer.lb) and its matching
+[transfer.json](../../examples/language/transfer.json) for an executable workload.
+`payload -1` restores the native `packets × 1024` fallback, independent of MSS.
+Group stream fields accept `null` to inherit fixed workload defaults; count,
+start and every are ordinary nonnegative fields. Count zero creates no new clients.
 
 `backend api-0` declares one backend. `backends api { count 4 ... }` expands
 into independent backends `api-0` through `api-3`; `from 10` starts at `api-10`.

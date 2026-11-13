@@ -1,14 +1,16 @@
 import type { Scenario, ScenarioBackendState } from '../scenarios/types.ts';
 import { serializeScenario } from '../scenarios/files.ts';
 import { validateScenario } from '../scenarios/validation.ts';
-import { balancerFields, executionFields, linkFields, tcpFields } from './bindings.ts';
+import { balancerFields, executionFields, linkFields, streamFields, tcpFields } from './bindings.ts';
 import { defaultHost, LANGUAGE_VERSION, scenarioDefaults } from './defaults.ts';
 import { FieldWriter } from './fields.ts';
 import { backendAddresses, endpointName, prefixName } from './identity.ts';
 import { parse } from './parser.ts';
+import { writeEndpointNetwork } from './network.ts';
 import { LanguageError } from './source.ts';
-import type { Declaration, Program } from './syntax.ts';
-import { bitRate, countValue, textValue, timeValue } from './values.ts';
+import type { Declaration, Program, Property } from './syntax.ts';
+import { countValue, textValue, timeValue } from './values.ts';
+import { compileClientGroup } from './workload.ts';
 
 // Compile once before Start; the engine and Go CLI receive the unchanged JSON v2 contract.
 export function compileScenario(source: string): Scenario {
@@ -24,7 +26,14 @@ export function compileScenario(source: string): Scenario {
 
   const defaults = optionalDeclaration(program, 'defaults');
   if (defaults) {
-    writer.apply(defaults.properties, linkFields, scenario.fixed.network.defaults, 'fixed.network.defaults');
+    const network: Property[] = [];
+    const stream: Property[] = [];
+    for (const property of defaults.properties) {
+      const isNetwork = Object.prototype.hasOwnProperty.call(linkFields, property.key.text);
+      (isNetwork ? network : stream).push(property);
+    }
+    writer.apply(network, linkFields, scenario.fixed.network.defaults, 'fixed.network.defaults');
+    writer.apply(stream, streamFields, scenario.fixed.workload.defaults, 'fixed.workload.defaults');
   }
   const tcp = optionalDeclaration(program, 'tcp');
   if (tcp) writer.apply(tcp.properties, tcpFields, scenario.fixed.tcp, 'fixed.tcp');
@@ -56,6 +65,20 @@ export function compileScenario(source: string): Scenario {
   state.resources.backends = declarations.map((declaration, index) => {
     return compileBackend(declaration, addresses.get(ids[index])!, writer, index);
   });
+  const groups = program.declarations.filter(item => item.keyword.text === 'clients');
+  state.workload.clientGroups = groups.map((declaration, index) => compileClientGroup(
+    declaration, writer, `states["0"].workload.clientGroups[${index}]`,
+  ));
+
+  // A backend called regular-1 cannot also denote the second client in group regular.
+  const slots = new Map(state.workload.clientGroups.map(group => [group.id, BigInt(group.count)]));
+  for (const [index, id] of ids.entries()) {
+    const dash = id.lastIndexOf('-');
+    const count = slots.get(id.slice(0, dash)) ?? 0n;
+    if (BigInt(id.slice(dash + 1)) < count) {
+      throw new LanguageError(`Backend ${id} collides with a client alias.`, declarations[index].argument!.range);
+    }
+  }
 
   try {
     const checked = validateScenario(scenario);
@@ -82,18 +105,14 @@ function compileBackend(
     network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
   };
   const path = `states["0"].resources.backends[${index}]`;
-  const shared = declaration.properties.filter(property => property.key.text === 'link');
-  const other = declaration.properties.filter(property => property.key.text !== 'link');
-  const rate = { link: { path: 'bandwidthBitsPerSecond', read: bitRate } };
-  writer.apply(shared, rate, backend.network.toLoadBalancer, `${path}.network.toLoadBalancer`);
-  writer.apply(shared, rate, backend.network.fromLoadBalancer, `${path}.network.fromLoadBalancer`);
+  const other = writeEndpointNetwork(declaration.properties, backend.network, writer, `${path}.network`);
   writer.apply(other, { name: { path: 'name', read: textValue } }, backend, path);
   return backend;
 }
 
 // Reject recognized future syntax explicitly instead of silently dropping it from the JSON.
 function checkSupported(program: Program): void {
-  const supported = ['language', 'run', 'defaults', 'tcp', 'balancer', 'backend'];
+  const supported = ['language', 'run', 'defaults', 'tcp', 'balancer', 'backend', 'clients'];
   for (const declaration of program.declarations) {
     if (!supported.includes(declaration.keyword.text)) {
       throw new LanguageError(

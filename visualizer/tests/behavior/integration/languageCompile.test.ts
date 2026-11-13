@@ -34,10 +34,36 @@ test('language static compiler rejects invalid identities, duplicates and unavai
   assert.throws(() => compileScenario(minimal.replace('api-0', 'api-01')), /endpoint name/);
   assert.throws(() => compileScenario(`${minimal}\nbalancer another {}`), /Only one balancer/);
   assert.throws(() => compileScenario('run 1s'), /one balancer/);
-  assert.throws(() => compileScenario(`${minimal}\nclients regular {}`), /not available yet/);
+  assert.throws(() => compileScenario(`${minimal}\nbackends api { count 2 }`), /not available yet/);
   assert.throws(() => compileScenario(`${minimal}\nat 1ms {}`), /Timeline compilation/);
   assert.throws(() => compileScenario(`language 2\n${minimal}`), /between 1 and 1/);
   assert.throws(() => compileScenario(minimal.replace('lb {}', 'lb { algo p2c }')), /Expected one of/);
+});
+
+// The first complete workload fixture can be exported and run by the existing simulator.
+test('language compiler emits compact client generators and inherited stream settings', () => {
+  assert.deepEqual(compileScenario(fixture('transfer.lb')), parseScenario(fixture('transfer.json')));
+  const result = compileScenario(`${minimal}
+defaults payload 1MB segment-gap 1ms
+clients regular { count 50000 every 10ms start 20ms payload null }
+`);
+  const groups = result.states['0'].workload.clientGroups;
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].count, 50_000);
+  assert.equal(groups[0].clientGapNanoseconds, 10_000_000);
+  assert.equal(groups[0].startAtNanoseconds, 20_000_000);
+  assert.equal(groups[0].stream.bytes, null);
+  assert.equal(result.fixed.workload.defaults.bytes, 1_000_000);
+  assert.equal(result.fixed.workload.defaults.packetGapNanoseconds, 1_000_000);
+});
+
+// Native ID/slot limits still apply; DSL client aliases add a collision guard of their own.
+test('language client generators reject duplicate groups, excessive budgets and alias collisions', () => {
+  assert.throws(() => compileScenario(`${minimal}\nclients regular {}\nclients regular {}`), /already used/);
+  assert.throws(() => compileScenario(`${minimal}\nclients huge { count 16777216 }`), /between/);
+  assert.throws(() => compileScenario(`${minimal}\nclients api { count 1 }`), /client alias/);
+  const result = compileScenario(`${minimal}\nclients regular { count 0 payload 0B every 0ns }`);
+  assert.equal(result.states['0'].workload.clientGroups[0].count, 0);
 });
 
 // These are bindings to today's TCP, including nested timers and optional mechanisms.

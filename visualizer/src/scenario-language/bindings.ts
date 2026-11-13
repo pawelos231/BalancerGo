@@ -19,6 +19,24 @@ export const linkFields: FieldRules = {
   loss: { path: 'lossRate', read: probability },
 };
 
+// -1 keeps the native packets × 1024 fallback; other payloads use explicit byte units.
+const payloadValue = (token: Token) => token.kind === 'number' && token.text === '-1' ? -1 : dataBytes(token);
+
+export const streamFields: FieldRules = {
+  payload: { path: 'bytes', read: payloadValue },
+  packets: { path: 'packets', read: token => countValue(token) },
+  'segment-gap': { path: 'packetGapNanoseconds', read: token => timeValue(token) },
+};
+
+export const clientFields: FieldRules = {
+  count: { path: 'count', read: token => countValue(token, 0n, 16_777_215n) },
+  start: { path: 'startAtNanoseconds', read: token => timeValue(token) },
+  every: { path: 'clientGapNanoseconds', read: token => timeValue(token) },
+  payload: { path: 'stream.bytes', read: payloadValue, nullable: true },
+  packets: { path: 'stream.packets', read: token => countValue(token), nullable: true },
+  'segment-gap': { path: 'stream.packetGapNanoseconds', read: token => timeValue(token), nullable: true },
+};
+
 const congestionMode = (token: Token) => choice(token, {
   reno: 'reno', newreno: 'newReno', tahoe: 'tahoe', cubic: 'cubic', none: 'none',
 });
