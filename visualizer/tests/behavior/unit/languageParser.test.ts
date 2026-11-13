@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { parse } from '../../../src/scenario-language/parser.ts';
 
 // Parsing retains literals: unit conversion and field validation belong to later passes.
@@ -54,4 +55,27 @@ test('language parser bounds nested blocks and rejects incomplete resource heade
   assert.throws(() => parse('clients group use {}'), /profile name after use/);
   assert.throws(() => parse('backend api-0 { host { cores 4 }'), /closing brace/);
   assert.throws(() => parse(`tcp { ${'rto { '.repeat(64)}mode adaptive${' }'.repeat(65)}`), /nesting depth/);
+});
+
+// The full timeline fixture becomes syntax, with every operation still in source order.
+test('language parser reads at blocks and all supported command shapes', () => {
+  const source = readFileSync(new URL('../../../../examples/language/timeline.lb', import.meta.url), 'utf8');
+  const program = parse(source);
+  assert.deepEqual(program.timeline.map(block => block.at.text), ['30s', '60s', '90s']);
+  assert.deepEqual(program.timeline[0].commands.map(command => command.kind), ['set', 'down', 'add']);
+  assert.equal(program.timeline[2].commands[0].kind, 'stop');
+
+  const block = parse('at 1s { set backend api-0 { host { cores 2 } }\n drain backend api-1 }').timeline[0];
+  assert.deepEqual(block.commands.map(command => command.kind), ['set', 'drain']);
+});
+
+// Grammar rejects misplaced declarations and malformed targets before semantic checks.
+test('language parser rejects incomplete or misplaced timeline commands', () => {
+  assert.throws(() => parse('at 1s {}\nbackend api-0 {}'), /Initial declarations must precede/);
+  assert.throws(() => parse('at 1s { down client regular-0 }'), /Expected backend/);
+  assert.throws(() => parse('at 1s { add balancer other {} }'), /Add supports/);
+  assert.throws(() => parse('at 1s { stop arrivals }'), /client group name/);
+  assert.throws(() => parse('at 1s { up backend api-0 down backend api-1 }'), /newline or block end/);
+  assert.throws(() => parse('at 1s { mystery value }'), /Unsupported timeline command/);
+  assert.throws(() => parse('at 1s {'), /closing brace for at/);
 });

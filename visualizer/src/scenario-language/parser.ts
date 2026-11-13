@@ -1,7 +1,7 @@
 import { tokenize } from './lexer.ts';
 import type { Token } from './lexer.ts';
 import { LanguageError } from './source.ts';
-import type { Declaration, Program, Property } from './syntax.ts';
+import type { Command, Declaration, Program, Property, TimelineBlock } from './syntax.ts';
 
 // Read syntax without applying defaults, converting units or constructing a scenario.
 export function parse(source: string): Program {
@@ -19,16 +19,24 @@ class Parser {
 
   read(): Program {
     const declarations: Declaration[] = [];
+    const timeline: TimelineBlock[] = [];
     while (this.peek().kind !== 'eof') {
       if (this.peek().kind === 'newline') {
         this.take();
         continue;
       }
-      declarations.push(this.declaration());
+      if (this.peek().kind === 'word' && this.peek().text === 'at') {
+        timeline.push(this.timelineBlock());
+      } else {
+        if (timeline.length > 0) {
+          throw new LanguageError('Initial declarations must precede all at blocks.', this.peek().range);
+        }
+        declarations.push(this.declaration());
+      }
     }
 
     return {
-      declarations,
+      declarations, timeline,
       range: { start: { offset: 0, line: 1, column: 1 }, end: this.peek().range.end },
     };
   }
@@ -95,6 +103,65 @@ class Parser {
     this.expect('}', 'Expected a closing brace.');
     this.depth--;
     return properties;
+  }
+
+  // Preserve command order and raw timestamps; chronology is checked during compilation.
+  private timelineBlock(): TimelineBlock {
+    const opening = this.take();
+    const at = this.expect('number', 'Expected a timestamp after at.');
+    this.expect('{', 'Expected an opening brace on the declaration line.');
+    const commands: Command[] = [];
+
+    while (this.peek().kind !== '}' && this.peek().kind !== 'eof') {
+      if (this.peek().kind === 'newline') {
+        this.take();
+        continue;
+      }
+      commands.push(this.command());
+      if (!['newline', '}', 'eof'].includes(this.peek().kind)) {
+        throw new LanguageError('Expected a newline or block end after the command.', this.peek().range);
+      }
+    }
+    const closing = this.expect('}', 'Expected a closing brace for at.');
+    return { at, commands, range: { start: opening.range.start, end: closing.range.end } };
+  }
+
+  private command(): Command {
+    const keyword = this.expect('word', 'Expected a timeline command.');
+    const range = () => ({ start: keyword.range.start, end: this.tokens[this.index - 1].range.end });
+
+    if (keyword.text === 'add') {
+      if (!['backend', 'backends', 'clients'].includes(this.peek().text)) {
+        throw new LanguageError('Add supports backend, backends or clients.', this.peek().range);
+      }
+      const declaration = this.declaration();
+      return { kind: 'add', declaration, range: range() };
+    }
+    if (keyword.text === 'set') {
+      const target = this.expect('word', 'Expected a resource type after set.');
+      if (!['balancer', 'backend', 'clients', 'client'].includes(target.text)) {
+        throw new LanguageError('Set supports balancer, backend, clients or client.', target.range);
+      }
+      const name = target.text === 'balancer' ? undefined : this.expect('word', 'Expected a resource name.');
+      const properties = this.peek().kind === '{' ? this.block() : this.properties(false);
+      return { kind: 'set', target, name, properties, range: range() };
+    }
+    if (keyword.text === 'down' || keyword.text === 'up' || keyword.text === 'drain') {
+      this.expectWord('backend');
+      const name = this.expect('word', 'Expected a backend name.');
+      return { kind: keyword.text, name, range: range() };
+    }
+    if (keyword.text === 'stop') {
+      this.expectWord('arrivals');
+      const name = this.expect('word', 'Expected a client group name.');
+      return { kind: 'stop', name, range: range() };
+    }
+    throw new LanguageError(`Unsupported timeline command ${JSON.stringify(keyword.text)}.`, keyword.range);
+  }
+
+  private expectWord(text: string): void {
+    const token = this.expect('word', `Expected ${text}.`);
+    if (token.text !== text) throw new LanguageError(`Expected ${text}.`, token.range);
   }
 
   private expect(kind: Token['kind'], message: string): Token {

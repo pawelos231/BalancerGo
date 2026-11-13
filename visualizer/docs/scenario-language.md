@@ -6,8 +6,9 @@ does not compile this language. No simulation behavior changes in this epic.
 
 **Implementation status:** the lexer recognizes structure, exact numeric tokens,
 quoted text and comments. The parser reads scalar declarations, named resources,
-profile selection and nested settings. Timeline commands, value conversion,
-compilation and the editor are not available yet. Examples are fixtures for later commits.
+profile selection, nested settings and timeline commands. Value conversion,
+semantic validation, compilation and the editor are not available yet.
+Examples are fixtures for later commits.
 
 ## Quick start
 
