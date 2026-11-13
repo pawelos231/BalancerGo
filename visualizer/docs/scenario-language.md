@@ -11,8 +11,8 @@ conversion is implemented, with exact integer arithmetic. Versioned defaults and
 shared field rules handle unknown/duplicate settings, aliases, omission and null.
 Static compilation supports `run`, network defaults, current TCP settings, one LB and single
 backends and compact client groups, including CPU and directional link settings.
-Named network profiles and inheritance are supported. The full transfer fixture
-is executable. Other resource families, timeline
+Named network profiles, bulk backend shorthand and inheritance are supported.
+The full transfer fixture is executable. Individual client overrides, timeline
 compilation and the editor remain unavailable and fail explicitly.
 
 ## Quick start
@@ -191,7 +191,9 @@ start and every are ordinary nonnegative fields. Count zero creates no new clien
 
 `backend api-0` declares one backend. `backends api { count 4 ... }` expands
 into independent backends `api-0` through `api-3`; `from 10` starts at `api-10`.
-It does not create a runtime backend group. Counts are checked before expansion
+It does not create a runtime backend group. `count` is required and positive;
+`from` defaults to zero. Omit backend declarations for an empty initial pool.
+Counts are checked before expansion
 against the existing limit of 10,000 backends. Generated IDs must fit 128 bytes.
 
 Backend addresses are assigned in lexical ID order across the **whole source**,

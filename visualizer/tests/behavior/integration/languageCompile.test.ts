@@ -35,7 +35,7 @@ test('language static compiler rejects invalid identities, duplicates and unavai
   assert.throws(() => compileScenario(minimal.replace('api-0', 'api-01')), /endpoint name/);
   assert.throws(() => compileScenario(`${minimal}\nbalancer another {}`), /Only one balancer/);
   assert.throws(() => compileScenario('run 1s'), /one balancer/);
-  assert.throws(() => compileScenario(`${minimal}\nbackends api { count 2 }`), /not available yet/);
+  assert.throws(() => compileScenario(`${minimal}\nclient regular-0 {}`), /not available yet/);
   assert.throws(() => compileScenario(`${minimal}\nat 1ms {}`), /Timeline compilation/);
   assert.throws(() => compileScenario(`language 2\n${minimal}`), /between 1 and 1/);
   assert.throws(() => compileScenario(minimal.replace('lb {}', 'lb { algo p2c }')), /Expected one of/);
@@ -201,4 +201,31 @@ test('language profiles reject invalid definitions, missing references and dupli
     () => compileScenario(`${minimal.replace('api-0 {}', 'api-0 use mobile { use mobile }')}\nprofile mobile {}`),
     /overlaps/,
   );
+});
+
+// A template is syntax sugar: explicit backends have the same IDs, addresses and settings.
+test('language bulk backends expand to equivalent independent native resources', () => {
+  const base = 'run 1s\nbalancer lb {}\n';
+  const bulk = compileScenario(`${base}backends api { count 3 from 2 link 10MB host { cores 2 } }`);
+  const explicit = compileScenario(`${base}${[2, 3, 4].map(index => {
+    return `backend api-${index} { link 10MB host { cores 2 } }`;
+  }).join('\n')}`);
+  assert.deepEqual(bulk, explicit);
+  bulk.states['0'].resources.backends[0].network.toLoadBalancer.queueCapacity = 0;
+  assert.equal(bulk.states['0'].resources.backends[1].network.toLoadBalancer.queueCapacity, undefined);
+
+  const largeSuffix = compileScenario(`${base}backends api { count 2 from 9007199254740993 }`);
+  assert.deepEqual(largeSuffix.states['0'].resources.backends.map(backend => backend.id), [
+    'api-9007199254740993', 'api-9007199254740994',
+  ]);
+});
+
+// Check count before expansion, and check generated IDs against explicit declarations and aliases.
+test('language bulk backends reject excessive counts and overlapping resource identities', () => {
+  assert.throws(() => compileScenario(`${minimal}\nbackends api { count 1 }`), /Duplicate backend/);
+  assert.throws(() => compileScenario(`${minimal}\nbackends extra { count 10001 }`), /between/);
+  assert.throws(() => compileScenario(`${minimal}\nbackends extra {}`), /require a count/);
+  const collision = 'run 1s\nbalancer lb {}\nbackends api { count 1 }\nclients api {}';
+  assert.throws(() => compileScenario(collision), /client alias/);
+  assert.throws(() => compileScenario('run 1s\nbalancer lb {}\nbackends api { count 0 }'), /between/);
 });

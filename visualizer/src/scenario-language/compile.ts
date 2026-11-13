@@ -1,15 +1,16 @@
-import type { Scenario, ScenarioBackendState } from '../scenarios/types.ts';
+import type { Scenario } from '../scenarios/types.ts';
 import { serializeScenario } from '../scenarios/files.ts';
 import { validateScenario } from '../scenarios/validation.ts';
-import { balancerFields, executionFields, hostFields, linkFields, streamFields, tcpFields } from './bindings.ts';
-import { defaultHost, LANGUAGE_VERSION, scenarioDefaults } from './defaults.ts';
+import { balancerFields, executionFields, linkFields, streamFields, tcpFields } from './bindings.ts';
+import { LANGUAGE_VERSION, scenarioDefaults } from './defaults.ts';
 import { FieldWriter } from './fields.ts';
 import { backendAddresses, endpointName, prefixName } from './identity.ts';
 import { parse } from './parser.ts';
-import { compileProfiles, selectEndpointProfile, writeEndpointNetwork } from './network.ts';
+import { compileProfiles } from './network.ts';
+import { compileBackend, expandBackends } from './resources.ts';
 import { LanguageError } from './source.ts';
 import type { Declaration, Program, Property } from './syntax.ts';
-import { countValue, textValue, timeValue } from './values.ts';
+import { countValue, timeValue } from './values.ts';
 import { compileClientGroup } from './workload.ts';
 
 // Compile once before Start; the engine and Go CLI receive the unchanged JSON v2 contract.
@@ -56,17 +57,20 @@ export function compileScenario(source: string): Scenario {
   }
   writer.apply(balancer.properties, balancerFields, lb, 'states["0"].resources.loadBalancer');
 
-  const declarations = program.declarations.filter(item => item.keyword.text === 'backend');
+  const declarations = expandBackends(program.declarations.filter(item => {
+    return item.keyword.text === 'backend' || item.keyword.text === 'backends';
+  }));
   const ids = declarations.map(item => endpointName(item.argument!));
   const used = new Set<string>();
   for (const [index, id] of ids.entries()) {
     if (used.has(id)) throw new LanguageError(`Duplicate backend ${id}.`, declarations[index].argument!.range);
     used.add(id);
   }
-  if (ids.length > 10_000) throw new LanguageError('At most 10,000 backends are supported.', program.range);
   const addresses = backendAddresses(ids);
   state.resources.backends = declarations.map((declaration, index) => {
-    return compileBackend(declaration, addresses.get(ids[index])!, writer, index);
+    return compileBackend(
+      declaration, addresses.get(ids[index])!, writer, `states["0"].resources.backends[${index}]`,
+    );
   });
   const groups = program.declarations.filter(item => item.keyword.text === 'clients');
   state.workload.clientGroups = groups.map((declaration, index) => compileClientGroup(
@@ -93,30 +97,9 @@ export function compileScenario(source: string): Scenario {
   }
 }
 
-function compileBackend(
-  declaration: Declaration,
-  address: string,
-  writer: FieldWriter,
-  index: number,
-): ScenarioBackendState {
-  const backend: ScenarioBackendState = {
-    id: endpointName(declaration.argument!), address, port: 80,
-    host: defaultHost(),
-    network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
-  };
-  const path = `states["0"].resources.backends[${index}]`;
-  selectEndpointProfile(declaration.profile, backend.network, writer, `${path}.network`);
-  const other = writeEndpointNetwork(declaration.properties, backend.network, writer, `${path}.network`);
-  writer.apply(other, {
-    name: { path: 'name', read: textValue },
-    host: { path: 'host', fields: hostFields },
-  }, backend, path);
-  return backend;
-}
-
 // Reject recognized future syntax explicitly instead of silently dropping it from the JSON.
 function checkSupported(program: Program): void {
-  const supported = ['language', 'run', 'defaults', 'tcp', 'balancer', 'backend', 'clients', 'profile'];
+  const supported = ['language', 'run', 'defaults', 'tcp', 'balancer', 'backend', 'backends', 'clients', 'profile'];
   for (const declaration of program.declarations) {
     if (!supported.includes(declaration.keyword.text)) {
       throw new LanguageError(
