@@ -12,8 +12,8 @@ shared field rules handle unknown/duplicate settings, aliases, omission and null
 Static compilation supports `run`, network defaults, current TCP settings, one LB and single
 backends and compact client groups, including CPU and directional link settings.
 Named network profiles, bulk backend shorthand and inheritance are supported.
-The full transfer fixture is executable. Individual client overrides, timeline
-compilation and the editor remain unavailable and fail explicitly.
+Individual client overrides are supported. The full transfer fixture is executable.
+Timeline compilation and the editor remain unavailable and fail explicitly.
 
 ## Quick start
 
@@ -211,6 +211,13 @@ Client aliases and explicit backend IDs must not collide. LB and group IDs also
 share the native resource namespace; profile names have a separate namespace.
 Client indices refer to historically reserved slots, not current active clients.
 Total reserved slots across the timeline cannot exceed 16,777,215.
+
+An initial `client regular-1 { ... }` accepts endpoint network settings, a profile,
+`payload`, `packets` and `segment-gap`. It may precede its group's declaration.
+It cannot change count, start, every, CPU settings or IDs. The slot must exist,
+and only one initial declaration may override each slot. Group settings stay
+compact and unchanged; the output uses native override entries with an `index`
+field identifying the client slot, independently of the entry's array position.
 
 Endpoint link precedence is defaults → selected profile → endpoint settings →
 directional settings. A client override applies after its resolved group links.

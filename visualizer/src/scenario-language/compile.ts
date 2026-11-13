@@ -11,7 +11,7 @@ import { compileBackend, expandBackends } from './resources.ts';
 import { LanguageError } from './source.ts';
 import type { Declaration, Program, Property } from './syntax.ts';
 import { countValue, timeValue } from './values.ts';
-import { compileClientGroup } from './workload.ts';
+import { compileClientGroup, compileClientOverrides } from './workload.ts';
 
 // Compile once before Start; the engine and Go CLI receive the unchanged JSON v2 contract.
 export function compileScenario(source: string): Scenario {
@@ -76,6 +76,10 @@ export function compileScenario(source: string): Scenario {
   state.workload.clientGroups = groups.map((declaration, index) => compileClientGroup(
     declaration, writer, `states["0"].workload.clientGroups[${index}]`,
   ));
+  compileClientOverrides(
+    program.declarations.filter(declaration => declaration.keyword.text === 'client'),
+    state.workload.clientGroups, writer, 'states["0"].workload',
+  );
 
   // A backend called regular-1 cannot also denote the second client in group regular.
   const slots = new Map(state.workload.clientGroups.map(group => [group.id, BigInt(group.count)]));
@@ -99,7 +103,9 @@ export function compileScenario(source: string): Scenario {
 
 // Reject recognized future syntax explicitly instead of silently dropping it from the JSON.
 function checkSupported(program: Program): void {
-  const supported = ['language', 'run', 'defaults', 'tcp', 'balancer', 'backend', 'backends', 'clients', 'profile'];
+  const supported = [
+    'language', 'run', 'defaults', 'tcp', 'balancer', 'backend', 'backends', 'clients', 'client', 'profile',
+  ];
   for (const declaration of program.declarations) {
     if (!supported.includes(declaration.keyword.text)) {
       throw new LanguageError(

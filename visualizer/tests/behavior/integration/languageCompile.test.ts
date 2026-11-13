@@ -35,7 +35,7 @@ test('language static compiler rejects invalid identities, duplicates and unavai
   assert.throws(() => compileScenario(minimal.replace('api-0', 'api-01')), /endpoint name/);
   assert.throws(() => compileScenario(`${minimal}\nbalancer another {}`), /Only one balancer/);
   assert.throws(() => compileScenario('run 1s'), /one balancer/);
-  assert.throws(() => compileScenario(`${minimal}\nclient regular-0 {}`), /not available yet/);
+  assert.throws(() => compileScenario(`${minimal}\nclient regular-0 {}`), /outside its declared group/);
   assert.throws(() => compileScenario(`${minimal}\nat 1ms {}`), /Timeline compilation/);
   assert.throws(() => compileScenario(`language 2\n${minimal}`), /between 1 and 1/);
   assert.throws(() => compileScenario(minimal.replace('lb {}', 'lb { algo p2c }')), /Expected one of/);
@@ -228,4 +228,33 @@ test('language bulk backends reject excessive counts and overlapping resource id
   const collision = 'run 1s\nbalancer lb {}\nbackends api { count 1 }\nclients api {}';
   assert.throws(() => compileScenario(collision), /client alias/);
   assert.throws(() => compileScenario('run 1s\nbalancer lb {}\nbackends api { count 0 }'), /between/);
+});
+
+// A sparse override stays separate from its group; native inheritance applies it last.
+test('language individual client overrides preserve group identity and final stream patches', () => {
+  const result = compileScenario(`${minimal}
+client mobile-users-1 use slow { packets 3 payload -1 to-lb { queue 0 } }
+clients mobile-users { count 2 payload 10KB link 20MB }
+profile slow { link 1MB }
+`);
+  const group = result.states['0'].workload.clientGroups[0];
+  assert.equal(group.id, 'mobile-users');
+  assert.equal(group.count, 2);
+  assert.deepEqual(group.stream, { bytes: 10_000 });
+  const override = group.overrides![0];
+  assert.equal(override.index, 1);
+  assert.deepEqual(override.stream, { packets: 3, bytes: -1 });
+  assert.equal(override.network.profile, 'slow');
+  assert.equal(override.network.toLoadBalancer.queueCapacity, 0);
+  assert.equal(group.network.toLoadBalancer.bandwidthBitsPerSecond, 160_000_000);
+});
+
+// An override cannot add an unreserved client, rename one or modify generator/host settings.
+test('language individual overrides reject missing slots, duplicates and forbidden properties', () => {
+  const source = `${minimal}\nclients regular { count 2 }\n`;
+  assert.throws(() => compileScenario(`${source}client regular-2 {}`), /outside its declared group/);
+  assert.throws(() => compileScenario(`${source}client missing-0 {}`), /outside its declared group/);
+  assert.throws(() => compileScenario(`${source}client regular-01 {}`), /endpoint name/);
+  assert.throws(() => compileScenario(`${source}client regular-1 {}\nclient regular-1 {}`), /Duplicate client override/);
+  assert.throws(() => compileScenario(`${source}client regular-1 { count 3 }`), /Unknown setting/);
 });

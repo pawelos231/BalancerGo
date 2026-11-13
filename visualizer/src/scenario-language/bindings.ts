@@ -49,13 +49,17 @@ export const streamFields: FieldRules = {
   'segment-gap': { path: 'packetGapNanoseconds', read: token => timeValue(token) },
 };
 
+export const clientStreamFields: FieldRules = Object.fromEntries(
+  Object.entries(streamFields).map(([name, rule]) => [name, {
+    ...rule, path: `stream.${rule.path}`, nullable: true,
+  }]),
+);
+
 export const clientFields: FieldRules = {
+  ...clientStreamFields,
   count: { path: 'count', read: token => countValue(token, 0n, 16_777_215n) },
   start: { path: 'startAtNanoseconds', read: token => timeValue(token) },
   every: { path: 'clientGapNanoseconds', read: token => timeValue(token) },
-  payload: { path: 'stream.bytes', read: payloadValue, nullable: true },
-  packets: { path: 'stream.packets', read: token => countValue(token), nullable: true },
-  'segment-gap': { path: 'stream.packetGapNanoseconds', read: token => timeValue(token), nullable: true },
 };
 
 const congestionMode = (token: Token) => choice(token, {
