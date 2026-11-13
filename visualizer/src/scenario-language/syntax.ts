@@ -4,13 +4,14 @@ import type { SourceRange } from './source.ts';
 // A setting still carries its source token; for example speed -> the token "1".
 export interface Property {
   key: Token;
-  value: Token;
+  value: Token | Property[];
 }
 
 // Syntax only: run's argument is its duration; settings are checked in later passes.
 export interface Declaration {
   keyword: Token;
   argument?: Token;
+  profile?: Token;
   properties: Property[];
   range: SourceRange;
 }

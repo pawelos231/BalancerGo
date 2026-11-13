@@ -5,9 +5,9 @@ will produce the existing scenario JSON v2. The Go CLI consumes that JSON; it
 does not compile this language. No simulation behavior changes in this epic.
 
 **Implementation status:** the lexer recognizes structure, exact numeric tokens,
-quoted text and comments. The parser reads scalar `run`, `defaults`, `tcp` and
-`language` declarations. Named/nested blocks, value conversion, compilation and
-the editor are not available yet. Examples are fixtures for later commits.
+quoted text and comments. The parser reads scalar declarations, named resources,
+profile selection and nested settings. Timeline commands, value conversion,
+compilation and the editor are not available yet. Examples are fixtures for later commits.
 
 ## Quick start
 
