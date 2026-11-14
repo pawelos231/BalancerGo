@@ -1,6 +1,6 @@
-import { Box, Link, Stack, Typography } from '@mui/material';
+import { Box, Link, List, ListItemButton, ListItemText, Stack, Typography } from '@mui/material';
 import { memo, useEffect } from 'react';
-import { useLocation } from 'react-router';
+import { Link as RouterLink, useLocation } from 'react-router';
 import Markdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -8,6 +8,13 @@ import rehypeSlug from 'rehype-slug';
 import readme from '../../../README.md?raw';
 
 const repositoryFiles = 'https://github.com/pawelos231/BalancerGo/blob/main/';
+
+const documentationSections = [
+  { id: 'overview', label: 'Overview', path: '/docs' },
+  { id: 'language', label: 'Language documentation', path: '/docs/language' },
+] as const;
+
+type DocumentationSection = typeof documentationSections[number]['id'];
 
 const markdownComponents: Components = {
   a({ href, children, title }) {
@@ -36,7 +43,7 @@ const markdownComponents: Components = {
 };
 
 // The README is bundled with the page, so reading docs does not need the backend.
-function DocsPage() {
+function DocsPage({ section = 'overview' }: { section?: DocumentationSection }) {
   const { hash } = useLocation();
 
   useEffect(() => {
@@ -46,22 +53,71 @@ function DocsPage() {
     }
 
     // Wait until Markdown has rendered before following a section's anchor.
-    let section: string;
+    let anchorId: string;
     try {
-      section = decodeURIComponent(hash.slice(1));
+      anchorId = decodeURIComponent(hash.slice(1));
     } catch {
       return;
     }
-    document.getElementById(section)?.scrollIntoView();
-  }, [hash]);
+    document.getElementById(anchorId)?.scrollIntoView();
+  }, [hash, section]);
 
   return (
-    <Stack
-      component="main" aria-label="Documentation" spacing={2}
-      sx={{ py: 3, maxWidth: 1160, mx: 'auto', minWidth: 0 }}
+    <Box
+      component="main" aria-label="Documentation"
+      sx={{
+        display: 'grid', gap: 3, py: 3, maxWidth: 1480, mx: 'auto', minWidth: 0,
+        gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '240px minmax(0, 1fr)' },
+        alignItems: 'start',
+      }}
     >
+      <Box
+        component="nav" aria-label="Documentation sections"
+        sx={{
+          position: { xs: 'static', md: 'sticky' }, top: 24, alignSelf: 'start',
+          minWidth: 0, pr: { xs: 0, md: 2 }, pb: { xs: 2, md: 0 },
+          borderRight: { xs: 0, md: 1 }, borderBottom: { xs: 1, md: 0 },
+          borderColor: 'divider',
+        }}
+      >
+        <Typography variant="overline" color="text.secondary" sx={{ px: 2 }}>
+          Documentation
+        </Typography>
+        <List component="div" disablePadding>
+          {documentationSections.map(item => (
+            <ListItemButton
+              key={item.id} component={RouterLink} to={item.path}
+              selected={section === item.id}
+              aria-current={section === item.id ? 'page' : undefined}
+              sx={{ borderRadius: 1 }}
+            >
+              <ListItemText primary={item.label} />
+            </ListItemButton>
+          ))}
+        </List>
+      </Box>
+      {section === 'overview' ? <DocsOverview /> : (
+        <Box
+          component="section" aria-labelledby="language-documentation-title"
+          sx={{
+            minWidth: 0, minHeight: 320, p: { xs: 2, md: 4 },
+            bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2,
+          }}
+        >
+          <Typography id="language-documentation-title" variant="h4" component="h1">
+            Language documentation
+          </Typography>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function DocsOverview() {
+  return (
+    <Stack spacing={2} sx={{ minWidth: 0 }}>
       <Box>
-        <Typography variant="overline" color="text.secondary">Documentation</Typography>
+        <Typography variant="overline" color="text.secondary">Overview</Typography>
         <Typography variant="body2" color="text.secondary">
           Project README — setup, architecture and configuration reference.
         </Typography>

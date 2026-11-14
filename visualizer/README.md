@@ -42,7 +42,10 @@ The Markdown ships with the frontend; reading it does not require the backend.
   history entries. Lists and resource tables are paginated.
 - **Documentation** (`/docs`): read the project README with formatted headings,
   tables, lists and code blocks. Section anchors stay inside the app; links to
-  other repository files open their GitHub version.
+  other repository files open their GitHub version. The left sidebar switches
+  between Overview and **Language documentation** (`/docs/language`), which is
+  currently an empty page reserved for the future language guide. On small screens,
+  this menu appears above the document.
 
 `src/hooks/useSimulation.ts` owns the WebSocket, snapshots and lifecycle actions.
 It starts scenarios and retrieves the current run's configuration through HTTP.

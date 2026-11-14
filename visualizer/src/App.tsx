@@ -286,6 +286,7 @@ function App() {
                 element={<ResultsPage state={results.state} history={results.history} />}
               />
               <Route path="/docs" element={<DocsPage />} />
+              <Route path="/docs/language" element={<DocsPage section="language" />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
