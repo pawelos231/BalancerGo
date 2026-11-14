@@ -38,7 +38,7 @@ interface ScenarioFilesProps {
   pendingEdits: boolean;
   editorMode: ScenarioEditorMode;
   onEditorModeChange: (mode: ScenarioEditorMode) => void;
-  languageEditor: ReactNode;
+  languageEditor: (configuration: ReactNode) => ReactNode;
   onEditDocument: (document: string) => void;
   onApplyDocument: () => void;
   onDiscardDocument: () => void;
@@ -56,7 +56,7 @@ function ScenarioFiles({
   busy,
   checking,
   notice,
-  document,
+  document: scenarioDocument,
   unapplied,
   jsonDirty,
   jsonBlocked,
@@ -75,6 +75,81 @@ function ScenarioFiles({
 }: ScenarioFilesProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const canUseDraft = scenario !== null && !busy && !unapplied;
+
+  const configurationControls = (
+    <Stack spacing={2} sx={{ minWidth: 0 }}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".json,application/json"
+        aria-label="Scenario JSON file"
+        disabled={busy || pendingEdits}
+        hidden
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          // Allow choosing the same file again after an error or an edit.
+          event.currentTarget.value = '';
+          if (file) onImport(file);
+        }}
+      />
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Button
+          variant="outlined" disabled={busy || pendingEdits}
+          onClick={() => inputRef.current?.click()}
+        >
+          Import JSON
+        </Button>
+        <Button variant="outlined" disabled={!canUseDraft} onClick={onExport}>
+          Export JSON
+        </Button>
+        <Button variant="outlined" disabled={!canUseDraft} onClick={onValidate}>
+          Validate draft
+        </Button>
+      </Stack>
+
+      {checking && <Typography variant="body2">Checking scenario…</Typography>}
+      {notice && (
+        <Alert severity={notice.severity} sx={{ overflowWrap: 'anywhere' }}>
+          {notice.message}
+        </Alert>
+      )}
+      {validation && !unapplied && (
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          <Chip label="Draft validated" color="success" size="small" />
+          <Chip label={`${validation.summary.totalClients} clients`} size="small" />
+          <Chip label={`${validation.summary.backendCount} backends`} size="small" />
+          <Chip label={`${validation.summary.clientGroupCount} groups`} size="small" />
+        </Stack>
+      )}
+
+      {validation?.resolved && !unapplied ? (
+        <ScenarioDocumentPreview
+          title="Effective configuration"
+          document={validation.resolved}
+          description={
+            'Read-only backend result after resolving inherited settings, profiles and overrides. ' +
+            'Groups remain compact. Export uses the applied native scenario.'
+          }
+        />
+      ) : (
+        <Typography variant="caption" color="text.secondary">
+          Validate the draft to inspect its effective configuration.
+        </Typography>
+      )}
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Button variant="contained" disabled={!canStart} onClick={onStart}>
+          Start simulation
+        </Button>
+        <Button component={RouterLink} to="/planned-topology" variant="outlined">
+          Preview planned topology
+        </Button>
+      </Stack>
+      <Typography variant="caption" color="text.secondary">
+        Start uses the applied JSON document. Planned topology shows its resources,
+        links and declared changes over time.
+      </Typography>
+    </Stack>
+  );
 
   return (
     <Card variant="outlined">
@@ -99,7 +174,7 @@ function ScenarioFiles({
           <Box sx={{ display: editorMode === 'json' ? 'block' : 'none' }}>
             {scenario && (
               <ScenarioJsonEditor
-                document={document}
+                document={scenarioDocument}
                 dirty={jsonDirty}
                 disabled={busy || jsonBlocked || editorMode !== 'json'}
                 onChange={onEditDocument}
@@ -107,81 +182,11 @@ function ScenarioFiles({
                 onDiscard={onDiscardDocument}
               />
             )}
+            {editorMode === 'json' && <Box sx={{ mt: 2 }}>{configurationControls}</Box>}
           </Box>
           <Box sx={{ display: editorMode === 'language' ? 'block' : 'none', minWidth: 0 }}>
-            {languageEditor}
+            {languageEditor(editorMode === 'language' ? configurationControls : null)}
           </Box>
-
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".json,application/json"
-            aria-label="Scenario JSON file"
-            disabled={busy || pendingEdits}
-            hidden
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0];
-              // Allow choosing the same file again after an error or an edit.
-              event.currentTarget.value = '';
-              if (file) onImport(file);
-            }}
-          />
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button
-              variant="outlined" disabled={busy || pendingEdits}
-              onClick={() => inputRef.current?.click()}
-            >
-              Import JSON
-            </Button>
-            <Button variant="outlined" disabled={!canUseDraft} onClick={onExport}>
-              Export JSON
-            </Button>
-            <Button variant="outlined" disabled={!canUseDraft} onClick={onValidate}>
-              Validate draft
-            </Button>
-          </Stack>
-
-          {checking && <Typography variant="body2">Checking scenario…</Typography>}
-          {notice && (
-            <Alert severity={notice.severity} sx={{ overflowWrap: 'anywhere' }}>
-              {notice.message}
-            </Alert>
-          )}
-          {validation && !unapplied && (
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Chip label="Draft validated" color="success" size="small" />
-              <Chip label={`${validation.summary.totalClients} clients`} size="small" />
-              <Chip label={`${validation.summary.backendCount} backends`} size="small" />
-              <Chip label={`${validation.summary.clientGroupCount} groups`} size="small" />
-            </Stack>
-          )}
-
-          {validation?.resolved && !unapplied ? (
-            <ScenarioDocumentPreview
-              title="Effective configuration"
-              document={validation.resolved}
-              description={
-                'Read-only backend result after resolving inherited settings, profiles and overrides. ' +
-                'Groups remain compact. Export uses the applied native scenario.'
-              }
-            />
-          ) : (
-            <Typography variant="caption" color="text.secondary">
-              Validate the draft to inspect its effective configuration.
-            </Typography>
-          )}
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button variant="contained" disabled={!canStart} onClick={onStart}>
-              Start simulation
-            </Button>
-            <Button component={RouterLink} to="/planned-topology" variant="outlined">
-              Preview planned topology
-            </Button>
-          </Stack>
-          <Typography variant="caption" color="text.secondary">
-            Start uses the applied JSON document. Planned topology shows its resources,
-            links and declared changes over time.
-          </Typography>
         </Stack>
       </CardContent>
     </Card>

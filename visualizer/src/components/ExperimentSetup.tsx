@@ -410,9 +410,12 @@ function ExperimentSetup({
         pendingEdits={pendingEdits}
         editorMode={editorMode}
         onEditorModeChange={changeEditorFormat}
-        languageEditor={languageOpened && (
+        languageEditor={configuration => languageOpened && (
           <Suspense fallback={<Alert severity="info">Loading source editor…</Alert>}>
             <ScenarioLanguageEditor
+              active={editorMode === 'language'}
+              configuration={configuration}
+              appliedDocument={scenario ? appliedDocument : null}
               source={languageSource}
               dirty={unappliedLanguage}
               disabled={loading || pending || validating || unappliedJSON || editorMode !== 'language'}

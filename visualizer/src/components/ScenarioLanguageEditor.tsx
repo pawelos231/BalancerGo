@@ -1,13 +1,22 @@
-import { Alert, Box, Button, Chip, Stack, Typography, useTheme } from '@mui/material';
-import { useEffect, useMemo, useRef } from 'react';
+import { Alert, Box, Button, Chip, IconButton, Stack, Tooltip, Typography, useTheme } from '@mui/material';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
+import FocusTrap from '@mui/material/Unstable_TrapFocus';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { useLocation } from 'react-router';
 import { basicSetup, EditorView } from 'codemirror';
 import { Compartment, EditorState } from '@codemirror/state';
 import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { setDiagnostics } from '@codemirror/lint';
 import type { LanguageError, SourcePoint } from '../scenario-language/source';
+import useLanguageDiagnostics from '../hooks/useLanguageDiagnostics';
 
 interface ScenarioLanguageEditorProps {
+  active: boolean;
+  configuration: ReactNode;
+  appliedDocument: string | null;
   source: string;
   dirty: boolean;
   disabled: boolean;
@@ -52,7 +61,8 @@ const language = StreamLanguage.define({
 });
 
 export default function ScenarioLanguageEditor({
-  source, dirty, disabled, applied, diagnostic, onApply, onImport, onExport, onChange, onDiscard,
+  active, configuration, appliedDocument, source, dirty, disabled, applied, diagnostic,
+  onApply, onImport, onExport, onChange, onDiscard,
 }: ScenarioLanguageEditorProps) {
   const container = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -63,6 +73,57 @@ export default function ScenarioLanguageEditor({
   const readonly = useMemo(() => new Compartment(), []);
   const appearance = useMemo(() => new Compartment(), []);
   const theme = useTheme();
+  const { pathname } = useLocation();
+  const live = useLanguageDiagnostics(source, active && pathname === '/');
+  const visibleDiagnostic = diagnostic ?? live.diagnostic;
+  const [expanded, setExpanded] = useState(false);
+  const fullscreen = expanded && active && pathname === '/';
+  const focusBeforeFullscreen = useRef<HTMLElement | null>(null);
+  const fullscreenLabel = fullscreen ? 'Exit fullscreen (F7 or Esc)' : 'Enter fullscreen (F7)';
+
+  const toggleFullscreen = useCallback(() => {
+    if (!expanded) {
+      const focused = document.activeElement;
+      focusBeforeFullscreen.current = focused instanceof HTMLElement ? focused : null;
+    }
+    setExpanded(previous => !previous);
+  }, [expanded]);
+
+  // The hidden setup stays mounted; shortcuts belong only to the active source editor.
+  useEffect(() => {
+    if (!active || pathname !== '/') {
+      setExpanded(false);
+      return;
+    }
+
+    const handleShortcut = (event: KeyboardEvent) => {
+      const modified = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+      if (event.key === 'F7' && !modified) {
+        event.preventDefault();
+        if (!event.repeat) toggleFullscreen();
+      } else if (event.key === 'Escape' && !event.defaultPrevented) {
+        setExpanded(false);
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [active, pathname, toggleFullscreen]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = focusBeforeFullscreen.current;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected && previousFocus.getClientRects().length > 0) {
+        previousFocus.focus({ preventScroll: true });
+      }
+    };
+  }, [fullscreen]);
+
+  useEffect(() => { view.current?.requestMeasure(); }, [fullscreen]);
 
   useEffect(() => { change.current = onChange; }, [onChange]);
 
@@ -107,14 +168,14 @@ export default function ScenarioLanguageEditor({
       const line = editor.state.doc.line(Math.min(point.line, editor.state.doc.lines));
       return line.from + Math.min(point.column - 1, line.length);
     };
-    const errors = diagnostic ? [{
-      from: position(diagnostic.range.start),
-      to: position(diagnostic.range.end),
+    const errors = visibleDiagnostic ? [{
+      from: position(visibleDiagnostic.range.start),
+      to: position(visibleDiagnostic.range.end),
       severity: 'error' as const,
-      message: diagnostic.message,
+      message: visibleDiagnostic.message,
     }] : [];
     editor.dispatch(setDiagnostics(editor.state, errors));
-  }, [diagnostic]);
+  }, [visibleDiagnostic]);
 
   useEffect(() => {
     const dark = theme.palette.mode === 'dark';
@@ -136,48 +197,134 @@ export default function ScenarioLanguageEditor({
     ]) });
   }, [theme, appearance]);
 
+  // Change only the layout: CodeMirror keeps the same DOM, selection and undo history.
+  const workspace = (
+    <Box
+      role={fullscreen ? 'dialog' : 'region'} aria-modal={fullscreen || undefined}
+      aria-label="Scenario source editor" tabIndex={-1}
+      sx={{
+        display: 'grid',
+        minWidth: 0,
+        gap: fullscreen ? 0 : 1.5,
+        ...(fullscreen && {
+          position: 'fixed', inset: 0, zIndex: theme.zIndex.modal,
+          bgcolor: 'background.paper', height: '100dvh',
+          gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) min(560px, 40vw)' },
+          gridTemplateRows: { xs: 'minmax(0, 3fr) minmax(0, 2fr)', md: 'minmax(0, 1fr)' },
+        }),
+      }}
+    >
+      <Box sx={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <Stack
+          direction="row" alignItems="center" justifyContent="space-between"
+          sx={{ px: 1, py: 0.5, flexShrink: 0, border: 1, borderColor: 'divider' }}
+        >
+          <Typography variant="caption" color="text.secondary">Scenario language</Typography>
+          <Tooltip title={fullscreenLabel} slotProps={{ popper: { disablePortal: true } }}>
+            <IconButton size="small" aria-label={fullscreenLabel} aria-keyshortcuts="F7" onClick={toggleFullscreen}>
+              {fullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+            </IconButton>
+          </Tooltip>
+        </Stack>
+        <Box
+          ref={container}
+          sx={{
+            border: 1, borderTop: 0, borderColor: 'divider', overflow: 'hidden',
+            ...(fullscreen && {
+              flex: 1, minHeight: 0,
+              '& .cm-editor': { height: '100%' },
+              '& .cm-scroller': { minHeight: 0, maxHeight: 'none', overflow: 'auto' },
+            }),
+          }}
+        />
+      </Box>
+      <Stack
+        component="aside" aria-label="Scenario configuration" spacing={1.5}
+        sx={{ minWidth: 0, minHeight: 0, ...(fullscreen && { p: 2, overflow: 'hidden' }) }}
+      >
+        {!fullscreen && (
+          <Chip
+            label={dirty ? 'Unapplied source edits' : applied ? 'Source applied' : 'Source draft'}
+            color={applied ? 'success' : 'default'} size="small" sx={{ alignSelf: 'flex-start' }}
+          />
+        )}
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ flexShrink: 0 }}>
+          <Button variant="contained" disabled={disabled || (applied && !dirty)} onClick={onApply}>
+            Compile and apply
+          </Button>
+          {!fullscreen && (
+            <Button disabled={disabled || !dirty} onClick={onDiscard}>Discard source edits</Button>
+          )}
+        </Stack>
+        {fullscreen && (
+          <Stack spacing={1} sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            <Typography variant="subtitle2">Applied scenario JSON</Typography>
+            {!applied && appliedDocument !== null && (
+              <Typography variant="caption" color="text.secondary">
+                Compile and apply to update this JSON from the source.
+              </Typography>
+            )}
+            {appliedDocument === null ? (
+              <Typography variant="body2" color="text.secondary">No scenario has been applied yet.</Typography>
+            ) : (
+              <Box
+                component="pre" role="region" aria-label="Applied scenario JSON" tabIndex={0}
+                sx={{
+                  flex: 1, minWidth: 0, minHeight: 0, m: 0, p: 1.5,
+                  overflow: 'auto', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.5,
+                  bgcolor: 'background.default', border: 1, borderColor: 'divider', borderRadius: 1,
+                }}
+              >
+                {appliedDocument}
+              </Box>
+            )}
+          </Stack>
+        )}
+        {/* Omit extra controls so keyboard focus cannot enter them in fullscreen. */}
+        {!fullscreen && (
+          <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+            <input
+              ref={fileInput} type="file" accept=".lb,text/plain" aria-label="Scenario language file"
+              disabled={disabled || dirty} hidden
+              onChange={event => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = '';
+                if (file) onImport(file);
+              }}
+            />
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Button disabled={disabled || dirty} onClick={() => fileInput.current?.click()}>Import source</Button>
+              <Button disabled={disabled || source.trim() === ''} onClick={onExport}>Export source</Button>
+            </Stack>
+            <Typography variant="caption" color="text.secondary">
+              Up to 2 MiB of UTF-8 source. Import loads a draft; Apply updates JSON.
+              Export source includes comments and unapplied edits.
+            </Typography>
+            {visibleDiagnostic && (
+              <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{visibleDiagnostic.message}</Alert>
+            )}
+            {live.failure && <Alert severity="warning">{live.failure}</Alert>}
+            {!applied && !dirty && (
+              <Alert severity="info">
+                This source does not describe the applied JSON. Compile and apply it to replace that configuration.
+              </Alert>
+            )}
+            {dirty && <Alert severity="warning">Compile and apply or discard the source edits before using this draft.</Alert>}
+            <Typography variant="body2" color="text.secondary">
+              Link units are bytes/s: 1GB means 8 Gbit/s. Compile and apply validates the
+              generated JSON locally and on the server before replacing the applied draft.
+              It never starts a simulation.
+            </Typography>
+            {configuration}
+          </Stack>
+        )}
+      </Stack>
+    </Box>
+  );
+
   return (
-    <Stack spacing={1.5} sx={{ minWidth: 0 }}>
-      <Typography variant="body2" color="text.secondary">
-        Link units are bytes/s: 1GB means 8 Gbit/s. Compile and apply validates the
-        generated JSON locally and on the server before replacing the applied draft.
-        It never starts a simulation.
-      </Typography>
-      <Chip
-        label={dirty ? 'Unapplied source edits' : applied ? 'Source applied' : 'Source draft'}
-        color={applied ? 'success' : 'default'} size="small" sx={{ alignSelf: 'flex-start' }}
-      />
-      <Box ref={container} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }} />
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-        <Button variant="contained" disabled={disabled || (applied && !dirty)} onClick={onApply}>
-          Compile and apply
-        </Button>
-        <Button disabled={disabled || !dirty} onClick={onDiscard}>Discard source edits</Button>
-      </Stack>
-      <input
-        ref={fileInput} type="file" accept=".lb,text/plain" aria-label="Scenario language file"
-        disabled={disabled || dirty} hidden
-        onChange={event => {
-          const file = event.currentTarget.files?.[0];
-          event.currentTarget.value = '';
-          if (file) onImport(file);
-        }}
-      />
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-        <Button disabled={disabled || dirty} onClick={() => fileInput.current?.click()}>Import source</Button>
-        <Button disabled={disabled || source.trim() === ''} onClick={onExport}>Export source</Button>
-      </Stack>
-      <Typography variant="caption" color="text.secondary">
-        Up to 2 MiB of UTF-8 source. Import loads a draft; Apply updates JSON.
-        Export source includes comments and unapplied edits.
-      </Typography>
-      {diagnostic && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{diagnostic.message}</Alert>}
-      {!applied && !dirty && (
-        <Alert severity="info">
-          This source does not describe the applied JSON. Compile and apply it to replace that configuration.
-        </Alert>
-      )}
-      {dirty && <Alert severity="warning">Compile and apply or discard the source edits before using this draft.</Alert>}
-    </Stack>
+    <Box sx={{ minWidth: 0 }}>
+      <FocusTrap open={fullscreen} disableRestoreFocus>{workspace}</FocusTrap>
+    </Box>
   );
 }

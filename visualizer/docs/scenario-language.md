@@ -409,6 +409,16 @@ now compiles to its checked [timeline.json](../../examples/language/timeline.jso
 
 ## Source files
 
+Use the button at the CodeMirror editor's top right, or press F7 in Language mode
+on Simulation. Fullscreen places the source editor on the left, with Compile and
+apply and a read-only applied scenario JSON preview on the right. The preview
+uses the same native document as Start and JSON export. It updates after a
+successful Apply; unfinished source or failed validation leaves the last applied
+JSON visible, with a reminder to apply source changes. Other controls and help remain in the normal view;
+inline error marks and hover messages still work. F7 toggles this workspace; Esc
+exits fullscreen. Text, selection and undo history are preserved. On narrow
+screens, the Apply button and JSON preview sit below the editor and scroll independently of the source.
+
 The configuration panel has explicit JSON and Language formats. Both use one
 applied native scenario. Pending edits block switching until applied or discarded.
 Loading a preset or JSON selects JSON and preserves the source buffer. Returning
@@ -432,6 +442,14 @@ scenario for Go CLI. JSON export and source export are separate formats; neither
 requires a second compiler or a backend language endpoint.
 
 ## Invalid examples
+
+While Language is active on Simulation, local checks run after 100 ms without
+typing. A Web Worker uses the same compiler, including syntax, field names,
+units and scenario dependencies. The first error is underlined in red; hover
+shows its message. Missing input at the end of the file gets a point marker.
+Edits clear the previous diagnostic, and responses for older drafts are ignored.
+Live checking does not apply a configuration; Compile and apply still performs
+the existing local and server validation.
 
 Errors carry UTF-16 source offsets and one-based line/column positions. Syntax,
 conversion and field errors retain their direct token ranges. Native cross-field
