@@ -42,8 +42,9 @@ function metadata(source: string, name: string) {
 }
 
 // Parse the same authored sources used by the reader; headings inside fences are never prose.
-export function documentationExamples(): DocumentationExample[] {
-  return languagePages.flatMap(page => {
+export async function documentationExamples(): Promise<DocumentationExample[]> {
+  const pages = await Promise.all(languagePages.map(async page => ({ ...page, markdown: await page.loadMarkdown() })));
+  return pages.flatMap(page => {
     const examples: DocumentationExample[] = [];
     let heading: string = page.title;
     function visit(node: Nodes) {

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { EditorState } from '@codemirror/state';
+import { EditorState, type Extension } from '@codemirror/state';
 import { ensureSyntaxTree } from '@codemirror/language';
 import { highlightTree, tagHighlighter, tags } from '@lezer/highlight';
-import { scenarioLanguage } from '../../../src/components/scenarioLanguageHighlighting.ts';
+import { scenarioFieldFragment, scenarioLanguage } from '../../../src/components/scenarioLanguageHighlighting.ts';
 
-function highlighted(source: string) {
-  const state = EditorState.create({ doc: source, extensions: [scenarioLanguage] });
+function highlighted(source: string, language: Extension = scenarioLanguage) {
+  const state = EditorState.create({ doc: source, extensions: [language] });
   const tree = ensureSyntaxTree(state, state.doc.length, 1000);
   assert.ok(tree);
   const tokens: { text: string; style: string }[] = [];
@@ -66,6 +66,40 @@ tcp {
   assert.ok(tokens.some(token => token.text === 'cores' && token.style === 'keyword'));
   assert.ok(tokens.some(token => token.text === 'SACK' && token.style === 'keyword'));
   assert.ok(tokens.some(token => token.text === 'ECN' && token.style === 'keyword'));
+});
+
+test('field fragments give first-line booleans the same styles as complete TCP blocks', () => {
+  for (const source of ['SACK true', 'ECN false']) {
+    assert.deepEqual(highlighted(source, scenarioFieldFragment), [
+      { text: source.split(' ')[0], style: 'keyword' },
+      { text: source.split(' ')[1], style: 'bool' },
+    ]);
+    assert.deepEqual(
+      highlighted(source, scenarioFieldFragment),
+      highlighted(`tcp {\n${source}\n}`).slice(1),
+    );
+  }
+});
+
+test('field fragments preserve field, enum and nested value styles in each documented context', () => {
+  for (const [declaration, source] of [
+    ['tcp', 'SACK true\nECN false\ncongestion-control { mode cubic fast-retransmit null }'],
+    ['backend api', 'name "API"\nadmin drain\navailable true\nto-lb { queue-policy drop-tail }'],
+    ['balancer main', 'algo round-robin\nhost { cores 2 }'],
+    ['clients web', 'count 2\npayload 8B\nuse queue'],
+  ]) {
+    const declarationTokenCount = declaration.split(' ').length;
+    assert.deepEqual(
+      highlighted(source, scenarioFieldFragment),
+      highlighted(`${declaration} {\n${source}\n}`).slice(declarationTokenCount),
+    );
+  }
+  assert.deepEqual(highlighted('admin drain\navailable true', scenarioFieldFragment), [
+    { text: 'admin', style: 'keyword' },
+    { text: 'drain', style: 'name' },
+    { text: 'available', style: 'keyword' },
+    { text: 'true', style: 'bool' },
+  ]);
 });
 
 test('language highlighting restores statement and field roles across timeline commands', () => {

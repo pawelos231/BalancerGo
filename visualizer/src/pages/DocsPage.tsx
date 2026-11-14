@@ -34,6 +34,7 @@ function DocsPage({ section = 'introduction', languagePage }: DocsPageProps) {
   useEffect(() => { setExpandedGroup(activeGroup); }, [activeGroup]);
 
   useEffect(() => {
+    if (languagePage) return;
     if (!hash) {
       window.scrollTo(0, 0);
       return;
@@ -52,7 +53,7 @@ function DocsPage({ section = 'introduction', languagePage }: DocsPageProps) {
 
     // Old README bookmarks can now belong to another Overview page.
     const destination = overviewContent.anchorLinks.get(anchorId);
-    if (!languagePage && destination) navigate(destination, { replace: true });
+    if (destination) navigate(destination, { replace: true });
   }, [hash, section, languagePage, navigate]);
 
   return (
@@ -107,7 +108,7 @@ function DocsPage({ section = 'introduction', languagePage }: DocsPageProps) {
         })}
       </Box>
       {languagePage ? (
-        <LanguageGuide document={languagePages.find(page => page.id === languagePage)!} />
+        <LanguageGuide key={languagePage} document={languagePages.find(page => page.id === languagePage)!} />
       ) : (
         <DocsOverview document={overviewContent.pages.find(page => page.id === section)!} />
       )}
@@ -116,13 +117,52 @@ function DocsPage({ section = 'introduction', languagePage }: DocsPageProps) {
 }
 
 function LanguageGuide({ document }: { document: LanguageDocument }) {
+  const { hash } = useLocation();
+  const [markdown, setMarkdown] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const index = languagePages.indexOf(document);
   const previous = languagePages[index - 1];
   const next = languagePages[index + 1];
 
+  useEffect(() => {
+    let current = true;
+    setMarkdown(null);
+    setFailed(false);
+    document.loadMarkdown().then(
+      source => { if (current) setMarkdown(source); },
+      () => { if (current) setFailed(true); },
+    );
+    return () => { current = false; };
+  }, [document, attempt]);
+
+  useEffect(() => {
+    if (markdown === null) return;
+    if (!hash) {
+      window.scrollTo(0, 0);
+      return;
+    }
+    try {
+      window.document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView();
+    } catch {
+      // Ignore malformed bookmarks.
+    }
+  }, [markdown, hash]);
+
   return (
     <Stack spacing={2} sx={{ minWidth: 0 }}>
-      <DocumentationArticle title={document.title} markdown={document.markdown} />
+      {markdown !== null ? (
+        <DocumentationArticle title={document.title} markdown={markdown} />
+      ) : failed ? (
+        <Alert
+          severity="error"
+          action={<Button color="inherit" onClick={() => setAttempt(value => value + 1)}>Try again</Button>}
+        >
+          Unable to load {document.title}.
+        </Alert>
+      ) : (
+        <Typography role="status" color="text.secondary">Loading {document.title}…</Typography>
+      )}
       <Stack direction="row" spacing={1} justifyContent="space-between">
         {previous && <Button component={RouterLink} to={previous.path}>← {previous.title}</Button>}
         {next && <Button component={RouterLink} to={next.path} sx={{ ml: 'auto' }}>{next.title} →</Button>}

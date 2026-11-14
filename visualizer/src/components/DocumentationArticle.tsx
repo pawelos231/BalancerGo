@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
 import { remarkConceptBacklinks, remarkConceptLinks } from '../docs/concepts';
 import { languagePages } from '../docs/language';
+import DocumentationExample from './DocumentationExample';
 
 const repositoryFiles = 'https://github.com/pawelos231/BalancerGo/blob/main/';
 const documentationSources = new Map<string, string>([
@@ -14,6 +15,21 @@ const documentationSources = new Map<string, string>([
 ]);
 
 const markdownComponents: Components = {
+  pre({ node, children }) {
+    const code = node?.children[0];
+    if (code?.type === 'element' && code.tagName === 'code') {
+      const classes = code.properties.className;
+      const scenario = Array.isArray(classes) && classes.some(name =>
+        ['language-lb', 'language-lb-fragment', 'language-lb-invalid'].includes(String(name)));
+      if (scenario) {
+        const source = code.children.map(child => child.type === 'text' ? child.value : '').join('');
+        const context = String(code.data?.meta ?? '').match(/\bcontext="?([a-z-]+)"?(?:\s|$)/)?.[1];
+        const fieldsOnly = ['tcp', 'balancer', 'backend', 'clients'].includes(context ?? '');
+        return <DocumentationExample source={source.replace(/\n$/, '')} fieldsOnly={fieldsOnly} />;
+      }
+    }
+    return <pre>{children}</pre>;
+  },
   a({ href, children, title }) {
     const destination = documentationSources.get(href ?? '') ?? href;
     if (destination && /^\/docs(?:\/|#|$)/.test(destination)) {

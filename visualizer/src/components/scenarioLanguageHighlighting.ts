@@ -1,4 +1,4 @@
-import { StreamLanguage } from '@codemirror/language';
+import { StreamLanguage, type StreamParser } from '@codemirror/language';
 
 const namedDeclarations = new Set(['balancer', 'backend', 'backends', 'clients', 'client', 'profile']);
 const commands = new Set(['add', 'set', 'down', 'up', 'drain', 'stop', 'remove']);
@@ -29,7 +29,7 @@ interface HighlightState {
 }
 
 // Track token positions for color only; the compiler remains the semantic validator.
-export const scenarioLanguage = StreamLanguage.define<HighlightState>({
+const scenarioParser: StreamParser<HighlightState> = {
   startState: () => ({
     role: 'statement', blocks: [], nextBlock: 'fields', command: null, afterName: 'field',
   }),
@@ -106,4 +106,12 @@ export const scenarioLanguage = StreamLanguage.define<HighlightState>({
     stream.next();
     return 'punctuation';
   },
+};
+
+export const scenarioLanguage = StreamLanguage.define(scenarioParser);
+export const scenarioFieldFragment = StreamLanguage.define({
+  ...scenarioParser,
+  startState: (): HighlightState => ({
+    role: 'field', blocks: ['fields'], nextBlock: 'fields', command: null, afterName: 'field',
+  }),
 });

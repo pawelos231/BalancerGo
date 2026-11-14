@@ -8,13 +8,14 @@ import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { documentationConcepts, remarkConceptBacklinks, remarkConceptLinks } from '../../../src/docs/concepts.ts';
-import { languagePages } from '../../../src/docs/language.ts';
+import { languagePages as languageCatalog } from '../../../src/docs/language.ts';
 import { splitOverview } from '../../../src/docs/overview.ts';
 import { compileScenario } from '../../../src/scenario-language/compile.ts';
 import { documentationExamples, wrapDocumentationExample } from '../../documentationExamples.ts';
 
 const parser = unified().use(remarkParse).use(remarkGfm);
 const overview = splitOverview(readFileSync(new URL('../../../../README.md', import.meta.url), 'utf8'));
+const languagePages = await Promise.all(languageCatalog.map(async page => ({ ...page, markdown: await page.loadMarkdown() })));
 const documents = [...overview.pages, ...languagePages];
 
 function descendants(node: Nodes): Nodes[] {
@@ -83,8 +84,8 @@ test('all nine authored language pages expose a summary and a working table of c
   for (const page of languagePages) assert.ok(destinations.includes(page.path), `Start here links to ${page.id}`);
 });
 
-test('every documented valid example compiles and every invalid example reports its promised error', () => {
-  const examples = documentationExamples();
+test('every documented valid example compiles and every invalid example reports its promised error', async () => {
+  const examples = await documentationExamples();
   assert.ok(examples.some(example => example.language === 'lb-invalid'), 'the error guide checks real failures');
   for (const page of languagePages) assert.ok(examples.some(example => example.page === page.id), `${page.id}: has checked examples`);
   for (const example of examples) {

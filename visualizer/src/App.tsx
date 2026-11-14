@@ -58,6 +58,7 @@ function getTopology(data: LoadBalancerState | null) {
 
 function App() {
   const { pathname } = useLocation();
+  const [setupInitialized, setSetupInitialized] = useState(!pathname.startsWith('/docs'));
   const {
     resultsSession,
     data,
@@ -96,6 +97,10 @@ function App() {
     : pathname.startsWith('/planned-topology') ? '/planned-topology'
       : pathname.startsWith('/topology') ? '/topology' : '/';
   const showLiveMetrics = activeTab === '/' || activeTab === '/topology';
+
+  useEffect(() => {
+    if (!pathname.startsWith('/docs')) setSetupInitialized(true);
+  }, [pathname]);
 
   function retryUnsavedResults() {
     for (const candidate of results.state.candidates) results.history.retry(candidate.id);
@@ -233,8 +238,8 @@ function App() {
             <SimulationPerformance performance={simulation?.performance} />
           )}
 
-          {/* Keep unsent settings when switching pages. */}
-          <Box hidden={!showSimulation}>
+          {/* Initialize outside docs, then keep unsent settings when switching pages. */}
+          {setupInitialized && <Box hidden={!showSimulation}>
             <ControlPanel
               connected={connected}
               simulation={simulation}
@@ -255,7 +260,7 @@ function App() {
                 onPreviewChange={updatePlannedScenario}
               />
             </ControlPanel>
-          </Box>
+          </Box>}
 
           <Suspense
             fallback={

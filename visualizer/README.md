@@ -50,14 +50,19 @@ The Markdown ships with the frontend; reading it does not require the backend.
   a first transfer through syntax, resources, profiles, TCP, timeline changes,
   experiments and errors. Each starts with a summary and a local table of contents.
   Concept links connect settings to precise Overview explanations and back.
+  Language chapters load only when opened. Scenario examples use read-only
+  CodeMirror with the main editor's syntax colors, without compilation or live
+  diagnostics. Each example mounts near the viewport and is destroyed when its
+  chapter closes; distant examples remain plain text until approached.
   The sidebar groups can be collapsed; navigation stays on the left on desktop
   and above the document on small screens.
 
 `src/hooks/useSimulation.ts` owns the WebSocket, snapshots and lifecycle actions.
 It starts scenarios and retrieves the current run's configuration through HTTP.
 `src/App.tsx` shares that hook across pages. The scenario editor stays
-mounted when switching pages, preserving
-its draft. Static hosting must serve `index.html` for all page routes; the container's
+mounted after its first visit when switching pages, preserving its draft.
+Opening documentation directly does not initialize the hidden scenario editor.
+Static hosting must serve `index.html` for all page routes; the container's
 `local-web-server --spa index.html` already does this.
 
 ## Scenario library

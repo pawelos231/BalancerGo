@@ -7,13 +7,12 @@ import type { ReactNode } from 'react';
 import { useLocation } from 'react-router';
 import { basicSetup, EditorView } from 'codemirror';
 import { Compartment, EditorState } from '@codemirror/state';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { tags } from '@lezer/highlight';
 import { setDiagnostics } from '@codemirror/lint';
 import type { LanguageError, SourcePoint } from '../scenario-language/source';
 import useLanguageDiagnostics from '../hooks/useLanguageDiagnostics';
 import DocumentationLink from './DocumentationLink';
 import { scenarioLanguage } from './scenarioLanguageHighlighting';
+import { scenarioEditorAppearance } from './scenarioEditorAppearance';
 
 interface ScenarioLanguageEditorProps {
   active: boolean;
@@ -149,25 +148,11 @@ export default function ScenarioLanguageEditor({
   }, [visibleDiagnostic]);
 
   useEffect(() => {
-    const dark = theme.palette.mode === 'dark';
     view.current?.dispatch({ effects: appearance.reconfigure([
+      scenarioEditorAppearance(theme),
       EditorView.theme({
-        '&': { color: theme.palette.text.primary, backgroundColor: theme.palette.background.paper },
-        '.cm-scroller': { fontFamily: 'monospace', fontSize: '13px', minHeight: '280px', maxHeight: '480px' },
-        '.cm-gutters': { color: theme.palette.text.secondary, backgroundColor: theme.palette.background.paper },
-        '.cm-activeLine': { backgroundColor: theme.palette.action.hover },
-        '.cm-cursor': { borderLeftColor: theme.palette.primary.main },
-        '&.cm-focused': { outline: 'none' },
-      }, { dark }),
-      syntaxHighlighting(HighlightStyle.define([
-        { tag: tags.keyword, color: dark ? theme.palette.primary.main : theme.palette.primary.dark },
-        { tag: tags.variableName, color: dark ? '#CE93D8' : '#7B1FA2' },
-        { tag: [tags.bool, tags.null], color: dark ? '#FFAB91' : '#BF360C' },
-        { tag: tags.string, color: dark ? theme.palette.success.light : theme.palette.success.dark },
-        { tag: tags.number, color: dark ? theme.palette.warning.light : '#955800' },
-        { tag: tags.punctuation, color: theme.palette.text.secondary },
-        { tag: tags.comment, color: theme.palette.text.secondary },
-      ])),
+        '.cm-scroller': { minHeight: '280px', maxHeight: '480px' },
+      }),
     ]) });
   }, [theme, appearance]);
 
