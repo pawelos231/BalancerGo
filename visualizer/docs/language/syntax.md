@@ -137,10 +137,14 @@ that virtual experiment is shown in real time.
 | `run` setting | Meaning |
 | --- | --- |
 | Header duration, such as `run 30s` | Positive virtual experiment horizon |
-| `speed` | `1` is normal pacing, `2` is twice as fast, `0` runs without pacing |
+| `speed` | `1` aims for one virtual second per real second; `2` aims for two; `0` runs as fast as the simulator can calculate |
 | `snapshots` | Positive **real-time** interval between UI observations; default `100ms` |
 | `seed` | Signed 64-bit integer for repeatable random routing, loss and signaling; default `1` |
 | `max-events` | Positive event budget, up to 18,446,744,073,709,551,615; default 5,000,000,000 |
+
+At `speed 1`, a 30-second virtual experiment should take about 30 real seconds;
+at `speed 2`, about 15. These are target durations: the run takes longer if the
+simulator cannot process events quickly enough.
 
 Changing `speed` does not change virtual link rates or CPU costs. Times must fit
 signed 64-bit nanoseconds; a positive speed must also keep the paced duration

@@ -45,8 +45,10 @@ clients users {
 }
 ```
 
-`run 30s` sets the experiment's virtual duration. `speed 1` paces playback at
-normal speed. `10KB` means 10,000 payload bytes for the client, not a rate.
+`run 30s` sets the experiment's virtual duration. With `speed 1`, one virtual
+second takes about one real second, so this 30-second experiment should take
+about 30 seconds to run. It can take longer if the simulator cannot keep up
+with the calculations. `10KB` means 10,000 payload bytes for the client, not a rate.
 The client connects through `lb` to `api-0`; an empty block keeps the defaults.
 
 CPU processing costs zero time by default. Links still have bandwidth, travel
