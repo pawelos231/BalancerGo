@@ -131,7 +131,8 @@ With the throughput preset, transmission durations reach the model's 1 ns floor;
 the large configured bitrates do not represent literal unlimited bandwidth.
 
 `ExperimentSetup.tsx` owns one applied native scenario. The configuration panel
-has **JSON** and **Language** formats, each with a retained text buffer.
+has **Language** and **JSON** formats, each with a retained text buffer. Language
+appears first and is selected by default.
 The **Scenario JSON document** editor shows the complete applied draft, including
 `fixed` settings and all `states`. Paste or edit JSON, then choose **Apply JSON**
 to check it with the same strict local parser and authoritative server validation.

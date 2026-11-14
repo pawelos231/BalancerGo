@@ -59,9 +59,8 @@ function ExperimentSetup({
   const [languageScenario, setLanguageScenario] = useState<Scenario | null>(null);
   const languageScenarioRef = useRef<Scenario | null>(null);
   const [languageError, setLanguageError] = useState<LanguageError | null>(null);
-  const [editorMode, setEditorMode] = useState<ScenarioEditorMode>('json');
-  const editorModeRef = useRef<ScenarioEditorMode>('json');
-  const [languageOpened, setLanguageOpened] = useState(false);
+  const [editorMode, setEditorMode] = useState<ScenarioEditorMode>('language');
+  const editorModeRef = useRef<ScenarioEditorMode>('language');
   const validationRef = useRef<AbortController | null>(null);
   const scenarioRef = useRef<Scenario | null>(null);
   const appliedDocument = useMemo(() => scenario ? formatScenarioDocument(scenario) : '', [scenario]);
@@ -219,7 +218,6 @@ function ExperimentSetup({
   function setEditorFormat(mode: ScenarioEditorMode) {
     editorModeRef.current = mode;
     setEditorMode(mode);
-    if (mode === 'language') setLanguageOpened(true);
   }
 
   function changeEditorFormat(mode: ScenarioEditorMode) {
@@ -416,7 +414,7 @@ function ExperimentSetup({
         pendingEdits={pendingEdits}
         editorMode={editorMode}
         onEditorModeChange={changeEditorFormat}
-        languageEditor={configuration => languageOpened && (
+        languageEditor={configuration => (
           <Suspense fallback={<Alert severity="info">Loading source editor…</Alert>}>
             <ScenarioLanguageEditor
               active={editorMode === 'language'}

@@ -167,8 +167,8 @@ function ScenarioFiles({
             onChange={(_, value: ScenarioEditorMode | null) => { if (value) onEditorModeChange(value); }}
             sx={{ alignSelf: 'flex-start' }}
           >
-            <ToggleButton value="json">JSON</ToggleButton>
             <ToggleButton value="language">Language</ToggleButton>
+            <ToggleButton value="json">JSON</ToggleButton>
           </ToggleButtonGroup>
 
           <Box sx={{ display: editorMode === 'json' ? 'block' : 'none' }}>
