@@ -286,6 +286,12 @@ function App() {
                 element={<ResultsPage state={results.state} history={results.history} />}
               />
               <Route path="/docs" element={<DocsPage />} />
+              <Route path="/docs/setup" element={<DocsPage section="setup" />} />
+              <Route path="/docs/scenarios" element={<DocsPage section="scenarios" />} />
+              <Route path="/docs/simulation" element={<DocsPage section="simulation" />} />
+              <Route path="/docs/tcp" element={<DocsPage section="tcp" />} />
+              <Route path="/docs/metrics" element={<DocsPage section="metrics" />} />
+              <Route path="/docs/verification" element={<DocsPage section="verification" />} />
               <Route path="/docs/language" element={<DocsPage section="language" />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

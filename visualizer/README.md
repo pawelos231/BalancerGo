@@ -40,12 +40,14 @@ The Markdown ships with the frontend; reading it does not require the backend.
 - **Results** (`/results`): browse saved observations without the backend, inspect
   summaries and coverage, retry unsaved candidates, recover records and delete
   history entries. Lists and resource tables are paginated.
-- **Documentation** (`/docs`): read the project README with formatted headings,
-  tables, lists and code blocks. Section anchors stay inside the app; links to
-  other repository files open their GitHub version. The left sidebar switches
-  between Overview and **Language documentation** (`/docs/language`), which is
-  currently an empty page reserved for the future language guide. On small screens,
-  this menu appears above the document.
+- **Documentation** (`/docs`): Overview divides the README into Introduction,
+  Installation and running, Scenarios and configuration, Simulation model, TCP
+  and connections, Metrics and interface, and Verification. Each page clearly
+  displays **PLACEHOLDER DOCS GENERATED FULLY BY AI, WILL BE CHANGED**.
+  Original section bookmarks still open the correct page. Tables, lists and
+  code blocks retain their Markdown formatting; repository file links open GitHub.
+  **Language documentation** (`/docs/language`) remains empty. The sidebar stays
+  on the left on desktop and appears above the document on small screens.
 
 `src/hooks/useSimulation.ts` owns the WebSocket, snapshots and lifecycle actions.
 It starts scenarios and retrieves the current run's configuration through HTTP.

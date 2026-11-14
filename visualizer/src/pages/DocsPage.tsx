@@ -1,20 +1,16 @@
-import { Box, Link, List, ListItemButton, ListItemText, Stack, Typography } from '@mui/material';
+import { Alert, Box, Divider, Link, List, ListItemButton, ListItemText, Stack, Typography } from '@mui/material';
 import { memo, useEffect } from 'react';
-import { Link as RouterLink, useLocation } from 'react-router';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router';
 import Markdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
 import readme from '../../../README.md?raw';
+import { overviewPages, splitOverview } from '../docs/overview';
+import type { OverviewDocument, OverviewPageId } from '../docs/overview';
 
 const repositoryFiles = 'https://github.com/pawelos231/BalancerGo/blob/main/';
-
-const documentationSections = [
-  { id: 'overview', label: 'Overview', path: '/docs' },
-  { id: 'language', label: 'Language documentation', path: '/docs/language' },
-] as const;
-
-type DocumentationSection = typeof documentationSections[number]['id'];
+const overviewContent = splitOverview(readme);
 
 const markdownComponents: Components = {
   a({ href, children, title }) {
@@ -43,8 +39,10 @@ const markdownComponents: Components = {
 };
 
 // The README is bundled with the page, so reading docs does not need the backend.
-function DocsPage({ section = 'overview' }: { section?: DocumentationSection }) {
+function DocsPage({ section = 'introduction' }: { section?: OverviewPageId | 'language' }) {
   const { hash } = useLocation();
+  const navigate = useNavigate();
+  const activeOverview = overviewContent.pages.find(page => page.id === section);
 
   useEffect(() => {
     if (!hash) {
@@ -59,8 +57,16 @@ function DocsPage({ section = 'overview' }: { section?: DocumentationSection }) 
     } catch {
       return;
     }
-    document.getElementById(anchorId)?.scrollIntoView();
-  }, [hash, section]);
+    const heading = document.getElementById(anchorId);
+    if (heading) {
+      heading.scrollIntoView();
+      return;
+    }
+
+    // Old README bookmarks can now point to a heading on another Overview page.
+    const destination = overviewContent.anchorLinks.get(anchorId);
+    if (section !== 'language' && destination) navigate(destination, { replace: true });
+  }, [hash, section, navigate]);
 
   return (
     <Box
@@ -76,6 +82,7 @@ function DocsPage({ section = 'overview' }: { section?: DocumentationSection }) 
         sx={{
           position: { xs: 'static', md: 'sticky' }, top: 24, alignSelf: 'start',
           minWidth: 0, pr: { xs: 0, md: 2 }, pb: { xs: 2, md: 0 },
+          maxHeight: { md: 'calc(100dvh - 48px)' }, overflowY: { md: 'auto' },
           borderRight: { xs: 0, md: 1 }, borderBottom: { xs: 1, md: 0 },
           borderColor: 'divider',
         }}
@@ -84,19 +91,29 @@ function DocsPage({ section = 'overview' }: { section?: DocumentationSection }) 
           Documentation
         </Typography>
         <List component="div" disablePadding>
-          {documentationSections.map(item => (
+          <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>Overview</Typography>
+          {overviewPages.map(item => (
             <ListItemButton
               key={item.id} component={RouterLink} to={item.path}
               selected={section === item.id}
               aria-current={section === item.id ? 'page' : undefined}
-              sx={{ borderRadius: 1 }}
+              sx={{ borderRadius: 1, pl: 3 }}
             >
-              <ListItemText primary={item.label} />
+              <ListItemText primary={item.title} />
             </ListItemButton>
           ))}
+          <Divider sx={{ my: 1 }} />
+          <ListItemButton
+            component={RouterLink} to="/docs/language"
+            selected={section === 'language'}
+            aria-current={section === 'language' ? 'page' : undefined}
+            sx={{ borderRadius: 1 }}
+          >
+            <ListItemText primary="Language documentation" />
+          </ListItemButton>
         </List>
       </Box>
-      {section === 'overview' ? <DocsOverview /> : (
+      {section !== 'language' ? <DocsOverview document={activeOverview!} /> : (
         <Box
           component="section" aria-labelledby="language-documentation-title"
           sx={{
@@ -113,17 +130,20 @@ function DocsPage({ section = 'overview' }: { section?: DocumentationSection }) 
   );
 }
 
-function DocsOverview() {
+function DocsOverview({ document }: { document: OverviewDocument }) {
   return (
     <Stack spacing={2} sx={{ minWidth: 0 }}>
+      <Alert severity="warning" variant="filled" sx={{ fontWeight: 800, fontSize: '1rem' }}>
+        PLACEHOLDER DOCS GENERATED FULLY BY AI, WILL BE CHANGED
+      </Alert>
       <Box>
         <Typography variant="overline" color="text.secondary">Overview</Typography>
-        <Typography variant="body2" color="text.secondary">
-          Project README — setup, architecture and configuration reference.
+        <Typography variant="h4" component={document.id === 'introduction' ? 'p' : 'h1'}>
+          {document.title}
         </Typography>
       </Box>
       <Box
-        component="article" aria-label="Project README"
+        component="article" aria-label={document.title}
         sx={theme => ({
           p: { xs: 2, md: 4 }, minWidth: 0,
           bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2,
@@ -169,7 +189,7 @@ function DocsOverview() {
           remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug]}
           components={markdownComponents} skipHtml
         >
-          {readme}
+          {document.markdown}
         </Markdown>
       </Box>
     </Stack>
