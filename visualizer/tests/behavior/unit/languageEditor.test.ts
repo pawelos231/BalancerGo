@@ -8,4 +8,6 @@ test('language editor starts with a complete valid example', () => {
   const scenario = compileScenario(initialLanguageSource);
   assert.equal(scenario.states['0'].resources.backends.length, 2);
   assert.equal(scenario.states['0'].workload.clientGroups[0].count, 8);
+  assert.equal(scenario.fixed.tcp.sackEnabled, false);
+  assert.equal(scenario.fixed.tcp.ECNenabled, false);
 });

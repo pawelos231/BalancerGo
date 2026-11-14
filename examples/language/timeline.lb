@@ -1,6 +1,11 @@
 run 180s seed 2333 speed 1
 defaults link 1GB travel 1ms queue 1024
-tcp congestion reno mss 1460B
+tcp {
+    congestion reno
+    mss 1460B
+    SACK false
+    ECN false
+}
 
 balancer lb {
     algo rr

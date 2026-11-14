@@ -8,7 +8,12 @@ import { LanguageError } from './source.ts';
 // A small editable example, independent of whichever JSON preset is currently applied.
 export const initialLanguageSource = `run 180s seed 1 speed 1
 defaults link 1GB travel 1ms queue 1024
-tcp congestion reno mss 1460B
+tcp {
+    congestion reno
+    mss 1460B
+    SACK false
+    ECN false
+}
 
 balancer lb {
     ingress 1GB

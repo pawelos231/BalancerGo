@@ -10,7 +10,8 @@ defaults {
 
 tcp {
     congestion newreno mss 1460B receive-buffer 65535B
-    sack true ecn false
+    SACK true
+    ECN false
     client-idle 0ns backend-half-open-idle 0ns backend-established-idle 0ns
     congestion-control {
         fast-retransmit true fast-convergence true

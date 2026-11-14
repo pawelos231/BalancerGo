@@ -7,11 +7,12 @@ import type { ReactNode } from 'react';
 import { useLocation } from 'react-router';
 import { basicSetup, EditorView } from 'codemirror';
 import { Compartment, EditorState } from '@codemirror/state';
-import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { setDiagnostics } from '@codemirror/lint';
 import type { LanguageError, SourcePoint } from '../scenario-language/source';
 import useLanguageDiagnostics from '../hooks/useLanguageDiagnostics';
+import { scenarioLanguage } from './scenarioLanguageHighlighting';
 
 interface ScenarioLanguageEditorProps {
   active: boolean;
@@ -28,37 +29,6 @@ interface ScenarioLanguageEditorProps {
   onChange: (source: string) => void;
   onDiscard: () => void;
 }
-
-const keywords = new Set([
-  'language', 'run', 'defaults', 'tcp', 'balancer', 'backend', 'backends',
-  'clients', 'client', 'profile', 'use', 'at', 'set', 'add', 'down', 'up', 'drain', 'stop', 'remove', 'arrivals',
-]);
-
-// Highlighting is permissive; the existing compiler remains the only semantic validator.
-const language = StreamLanguage.define({
-  token(stream) {
-    if (stream.eatSpace()) return null;
-    if (stream.eat('#')) {
-      stream.skipToEnd();
-      return 'comment';
-    }
-    if (stream.eat('"')) {
-      let escaped = false;
-      while (!stream.eol()) {
-        const character = stream.next();
-        if (character === '"' && !escaped) break;
-        escaped = character === '\\' && !escaped;
-      }
-      return 'string';
-    }
-    if (stream.match(/^-?[0-9]+(?:\.[0-9]+)?(?:[A-Za-z]+|%)?/)) return 'number';
-    if (stream.match(/^[A-Za-z_][A-Za-z0-9_-]*/)) {
-      return keywords.has(stream.current()) ? 'keyword' : 'variableName';
-    }
-    stream.next();
-    return null;
-  },
-});
 
 export default function ScenarioLanguageEditor({
   active, configuration, appliedDocument, source, dirty, disabled, applied, diagnostic,
@@ -134,7 +104,7 @@ export default function ScenarioLanguageEditor({
       parent: container.current,
       doc: initialSource.current,
       extensions: [
-        basicSetup, language, readonly.of([]), appearance.of([]),
+        basicSetup, scenarioLanguage, readonly.of([]), appearance.of([]),
         EditorView.contentAttributes.of({ 'aria-label': 'Scenario language source', spellcheck: 'false' }),
         EditorView.updateListener.of(update => {
           if (update.docChanged && !syncing.current) change.current(update.state.doc.toString());
@@ -189,9 +159,12 @@ export default function ScenarioLanguageEditor({
         '&.cm-focused': { outline: 'none' },
       }, { dark }),
       syntaxHighlighting(HighlightStyle.define([
-        { tag: tags.keyword, color: theme.palette.primary.main },
+        { tag: tags.keyword, color: dark ? theme.palette.primary.main : theme.palette.primary.dark },
+        { tag: tags.variableName, color: dark ? '#CE93D8' : '#7B1FA2' },
+        { tag: [tags.bool, tags.null], color: dark ? '#FFAB91' : '#BF360C' },
         { tag: tags.string, color: dark ? theme.palette.success.light : theme.palette.success.dark },
-        { tag: tags.number, color: dark ? theme.palette.warning.light : theme.palette.warning.dark },
+        { tag: tags.number, color: dark ? theme.palette.warning.light : '#955800' },
+        { tag: tags.punctuation, color: theme.palette.text.secondary },
         { tag: tags.comment, color: theme.palette.text.secondary },
       ])),
     ]) });

@@ -101,8 +101,8 @@ export const tcpFields: FieldRules = {
     path: 'congestionControl.mode', read: congestionMode, nullable: true,
   },
   'receive-buffer': { path: 'receiveBufferBytes', read: token => dataBytes(token, 1n, 65_535n), nullable: true },
-  sack: { path: 'sackEnabled', read: booleanValue, nullable: true },
-  ecn: { path: 'ECNenabled', read: booleanValue, nullable: true },
+  SACK: { path: 'sackEnabled', read: booleanValue, nullable: true },
+  ECN: { path: 'ECNenabled', read: booleanValue, nullable: true },
   'client-idle': { path: 'clientIdleTimeoutNanoseconds', read: token => timeValue(token), nullable: true },
   'backend-half-open-idle': {
     path: 'backendHalfOpenIdleTimeoutNanoseconds', read: token => timeValue(token), nullable: true,

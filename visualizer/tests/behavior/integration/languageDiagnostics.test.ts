@@ -7,7 +7,7 @@ const base = 'run 1s\nbalancer lb {}\nbackend api-0 {}\n';
 
 // A native cross-field failure should highlight the supplied ECN flag, not the first line.
 test('language diagnostics locate native TCP dependency and timer errors', () => {
-  const source = `${base}tcp {\n congestion none\n ecn true\n}`;
+  const source = `${base}tcp {\n congestion none\n ECN true\n}`;
   assert.throws(() => compileScenario(source), error => {
     assert.ok(error instanceof LanguageError);
     assert.equal(error.range.start.offset, source.indexOf('true'));

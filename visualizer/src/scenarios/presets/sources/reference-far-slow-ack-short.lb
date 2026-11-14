@@ -11,7 +11,8 @@ defaults {
 
 tcp {
     congestion reno mss 1024B receive-buffer 65535B
-    sack false ecn false
+    SACK false
+    ECN false
     client-idle 20s backend-half-open-idle 5s backend-established-idle 0ns
     congestion-control {
         fast-retransmit true fast-convergence true

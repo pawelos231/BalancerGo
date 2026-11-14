@@ -20,8 +20,8 @@ tcp {
     mss 1024B
     congestion reno
     receive-buffer 65535B
-    sack false
-    ecn false
+    SACK false
+    ECN false
     congestion-control {
         fast-retransmit true
         fast-convergence true

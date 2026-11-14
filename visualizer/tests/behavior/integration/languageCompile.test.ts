@@ -74,8 +74,8 @@ tcp {
     congestion newreno
     mss 1460B
     receive-buffer 32000B
-    sack true
-    ecn true
+    SACK true
+    ECN true
     client-idle 120s
     backend-half-open-idle 10s
     backend-established-idle 0ns
@@ -95,10 +95,31 @@ tcp {
   assert.equal(tcp.congestionControl?.maximumWindowSegments, 16);
   assert.equal(tcp.congestionControl?.initialSlowStartThresholdBytes, 64_000);
   assert.equal(tcp.receiveBufferBytes, 32_000);
+  assert.equal(tcp.sackEnabled, true);
   assert.equal(tcp.ECNenabled, true);
   assert.equal(tcp.close?.maxFINRetries, 3);
   assert.equal(tcp.delayedAck?.maxDelayNanoseconds, 40_000_000);
   assert.equal(tcp.clientIdleTimeoutNanoseconds, 120_000_000_000);
+});
+
+// Feature names use their canonical uppercase spelling while native JSON keys stay unchanged.
+test('language TCP feature names are uppercase, case-sensitive and unique', () => {
+  const defaults = compileScenario(minimal);
+  const explicit = compileScenario(`${minimal}\ntcp {\n    SACK false\n    ECN false\n}`);
+  assert.deepEqual(explicit, defaults);
+  const inherited = compileScenario(`${minimal}\ntcp {\n    SACK null\n    ECN null\n}`);
+  assert.equal(inherited.fixed.tcp.sackEnabled, null);
+  assert.equal(inherited.fixed.tcp.ECNenabled, null);
+
+  for (const name of ['SACK', 'ECN']) {
+    assert.throws(
+      () => compileScenario(`${minimal}\ntcp {\n    ${name} true\n    ${name} false\n}`),
+      /Duplicate setting/,
+    );
+  }
+  for (const name of ['sack', 'Sack', 'ecn', 'Ecn', 'MSS', 'Congestion']) {
+    assert.throws(() => compileScenario(`${minimal}\ntcp { ${name} true }`), /Unknown setting/);
+  }
 });
 
 // Explicit invalid combinations must be rejected, never silently corrected by the compiler.
@@ -110,7 +131,7 @@ test('language TCP binding preserves dependency checks and explicit nullable set
       congestion-control { fast-retransmit true }
   }`;
   assert.throws(() => compileScenario(incompatibleFastRetry), /requires/);
-  assert.throws(() => compileScenario(`${minimal}\ntcp congestion tahoe sack true`), /requires Reno/);
+  assert.throws(() => compileScenario(`${minimal}\ntcp {\n    congestion tahoe\n    SACK true\n}`), /requires Reno/);
   assert.throws(() => compileScenario(`${minimal}\ntcp { rto { minimum 2s initial 1s } }`), /minimum <= initial/);
   assert.throws(
     () => compileScenario(`${minimal}\ntcp { delayed-ack { max-delay 501ms } }`), /at most 500 ms/,

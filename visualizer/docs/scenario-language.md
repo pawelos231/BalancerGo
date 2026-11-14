@@ -18,7 +18,12 @@ complete before the applied JSON and planned topology are replaced.
 language 1
 run 180s seed 2333 speed 1
 defaults link 1GB travel 1ms queue 1024
-tcp congestion reno mss 1460B
+tcp {
+    congestion reno
+    mss 1460B
+    SACK false
+    ECN false
+}
 
 balancer lb {
     algo rr
@@ -46,6 +51,7 @@ The checked source/JSON pair is [transfer.lb](../../examples/language/transfer.l
 and [transfer.json](../../examples/language/transfer.json); the optional language
 line is shown here explicitly. [basic.lb](../../examples/language/basic.lb) is a
 smaller example without clients.
+`SACK` and `ECN` default to `false`; set either flag to `true` to enable it.
 
 1. Open Simulation, choose **Language** in Scenario configuration, then paste
    source or choose **Import source**.
@@ -71,8 +77,9 @@ are errors, never silently interpreted as the current one.
 - `#` starts a comment outside a quoted string, lasting until the newline.
 - Double-quoted strings use JSON escapes. A literal newline inside a string is
   invalid. Strings are for display names, not resource identifiers or units.
-- Keywords and names are case-sensitive. Keywords are lowercase; units keep
-  their documented case. A field may appear only once in its containing block.
+- Keywords and names are case-sensitive. Keywords are lowercase except for the
+  TCP feature fields `SACK` and `ECN`; units keep their documented case. A field
+  may appear only once in its containing block.
 - LB, profile and backend-prefix identifiers use lowercase letters and internal hyphens. Individual endpoint
   names append a canonical decimal index, for example `api-0` or `web-api-12`.
   Client-group segments after a hyphen may also contain digits, as in `wave-20s`;
@@ -231,7 +238,7 @@ permits it. Existing cross-field validation remains authoritative.
 
 | Block | Fields and units |
 | --- | --- |
-| `tcp` | `congestion` (reno, newreno, tahoe, cubic, none), `mss`, `receive-buffer` (bytes), `sack`, `ecn` (boolean) |
+| `tcp` | `congestion` (reno, newreno, tahoe, cubic, none), `mss`, `receive-buffer` (bytes), `SACK`, `ECN` (boolean, both default false) |
 | `tcp` idle timers | `client-idle`, `backend-half-open-idle`, `backend-established-idle` (time; zero disables) |
 | `congestion-control` | `mode`, `fast-retransmit`, `fast-convergence`, `initial-window`, `maximum-window` (segments), `ssthresh` (bytes) |
 | `rto` | `mode` (fixed/adaptive), `backoff`, `initial`, `minimum`, `maximum` (positive time; minimum ≤ initial ≤ maximum) |
