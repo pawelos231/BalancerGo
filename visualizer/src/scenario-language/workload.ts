@@ -1,7 +1,7 @@
 import type { ExactInteger, ScenarioClientGroup } from '../scenarios/types.ts';
 import { clientFields, clientStreamFields } from './bindings.ts';
 import type { FieldWriter } from './fields.ts';
-import { endpointName, prefixName } from './identity.ts';
+import { clientAliasName, clientGroupName } from './identity.ts';
 import { selectEndpointProfile, writeEndpointNetwork } from './network.ts';
 import type { Declaration } from './syntax.ts';
 import { LanguageError } from './source.ts';
@@ -17,7 +17,7 @@ export function compileClientGroup(
   writer.locations.set(path, declaration.range);
   writer.locations.set(`${path}.id`, declaration.argument!.range);
   const group: ScenarioClientGroup = {
-    id: prefixName(declaration.argument!), count: 1,
+    id: clientGroupName(declaration.argument!), count: 1,
     startAtNanoseconds: startAt, clientGapNanoseconds: 0,
     network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
     stream: {}, overrides: [],
@@ -39,7 +39,7 @@ export function compileClientOverrides(
   const used = new Set<string>();
 
   for (const declaration of declarations) {
-    const name = endpointName(declaration.argument!);
+    const name = clientAliasName(declaration.argument!);
     const dash = name.lastIndexOf('-');
     const prefix = name.slice(0, dash);
     const index = BigInt(name.slice(dash + 1));

@@ -1,0 +1,70 @@
+language 1
+# A one-segment Reno window waits for the 40 ms delayed-ACK timer.
+# Link units are decimal bytes/s; 125MB is 1 Gbit/s.
+run 180s seed 1 speed 1 snapshots 100ms max-events 50000000
+
+defaults {
+    link 125MB
+    travel 1ms
+    queue 1024
+    loss 0%
+    queue-policy default
+    ecn-threshold 0%
+    signal-probability 0%
+    packets 10000
+    payload 1073741824B # 1 GiB per client.
+    segment-gap 0ns
+}
+
+tcp {
+    mss 1024B
+    congestion reno
+    receive-buffer 65535B
+    sack false
+    ecn false
+    congestion-control {
+        fast-retransmit true
+        fast-convergence true
+        initial-window 1
+        maximum-window 1
+        ssthresh 65535B
+    }
+    rto { mode adaptive backoff true initial 1s minimum 200ms maximum 60s }
+    close { msl 30s fin-wait 60s fin-retries 5 }
+    delayed-ack { enabled true segments 2 max-delay 40ms }
+    client-idle 20s
+    backend-half-open-idle 5s
+    backend-established-idle 0ns
+}
+
+balancer lb {
+    algo rr
+    ingress {
+        link 125MB
+        travel 0ns
+        queue 1024
+        loss 0%
+        queue-policy default
+        ecn-threshold 0%
+        signal-probability 0%
+    }
+    egress 125MB
+    host { cores 1 packet-time 0ns queue 1024 }
+    mapping-timeouts { half-open 5s established 50s closing 120s reset 10s }
+}
+
+backend backend-1 {
+    name "Backend 1"
+    address "10.0.0.1"
+}
+
+backend backend-2 {
+    name "Backend 2"
+    address "10.0.0.2"
+}
+
+clients clients {
+    count 16
+    start 0ns
+    every 0ns
+}

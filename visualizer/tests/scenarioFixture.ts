@@ -1,5 +1,21 @@
-import type { Scenario } from '../src/scenarios/types.ts';
+import type { Scenario, ScenarioClientGroup } from '../src/scenarios/types.ts';
 import type { ExperimentContext } from '../src/experiment.ts';
+
+// Small public DTO fixtures for tests that edit resources independently of the catalog.
+export function fixtureBackends(count: number): Scenario['states'][string]['resources']['backends'] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `backend-${index + 1}`, name: `Backend ${index + 1}`,
+    address: `10.0.0.${index + 1}`, port: 80,
+    network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} },
+  }));
+}
+
+export function fixtureClientGroup(id: string, count: number): ScenarioClientGroup {
+  return {
+    id, count, startAtNanoseconds: 0, clientGapNanoseconds: 0,
+    network: { profile: '', toLoadBalancer: {}, fromLoadBalancer: {} }, stream: {},
+  };
+}
 
 export function experimentFixture(): ExperimentContext {
   return {

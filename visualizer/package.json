@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "node --experimental-transform-types --test tests/behavior/unit/*.test.ts tests/behavior/integration/*.test.ts",
+    "test": "node --experimental-transform-types --import ./tests/registerRawSources.mjs --test tests/behavior/unit/*.test.ts tests/behavior/integration/*.test.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },

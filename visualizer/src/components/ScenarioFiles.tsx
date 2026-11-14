@@ -158,8 +158,8 @@ function ScenarioFiles({
         <Stack spacing={2} sx={{ minWidth: 0 }}>
           <Typography variant="body2" color="text.secondary">
             JSON and Language prepare one applied scenario for Start and planned topology.
-            Apply or discard pending edits before changing format. Loading JSON or a preset
-            preserves your source text; it does not translate JSON back into the language.
+            Apply or discard pending edits before changing format. Loading a preset replaces
+            both source and JSON. Importing JSON preserves your source text.
           </Typography>
           <ToggleButtonGroup
             value={editorMode} exclusive size="small" aria-label="Configuration format"

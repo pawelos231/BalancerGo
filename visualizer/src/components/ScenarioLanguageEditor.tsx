@@ -31,7 +31,7 @@ interface ScenarioLanguageEditorProps {
 
 const keywords = new Set([
   'language', 'run', 'defaults', 'tcp', 'balancer', 'backend', 'backends',
-  'clients', 'client', 'profile', 'use', 'at', 'set', 'add', 'down', 'up', 'drain', 'stop', 'arrivals',
+  'clients', 'client', 'profile', 'use', 'at', 'set', 'add', 'down', 'up', 'drain', 'stop', 'remove', 'arrivals',
 ]);
 
 // Highlighting is permissive; the existing compiler remains the only semantic validator.

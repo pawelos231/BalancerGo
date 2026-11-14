@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { compileScenario } from '../../../src/scenario-language/compile.ts';
 import { serializeScenario } from '../../../src/scenarios/files.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
 import { parseScenario, validateScenario } from '../../../src/scenarios/validation.ts';
@@ -55,17 +56,13 @@ test('threshold queue JSON preserves explicit zeroes and validates both directio
   }
 });
 
-test('the ECN preset isolates its data bottleneck and old presets retain ECN and AQM off', () => {
-  const defaults = scenarioFixture();
-  defaults.fixed.tcp = { ECNenabled: true };
-  defaults.fixed.network.defaults.queuePolicy = 'threshold';
-  defaults.states['0'].resources.loadBalancer.ingress.queuePolicy = 'threshold';
+test('the ECN source isolates its data bottleneck and other sources retain ECN and AQM off', () => {
   for (const preset of scenarioPresets) {
-    const scenario = preset.build(defaults);
+    const scenario = compileScenario(preset.source);
     assert.notEqual(scenario.fixed.network.defaults.queuePolicy, 'threshold', preset.id);
     assert.notEqual(scenario.states['0'].resources.loadBalancer.ingress.queuePolicy, 'threshold', preset.id);
     if (preset.id !== 'ecn-congestion') {
-      assert.notEqual(scenario.fixed.tcp.ECNenabled, true, preset.id);
+      assert.equal(scenario.fixed.tcp.ECNenabled, false, preset.id);
       continue;
     }
     assert.equal(scenario.fixed.tcp.ECNenabled, true);

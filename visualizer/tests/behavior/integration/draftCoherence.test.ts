@@ -5,7 +5,9 @@ import { ScenarioApi } from '../../../src/scenarios/api.ts';
 import { validateEditorDocument } from '../../../src/scenarios/editor.ts';
 import { readScenarioFile, serializeScenario } from '../../../src/scenarios/files.ts';
 import { projectPlannedTopology } from '../../../src/scenarios/plannedTopology.ts';
-import { presetBackends, presetClientGroup } from '../../../src/scenarios/presets/base.ts';
+import {
+  fixtureBackends as presetBackends, fixtureClientGroup as presetClientGroup,
+} from '../../scenarioFixture.ts';
 import type { Scenario } from '../../../src/scenarios/types.ts';
 import { validateScenario } from '../../../src/scenarios/validation.ts';
 import { scenarioFixture } from '../../scenarioFixture.ts';

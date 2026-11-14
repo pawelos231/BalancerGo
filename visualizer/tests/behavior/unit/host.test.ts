@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { compileScenario } from '../../../src/scenario-language/compile.ts';
 import { serializeScenario } from '../../../src/scenarios/files.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
-import { presetBackends } from '../../../src/scenarios/presets/base.ts';
 import type { ScenarioHostPatch } from '../../../src/scenarios/types.ts';
 import { parseScenario, validateScenario } from '../../../src/scenarios/validation.ts';
 import { nodeHostState, showHostCPUWork } from '../../../src/topology/telemetry.ts';
 import { formatMetric } from '../../../src/topology/format.ts';
-import { scenarioFixture } from '../../scenarioFixture.ts';
+import { fixtureBackends, scenarioFixture } from '../../scenarioFixture.ts';
 
 function backendsScenario() {
   const scenario = scenarioFixture();
   scenario.fixed.execution.durationNanoseconds = 1_000_000_000;
-  scenario.states['0'].resources.backends = presetBackends(2);
+  scenario.states['0'].resources.backends = fixtureBackends(2);
   return scenario;
 }
 
@@ -68,25 +68,21 @@ test('host queue and core budgets are checked against the complete simulation du
 });
 
 test('CPU presets select only their intended hosts and all other presets disable CPU', () => {
-  const defaults = backendsScenario();
-  defaults.states['0'].resources.loadBalancer.host = { cores: 9, packetProcessingTimeNanoseconds: 999999 };
-  for (const backend of defaults.states['0'].resources.backends) backend.host = { packetProcessingTimeNanoseconds: 999999 };
-
   for (const preset of scenarioPresets) {
-    const scenario = preset.build(defaults);
+    const scenario = compileScenario(preset.source);
     if (preset.category !== 'host-cpu') {
-      assert.equal(scenario.states['0'].resources.loadBalancer.host?.packetProcessingTimeNanoseconds ?? 0, 0, preset.id);
+      assert.equal(scenario.states['0'].resources.loadBalancer.host?.packetProcessingTimeNanoseconds, 0, preset.id);
       for (const backend of scenario.states['0'].resources.backends) {
-        assert.equal(backend.host?.packetProcessingTimeNanoseconds ?? 0, 0, preset.id);
+        assert.equal(backend.host?.packetProcessingTimeNanoseconds, 0, preset.id);
       }
     }
   }
 
   const preset = scenarioPresets.find(entry => entry.id === 'backend-cpu-bottleneck')!;
-  const configured = preset.build(defaults);
+  const configured = compileScenario(preset.source);
   assert.equal(configured.fixed.tcp.congestionControl?.mode, 'newReno');
   assert.equal(configured.fixed.tcp.sackEnabled, true);
-  assert.equal(configured.states['0'].resources.loadBalancer.host?.packetProcessingTimeNanoseconds ?? 0, 0);
+  assert.equal(configured.states['0'].resources.loadBalancer.host?.packetProcessingTimeNanoseconds, 0);
   assert.ok(configured.states['0'].resources.backends.every(backend => backend.host?.packetProcessingTimeNanoseconds === 10000));
 });
 

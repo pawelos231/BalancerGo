@@ -19,8 +19,8 @@ For Docker Compose, ports and build instructions, see the [root README](../READM
 - **Simulation** (`/`): edit configuration, click **Start simulation**, monitor
   backends, **Stop and clear**, or **Stop and save to Results**. The **Scenario library** offers
   ready experiments with different client/backend rates and shared LB bottlenecks.
-  Click **Load preset** on a card to validate and apply its complete JSON to the editor
-  and planned topology, then use the single **Start simulation** button. Loading a
+  Click **Load preset** on a card to validate its language source and generated JSON,
+  open Language mode and update planned topology, then use **Start simulation**. Loading a
   preset does not start a run.
 - **Topology** (`/topology`): explore the live graph, pan and zoom, and select a
   node or directed link to inspect its settings and counters. Client groups start
@@ -74,9 +74,9 @@ contract, and the generic `version` field is rejected. See the
 edge cases, performance and reference experiments. Search by title/description or filter by category;
 the library shows six cards per page. Each card has a **Load preset** button;
 loading or filtering never starts a run.
-The original four topology presets still inherit backend defaults. The other
-network and reference factories in `scenarios/presets/` use a fixed baseline so CLI overrides
-do not silently change the experiment being tested. Ordinary experiments run
+Each preset is a standalone `.lb` file in `src/scenarios/presets/sources/`.
+Its explicit settings keep the experiment independent of fetched Go defaults.
+The matching native exports live in `../examples/scenarios/`. Ordinary experiments run
 for 180 virtual seconds at speed 1, with 1 GiB per client unless their workload
 deliberately includes short or empty streams.
 
@@ -137,15 +137,17 @@ whole document and does not start a simulation.
 
 In **Language**, edit the shorter declarative `.lb` source, then choose
 **Compile and apply**. The frontend compiles it to native JSON and validates it
-through the same server API. Presets and imported JSON select JSON without
-overwriting retained source. Returning to source that no longer describes the
+through the same server API. Loading a preset replaces both source and generated
+JSON, then selects Language. Imported JSON selects JSON and keeps retained source.
+Returning to source that no longer describes the
 applied draft blocks Start until compiled and applied again or JSON is selected.
 Apply or discard pending edits before switching formats. No reverse translation
 from JSON or extra configuration accordions are needed.
 
 `ScenarioLibrary.tsx` validates and applies a preset directly from its card's
-**Load preset** button. Successful validation replaces the complete applied document
-and planned topology; failure preserves the previous document. Pending edits
+**Load preset** button. Successful validation replaces source, the complete applied
+document and planned topology together; failure preserves the previous source,
+document and format. Pending edits
 block loading, and validation blocks editing and Start until it completes. `api.ts` wraps
 the defaults, validate, Start and current-run endpoints; `runtimeApi.ts` selects
 the backend address. `ScenarioRunDetails.tsx` displays the exact initial run
@@ -305,6 +307,8 @@ Tests use Node.js 24's TypeScript support and built-in test runner. They check
 scenario edits and exact integers, presets and API requests, grouping, physical
 counter scopes, bounded graph selection and topology loading races without adding a
 test framework dependency.
+The test command also registers a small loader for `.lb?raw` imports, matching
+Vite's raw-source imports without a second set of preset fixtures.
 
 Build output is written to `dist/`. `VITE_WS_URL` is embedded at build time, so
 changing the backend URL for a static deployment requires rebuilding.

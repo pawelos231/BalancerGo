@@ -1,0 +1,565 @@
+language 1
+# 50,000 clients and 100 backends stress the simulator for one virtual millisecond.
+# Link units are decimal bytes/s; 125MB is 1 Gbit/s.
+run 1ms seed 1 speed 0 snapshots 100ms max-events 20000000
+
+defaults {
+    link 10TB
+    travel 0ns
+    queue 4096
+    loss 0%
+    queue-policy default
+    ecn-threshold 0%
+    signal-probability 0%
+    packets 10000
+    payload 1073741824B # 1 GiB per client.
+    segment-gap 0ns
+}
+
+tcp {
+    mss 1024B
+    congestion reno
+    receive-buffer 65535B
+    sack false
+    ecn false
+    congestion-control {
+        fast-retransmit true
+        fast-convergence true
+        initial-window 4
+        maximum-window 0
+        ssthresh 65535B
+    }
+    rto { mode adaptive backoff true initial 1s minimum 200ms maximum 60s }
+    close { msl 30s fin-wait 60s fin-retries 5 }
+    delayed-ack { enabled false segments 2 max-delay 40ms }
+    client-idle 20s
+    backend-half-open-idle 5s
+    backend-established-idle 0ns
+}
+
+# 10 PB/s becomes exactly 80000000000000000 bit/s in compiled JSON.
+profile limits-backend { link 100TB }
+
+balancer lb {
+    algo rr
+    ingress {
+        link 10PB
+        travel 0ns
+        queue 131072
+        loss 0%
+        queue-policy default
+        ecn-threshold 0%
+        signal-probability 0%
+    }
+    egress 10PB
+    host { cores 1 packet-time 0ns queue 1024 }
+    mapping-timeouts { half-open 5s established 50s closing 120s reset 10s }
+}
+
+# Explicit addresses preserve numeric backend order across all 100 endpoints.
+
+backend backend-1 use limits-backend {
+    name "Backend 1"
+    address "10.0.0.1"
+}
+
+backend backend-2 use limits-backend {
+    name "Backend 2"
+    address "10.0.0.2"
+}
+
+backend backend-3 use limits-backend {
+    name "Backend 3"
+    address "10.0.0.3"
+}
+
+backend backend-4 use limits-backend {
+    name "Backend 4"
+    address "10.0.0.4"
+}
+
+backend backend-5 use limits-backend {
+    name "Backend 5"
+    address "10.0.0.5"
+}
+
+backend backend-6 use limits-backend {
+    name "Backend 6"
+    address "10.0.0.6"
+}
+
+backend backend-7 use limits-backend {
+    name "Backend 7"
+    address "10.0.0.7"
+}
+
+backend backend-8 use limits-backend {
+    name "Backend 8"
+    address "10.0.0.8"
+}
+
+backend backend-9 use limits-backend {
+    name "Backend 9"
+    address "10.0.0.9"
+}
+
+backend backend-10 use limits-backend {
+    name "Backend 10"
+    address "10.0.0.10"
+}
+
+backend backend-11 use limits-backend {
+    name "Backend 11"
+    address "10.0.0.11"
+}
+
+backend backend-12 use limits-backend {
+    name "Backend 12"
+    address "10.0.0.12"
+}
+
+backend backend-13 use limits-backend {
+    name "Backend 13"
+    address "10.0.0.13"
+}
+
+backend backend-14 use limits-backend {
+    name "Backend 14"
+    address "10.0.0.14"
+}
+
+backend backend-15 use limits-backend {
+    name "Backend 15"
+    address "10.0.0.15"
+}
+
+backend backend-16 use limits-backend {
+    name "Backend 16"
+    address "10.0.0.16"
+}
+
+backend backend-17 use limits-backend {
+    name "Backend 17"
+    address "10.0.0.17"
+}
+
+backend backend-18 use limits-backend {
+    name "Backend 18"
+    address "10.0.0.18"
+}
+
+backend backend-19 use limits-backend {
+    name "Backend 19"
+    address "10.0.0.19"
+}
+
+backend backend-20 use limits-backend {
+    name "Backend 20"
+    address "10.0.0.20"
+}
+
+backend backend-21 use limits-backend {
+    name "Backend 21"
+    address "10.0.0.21"
+}
+
+backend backend-22 use limits-backend {
+    name "Backend 22"
+    address "10.0.0.22"
+}
+
+backend backend-23 use limits-backend {
+    name "Backend 23"
+    address "10.0.0.23"
+}
+
+backend backend-24 use limits-backend {
+    name "Backend 24"
+    address "10.0.0.24"
+}
+
+backend backend-25 use limits-backend {
+    name "Backend 25"
+    address "10.0.0.25"
+}
+
+backend backend-26 use limits-backend {
+    name "Backend 26"
+    address "10.0.0.26"
+}
+
+backend backend-27 use limits-backend {
+    name "Backend 27"
+    address "10.0.0.27"
+}
+
+backend backend-28 use limits-backend {
+    name "Backend 28"
+    address "10.0.0.28"
+}
+
+backend backend-29 use limits-backend {
+    name "Backend 29"
+    address "10.0.0.29"
+}
+
+backend backend-30 use limits-backend {
+    name "Backend 30"
+    address "10.0.0.30"
+}
+
+backend backend-31 use limits-backend {
+    name "Backend 31"
+    address "10.0.0.31"
+}
+
+backend backend-32 use limits-backend {
+    name "Backend 32"
+    address "10.0.0.32"
+}
+
+backend backend-33 use limits-backend {
+    name "Backend 33"
+    address "10.0.0.33"
+}
+
+backend backend-34 use limits-backend {
+    name "Backend 34"
+    address "10.0.0.34"
+}
+
+backend backend-35 use limits-backend {
+    name "Backend 35"
+    address "10.0.0.35"
+}
+
+backend backend-36 use limits-backend {
+    name "Backend 36"
+    address "10.0.0.36"
+}
+
+backend backend-37 use limits-backend {
+    name "Backend 37"
+    address "10.0.0.37"
+}
+
+backend backend-38 use limits-backend {
+    name "Backend 38"
+    address "10.0.0.38"
+}
+
+backend backend-39 use limits-backend {
+    name "Backend 39"
+    address "10.0.0.39"
+}
+
+backend backend-40 use limits-backend {
+    name "Backend 40"
+    address "10.0.0.40"
+}
+
+backend backend-41 use limits-backend {
+    name "Backend 41"
+    address "10.0.0.41"
+}
+
+backend backend-42 use limits-backend {
+    name "Backend 42"
+    address "10.0.0.42"
+}
+
+backend backend-43 use limits-backend {
+    name "Backend 43"
+    address "10.0.0.43"
+}
+
+backend backend-44 use limits-backend {
+    name "Backend 44"
+    address "10.0.0.44"
+}
+
+backend backend-45 use limits-backend {
+    name "Backend 45"
+    address "10.0.0.45"
+}
+
+backend backend-46 use limits-backend {
+    name "Backend 46"
+    address "10.0.0.46"
+}
+
+backend backend-47 use limits-backend {
+    name "Backend 47"
+    address "10.0.0.47"
+}
+
+backend backend-48 use limits-backend {
+    name "Backend 48"
+    address "10.0.0.48"
+}
+
+backend backend-49 use limits-backend {
+    name "Backend 49"
+    address "10.0.0.49"
+}
+
+backend backend-50 use limits-backend {
+    name "Backend 50"
+    address "10.0.0.50"
+}
+
+backend backend-51 use limits-backend {
+    name "Backend 51"
+    address "10.0.0.51"
+}
+
+backend backend-52 use limits-backend {
+    name "Backend 52"
+    address "10.0.0.52"
+}
+
+backend backend-53 use limits-backend {
+    name "Backend 53"
+    address "10.0.0.53"
+}
+
+backend backend-54 use limits-backend {
+    name "Backend 54"
+    address "10.0.0.54"
+}
+
+backend backend-55 use limits-backend {
+    name "Backend 55"
+    address "10.0.0.55"
+}
+
+backend backend-56 use limits-backend {
+    name "Backend 56"
+    address "10.0.0.56"
+}
+
+backend backend-57 use limits-backend {
+    name "Backend 57"
+    address "10.0.0.57"
+}
+
+backend backend-58 use limits-backend {
+    name "Backend 58"
+    address "10.0.0.58"
+}
+
+backend backend-59 use limits-backend {
+    name "Backend 59"
+    address "10.0.0.59"
+}
+
+backend backend-60 use limits-backend {
+    name "Backend 60"
+    address "10.0.0.60"
+}
+
+backend backend-61 use limits-backend {
+    name "Backend 61"
+    address "10.0.0.61"
+}
+
+backend backend-62 use limits-backend {
+    name "Backend 62"
+    address "10.0.0.62"
+}
+
+backend backend-63 use limits-backend {
+    name "Backend 63"
+    address "10.0.0.63"
+}
+
+backend backend-64 use limits-backend {
+    name "Backend 64"
+    address "10.0.0.64"
+}
+
+backend backend-65 use limits-backend {
+    name "Backend 65"
+    address "10.0.0.65"
+}
+
+backend backend-66 use limits-backend {
+    name "Backend 66"
+    address "10.0.0.66"
+}
+
+backend backend-67 use limits-backend {
+    name "Backend 67"
+    address "10.0.0.67"
+}
+
+backend backend-68 use limits-backend {
+    name "Backend 68"
+    address "10.0.0.68"
+}
+
+backend backend-69 use limits-backend {
+    name "Backend 69"
+    address "10.0.0.69"
+}
+
+backend backend-70 use limits-backend {
+    name "Backend 70"
+    address "10.0.0.70"
+}
+
+backend backend-71 use limits-backend {
+    name "Backend 71"
+    address "10.0.0.71"
+}
+
+backend backend-72 use limits-backend {
+    name "Backend 72"
+    address "10.0.0.72"
+}
+
+backend backend-73 use limits-backend {
+    name "Backend 73"
+    address "10.0.0.73"
+}
+
+backend backend-74 use limits-backend {
+    name "Backend 74"
+    address "10.0.0.74"
+}
+
+backend backend-75 use limits-backend {
+    name "Backend 75"
+    address "10.0.0.75"
+}
+
+backend backend-76 use limits-backend {
+    name "Backend 76"
+    address "10.0.0.76"
+}
+
+backend backend-77 use limits-backend {
+    name "Backend 77"
+    address "10.0.0.77"
+}
+
+backend backend-78 use limits-backend {
+    name "Backend 78"
+    address "10.0.0.78"
+}
+
+backend backend-79 use limits-backend {
+    name "Backend 79"
+    address "10.0.0.79"
+}
+
+backend backend-80 use limits-backend {
+    name "Backend 80"
+    address "10.0.0.80"
+}
+
+backend backend-81 use limits-backend {
+    name "Backend 81"
+    address "10.0.0.81"
+}
+
+backend backend-82 use limits-backend {
+    name "Backend 82"
+    address "10.0.0.82"
+}
+
+backend backend-83 use limits-backend {
+    name "Backend 83"
+    address "10.0.0.83"
+}
+
+backend backend-84 use limits-backend {
+    name "Backend 84"
+    address "10.0.0.84"
+}
+
+backend backend-85 use limits-backend {
+    name "Backend 85"
+    address "10.0.0.85"
+}
+
+backend backend-86 use limits-backend {
+    name "Backend 86"
+    address "10.0.0.86"
+}
+
+backend backend-87 use limits-backend {
+    name "Backend 87"
+    address "10.0.0.87"
+}
+
+backend backend-88 use limits-backend {
+    name "Backend 88"
+    address "10.0.0.88"
+}
+
+backend backend-89 use limits-backend {
+    name "Backend 89"
+    address "10.0.0.89"
+}
+
+backend backend-90 use limits-backend {
+    name "Backend 90"
+    address "10.0.0.90"
+}
+
+backend backend-91 use limits-backend {
+    name "Backend 91"
+    address "10.0.0.91"
+}
+
+backend backend-92 use limits-backend {
+    name "Backend 92"
+    address "10.0.0.92"
+}
+
+backend backend-93 use limits-backend {
+    name "Backend 93"
+    address "10.0.0.93"
+}
+
+backend backend-94 use limits-backend {
+    name "Backend 94"
+    address "10.0.0.94"
+}
+
+backend backend-95 use limits-backend {
+    name "Backend 95"
+    address "10.0.0.95"
+}
+
+backend backend-96 use limits-backend {
+    name "Backend 96"
+    address "10.0.0.96"
+}
+
+backend backend-97 use limits-backend {
+    name "Backend 97"
+    address "10.0.0.97"
+}
+
+backend backend-98 use limits-backend {
+    name "Backend 98"
+    address "10.0.0.98"
+}
+
+backend backend-99 use limits-backend {
+    name "Backend 99"
+    address "10.0.0.99"
+}
+
+backend backend-100 use limits-backend {
+    name "Backend 100"
+    address "10.0.0.100"
+}
+
+clients clients {
+    count 50000
+    start 0ns
+    every 0ns
+}

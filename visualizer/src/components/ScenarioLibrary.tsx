@@ -35,7 +35,7 @@ interface ScenarioLibraryProps {
   onRetryDefaults: () => void;
 }
 
-// Validation loads the preset into the JSON editor without starting a run.
+// Validation applies the preset's source and native JSON without starting a run.
 function ScenarioLibrary({
   defaultsReady,
   loading,
@@ -63,7 +63,7 @@ function ScenarioLibrary({
     return matchesCategory && text.includes(query);
   });
 
-  // Keep the JSON editor within reach as the catalog grows.
+  // Keep the configuration editor within reach as the catalog grows.
   const pageSize = 6;
   const pageCount = Math.ceil(matchingPresets.length / pageSize);
   const visiblePresets = matchingPresets.slice((page - 1) * pageSize, page * pageSize);
@@ -72,14 +72,14 @@ function ScenarioLibrary({
     <Card variant="outlined">
       <CardHeader
         title="Scenario library"
-        subheader="Load a preset to validate it and replace the JSON in the editor below."
+        subheader="Load a preset to validate its source and update the Language editor below."
       />
       <CardContent>
         <Stack spacing={2}>
           <Typography variant="body2" color="text.secondary">
             Explore links, queues, loss, workloads, routing, reference experiments and edge cases, or run the
             unpaced simulator throughput benchmark.
-            Loading a preset updates the JSON and planned topology after validation.
+            Loading a preset updates its language source, JSON and planned topology after validation.
             Review them before starting a run.
           </Typography>
 

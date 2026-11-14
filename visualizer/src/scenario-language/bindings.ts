@@ -17,7 +17,7 @@ export const linkFields: FieldRules = {
   travel: { path: 'packetTravelTimeNanoseconds', read: token => timeValue(token) },
   queue: { path: 'queueCapacity', read: token => countValue(token) },
   loss: { path: 'lossRate', read: probability },
-  'queue-policy': { path: 'queuePolicy', read: token => choice(token, { 'tail-drop': 'tailDrop', threshold: 'threshold' }) },
+  'queue-policy': { path: 'queuePolicy', read: token => choice(token, { default: '', 'tail-drop': 'tailDrop', threshold: 'threshold' }) },
   'ecn-threshold': { path: 'congestionThresholdPercent', read: percentage },
   'signal-probability': { path: 'congestionSignalProbability', read: probability },
 };
@@ -129,6 +129,12 @@ export const backendFields: FieldRules = {
   host: { path: 'host', fields: hostFields },
   available: { path: 'physicalAvailable', read: booleanValue, nullable: true },
   admin: { path: 'administrativeState', read: token => choice(token, { active: 'active', drain: 'drain' }), nullable: true },
+};
+
+// Endpoint identity is fixed after insertion; timeline setters use backendFields alone.
+export const initialBackendFields: FieldRules = {
+  ...backendFields,
+  address: { path: 'address', read: textValue },
 };
 
 // Existing generators retain their initial start time; other supported settings stay mutable.

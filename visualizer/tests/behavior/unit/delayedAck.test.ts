@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { compileScenario } from '../../../src/scenario-language/compile.ts';
 import { serializeScenario } from '../../../src/scenarios/files.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
 import { parseScenario, validateScenario } from '../../../src/scenarios/validation.ts';
@@ -53,13 +54,8 @@ test('a nonzero congestion-window cap requires congestion control and zero remai
 });
 
 test('the one-segment preset fixes cwnd and other presets keep delayed ACK disabled', () => {
-  const defaults = scenarioFixture();
-  defaults.fixed.tcp = {
-    delayedAck: { enabled: true },
-    congestionControl: { maximumWindowSegments: 1 },
-  };
   for (const preset of scenarioPresets) {
-    const scenario = preset.build(defaults);
+    const scenario = compileScenario(preset.source);
     if (preset.id === 'delayed-ack-small-window') {
       assert.equal(scenario.fixed.tcp.delayedAck?.enabled, true);
       assert.equal(scenario.fixed.tcp.delayedAck.maxDelayNanoseconds, 40_000_000);
@@ -68,8 +64,7 @@ test('the one-segment preset fixes cwnd and other presets keep delayed ACK disab
       assert.equal(scenario.fixed.tcp.receiveBufferBytes, 65535);
       continue;
     }
-    assert.notEqual(scenario.fixed.tcp.delayedAck?.enabled, true, preset.id);
-    const uncapped = preset.category === 'timeline' ? 0 : undefined;
-    assert.equal(scenario.fixed.tcp.congestionControl?.maximumWindowSegments, uncapped, preset.id);
+    assert.equal(scenario.fixed.tcp.delayedAck?.enabled, false, preset.id);
+    assert.equal(scenario.fixed.tcp.congestionControl?.maximumWindowSegments, 0, preset.id);
   }
 });

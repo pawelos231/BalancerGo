@@ -161,16 +161,22 @@ function ExperimentSetup({
     }
   }
 
-  // A single click validates the preset; only success replaces the applied document.
+  // Only successful validation replaces the preset source and its generated JSON together.
   function loadPreset(id: string) {
     if (!defaults || loading || validationRef.current || pending || hasUnappliedDocument()) return;
     const preset = scenarioPresets.find(entry => entry.id === id);
     if (!preset) return;
 
     void validateAndApply(
-      (signal) => scenarioApi.validate(preset.build(defaults), signal),
+      signal => validateLanguageDocument(preset.source, scenarioApi, signal),
       (result) => {
-        setEditorFormat('json');
+        languageSourceRef.current = preset.source;
+        setLanguageSource(preset.source);
+        languageBaselineRef.current = preset.source;
+        setLanguageBaseline(preset.source);
+        setLanguageError(null);
+        bindLanguageScenario(result.scenario);
+        setEditorFormat('language');
         setApplied({
           id: preset.id,
           title: preset.title,

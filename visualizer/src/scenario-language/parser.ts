@@ -156,6 +156,11 @@ class Parser {
       const name = this.expect('word', 'Expected a client group name.');
       return { kind: 'stop', name, range: range() };
     }
+    if (keyword.text === 'remove') {
+      this.expectWord('clients');
+      const name = this.expect('word', 'Expected a client group name.');
+      return { kind: 'remove', name, range: range() };
+    }
     throw new LanguageError(`Unsupported timeline command ${JSON.stringify(keyword.text)}.`, keyword.range);
   }
 

@@ -29,6 +29,20 @@ func TestScenarioExamplesRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
+			// JSON omits optional empty lists: [] and an absent list mean the same thing.
+			if len(input.Fixed.Network.Profiles) == 0 {
+				input.Fixed.Network.Profiles = nil
+			}
+			for _, state := range input.States {
+				for i := range state.Workload.ClientGroups {
+					group := &state.Workload.ClientGroups[i]
+					if len(group.Overrides) == 0 {
+						group.Overrides = nil
+					}
+				}
+			}
+
 			encoded, err := scenario.EncodeDocument(input)
 			if err != nil {
 				t.Fatal(err)

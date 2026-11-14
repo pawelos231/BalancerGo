@@ -1,0 +1,153 @@
+{
+  "baselineRevision": "72ba400",
+  "presets": {
+    "asymmetric-clients": {
+      "normalizedSha256": "211761f9e891d69c19a6ee1978d9b4d9087b68086f7a08fdfab363662eae5055",
+      "selectorsSha256": "f828aad2dfe1e3b6f58d402e563055abb764bb315feb31d55b0c2b303341923a"
+    },
+    "backend-cpu-bottleneck": {
+      "normalizedSha256": "6ee555cb7d581815a0617ead90d1868f6b3b349fa8bf856d37a0bbda5bf4d881",
+      "selectorsSha256": "b5ac22d67e6d734a82372948f1c405fc8928ded777f2bbec918340ab7ffd889f"
+    },
+    "blackholed-backend": {
+      "normalizedSha256": "ff3f6b5d009ab1613d9471672a2d26696089f5418fd3cf7668cfbc68f8505cb6",
+      "selectorsSha256": "30946a638f979fffcbfdf5bf8f0ce8bd7025c9c1f9b9b14dcfdb5d22f0a3d563"
+    },
+    "delayed-ack-small-window": {
+      "normalizedSha256": "dea34fc251477874e479a7638a8429119701472ab9d8358f9d99958856d4a83f",
+      "selectorsSha256": "a9cf0fa17b07a7d38950fd8fdcc5052b26cdb76fa32b7e63a3d06d4b9fb6f8f5"
+    },
+    "ecn-congestion": {
+      "normalizedSha256": "eeca5778b00a582e53849ba35a67c1c33eed19e07b65631b8e691b2b7f3f9f25",
+      "selectorsSha256": "3d80e7a13884991714089d996c33e87695456690db1d3e028afb8f5f068ed313"
+    },
+    "egress-bottleneck": {
+      "normalizedSha256": "d2092a64eee7516f928a7bc6b1d2dca65008ccfc7b155b6ba267824e00c6c4b7",
+      "selectorsSha256": "a9cf0fa17b07a7d38950fd8fdcc5052b26cdb76fa32b7e63a3d06d4b9fb6f8f5"
+    },
+    "heterogeneous-backend-cpus": {
+      "normalizedSha256": "4c802fe699f2a2f9ea7a205809109019327aea5faa49d8ae98d6b87413850bb7",
+      "selectorsSha256": "b5ac22d67e6d734a82372948f1c405fc8928ded777f2bbec918340ab7ffd889f"
+    },
+    "host-cpu-disabled": {
+      "normalizedSha256": "2b7526f69c4283772e80b99cf1b167cc98de13c0a5c03e87f65872bc3f3df925",
+      "selectorsSha256": "b5ac22d67e6d734a82372948f1c405fc8928ded777f2bbec918340ab7ffd889f"
+    },
+    "idle-network": {
+      "normalizedSha256": "74aa8208130aa5bb90c04906d12ff8d12e21f19a66cb75f59c21c0906867788a",
+      "selectorsSha256": "a9cf0fa17b07a7d38950fd8fdcc5052b26cdb76fa32b7e63a3d06d4b9fb6f8f5"
+    },
+    "ingress-bottleneck": {
+      "normalizedSha256": "921fae403bef43a9eef639db19c7d66e16bb640600ddcbb925f9cd9ebfc6e040",
+      "selectorsSha256": "a9cf0fa17b07a7d38950fd8fdcc5052b26cdb76fa32b7e63a3d06d4b9fb6f8f5"
+    },
+    "lb-cpu-bottleneck": {
+      "normalizedSha256": "752e101da880d03153dc0ca59c311bb9a2a03b13b5829131c213ac5a286689d8",
+      "selectorsSha256": "b5ac22d67e6d734a82372948f1c405fc8928ded777f2bbec918340ab7ffd889f"
+    },
+    "lb-cpu-four-cores": {
+      "normalizedSha256": "700eb113beb2df3dd446efed079d4bbdea9c59e5146d91266ce943a811aa92ad",
+      "selectorsSha256": "b5ac22d67e6d734a82372948f1c405fc8928ded777f2bbec918340ab7ffd889f"
+    },
+    "lossy-access": {
+      "normalizedSha256": "0cce3937e8b0a099a04649e3433abd474699b774ccf779d4a872e5a702e37066",
+      "selectorsSha256": "6398ed8df03275ecd58ab0f4dca50cb48ed2d6cef9cef36c9f2edfb8989fc344"
+    },
+    "mixed-backends": {
+      "normalizedSha256": "3331a80a8ed8e8c1f64a6df8bd23876297ee8a92c65da7c5f06f1ff09194c0b3",
+      "selectorsSha256": "311f6ffcdff563867be0ac293dabee25abbc5f3478c834c07620e2e044feb29d"
+    },
+    "mixed-clients": {
+      "normalizedSha256": "f33d476dd46b89231ad8971c3c4b3448f425b2a2bf117a3f36311d8ff877305e",
+      "selectorsSha256": "8015345d670f88264676c1cf519e6cadd7970f131892ef962a3d909e4eaf1fa9"
+    },
+    "mixed-latency": {
+      "normalizedSha256": "6d3ff54e5b063178c332477560d00184de1c1d09ee49380d1dc64a3f552f44eb",
+      "selectorsSha256": "bc281418c93424ce80a9b488efc5d6a9d06bee9700ae6ca12016bb43e603b9a9"
+    },
+    "mixed-streams": {
+      "normalizedSha256": "7c70de20ab28fe1e03df840a816d1f0b16be182165526b05ea2048f464b86a50",
+      "selectorsSha256": "7b03168b6981fe63e284e63b7840315b4f0a1319fd14363c374946dd3951429d"
+    },
+    "no-backends": {
+      "normalizedSha256": "730113b7a55e5f3fc7b2a94e74f074ba0f017c8a583fc28ad48c693649a7804f",
+      "selectorsSha256": "1b7cc034980d2707aa988f43d967a61df693ebbaba7b8de75d95b94576f7eae9"
+    },
+    "reference-far-fast-ack-long": {
+      "normalizedSha256": "40544901b9856472e84aa43be06a1852bbcb2c72bc516567bfd18359001d3c6d",
+      "selectorsSha256": "b7168a54e8332d651a19ff8609be01f1b84b4d163661e5cdd0855a07f794f85a"
+    },
+    "reference-far-fast-ack-short": {
+      "normalizedSha256": "c5d728d33344e37705bcf15197783601433766bf2bfa17fc6efcb8ce9526c3ed",
+      "selectorsSha256": "b7168a54e8332d651a19ff8609be01f1b84b4d163661e5cdd0855a07f794f85a"
+    },
+    "reference-far-slow-ack-long": {
+      "normalizedSha256": "7d30cea7b0f3a9f3c8b4833d0f59deb1422bf7b0cfefc85e010070a8830bc9c2",
+      "selectorsSha256": "89f7a512b969a74d4f8b87ef2412c2433d7daa2c31f720466d9ddbad6312b40f"
+    },
+    "reference-far-slow-ack-short": {
+      "normalizedSha256": "871f415dfc50838a27e08ae56f7af546a5902a1b0593533f359840514ef09db1",
+      "selectorsSha256": "89f7a512b969a74d4f8b87ef2412c2433d7daa2c31f720466d9ddbad6312b40f"
+    },
+    "reference-near-fast-ack-long": {
+      "normalizedSha256": "b33045e0d5b82eafcc5161ef265a70149360b7b69fad4334b78932b851e79e73",
+      "selectorsSha256": "a5700ada3a93b5ce98357eb37ffc4e7e60dc1c521428018937f973b95a89d8e7"
+    },
+    "reference-near-fast-ack-short": {
+      "normalizedSha256": "043ec58f331bf61f06869df57a1beb796042ac220fa95d3d0a16008909d14b9c",
+      "selectorsSha256": "a5700ada3a93b5ce98357eb37ffc4e7e60dc1c521428018937f973b95a89d8e7"
+    },
+    "reference-near-slow-ack-long": {
+      "normalizedSha256": "68ffdb10f63593b4bba44eea592cc0ee1d919d1dcbabe6903ca7198a1ae16478",
+      "selectorsSha256": "2ad0fb91bdbabc51bb61cde94454dce844e37836b33cd523e7883a07ff7d8c13"
+    },
+    "reference-near-slow-ack-short": {
+      "normalizedSha256": "95ef2d22e769dcefcad14922ce70ace70e1f8edc0256c1ef54846afcbd3f30b5",
+      "selectorsSha256": "2ad0fb91bdbabc51bb61cde94454dce844e37836b33cd523e7883a07ff7d8c13"
+    },
+    "seeded-random": {
+      "normalizedSha256": "bfbbe3fd3eabe656500064d75a857c780cfd5d6243d3d78f2322c7d4eb7ad85b",
+      "selectorsSha256": "c2cf870bd1b07cf7c31a9279f6c865f41868c632ddf187aca6f98a2d2b327673"
+    },
+    "simulator-limits": {
+      "normalizedSha256": "33f617187236b2b2a9f5b3d7e22e8d885e11a0709bf6344544d46241cf35df69",
+      "selectorsSha256": "dcd6eb158df5bfcbe81d5943280448f3545bb1d78581d21d3fc27941d7aeccb0"
+    },
+    "simulator-throughput": {
+      "normalizedSha256": "f024740980668187361434d00c64a1a5b9b938bf1046380c7958d4d20d890ff2",
+      "selectorsSha256": "5f7b24444bfffe72907b453c004675b5e3bd9b95d62fed9e8ab5cced7eb77304"
+    },
+    "slow-ack-path": {
+      "normalizedSha256": "675be0fb8ff3a934470f3540b7b9e564e4f7f097ceef93343943fed9646e652a",
+      "selectorsSha256": "b949cfe21a2700f33d0730ff1cf5ef6a46ab3b1e56bc6c093829dfa21439cec3"
+    },
+    "small-backend-cpu-queue": {
+      "normalizedSha256": "03c3f4826c388bd87d52577ef7aa6f162de4d79a968d0649990aa0100dd3ac5e",
+      "selectorsSha256": "b5ac22d67e6d734a82372948f1c405fc8928ded777f2bbec918340ab7ffd889f"
+    },
+    "staggered-arrivals": {
+      "normalizedSha256": "ba3ea4ad5148b299ecf86934cd4cb607fd73521d241208f37e0c16a6910d113f",
+      "selectorsSha256": "53127008097ab4fe5b4c722432fc8f48efd58148b5fc288df29bd907bbbb8143"
+    },
+    "timeline-arrival-burst": {
+      "normalizedSha256": "010a95ff12a88d7b9d445eae8f4bc625a5295a71c8e761caa3aba1d8c12e8b63",
+      "selectorsSha256": "61b0facc71c3a09730abeb1083125058081d2133d1050eec58301b1370b40aa8"
+    },
+    "timeline-cpu-scaling": {
+      "normalizedSha256": "70ec90d7079e425622b53cbaa6ffb63fbb45c35b8cddd5200571a685d661023a",
+      "selectorsSha256": "009c76f143b343044b739a6575b0bc0c78d1993593fab26d1fa8a1481e8d7909"
+    },
+    "timeline-lb-capacity": {
+      "normalizedSha256": "928374d4595123fcf05d4eaf7215baeb883f9e29c28b0def8817f9a85942da0d",
+      "selectorsSha256": "009c76f143b343044b739a6575b0bc0c78d1993593fab26d1fa8a1481e8d7909"
+    },
+    "tiny-queues": {
+      "normalizedSha256": "81e1a284fe12ec82d890003a0fad1537727d3a3167cdd4e50462293dafdac51f",
+      "selectorsSha256": "a9cf0fa17b07a7d38950fd8fdcc5052b26cdb76fa32b7e63a3d06d4b9fb6f8f5"
+    },
+    "unbuffered-ingress": {
+      "normalizedSha256": "617dfc2c6ddd55fc047892d07670c27932eef33ff6d631bfa004ef44b934337e",
+      "selectorsSha256": "a9cf0fa17b07a7d38950fd8fdcc5052b26cdb76fa32b7e63a3d06d4b9fb6f8f5"
+    }
+  }
+}

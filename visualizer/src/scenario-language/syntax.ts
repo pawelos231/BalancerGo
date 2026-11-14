@@ -27,7 +27,7 @@ export type Command =
   | { kind: 'set'; target: Token; name?: Token; properties: Property[]; range: SourceRange }
   | { kind: 'add'; declaration: Declaration; range: SourceRange }
   | { kind: 'down' | 'up' | 'drain'; name: Token; range: SourceRange }
-  | { kind: 'stop'; name: Token; range: SourceRange };
+  | { kind: 'stop' | 'remove'; name: Token; range: SourceRange };
 
 export interface TimelineBlock {
   at: Token;

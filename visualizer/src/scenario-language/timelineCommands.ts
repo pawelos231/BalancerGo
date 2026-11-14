@@ -1,7 +1,7 @@
 import type { ScenarioState } from '../scenarios/types.ts';
 import { backendFields, balancerFields, clientStreamFields, mutableClientFields } from './bindings.ts';
 import { FieldWriter } from './fields.ts';
-import { endpointName, prefixName } from './identity.ts';
+import { clientAliasName, clientGroupName, endpointName } from './identity.ts';
 import { writeEndpointNetwork } from './network.ts';
 import { LanguageError } from './source.ts';
 import type { Command } from './syntax.ts';
@@ -21,13 +21,17 @@ export function applyTimelineCommands(
   const backendIndices = new Map(state.resources.backends.map((backend, index) => [backend.id, index]));
   const groupIndices = new Map(state.workload.clientGroups.map((group, index) => [group.id, index]));
   const overrideIndices = new Map<string, Map<bigint, number>>();
+  const removedGroups = new Set<string>();
 
   for (const command of commands) {
     if (command.kind === 'add') {
       if (command.declaration.keyword.text === 'clients') {
-        const id = prefixName(command.declaration.argument!);
+        const id = clientGroupName(command.declaration.argument!);
         if (groupIndices.has(id)) {
           throw new LanguageError(`Duplicate client group ${id}.`, command.declaration.argument!.range);
+        }
+        if (removedGroups.has(id)) {
+          throw new LanguageError(`Client group ${id} cannot be reused after removal.`, command.declaration.argument!.range);
         }
         const index = state.workload.clientGroups.length;
         const group = compileClientGroup(
@@ -68,8 +72,14 @@ export function applyTimelineCommands(
       }], backendFields, state.resources.backends[index], `${path}.resources.backends[${index}]`);
       continue;
     }
+    if (command.kind === 'remove') {
+      const id = clientGroupName(command.name);
+      if (!groupIndices.delete(id)) throw new LanguageError(`Unknown client group ${id}.`, command.name.range);
+      removedGroups.add(id);
+      continue;
+    }
     if (command.kind === 'stop') {
-      const id = prefixName(command.name);
+      const id = clientGroupName(command.name);
       const index = groupIndices.get(id);
       if (index === undefined) throw new LanguageError(`Unknown client group ${id}.`, command.name.range);
       // Zero stops future births; the group and its reserved slots remain in every later state.
@@ -104,7 +114,7 @@ export function applyTimelineCommands(
     }
 
     const individual = command.target.text === 'client';
-    const name = individual ? endpointName(command.name!) : prefixName(command.name!);
+    const name = individual ? clientAliasName(command.name!) : clientGroupName(command.name!);
     const dash = name.lastIndexOf('-');
     const groupName = individual ? name.slice(0, dash) : name;
     const groupIndex = groupIndices.get(groupName);
@@ -147,5 +157,34 @@ export function applyTimelineCommands(
     });
     writer.apply(other, clientStreamFields, override, overridePath);
     writer.locations.set(`${overridePath}.index`, command.name!.range);
+  }
+
+  if (removedGroups.size > 0) removeClientGroups(state, removedGroups, writer, path);
+}
+
+// Keep indices stable while commands write conflict paths, then compact settings and origins together.
+function removeClientGroups(
+  state: ScenarioState,
+  removed: ReadonlySet<string>,
+  writer: FieldWriter,
+  path: string,
+): void {
+  const retainedIndices = new Map<number, number>();
+  state.workload.clientGroups = state.workload.clientGroups.filter((group, index) => {
+    if (removed.has(group.id)) return false;
+    retainedIndices.set(index, retainedIndices.size);
+    return true;
+  });
+
+  const prefix = `${path}.workload.clientGroups[`;
+  const origins = [...writer.locations].filter(([location]) => location.startsWith(prefix));
+  for (const [location] of origins) writer.locations.delete(location);
+  for (const [location, origin] of origins) {
+    const end = location.indexOf(']', prefix.length);
+    const previousIndex = Number(location.slice(prefix.length, end));
+    const nextIndex = retainedIndices.get(previousIndex);
+    if (nextIndex !== undefined) {
+      writer.locations.set(`${prefix}${nextIndex}]${location.slice(end + 1)}`, origin);
+    }
   }
 }

@@ -8,7 +8,40 @@
       "speed": 0,
       "maxEvents": 50000000
     },
-    "tcp": {},
+    "tcp": {
+      "mssBytes": 1024,
+      "receiveBufferBytes": 65535,
+      "sackEnabled": false,
+      "ECNenabled": false,
+      "delayedAck": {
+        "enabled": false,
+        "segmentsPerACK": 2,
+        "maxDelayNanoseconds": 40000000
+      },
+      "rto": {
+        "mode": "adaptive",
+        "exponentialBackoff": true,
+        "initialTimeoutNanoseconds": 1000000000,
+        "minimumTimeoutNanoseconds": 200000000,
+        "maximumTimeoutNanoseconds": 60000000000
+      },
+      "close": {
+        "mslNanoseconds": 30000000000,
+        "finWaitTimeoutNanoseconds": 60000000000,
+        "maxFINRetries": 5
+      },
+      "congestionControl": {
+        "mode": "reno",
+        "fastRetransmit": true,
+        "cubicFastConvergence": true,
+        "initialWindowSegments": 4,
+        "maximumWindowSegments": 0,
+        "initialSlowStartThresholdBytes": 65535
+      },
+      "clientIdleTimeoutNanoseconds": 20000000000,
+      "backendHalfOpenIdleTimeoutNanoseconds": 5000000000,
+      "backendEstablishedIdleTimeoutNanoseconds": 0
+    },
     "loadBalancer": {
       "id": "lb"
     },
@@ -17,7 +50,10 @@
         "bandwidthBitsPerSecond": 80000000000000,
         "packetTravelTimeNanoseconds": 0,
         "queueCapacity": 4096,
-        "lossRate": 0
+        "lossRate": 0,
+        "queuePolicy": "",
+        "congestionThresholdPercent": 0,
+        "congestionSignalProbability": 0
       },
       "profiles": [
         {
@@ -41,14 +77,27 @@
       "resources": {
         "loadBalancer": {
           "algorithm": "roundRobin",
+          "host": {
+            "cores": 1,
+            "packetProcessingTimeNanoseconds": 0,
+            "queueCapacity": 1024
+          },
           "ingress": {
             "bandwidthBitsPerSecond": 8000000000000000,
             "packetTravelTimeNanoseconds": 0,
             "queueCapacity": 4096,
-            "lossRate": 0
+            "lossRate": 0,
+            "queuePolicy": "",
+            "congestionThresholdPercent": 0,
+            "congestionSignalProbability": 0
           },
           "forwardingBitsPerSecond": 8000000000000000,
-          "mappingTimeouts": {}
+          "mappingTimeouts": {
+            "halfOpenIdleTimeoutNanoseconds": 5000000000,
+            "establishedIdleTimeoutNanoseconds": 50000000000,
+            "closingIdleTimeoutNanoseconds": 120000000000,
+            "resetIdleTimeoutNanoseconds": 10000000000
+          }
         },
         "backends": [
           {
@@ -60,6 +109,11 @@
               "profile": "throughput-backend",
               "toLoadBalancer": {},
               "fromLoadBalancer": {}
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
             }
           },
           {
@@ -71,6 +125,11 @@
               "profile": "throughput-backend",
               "toLoadBalancer": {},
               "fromLoadBalancer": {}
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
             }
           },
           {
@@ -82,6 +141,11 @@
               "profile": "throughput-backend",
               "toLoadBalancer": {},
               "fromLoadBalancer": {}
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
             }
           },
           {
@@ -93,6 +157,11 @@
               "profile": "throughput-backend",
               "toLoadBalancer": {},
               "fromLoadBalancer": {}
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
             }
           },
           {
@@ -104,6 +173,11 @@
               "profile": "throughput-backend",
               "toLoadBalancer": {},
               "fromLoadBalancer": {}
+            },
+            "host": {
+              "cores": 1,
+              "packetProcessingTimeNanoseconds": 0,
+              "queueCapacity": 1024
             }
           }
         ]
@@ -120,7 +194,8 @@
               "toLoadBalancer": {},
               "fromLoadBalancer": {}
             },
-            "stream": {}
+            "stream": {},
+            "overrides": []
           }
         ]
       }

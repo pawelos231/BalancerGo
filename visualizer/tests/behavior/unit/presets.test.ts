@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { isIPv4 } from 'node:net';
 import test from 'node:test';
+import { compileScenario } from '../../../src/scenario-language/compile.ts';
 import { serializeScenario } from '../../../src/scenarios/files.ts';
 import { presetCategories, scenarioPresets } from '../../../src/scenarios/presets.ts';
 import type { ScenarioEndpointNetwork } from '../../../src/scenarios/types.ts';
 import { parseScenario, validateScenario } from '../../../src/scenarios/validation.ts';
-import { scenarioFixture } from '../../scenarioFixture.ts';
 
 const originalNetworkIds = [
   'mixed-clients',
@@ -14,45 +14,44 @@ const originalNetworkIds = [
   'egress-bottleneck',
 ];
 
-function buildPreset(id: string) {
+function compilePreset(id: string) {
   const preset = scenarioPresets.find((entry) => entry.id === id);
   assert.ok(preset, `missing preset ${id}`);
-  return preset.build(scenarioFixture());
+  return compileScenario(preset.source);
 }
 
-test('preset factories keep backend defaults exact and return independent documents', () => {
-  const defaults = scenarioFixture();
-  const original = structuredClone(defaults);
+test('original network sources pin their baseline and compile independent documents', () => {
   assert.equal(new Set(scenarioPresets.map((preset) => preset.id)).size, scenarioPresets.length);
   const networkPresets = scenarioPresets.filter((preset) => originalNetworkIds.includes(preset.id));
   assert.equal(networkPresets.length, 4);
 
   for (const preset of networkPresets) {
-    const result = preset.build(defaults);
-    assert.equal(result.fixed.execution.seed, '-9007199254740993');
-    assert.equal(result.fixed.execution.maxEvents, '18446744073709551615');
-    assert.equal(result.fixed.execution.snapshotIntervalNanoseconds, 12_345_678);
-    assert.equal(result.fixed.execution.durationNanoseconds, 180_000_000_000);
-    assert.equal(result.fixed.execution.speed, 1);
-    assert.equal(result.fixed.network.defaults.packetTravelTimeNanoseconds, 765_432);
-    assert.equal(result.fixed.network.defaults.queueCapacity, 17);
-    assert.equal(result.states['0'].resources.loadBalancer.ingress.queueCapacity, 5);
-    assert.equal(result.states['0'].resources.loadBalancer.ingress.packetTravelTimeNanoseconds, 123);
-    assert.equal(result.states['0'].resources.loadBalancer.algorithm, 'random');
+    const result = compileScenario(preset.source);
+    assert.deepEqual(result.fixed.execution, {
+      durationNanoseconds: 180_000_000_000,
+      snapshotIntervalNanoseconds: 100_000_000,
+      seed: 1,
+      speed: 1,
+      maxEvents: 5_000_000_000,
+    }, preset.id);
+    assert.equal(result.fixed.network.defaults.packetTravelTimeNanoseconds, 1_000_000);
+    assert.equal(result.fixed.network.defaults.queueCapacity, 1024);
+    assert.equal(result.fixed.network.defaults.lossRate, 0);
+    assert.equal(result.states['0'].resources.loadBalancer.ingress.queueCapacity, 1024);
+    assert.equal(result.states['0'].resources.loadBalancer.ingress.packetTravelTimeNanoseconds, 0);
+    assert.equal(result.states['0'].resources.loadBalancer.algorithm, 'roundRobin');
     assert.equal(result.fixed.workload.defaults.bytes, 1_073_741_824);
     assert.equal(result.fixed.workload.defaults.packetGapNanoseconds, 0);
     assert.equal(result.states['0'].resources.backends.length, 2);
     assert.equal(new Set(result.states['0'].resources.backends.map((backend) => backend.address)).size, 2);
 
     result.states['0'].resources.loadBalancer.ingress.queueCapacity = 999;
-    assert.deepEqual(defaults, original);
-    assert.equal(preset.build(defaults).states['0'].resources.loadBalancer.ingress.queueCapacity, 5);
+    assert.equal(compileScenario(preset.source).states['0'].resources.loadBalancer.ingress.queueCapacity, 1024);
   }
 });
 
 test('preset profiles and shared limits identify four different experiments', () => {
-  const defaults = scenarioFixture();
-  const mixed = scenarioPresets.find((preset) => preset.id === 'mixed-clients')!.build(defaults);
+  const mixed = compilePreset('mixed-clients');
   assert.deepEqual(mixed.states['0'].workload.clientGroups.map((group) => [group.id, group.count]), [
     ['slow-clients', 8], ['fast-clients', 8],
   ]);
@@ -62,12 +61,12 @@ test('preset profiles and shared limits identify four different experiments', ()
     id: 'slow-client', config: { bandwidthBitsPerSecond: 10_000_000 },
   }]);
 
-  const backends = scenarioPresets.find((preset) => preset.id === 'mixed-backends')!.build(defaults);
+  const backends = compilePreset('mixed-backends');
   assert.equal(backends.states['0'].resources.backends[0].network.profile, 'slow-backend');
   assert.equal(backends.states['0'].resources.backends[1].network.profile, '');
 
-  const ingress = scenarioPresets.find((preset) => preset.id === 'ingress-bottleneck')!.build(defaults);
-  const egress = scenarioPresets.find((preset) => preset.id === 'egress-bottleneck')!.build(defaults);
+  const ingress = compilePreset('ingress-bottleneck');
+  const egress = compilePreset('egress-bottleneck');
   for (const result of [ingress, egress]) {
     assert.equal(result.states['0'].workload.clientGroups[0].count, 32);
     assert.equal(result.fixed.network.defaults.bandwidthBitsPerSecond, 1_000_000_000);
@@ -78,12 +77,10 @@ test('preset profiles and shared limits identify four different experiments', ()
   assert.equal(egress.states['0'].resources.loadBalancer.forwardingBitsPerSecond, 10_000_000);
 });
 
-test('throughput preset keeps demand bounded, reproducible and independent of network defaults', () => {
-  const defaults = scenarioFixture();
-  const before = structuredClone(defaults);
+test('throughput source fixes bounded demand and reproducible network limits', () => {
   const preset = scenarioPresets.find((entry) => entry.id === 'simulator-throughput')!;
   assert.equal(preset.title, 'Simulator throughput');
-  const scenario = preset.build(defaults);
+  const scenario = compileScenario(preset.source);
   assert.equal(scenario.fixed.execution.durationNanoseconds, 5_000_000);
   assert.equal(scenario.fixed.execution.snapshotIntervalNanoseconds, 100_000_000);
   assert.equal(scenario.fixed.execution.speed, 0);
@@ -137,14 +134,13 @@ test('throughput preset keeps demand bounded, reproducible and independent of ne
   }
 
   assert.doesNotThrow(() => validateScenario(scenario));
-  assert.deepEqual(defaults, before);
-  assert.deepEqual(preset.build(defaults), scenario);
+  assert.deepEqual(compileScenario(preset.source), scenario);
   scenario.states['0'].resources.backends[0].network.fromLoadBalancer.lossRate = 1;
-  assert.deepEqual(preset.build(defaults).states['0'].resources.backends[0].network.fromLoadBalancer, {});
+  assert.deepEqual(compileScenario(preset.source).states['0'].resources.backends[0].network.fromLoadBalancer, {});
 });
 
 test('limits benchmark configures independent endpoints and bounded zero-delay paths', () => {
-  const scenario = buildPreset('simulator-limits');
+  const scenario = compilePreset('simulator-limits');
   const backends = scenario.states['0'].resources.backends;
   const [group] = scenario.states['0'].workload.clientGroups;
   const backendProfile = scenario.fixed.network.profiles!.find((profile) => profile.id === 'limits-backend')!;
@@ -218,7 +214,7 @@ test('limits benchmark configures independent endpoints and bounded zero-delay p
 });
 
 test('limits benchmark preserves unsafe integer rates through JSON export and import', () => {
-  const scenario = buildPreset('simulator-limits');
+  const scenario = compilePreset('simulator-limits');
   const exactSharedRate = '80000000000000000';
 
   assert.equal(scenario.states['0'].resources.loadBalancer.forwardingBitsPerSecond, exactSharedRate);
@@ -260,16 +256,13 @@ test('catalog pins the limits benchmark and keeps unique categories and original
   }
 });
 
-test('every builder is deterministic and isolates nested configuration from other builds', () => {
-  const defaults = scenarioFixture();
-  const originalDefaults = structuredClone(defaults);
-
+test('every source compilation is deterministic and isolates nested configuration', () => {
   for (const preset of scenarioPresets) {
-    const first = preset.build(defaults);
-    const second = preset.build(defaults);
-    const expected = structuredClone(first);
+    const first = compileScenario(preset.source);
+    const second = compileScenario(preset.source);
+    const expected = validateScenario(first);
 
-    assert.deepEqual(second, expected, `${preset.id}: deterministic build`);
+    assert.deepEqual(second, expected, `${preset.id}: deterministic compilation`);
 
     // Change separate nested branches to catch shared defaults or cached documents.
     first.fixed.execution.seed = 42;
@@ -286,28 +279,24 @@ test('every builder is deterministic and isolates nested configuration from othe
     if (group) group.network.toLoadBalancer.queueCapacity = 999;
     if (group?.overrides?.[0]) group.overrides[0].stream.bytes = 7;
 
-    assert.deepEqual(second, expected, `${preset.id}: independent prior build`);
-    assert.deepEqual(preset.build(defaults), expected, `${preset.id}: independent next build`);
-    assert.deepEqual(defaults, originalDefaults, `${preset.id}: backend defaults`);
+    assert.deepEqual(second, expected, `${preset.id}: independent prior compilation`);
+    assert.deepEqual(compileScenario(preset.source), expected, `${preset.id}: independent next compilation`);
   }
 });
 
-test('a catalog selection replaces a fetched timeline with the selected experiment', () => {
-  const defaults = scenarioFixture();
-  defaults.states['1000000'] = structuredClone(defaults.states['0']);
-  const original = structuredClone(defaults);
+test('catalog sources contain only the states belonging to their experiment', () => {
   for (const preset of scenarioPresets) {
-    const built = preset.build(defaults);
-    assert.ok(built.states['0'], preset.id);
-    assert.equal(Object.hasOwn(built.states, '1000000'), false, preset.id);
-    assert.equal(BigInt(built.scenarioVersion), 2n, preset.id);
-    assert.deepEqual(defaults, original, preset.id);
+    const scenario = compileScenario(preset.source);
+    assert.ok(scenario.states['0'], preset.id);
+    const expectedStates = preset.category === 'timeline' ? ['0', '30000000000', '90000000000'] : ['0'];
+    assert.deepEqual(Object.keys(scenario.states), expectedStates, preset.id);
+    assert.equal(BigInt(scenario.scenarioVersion), 2n, preset.id);
   }
 });
 
 test('every preset has valid resource membership and resolvable profile references', () => {
   for (const preset of scenarioPresets) {
-    const scenario = preset.build(scenarioFixture());
+    const scenario = compileScenario(preset.source);
     const backends = scenario.states['0'].resources.backends;
     const groups = scenario.states['0'].workload.clientGroups;
     const resourceIds = [
@@ -377,7 +366,7 @@ test('new network experiments reset unrelated loss, timing and execution default
   assert.equal(experiments.length, 14);
 
   for (const preset of experiments) {
-    const scenario = preset.build(scenarioFixture());
+    const scenario = compileScenario(preset.source);
 
     assert.equal(scenario.fixed.execution.durationNanoseconds, 180_000_000_000, preset.id);
     assert.equal(scenario.fixed.execution.speed, 1, preset.id);
@@ -394,7 +383,7 @@ test('new network experiments reset unrelated loss, timing and execution default
 });
 
 test('directional client limits and travel profiles describe distinct access paths', () => {
-  const asymmetric = buildPreset('asymmetric-clients');
+  const asymmetric = compilePreset('asymmetric-clients');
   const [upload, download] = asymmetric.states['0'].workload.clientGroups;
   const fastRate = asymmetric.fixed.network.defaults.bandwidthBitsPerSecond;
 
@@ -406,7 +395,7 @@ test('directional client limits and travel profiles describe distinct access pat
     upload.network.toLoadBalancer.bandwidthBitsPerSecond,
   );
 
-  const latency = buildPreset('mixed-latency');
+  const latency = compilePreset('mixed-latency');
   const clientProfiles = latency.states['0'].workload.clientGroups.map((group) => (
     latency.fixed.network.profiles!.find((profile) => profile.id === group.network.profile)!
   ));
@@ -422,7 +411,7 @@ test('directional client limits and travel profiles describe distinct access pat
 });
 
 test('slow ACK paths constrain backend returns rather than client data delivery', () => {
-  const scenario = buildPreset('slow-ack-path');
+  const scenario = compilePreset('slow-ack-path');
   const dataRate = BigInt(scenario.fixed.network.defaults.bandwidthBitsPerSecond);
 
   for (const backend of scenario.states['0'].resources.backends) {
@@ -437,7 +426,7 @@ test('slow ACK paths constrain backend returns rather than client data delivery'
 });
 
 test('probabilistic client loss and a single blackholed backend affect different branches', () => {
-  const lossy = buildPreset('lossy-access');
+  const lossy = compilePreset('lossy-access');
 
   for (const group of lossy.states['0'].workload.clientGroups) {
     const loss = group.network.toLoadBalancer.lossRate!;
@@ -445,7 +434,7 @@ test('probabilistic client loss and a single blackholed backend affect different
     assert.equal(group.network.fromLoadBalancer.lossRate ?? lossy.fixed.network.defaults.lossRate, 0);
   }
 
-  const blackhole = buildPreset('blackholed-backend');
+  const blackhole = compilePreset('blackholed-backend');
   const branchLosses = blackhole.states['0'].resources.backends.map((backend) => (
     backend.network.fromLoadBalancer.lossRate ?? blackhole.fixed.network.defaults.lossRate
   ));
@@ -457,8 +446,8 @@ test('probabilistic client loss and a single blackholed backend affect different
 });
 
 test('finite and unbuffered ingress experiments preserve the same arrival burst', () => {
-  const tiny = buildPreset('tiny-queues');
-  const unbuffered = buildPreset('unbuffered-ingress');
+  const tiny = compilePreset('tiny-queues');
+  const unbuffered = compilePreset('unbuffered-ingress');
   const tinyIngress = tiny.states['0'].resources.loadBalancer.ingress;
   const zeroIngress = unbuffered.states['0'].resources.loadBalancer.ingress;
   const clients = tiny.states['0'].workload.clientGroups.reduce((total, group) => total + BigInt(group.count), 0n);
@@ -474,7 +463,7 @@ test('finite and unbuffered ingress experiments preserve the same arrival burst'
 });
 
 test('staggered arrivals retain a scheduled wave beyond the run horizon', () => {
-  const scenario = buildPreset('staggered-arrivals');
+  const scenario = compilePreset('staggered-arrivals');
   const horizon = BigInt(scenario.fixed.execution.durationNanoseconds);
   const groups = scenario.states['0'].workload.clientGroups;
   const starts = groups.map((group) => BigInt(group.startAtNanoseconds));
@@ -488,7 +477,7 @@ test('staggered arrivals retain a scheduled wave beyond the run horizon', () => 
 });
 
 test('mixed streams exercise zero, partial and segment-boundary payloads without flattening groups', () => {
-  const scenario = buildPreset('mixed-streams');
+  const scenario = compilePreset('mixed-streams');
   const short = scenario.states['0'].workload.clientGroups.find((group) => group.id === 'short-streams')!;
   const long = scenario.states['0'].workload.clientGroups.find((group) => group.id === 'long-streams')!;
 
@@ -504,16 +493,16 @@ test('mixed streams exercise zero, partial and segment-boundary payloads without
 });
 
 test('routing and empty-network cases retain their distinguishing native configuration', () => {
-  const random = buildPreset('seeded-random');
+  const random = compilePreset('seeded-random');
   assert.equal(random.states['0'].resources.loadBalancer.algorithm, 'random');
   assert.ok(random.states['0'].resources.backends.length > 2);
   assert.equal(random.fixed.execution.seed, '9007199254740993');
 
-  const missing = buildPreset('no-backends');
+  const missing = compilePreset('no-backends');
   assert.equal(missing.states['0'].resources.backends.length, 0);
   assert.ok(missing.states['0'].workload.clientGroups.some((group) => BigInt(group.count) > 0n));
 
-  const idle = buildPreset('idle-network');
+  const idle = compilePreset('idle-network');
   assert.ok(idle.states['0'].resources.backends.length > 0);
   const idleClients = idle.states['0'].workload.clientGroups.reduce((total, group) => total + BigInt(group.count), 0n);
   assert.equal(idleClients, 0n);

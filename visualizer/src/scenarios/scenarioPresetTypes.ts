@@ -1,5 +1,3 @@
-import type { Scenario } from './types.ts';
-
 // Categories describe the main variable, rather than promising a measured outcome.
 export const presetCategories = [
   { id: 'transport', label: 'TCP transport' },
@@ -17,11 +15,11 @@ export const presetCategories = [
 
 export type ScenarioPresetCategory = typeof presetCategories[number]['id'];
 
-// Each selection builds a fresh native document that the backend can validate.
+// Source is canonical; loading a preset compiles and validates that text.
 export interface ScenarioPreset {
   id: string;
   category: ScenarioPresetCategory;
   title: string;
   description: string;
-  build: (defaults: Scenario) => Scenario;
+  source: string;
 }

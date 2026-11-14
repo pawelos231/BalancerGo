@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { compileScenario } from '../../../src/scenario-language/compile.ts';
 import { serializeScenario } from '../../../src/scenarios/files.ts';
 import { scenarioPresets } from '../../../src/scenarios/presets.ts';
 import { parseScenario, validateScenario } from '../../../src/scenarios/validation.ts';
@@ -55,11 +56,9 @@ test('MSS validates the byte threshold and congestion-window arithmetic together
   assert.throws(() => validateScenario(scenario), /maximumWindowSegments/);
 });
 
-test('scenario library starts from its reference MSS after a custom configuration', () => {
-  const defaults = scenarioFixture();
-  defaults.fixed.tcp = { mssBytes: 8960 };
+test('scenario sources explicitly pin the reference MSS for each experiment', () => {
   for (const preset of scenarioPresets) {
     const expected = preset.category === 'host-cpu' || preset.category === 'timeline' ? 1460 : 1024;
-    assert.equal(preset.build(defaults).fixed.tcp.mssBytes ?? 1024, expected, preset.id);
+    assert.equal(compileScenario(preset.source).fixed.tcp.mssBytes, expected, preset.id);
   }
 });

@@ -73,9 +73,10 @@ are errors, never silently interpreted as the current one.
   invalid. Strings are for display names, not resource identifiers or units.
 - Keywords and names are case-sensitive. Keywords are lowercase; units keep
   their documented case. A field may appear only once in its containing block.
-- Identifiers use lowercase letters and internal hyphens. Individual endpoint
+- LB, profile and backend-prefix identifiers use lowercase letters and internal hyphens. Individual endpoint
   names append a canonical decimal index, for example `api-0` or `web-api-12`.
-  Digits elsewhere, empty components and leading index zeroes are errors.
+  Client-group segments after a hyphen may also contain digits, as in `wave-20s`;
+  its first client is `wave-20s-0`. Empty components and leading endpoint index zeroes are errors.
 - Values are decimal integers or fractions, optionally negative where allowed;
   numeric literals have at most 128 characters to bound exact conversion work.
   Exponents, separators and leading `+` are unsupported. Booleans are `true`
@@ -110,8 +111,9 @@ use exact integer arithmetic before selecting the JSON representation.
 Exactly one `run` and one `balancer` are required. Optional `language`, `defaults`
 and `tcp` declarations appear at most once. Initial declarations precede `at`.
 Profiles may be declared before or after the resources that reference them.
-Exactly one LB is supported. Addresses and port 80 are generated deterministically
-before compilation completes; they are not randomized by the seed.
+Exactly one LB is supported. Unless explicitly supplied, backend addresses and
+port 80 are generated deterministically before compilation completes; they are
+not randomized by the seed.
 
 `algo rr` maps to `roundRobin`; `algo ran` maps to `random`. Future algorithms,
 `mss auto`, additional LBs and stochastic profiles are errors.
@@ -177,7 +179,7 @@ endpoint `to-lb`/`from-lb` blocks and the LB's `ingress` block:
 | `travel` | Nonnegative virtual packet travel time after transmission |
 | `queue` | 0 through int64 maximum waiting packet slots; full queues drop arrivals |
 | `loss` | Random loss probability, 0% through 100% |
-| `queue-policy` | `tail-drop` or `threshold` |
+| `queue-policy` | `tail-drop`, `threshold`, or `default` (native default policy spelling) |
 | `ecn-threshold` | Waiting occupancy threshold, 0% through 100%; used by `threshold` |
 | `signal-probability` | Probability of signaling above the threshold, 0% through 100% |
 
@@ -188,11 +190,13 @@ probability. For example, `queue-policy threshold ecn-threshold 80%
 signal-probability 100%` signals every eligible waiting arrival at that occupancy.
 Threshold 0% is valid; it does not disable a selected threshold policy. Use
 `tail-drop` or signal probability 0% to disable early signaling.
+`default` emits the native empty policy name, which currently selects FIFO
+tail-drop; it preserves native configuration snapshots that omit this field.
 
 | Declaration / block | Fields |
 | --- | --- |
 | `balancer name` | `algo` (`rr`, `ran`), `ingress` (rate or network block), `egress` (rate), `host`, `mapping-timeouts` |
-| `backend prefix-index` | Network settings, `use`, `to-lb`, `from-lb`, `name` (quoted display text), `host`, `available`, `admin` |
+| `backend prefix-index` | Network settings, `use`, `to-lb`, `from-lb`, `name` (quoted display text), `address` (quoted host), `host`, `available`, `admin` |
 | `backends prefix` | Same backend settings plus required `count` and optional `from`; see identities below |
 | `host` | `cores` (1-1024), `packet-time` (nonnegative time), `queue` (0-1,000,000 waiting CPU packets) |
 | `mapping-timeouts` | `half-open`, `established`, `closing`, `reset` (nonnegative time; zero disables cleanup) |
@@ -287,6 +291,10 @@ Each address belongs to its ID for the entire document. A retained backend's
 address and port never change between states. Reordering declarations does not
 change addresses; adding another ID may change the address allocation of a
 separately compiled document, which is a different experiment.
+An explicit declaration such as `backend api-0 { address "10.0.0.9" }` overrides
+that backend's generated address. It is valid in initial declarations or `add`,
+not `set`. Explicit and generated endpoints are checked together for collisions;
+the compiler does not silently renumber other backends to avoid a collision.
 
 `clients regular` declares a compact native client group. `regular-1` refers to
 index 1 in that group; `client regular-1 { ... }` declares a sparse override.
@@ -375,6 +383,7 @@ Commands use these forms:
 | `down backend api-0` / `up backend api-0` | Change physical availability only |
 | `drain backend api-0` | Prevent new mappings; retain existing mappings |
 | `stop arrivals regular` | Set the group's birth budget to zero; keep existing clients |
+| `remove clients regular` | Omit a generator from later states; keep existing clients and historical ID reservations |
 
 Block settings can follow `set`, for example
 `set backend api-0 { host { packet-time 10us } }`. `set backend api-0 admin active`
@@ -406,6 +415,10 @@ It retains the group's identity, start, links, stream and historical overrides.
 It conflicts with another count mutation in the same `at`, and requires an
 already existing group. The complete [timeline.lb](../../examples/language/timeline.lb)
 now compiles to its checked [timeline.json](../../examples/language/timeline.json).
+`remove clients regular` instead removes the group from the configuration and
+planned topology. It stops future births without terminating already created
+TCP connections. Later commands cannot refer to the removed group or reuse its
+identity. Removal preserves the order and source locations of remaining groups.
 
 ## Source files
 
@@ -421,8 +434,11 @@ screens, the Apply button and JSON preview sit below the editor and scroll indep
 
 The configuration panel has explicit JSON and Language formats. Both use one
 applied native scenario. Pending edits block switching until applied or discarded.
-Loading a preset or JSON selects JSON and preserves the source buffer. Returning
-to a source that no longer matches the applied scenario shows a warning and
+Loading a preset compiles its canonical `.lb` source, validates the generated
+JSON locally and on the backend, then replaces both buffers and opens Language.
+Failed validation preserves the previous source, JSON and format. Importing JSON
+selects JSON and preserves the source buffer. Returning to a source that no longer
+matches the applied scenario shows a warning and
 blocks Start/native export until Compile and apply or selecting JSON.
 Neither mode reverse-translates JSON into source or reconstructs comments.
 
@@ -440,6 +456,13 @@ positions so CRLF files highlight the correct text too.
 After Compile and apply, use the existing Export JSON action to save the native
 scenario for Go CLI. JSON export and source export are separate formats; neither
 requires a second compiler or a backend language endpoint.
+
+The 37 library sources live in `src/scenarios/presets/sources/`; their matching
+native exports are in `examples/scenarios/` at the repository root. Catalog tests
+compile every source and compare its export. Backend regression tests compare
+the complete resolved configuration and the native profile, link and stream
+selectors against hashes captured from the original presets before migration.
+No settings or identities are excluded from these comparisons.
 
 ## Invalid examples
 
@@ -513,8 +536,8 @@ before the horizon or every TCP connection left TIME_WAIT.
 - Compilation rejects the whole document on any invalid field, identity,
   timestamp, conflict or native cross-field dependency. No partial state is
   applied, and no validation is deferred into event execution.
-- Unsupported constructs include `remove`/`delete`, dotted property syntax,
-  mutable profiles/defaults/TCP, custom backend addresses or ports, client CPU,
+- Unsupported constructs include backend removal, `delete`, dotted property syntax,
+  mutable profiles/defaults/TCP, custom backend ports, client CPU,
   direct observed-health settings, multiple LBs and `mss auto`.
 - New congestion algorithms, probability distributions and a full Linux host
   stack are separate future work. This language does not emulate them.

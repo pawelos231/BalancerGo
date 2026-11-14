@@ -1,5 +1,5 @@
 import type { ScenarioBackendState } from '../scenarios/types.ts';
-import { backendFields } from './bindings.ts';
+import { initialBackendFields } from './bindings.ts';
 import { defaultHost } from './defaults.ts';
 import { FieldWriter } from './fields.ts';
 import { backendAddresses, endpointName, prefixName } from './identity.ts';
@@ -100,6 +100,6 @@ export function compileBackend(
   };
   selectEndpointProfile(declaration.profile, backend.network, writer, `${path}.network`);
   const other = writeEndpointNetwork(declaration.properties, backend.network, writer, `${path}.network`);
-  writer.apply(other, backendFields, backend, path);
+  writer.apply(other, initialBackendFields, backend, path);
   return backend;
 }

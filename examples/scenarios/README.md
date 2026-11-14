@@ -1,7 +1,8 @@
 # Scenario files
 
 These 40 UTF-8 JSON files use the native `scenarioVersion: 2` contract accepted by
-the frontend, CLI and HTTP API. Thirty-seven match the UI preset factories; one
+the frontend, CLI and HTTP API. Thirty-seven are native exports of the canonical
+UI sources in `visualizer/src/scenarios/presets/sources/`; one
 file demonstrates nested overrides, and two demonstrate the [timeline contract](CONTRACT.md). Telemetry uses
 `snapshotVersion: 1` and reports use `reportVersion: 1`; these are independent
 contracts. The library supports search, category filters and six cards per page.
@@ -96,11 +97,12 @@ Snapshot intervals use real time, independently of playback speed and virtual
 duration. Every run publishes its final state, including runs shorter than the
 snapshot interval.
 
-The original four topology presets inherit fetched backend defaults; the other
-network and reference factories use an explicit baseline so unrelated CLI overrides do not change
-the property under test. The files above are concrete snapshots of those factories
-using ordinary Go defaults. Search and category changes preserve the selected
-candidate and the current form; only successful validation loads another preset.
+All library presets now pin their settings in standalone language sources;
+changing Go defaults does not change these experiments. The four original topology
+cases retain the current Go baseline's five-billion-event limit. The other ordinary
+network and reference experiments retain their explicit 50-million-event baseline.
+Search and category changes preserve the current draft. Only successful validation
+loads another preset, replacing its source and generated JSON together.
 
 The blackholed case simulates a failed directed link, without changing backend
 health or implementing failover. Tail drops in the queue cases come from a
