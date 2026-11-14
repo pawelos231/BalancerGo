@@ -1,15 +1,20 @@
 import { Button } from '@mui/material';
 import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
+import { Link as RouterLink, useLocation } from 'react-router';
 
-// Both entry points share this destination until the dedicated docs are ready.
+// Both entry points open the same documentation view without leaving the app.
 export default function DocumentationLink() {
+  const active = useLocation().pathname.startsWith('/docs');
+
   return (
     <Button
-      href="https://github.com/pawelos231/BalancerGo/blob/main/README.md"
-      target="_blank" rel="noopener noreferrer" size="small"
+      component={RouterLink} to="/docs" size="small"
       startIcon={<MenuBookOutlinedIcon />}
-      aria-label="View Docs (opens in a new tab)"
-      sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+      aria-current={active ? 'page' : undefined}
+      sx={{
+        textTransform: 'none', whiteSpace: 'nowrap',
+        bgcolor: active ? 'action.selected' : undefined,
+      }}
     >
       View Docs
     </Button>

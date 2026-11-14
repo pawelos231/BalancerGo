@@ -33,6 +33,7 @@ import useResults from './results/useResults';
 const TopologyPage = lazy(() => import('./pages/TopologyPage'));
 const PlannedTopologyPage = lazy(() => import('./pages/PlannedTopologyPage'));
 const ResultsPage = lazy(() => import('./pages/ResultsPage'));
+const DocsPage = lazy(() => import('./pages/DocsPage'));
 
 function readDarkMode(): boolean {
   if (typeof window === 'undefined') return false;
@@ -90,7 +91,8 @@ function App() {
   const simulation = data?.simulation ?? null;
   const topology = getTopology(data);
   const showSimulation = pathname === '/';
-  const activeTab = pathname.startsWith('/results') ? '/results'
+  const activeTab = pathname.startsWith('/docs') ? false
+    : pathname.startsWith('/results') ? '/results'
     : pathname.startsWith('/planned-topology') ? '/planned-topology'
       : pathname.startsWith('/topology') ? '/topology' : '/';
   const showLiveMetrics = activeTab === '/' || activeTab === '/topology';
@@ -283,6 +285,7 @@ function App() {
                 path="/results"
                 element={<ResultsPage state={results.state} history={results.history} />}
               />
+              <Route path="/docs" element={<DocsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

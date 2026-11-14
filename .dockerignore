@@ -1,0 +1,15 @@
+# The frontend build needs its source and the shared documentation only.
+**
+!README.md
+!visualizer/
+!visualizer/**
+
+# Keep local dependencies, build output, logs, and environment files out.
+**/.git
+**/.repo-backups
+**/node_modules
+**/dist
+**/dist-ssr
+**/*.tsbuildinfo
+**/*.log
+**/.env*

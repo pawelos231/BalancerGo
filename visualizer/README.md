@@ -16,8 +16,10 @@ For Docker Compose, ports and build instructions, see the [root README](../READM
 
 ## Pages
 
-**View Docs** opens the project's README in a new tab. It appears at the right
-of the main navigation and beside the source editor's fullscreen button.
+**View Docs** opens `/docs` inside the app. It appears at the right of the main
+navigation and beside the source editor's fullscreen button. The page renders
+the root README with `react-markdown`, GitHub-style tables and heading anchors.
+The Markdown ships with the frontend; reading it does not require the backend.
 
 - **Simulation** (`/`): edit configuration, click **Start simulation**, monitor
   backends, **Stop and clear**, or **Stop and save to Results**. The **Scenario library** offers
@@ -38,6 +40,9 @@ of the main navigation and beside the source editor's fullscreen button.
 - **Results** (`/results`): browse saved observations without the backend, inspect
   summaries and coverage, retry unsaved candidates, recover records and delete
   history entries. Lists and resource tables are paginated.
+- **Documentation** (`/docs`): read the project README with formatted headings,
+  tables, lists and code blocks. Section anchors stay inside the app; links to
+  other repository files open their GitHub version.
 
 `src/hooks/useSimulation.ts` owns the WebSocket, snapshots and lifecycle actions.
 It starts scenarios and retrieves the current run's configuration through HTTP.
