@@ -16,6 +16,9 @@ For Docker Compose, ports and build instructions, see the [root README](../READM
 
 ## Pages
 
+**View Docs** opens the project's README in a new tab. It appears at the right
+of the main navigation and beside the source editor's fullscreen button.
+
 - **Simulation** (`/`): edit configuration, click **Start simulation**, monitor
   backends, **Stop and clear**, or **Stop and save to Results**. The **Scenario library** offers
   ready experiments with different client/backend rates and shared LB bottlenecks.

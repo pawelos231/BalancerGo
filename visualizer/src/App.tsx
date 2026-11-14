@@ -21,6 +21,7 @@ import {
 } from 'react-router';
 import AppHeader from './components/AppHeader';
 import ControlPanel from './components/ControlPanel';
+import DocumentationLink from './components/DocumentationLink';
 import ExperimentSetup from './components/ExperimentSetup';
 import SimulationPerformance from './components/SimulationPerformance';
 import useSimulation from './hooks/useSimulation';
@@ -143,33 +144,46 @@ function App() {
         />
 
         <Container maxWidth={false} sx={{ pb: 4 }}>
-          <Tabs
-            value={activeTab}
-            aria-label="Main navigation"
-            variant="scrollable"
-            scrollButtons="auto"
-            allowScrollButtonsMobile
+          <Box
+            component="nav" aria-label="Application navigation"
             sx={{
-              borderBottom: 1,
-              borderColor: 'divider',
-              mt: 1,
+              display: 'flex', alignItems: 'center', mt: 1,
+              borderBottom: 1, borderColor: 'divider',
             }}
           >
-            <Tab component={RouterLink} to="/" value="/" label="Simulation" />
-            <Tab
-              component={RouterLink}
-              to="/planned-topology"
-              value="/planned-topology"
-              label="Planned topology"
-            />
-            <Tab
-              component={RouterLink}
-              to="/topology"
-              value="/topology"
-              label="Live topology"
-            />
-            <Tab component={RouterLink} to="/results" value="/results" label="Results" />
-          </Tabs>
+            <Tabs
+              value={activeTab}
+              aria-label="Main navigation"
+              variant="scrollable"
+              scrollButtons="auto"
+              allowScrollButtonsMobile
+              sx={{ flex: 1, minWidth: 0 }}
+            >
+              <Tab component={RouterLink} to="/" value="/" label="Simulation" />
+              <Tab
+                component={RouterLink}
+                to="/planned-topology"
+                value="/planned-topology"
+                label="Planned topology"
+              />
+              <Tab
+                component={RouterLink}
+                to="/topology"
+                value="/topology"
+                label="Live topology"
+              />
+              <Tab component={RouterLink} to="/results" value="/results" label="Results" />
+            </Tabs>
+            <Box
+              sx={{
+                flexShrink: 0, alignSelf: 'stretch', display: 'flex', alignItems: 'center',
+                ml: { xs: 0, sm: 2 }, pl: { xs: 1, sm: 2 },
+                borderLeft: 1, borderColor: 'divider',
+              }}
+            >
+              <DocumentationLink />
+            </Box>
+          </Box>
 
           {results.state.warning && (
             <Alert severity="warning" sx={{ mt: 2 }}>{results.state.warning}</Alert>

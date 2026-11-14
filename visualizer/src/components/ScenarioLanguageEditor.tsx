@@ -12,6 +12,7 @@ import { tags } from '@lezer/highlight';
 import { setDiagnostics } from '@codemirror/lint';
 import type { LanguageError, SourcePoint } from '../scenario-language/source';
 import useLanguageDiagnostics from '../hooks/useLanguageDiagnostics';
+import DocumentationLink from './DocumentationLink';
 import { scenarioLanguage } from './scenarioLanguageHighlighting';
 
 interface ScenarioLanguageEditorProps {
@@ -193,11 +194,17 @@ export default function ScenarioLanguageEditor({
           sx={{ px: 1, py: 0.5, flexShrink: 0, border: 1, borderColor: 'divider' }}
         >
           <Typography variant="caption" color="text.secondary">Scenario language</Typography>
-          <Tooltip title={fullscreenLabel} slotProps={{ popper: { disablePortal: true } }}>
-            <IconButton size="small" aria-label={fullscreenLabel} aria-keyshortcuts="F7" onClick={toggleFullscreen}>
-              {fullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
-            </IconButton>
-          </Tooltip>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <DocumentationLink />
+            <Tooltip title={fullscreenLabel} slotProps={{ popper: { disablePortal: true } }}>
+              <IconButton
+                size="small" aria-label={fullscreenLabel}
+                aria-keyshortcuts="F7" onClick={toggleFullscreen}
+              >
+                {fullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+              </IconButton>
+            </Tooltip>
+          </Stack>
         </Stack>
         <Box
           ref={container}
