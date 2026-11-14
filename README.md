@@ -641,6 +641,15 @@ measurement excludes framing and compression and does not measure simulation spe
   keeps the latest frame for new subscribers and replaces queued UI frames when
   a browser is slow. Model execution does not wait for a WebSocket writer.
 
+### Links and packet travel
+
+Each directed link transmits one packet at a time. Transmission takes virtual
+time determined by the packet's wire size and link rate; packet travel follows
+that transmission. Travelling packets no longer occupy the transmission slot.
+Configured link rates are limits, rather than promised transfer speeds.
+
+### Shared ingress
+
 The **LB ingress link** limits traffic before either LB packet handler runs:
 
 ```text
@@ -656,6 +665,8 @@ All client and backend packets use this receiver, including ACK, SYN, FIN and re
 Each packet completes its access-link transmission and travel, then its ingress
 transmission and travel. These are two physical sections; the ingress travel
 default is zero additional time. Outgoing LB packets retain their existing paths.
+
+### Network queues
 
 When one input FIFO fills, new packets from that side are tail-dropped before
 the LB can handle them. The other side keeps its own waiting slots. For example,
@@ -683,6 +694,8 @@ Headless `PacketTravelTime` is in nanoseconds. The topology places clients left
 of the LB and backends right. `topology.ingress` describes the common receiver
 and its queues once, independently of arrows. Its counters distinguish input
 drops from drops at LB outputs.
+
+### Forwarding budget
 
 The **LB forwarding budget** counts each outgoing packet once, at transmission
 start, including its modeled headers. SYN, ACK, FIN and retransmissions use the
@@ -725,11 +738,20 @@ positions instead of segment indices. `Size` remains the payload length, and
 positions by its length; SYN and FIN each consume one position, while pure ACK
 consumes none. The two directions keep separate sequence state.
 
+### Segment size and MSS
+
+MSS is the manually configured maximum payload in one TCP segment: 1024 bytes
+by default. The last segment can carry less. Wire size also includes modeled
+headers and negotiated options. The model does not negotiate MSS during the
+handshake or derive it automatically from a path MTU.
+
 The `tcp-sack-v1` profile uses logical `uint64` byte positions and
 fixed initial sequence numbers of zero. It does not model the 32-bit sequence
 number wraparound of real TCP. Large streams are checked against native integer
 limits rather than the former 32-bit segment-counter limit. Payload remains
 metadata; no buffer is allocated for every byte in a stream.
+
+### Receive window
 
 Each connection has a bounded receive buffer that stores merged byte ranges,
 not payload bytes. Data arriving beyond a gap is retained inside the receive
@@ -751,7 +773,7 @@ segments and part of the next; confirmed bytes count once and a partial head
 retains only its unconfirmed suffix. Unsent payload is tracked separately from
 all payload still awaiting confirmation, so filling the window cannot oversend
 the stream. Each new segment fits the remaining receive-window credit and the
-1024-byte segment limit. A zero window pauses new data; a current window update
+configured MSS limit. A zero window pauses new data; a current window update
 resumes sending. Stalled receivers and zero-window persist probes remain outside
 this immediate-consumption profile.
 
@@ -795,8 +817,26 @@ Karn's rule and timeout backoff remain in effect.
 The selected option profile follows [RFC 2018](https://www.rfc-editor.org/rfc/rfc2018.html),
 without timestamps, duplicate-data SACK or on-wire sequence wraparound. SACK
 options consume modeled wire bytes: an offered SYN is 44 bytes, an ACK with one
-block is 52 bytes, and one with four blocks is 76 bytes. ACKs are still immediate;
-delayed ACK remains a separate planned mechanism.
+block is 52 bytes, and one with four blocks is 76 bytes. Delayed ACK is an
+independent option; enabling SACK does not enable it automatically.
+
+### ECN
+
+Optional ECN lets an eligible packet carry a congestion mark instead of being
+dropped by the selected threshold queue policy. The receiver echoes the mark,
+and the sender's congestion controller reduces its sending window. Feedback
+takes time to return, so a full queue can still drop packets. Random packet
+loss is independent of this early congestion signaling.
+
+### Delayed ACK
+
+Delayed ACK is optional and disabled by default. When enabled, the receiver can
+acknowledge two full in-order segments together or wait for its configured timer
+(40 ms by default). Loss feedback and connection-control packets still have
+immediate-ACK paths. With a small sending window or sparse traffic, waiting for
+that timer can slow the transfer instead of helping it.
+
+### Congestion control
 
 Configure congestion control in the scenario JSON at `fixed.tcp.congestionControl`:
 
@@ -811,8 +851,8 @@ Configure congestion control in the scenario JSON at `fixed.tcp.congestionContro
   window peak when a later loss suggests less capacity is available. Disable it
   for an isolated single-flow experiment. The field is retained but has no
   effect with another congestion-control mode;
-- `initialWindowSegments`: 4 by default, each with at most 1024 payload bytes;
-- `initialSlowStartThresholdBytes`: 65535 by default, with a minimum of 2048.
+- `initialWindowSegments`: 4 by default, each with at most the configured MSS;
+- `initialSlowStartThresholdBytes`: 65535 by default, with a minimum of two MSS.
 
 Legacy CLI flags are `-tcp-congestion-control`, `-tcp-fast-retransmit`,
 `-tcp-cubic-fast-convergence`,
@@ -915,8 +955,9 @@ The first congestion-avoidance epoch after RTO restarts at its current window
 with `K=0`, instead of reusing the earlier peak.
 
 This CUBIC profile keeps Reno-style startup and the simulator's existing classic
-recovery. HyStart++, SACK/NewReno, ECN and spurious-loss undo are not implemented
-by selecting CUBIC. The profile is not a claim of reproducing Linux CUBIC's
+recovery. SACK and ECN have separate settings; selecting CUBIC does not enable
+them or select NewReno's classic recovery. HyStart++ and spurious-loss undo are
+not modeled. The profile is not a claim of reproducing Linux CUBIC's
 complete TCP stack or offload behavior. Its receiver window is still unscaled.
 
 These are the selected [RFC 5681, sections 2, 3.1, 3.2 and 4.1](https://www.rfc-editor.org/rfc/rfc5681.html)
@@ -971,6 +1012,8 @@ cancels it. A timeout retries only the oldest pending fragment. Normal stream
 completion waits for all payload to be confirmed before initiating FIN; explicit
 `Close()` keeps its existing early-close semantics.
 
+### RTT and retransmission timeouts
+
 The default adaptive RTO starts at 1 s and stays within 200 ms..60 s. One safe RTT
 probe measures virtual time from handover to the client's sender until an ACK
 confirms its full range, including local queueing. The first sample sets
@@ -1021,6 +1064,8 @@ a removed backend are dropped. Historical link counters remain available to
 reports and traffic sampling, while the current graph omits the removed node
 and its links. Membership, CPU, network and policy edits at one timestamp
 publish as one configuration revision.
+
+### Backend availability and drain
 
 Timeline states also separate physical failure/recovery from administrative
 drain and LB-observed health. `physicalAvailable: false` clears local TCP and CPU

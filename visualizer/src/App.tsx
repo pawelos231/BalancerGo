@@ -292,7 +292,15 @@ function App() {
               <Route path="/docs/tcp" element={<DocsPage section="tcp" />} />
               <Route path="/docs/metrics" element={<DocsPage section="metrics" />} />
               <Route path="/docs/verification" element={<DocsPage section="verification" />} />
-              <Route path="/docs/language" element={<DocsPage section="language" />} />
+              <Route path="/docs/language" element={<DocsPage languagePage="start" />} />
+              <Route path="/docs/language/syntax" element={<DocsPage languagePage="syntax" />} />
+              <Route path="/docs/language/topology" element={<DocsPage languagePage="topology" />} />
+              <Route path="/docs/language/clients" element={<DocsPage languagePage="clients" />} />
+              <Route path="/docs/language/defaults" element={<DocsPage languagePage="defaults" />} />
+              <Route path="/docs/language/tcp" element={<DocsPage languagePage="tcp" />} />
+              <Route path="/docs/language/timeline" element={<DocsPage languagePage="timeline" />} />
+              <Route path="/docs/language/examples" element={<DocsPage languagePage="examples" />} />
+              <Route path="/docs/language/errors" element={<DocsPage languagePage="errors" />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

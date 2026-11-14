@@ -46,8 +46,12 @@ The Markdown ships with the frontend; reading it does not require the backend.
   displays **PLACEHOLDER DOCS GENERATED FULLY BY AI, WILL BE CHANGED**.
   Original section bookmarks still open the correct page. Tables, lists and
   code blocks retain their Markdown formatting; repository file links open GitHub.
-  **Language documentation** (`/docs/language`) remains empty. The sidebar stays
-  on the left on desktop and appears above the document on small screens.
+  **Language documentation** (`/docs/language`) has nine authored chapters, from
+  a first transfer through syntax, resources, profiles, TCP, timeline changes,
+  experiments and errors. Each starts with a summary and a local table of contents.
+  Concept links connect settings to precise Overview explanations and back.
+  The sidebar groups can be collapsed; navigation stays on the left on desktop
+  and above the document on small screens.
 
 `src/hooks/useSimulation.ts` owns the WebSocket, snapshots and lifecycle actions.
 It starts scenarios and retrieves the current run's configuration through HTTP.
@@ -321,8 +325,17 @@ Tests use Node.js 24's TypeScript support and built-in test runner. They check
 scenario edits and exact integers, presets and API requests, grouping, physical
 counter scopes, bounded graph selection and topology loading races without adding a
 test framework dependency.
-The test command also registers a small loader for `.lb?raw` imports, matching
-Vite's raw-source imports without a second set of preset fixtures.
+The test command also registers a small loader for `.lb?raw` and `.md?raw`
+imports, matching Vite without a second set of scenario or documentation fixtures.
+
+Language chapters live in `docs/language/`; `src/docs/language.ts` defines their
+reading order and routes. The old `docs/scenario-language.md` is an index rather
+than a second guide. `src/docs/concepts.ts` resolves authoring links such as
+`[How SACK works](concept:sack)` and inserts configuration backlinks in Overview.
+Documentation tests check every page, table-of-contents link and concept target.
+Fences marked `lb` are complete scenarios; `lb-fragment context=tcp` is checked
+inside the named baseline block. `lb-invalid` fences declare an expected compiler
+error. The shared example helper also supports backend CLI validation.
 
 Build output is written to `dist/`. `VITE_WS_URL` is embedded at build time, so
 changing the backend URL for a static deployment requires rebuilding.
