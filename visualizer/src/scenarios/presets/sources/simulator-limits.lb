@@ -1,7 +1,13 @@
 language 1
+
 # 50,000 clients and 100 backends stress the simulator for one virtual millisecond.
 # Link units are decimal bytes/s; 125MB is 1 Gbit/s.
-run 1ms seed 1 speed 0 snapshots 100ms max-events 20000000
+run 1ms {
+    seed 1
+    speed 0
+    snapshots 100ms
+    max-events 20000000
+}
 
 defaults {
     link 10TB
@@ -29,16 +35,32 @@ tcp {
         maximum-window 0
         ssthresh 65535B
     }
-    rto { mode adaptive backoff true initial 1s minimum 200ms maximum 60s }
-    close { msl 30s fin-wait 60s fin-retries 5 }
-    delayed-ack { enabled false segments 2 max-delay 40ms }
+    rto {
+        mode adaptive
+        backoff true
+        initial 1s
+        minimum 200ms
+        maximum 60s
+    }
+    close {
+        msl 30s
+        fin-wait 60s
+        fin-retries 5
+    }
+    delayed-ack {
+        enabled false
+        segments 2
+        max-delay 40ms
+    }
     client-idle 20s
     backend-half-open-idle 5s
     backend-established-idle 0ns
 }
 
 # 10 PB/s becomes exactly 80000000000000000 bit/s in compiled JSON.
-profile limits-backend { link 100TB }
+profile limits-backend {
+    link 100TB
+}
 
 balancer lb {
     algo rr
@@ -52,12 +74,20 @@ balancer lb {
         signal-probability 0%
     }
     egress 10PB
-    host { cores 1 packet-time 0ns queue 1024 }
-    mapping-timeouts { half-open 5s established 50s closing 120s reset 10s }
+    host {
+        cores 1
+        packet-time 0ns
+        queue 1024
+    }
+    mapping-timeouts {
+        half-open 5s
+        established 50s
+        closing 120s
+        reset 10s
+    }
 }
 
 # Explicit addresses preserve numeric backend order across all 100 endpoints.
-
 backend backend-1 use limits-backend {
     name "Backend 1"
     address "10.0.0.1"

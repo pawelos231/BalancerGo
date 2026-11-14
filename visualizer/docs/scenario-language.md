@@ -16,8 +16,15 @@ complete before the applied JSON and planned topology are replaced.
 
 ```text
 language 1
-run 180s seed 2333 speed 1
-defaults link 1GB travel 1ms queue 1024
+run 180s {
+    seed 2333
+    speed 1
+}
+defaults {
+    link 1GB
+    travel 1ms
+    queue 1024
+}
 tcp {
     congestion reno
     mss 1460B
@@ -90,6 +97,9 @@ are errors, never silently interpreted as the current one.
   and `false`; `null` is allowed only for an existing nullable patch field.
 - Blocks can nest, for example `host`, `to-lb`, `from-lb`, `rto`, `close`,
   `delayed-ack`, `congestion-control` and `mapping-timeouts`.
+
+Write one property per line and indent block contents with four spaces, as in
+the shipped configurations. Inline fields and blocks are also accepted.
 
 The compiler rejects unknown declarations and fields. There are no variables,
 loops, arbitrary expressions or embedded JavaScript.
@@ -214,8 +224,17 @@ tail-drop; it preserves native configuration snapshots that omit this field.
 Directional settings take precedence regardless of textual order; explicit null
 removes that directional patch and restores native inheritance.
 
-For example, `host { cores 2 packet-time 10us queue 1024 }` models two workers
-and 1024 waiting packets. Packet time zero bypasses CPU. Queue slots are separate
+For example, this host block models two workers and 1024 waiting packets:
+
+```text
+host {
+    cores 2
+    packet-time 10us
+    queue 1024
+}
+```
+
+Packet time zero bypasses CPU. Queue slots are separate
 from network FIFOs. The native duration/resource-overflow check still applies:
 duration times the relevant core/queue bound must fit int64. Nullable CPU and
 mapping timeout leaves restore model defaults. `down` and `up` change only physical availability;
@@ -351,7 +370,9 @@ Lowering count never kills existing clients or releases their reserved IDs.
 
 ```text
 at 30s {
-    set balancer ingress 100MB
+    set balancer {
+        ingress 100MB
+    }
     down backend api-0
     add clients burst {
         count 10000

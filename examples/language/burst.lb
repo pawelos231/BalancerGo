@@ -1,6 +1,13 @@
 # Add a burst at 2s, then stop future births at 4s.
-run 6s seed 2333 speed 0
-defaults link 100MB travel 1ms queue 128
+run 6s {
+    seed 2333
+    speed 0
+}
+defaults {
+    link 100MB
+    travel 1ms
+    queue 128
+}
 tcp {
     congestion newreno
     mss 1460B

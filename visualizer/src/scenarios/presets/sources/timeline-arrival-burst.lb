@@ -1,60 +1,131 @@
 # Add a burst and paced arrivals at 30s; remove both groups at 90s.
 language 1
-run 180s seed 1 speed 1 snapshots 100ms max-events 5000000000
 
-defaults {
-    link 250MB travel 10us queue 4096 loss 0%
-    queue-policy tail-drop ecn-threshold 0% signal-probability 0%
-    payload 1073741824B packets 10000 segment-gap 0ns
+run 180s {
+    seed 1
+    speed 1
+    snapshots 100ms
+    max-events 5000000000
 }
 
-profile slow-access { link 2.5MB }
-profile slower-backend { link 125MB }
+defaults {
+    link 250MB
+    travel 10us
+    queue 4096
+    loss 0%
+    queue-policy tail-drop
+    ecn-threshold 0%
+    signal-probability 0%
+    payload 1073741824B
+    packets 10000
+    segment-gap 0ns
+}
+
+profile slow-access {
+    link 2.5MB
+}
+
+profile slower-backend {
+    link 125MB
+}
 
 tcp {
-    congestion newreno mss 1460B receive-buffer 65535B
+    congestion newreno
+    mss 1460B
+    receive-buffer 65535B
     SACK true
     ECN false
-    client-idle 0ns backend-half-open-idle 0ns backend-established-idle 0ns
+    client-idle 0ns
+    backend-half-open-idle 0ns
+    backend-established-idle 0ns
     congestion-control {
-        fast-retransmit true fast-convergence true
-        initial-window 4 maximum-window 0 ssthresh 65535B
+        fast-retransmit true
+        fast-convergence true
+        initial-window 4
+        maximum-window 0
+        ssthresh 65535B
     }
-    rto { mode adaptive backoff true initial 1s minimum 200ms maximum 60s }
-    close { msl 30s fin-wait 60s fin-retries 3 }
-    delayed-ack { enabled false segments 2 max-delay 40ms }
+    rto {
+        mode adaptive
+        backoff true
+        initial 1s
+        minimum 200ms
+        maximum 60s
+    }
+    close {
+        msl 30s
+        fin-wait 60s
+        fin-retries 3
+    }
+    delayed-ack {
+        enabled false
+        segments 2
+        max-delay 40ms
+    }
 }
 
 balancer lb {
     algo rr
     ingress {
-        link 125MB travel 0ns queue 4096 loss 0%
-        queue-policy tail-drop ecn-threshold 0% signal-probability 0%
+        link 125MB
+        travel 0ns
+        queue 4096
+        loss 0%
+        queue-policy tail-drop
+        ecn-threshold 0%
+        signal-probability 0%
     }
     egress 125MB
-    host { cores 1 packet-time 0ns queue 1024 }
-    mapping-timeouts { half-open 0ns established 0ns closing 0ns reset 0ns }
+    host {
+        cores 1
+        packet-time 0ns
+        queue 1024
+    }
+    mapping-timeouts {
+        half-open 0ns
+        established 0ns
+        closing 0ns
+        reset 0ns
+    }
 }
 
 backend backend-1 use slower-backend {
     name "Backend 1"
     address "10.0.0.1"
-    host { cores 1 packet-time 0ns queue 1024 }
+    host {
+        cores 1
+        packet-time 0ns
+        queue 1024
+    }
 }
 
 backend backend-2 {
     name "Backend 2"
     address "10.0.0.2"
-    host { cores 1 packet-time 0ns queue 1024 }
+    host {
+        cores 1
+        packet-time 0ns
+        queue 1024
+    }
 }
 
 clients baseline use slow-access {
-    count 8 start 0ns every 0ns
+    count 8
+    start 0ns
+    every 0ns
 }
 
 at 30s {
-    add clients burst { count 24 start 30s every 0ns }
-    add clients arrivals { count 120 start 30s every 1s }
+    add clients burst {
+        count 24
+        start 30s
+        every 0ns
+    }
+    add clients arrivals {
+        count 120
+        start 30s
+        every 1s
+    }
 }
 
 # Removing the generators preserves the original later-state membership.
