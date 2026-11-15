@@ -1,0 +1,18 @@
+language 1
+run 2s speed 0
+
+# Expected error: A zero standard deviation cannot define a normal density.
+distribution invalid-example normal {
+    mean 10us
+    stddev 0us
+    min 0us
+    max 20us
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

@@ -92,7 +92,7 @@ test('named uniform declarations reject duplicate names, unknown families and ba
     },
     {
       name: 'an unsupported distribution family',
-      source: 'distribution cost normal { min 1 max 2 }',
+      source: 'distribution cost unknown-family { min 1 max 2 }',
       message: /Unsupported distribution/,
     },
     {

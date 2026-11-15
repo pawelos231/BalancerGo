@@ -71,8 +71,8 @@ test('language parser preserves scalar uniform and leaves parameter validation t
 });
 
 test('language parser locates unsupported distribution families and incomplete definitions', () => {
-  assert.throws(() => parse('defaults travel normal { min 1ms max 2ms }'),
-    /1:17: Unsupported distribution "normal"/);
+  assert.throws(() => parse('defaults travel unknown-family { min 1ms max 2ms }'),
+    /1:17: Unsupported distribution "unknown-family"/);
   assert.throws(() => parse('defaults travel uniform { min 1ms'), /Expected a closing brace/);
 });
 

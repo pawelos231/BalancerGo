@@ -1,0 +1,74 @@
+{
+  "family": "normal",
+  "source": "normal",
+  "expectedProfiles": {
+    "service-time": {
+      "kind": "normal",
+      "unit": "nanoseconds",
+      "mean": "10000",
+      "stddev": "2000",
+      "min": "0",
+      "max": "20000"
+    },
+    "upper-tail": {
+      "kind": "normal",
+      "unit": "nanoseconds",
+      "mean": "10000",
+      "stddev": "2000",
+      "min": "12000",
+      "max": "16000"
+    }
+  },
+  "cases": [
+    {
+      "name": "service-time",
+      "valid": true,
+      "document": "{\"kind\":\"normal\",\"unit\":\"nanoseconds\",\"mean\":\"10000\",\"stddev\":\"2000\",\"min\":\"0\",\"max\":\"20000\"}"
+    },
+    {
+      "name": "upper-tail",
+      "valid": true,
+      "document": "{\"kind\":\"normal\",\"unit\":\"nanoseconds\",\"mean\":\"10000\",\"stddev\":\"2000\",\"min\":\"12000\",\"max\":\"16000\"}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"normal\",\"unit\":\"nanoseconds\",\"mean\":\"10000\",\"stddev\":\"2000\",\"min\":\"0\",\"max\":\"20000\",\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"normal\",\"unit\":\"nanoseconds\",\"mean\":null,\"stddev\":\"2000\",\"min\":\"0\",\"max\":\"20000\"}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"normal\",\"unit\":\"nanoseconds\",\"mean\":1,\"stddev\":\"2000\",\"min\":\"0\",\"max\":\"20000\"}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"normal\",\"unit\":\"nanoseconds\",\"stddev\":\"2000\",\"min\":\"0\",\"max\":\"20000\"}"
+    },
+    {
+      "name": "empty interval",
+      "valid": false,
+      "document": "{\"kind\":\"normal\",\"unit\":\"nanoseconds\",\"mean\":\"10000\",\"stddev\":\"2000\",\"min\":\"0\",\"max\":\"0\"}"
+    },
+    {
+      "name": "reversed interval",
+      "valid": false,
+      "document": "{\"kind\":\"normal\",\"unit\":\"nanoseconds\",\"mean\":\"10000\",\"stddev\":\"2000\",\"min\":\"20000\",\"max\":\"0\"}"
+    },
+    {
+      "name": "zero stddev",
+      "valid": false,
+      "document": "{\"kind\":\"normal\",\"unit\":\"nanoseconds\",\"mean\":\"10000\",\"stddev\":\"0\",\"min\":\"0\",\"max\":\"20000\"}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"normal\",\"unit\":\"number\",\"unit\":\"nanoseconds\",\"mean\":\"10000\",\"stddev\":\"2000\",\"min\":\"0\",\"max\":\"20000\"}"
+    }
+  ]
+}

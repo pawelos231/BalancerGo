@@ -1,0 +1,27 @@
+language 1
+run 2s speed 0
+
+# Named definitions are unbound; the topology below keeps scalar settings.
+# A centered normal curve truncated between 0us and 20us.
+distribution service-time normal {
+    mean 10us
+    stddev 2us
+    min 0us
+    max 20us
+}
+
+# A tail interval; the retained distribution is no longer centered on mean.
+distribution upper-tail normal {
+    mean 10us
+    stddev 2us
+    min 12us
+    max 16us
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

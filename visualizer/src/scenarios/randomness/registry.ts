@@ -1,4 +1,5 @@
 import type { FamilySpec } from './types.ts';
+import { additionalFamilies } from './families/index.ts';
 
 // Modules enter this list when their declaration stage lands; future kinds stay rejected.
 export const familySpecs: readonly FamilySpec[] = [
@@ -10,6 +11,7 @@ export const familySpecs: readonly FamilySpec[] = [
     kind: 'uniform', source: 'uniform', title: 'Uniform', bounded: true, compilationAvailable: true,
     parameters: [{ name: 'min', role: 'quantity' }, { name: 'max', role: 'quantity' }],
   },
+  ...additionalFamilies,
 ];
 
 export function familyByKind(kind: unknown): FamilySpec | undefined {

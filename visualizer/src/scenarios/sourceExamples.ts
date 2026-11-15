@@ -5,6 +5,7 @@ import uniformInvalidRangeSource from './examples/sources/uniform-invalid-range.
 import uniformInvalidUnitsSource from './examples/sources/uniform-invalid-units.lb?raw';
 import uniformMissingBoundSource from './examples/sources/uniform-missing-bound.lb?raw';
 import uniformProfileSource from './examples/sources/uniform-profile-definitions.lb?raw';
+import { randomFamilyExamples } from './randomness/examples.ts';
 
 // These editable sources demonstrate declarations and diagnostics before runtime integration.
 export interface ScenarioSourceExample {
@@ -22,6 +23,7 @@ const declarationDiagnostic =
   'Uniform definitions compile as named distributions; runtime field sampling is not available yet.';
 
 export const sourceExamples: readonly ScenarioSourceExample[] = [
+  ...randomFamilyExamples,
   {
     kind: 'sourceExample',
     id: 'uniform-profile-definitions',

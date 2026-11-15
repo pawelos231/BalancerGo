@@ -68,7 +68,7 @@ func TestProfileValidationAndEncodingRejectInvalidTypedDefinitions(t *testing.T)
 		profile randomness.Profile
 	}{
 		{"missing kind", randomness.Profile{Unit: randomness.UnitNumber, Value: text("1")}},
-		{"unknown kind", randomness.Profile{Kind: "normal", Unit: randomness.UnitNumber, Value: text("1")}},
+		{"unknown kind", randomness.Profile{Kind: "unknown-family", Unit: randomness.UnitNumber, Value: text("1")}},
 		{"missing unit", randomness.Profile{Kind: randomness.KindConstant, Value: text("1")}},
 		{"unknown unit", randomness.Profile{Kind: randomness.KindConstant, Unit: "seconds", Value: text("1")}},
 		{"missing value", randomness.Profile{Kind: randomness.KindConstant, Unit: randomness.UnitNumber}},
