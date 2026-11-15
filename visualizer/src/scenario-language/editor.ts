@@ -62,6 +62,11 @@ export async function loadLanguageSource(
   signal.throwIfAborted();
   const source = await readScenarioFile(file);
   signal.throwIfAborted();
+  return inspectLanguageSource(source);
+}
+
+// Library examples and imported files share local diagnostics without applying their JSON.
+export function inspectLanguageSource(source: string): { source: string; diagnostic: LanguageError | null } {
   try {
     compileScenario(source);
     return { source, diagnostic: null };

@@ -92,10 +92,17 @@ documents use `scenarioVersion: 2`; live and terminal snapshots use
 contract, and the generic `version` field is rejected. See the
 [scenario contract](../examples/scenarios/CONTRACT.md) for the document format.
 
-`presets.ts` exposes 37 scenarios across links, queues, loss, workloads, routing,
+`presets.ts` exposes 37 runnable scenarios across links, queues, loss, workloads, routing,
 edge cases, performance and reference experiments. Search by title/description or filter by category;
 the library shows six cards per page. Each card has a **Load preset** button;
 loading or filtering never starts a run.
+The **Distribution examples** category adds six source-only examples: CPU, travel
+and timeline declarations, plus reversed bounds, incompatible units and a missing
+bound. **Load source example** opens a draft in the Language editor without
+applying JSON or calling the backend. Cards show their expected diagnostic and
+are marked **not runnable**. Apply or discard existing edits before loading one;
+discarding an example restores the previous source. Canonical files live in
+`src/scenarios/examples/sources/`, and the same sources drive their tests.
 Each preset is a standalone `.lb` file in `src/scenarios/presets/sources/`.
 Its explicit settings keep the experiment independent of fetched Go defaults.
 The matching native exports live in `../examples/scenarios/`. Ordinary experiments run

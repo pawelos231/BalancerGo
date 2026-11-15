@@ -1,0 +1,48 @@
+# Valid travel bounds use compatible units: 500us is less than 1ms.
+# Compilation and sampling are not available yet.
+language 1
+
+run 2s {
+    seed 1
+    speed 0
+    snapshots 100ms
+    max-events 100000
+}
+
+defaults {
+    link 10MB
+    travel uniform {
+        min 500us
+        max 1ms
+    }
+    queue 32
+}
+
+tcp {
+    congestion reno
+    mss 1460B
+    SACK false
+    ECN false
+}
+
+balancer lb {
+    algo rr
+    ingress 10MB
+    egress 10MB
+}
+
+backend api-0 {
+    address "10.0.0.1"
+    host {
+        cores 1
+        packet-time 5us
+        queue 32
+    }
+}
+
+clients regular {
+    count 2
+    start 0ns
+    every 100ms
+    payload 16KB
+}

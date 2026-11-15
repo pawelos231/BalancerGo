@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loadLanguageSource, serializeLanguageSource } from '../../../src/scenario-language/editor.ts';
+import {
+  inspectLanguageSource, loadLanguageSource, serializeLanguageSource,
+} from '../../../src/scenario-language/editor.ts';
 import { MAX_SOURCE_BYTES } from '../../../src/scenario-language/lexer.ts';
 
 const file = (source: string) => ({ size: new TextEncoder().encode(source).byteLength, text: async () => source });
@@ -18,6 +20,24 @@ test('language source files preserve raw drafts and use the shared compiler for 
   assert.equal(draft.source, invalid);
   assert.ok(draft.diagnostic);
   assert.equal(serializeLanguageSource(draft.source), invalid);
+});
+
+// Catalog text needs the same exact source span as file imports, without turning into applied JSON.
+test('source inspection retains unfinished distribution text and its local compiler diagnostic', async () => {
+  const source = '# keep this draft\r\nrun 1s\r\nbalancer lb {}\r\ndefaults travel uniform { min 20us max 15us }\r\n';
+  const inspected = inspectLanguageSource(source);
+  const imported = await loadLanguageSource(file(source), new AbortController().signal);
+
+  assert.equal(inspected.source, source);
+  assert.ok(inspected.diagnostic);
+  assert.match(inspected.diagnostic.message, /min must be less than max/);
+  assert.equal(inspected.diagnostic.range.start.offset, source.indexOf('15us'));
+  assert.equal(inspected.diagnostic.range.end.offset, source.indexOf('15us') + 4);
+  assert.equal(imported.source, inspected.source);
+  assert.deepEqual(imported.diagnostic, inspected.diagnostic);
+  assert.deepEqual(inspectLanguageSource('run 1s\nbalancer lb {}'), {
+    source: 'run 1s\nbalancer lb {}', diagnostic: null,
+  });
 });
 
 // Bound bytes both before and after reading; reject empty/unreadable files without replacing a draft.

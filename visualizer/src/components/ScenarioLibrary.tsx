@@ -14,7 +14,13 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import { presetCategories, scenarioPresets } from '../scenarios/presets';
+import { sourceExamples } from '../scenarios/sourceExamples';
 import type { ScenarioSummary } from '../scenarios/types';
+
+const libraryEntries = [
+  ...scenarioPresets.map(preset => ({ ...preset, kind: 'preset' as const })),
+  ...sourceExamples,
+];
 
 // A loaded preset identifies the applied document until another document replaces it.
 export interface AppliedPreset {
@@ -32,6 +38,7 @@ interface ScenarioLibraryProps {
   applied: AppliedPreset | null;
   error: string | null;
   onLoad: (id: string) => void;
+  onLoadSourceExample: (id: string) => void;
   onRetryDefaults: () => void;
 }
 
@@ -45,34 +52,39 @@ function ScenarioLibrary({
   applied,
   error,
   onLoad,
+  onLoadSourceExample,
   onRetryDefaults,
 }: ScenarioLibraryProps) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [page, setPage] = useState(1);
-  const canLoad = defaultsReady && !loading && !validating && !pending && !unappliedInput;
+  const canLoadSource = !loading && !validating && !pending && !unappliedInput;
+  const canLoadPreset = defaultsReady && canLoadSource;
   const query = search.trim().toLowerCase();
-  const categories = presetCategories.map((entry) => ({
-    ...entry,
-    count: scenarioPresets.filter((preset) => preset.category === entry.id).length,
-  }));
+  const categories = [
+    ...presetCategories.map((entry) => ({
+      ...entry,
+      count: scenarioPresets.filter((preset) => preset.category === entry.id).length,
+    })),
+    { id: 'distributions', label: 'Distribution examples', count: sourceExamples.length },
+  ];
 
-  const matchingPresets = scenarioPresets.filter((preset) => {
-    const matchesCategory = category === 'all' || preset.category === category;
-    const text = `${preset.title} ${preset.description} ${preset.id}`.toLowerCase();
+  const matchingEntries = libraryEntries.filter((entry) => {
+    const matchesCategory = category === 'all' || entry.category === category;
+    const text = `${entry.title} ${entry.description} ${entry.id}`.toLowerCase();
     return matchesCategory && text.includes(query);
   });
 
   // Keep the configuration editor within reach as the catalog grows.
   const pageSize = 6;
-  const pageCount = Math.ceil(matchingPresets.length / pageSize);
-  const visiblePresets = matchingPresets.slice((page - 1) * pageSize, page * pageSize);
+  const pageCount = Math.ceil(matchingEntries.length / pageSize);
+  const visibleEntries = matchingEntries.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <Card variant="outlined">
       <CardHeader
         title="Scenario library"
-        subheader="Load a preset to validate its source and update the Language editor below."
+        subheader="Load a runnable preset or inspect a source example in the Language editor below."
       />
       <CardContent>
         <Stack spacing={2}>
@@ -80,7 +92,7 @@ function ScenarioLibrary({
             Explore links, queues, loss, workloads, routing, reference experiments and edge cases, or run the
             unpaced simulator throughput benchmark.
             Loading a preset updates its language source, JSON and planned topology after validation.
-            Review them before starting a run.
+            Source examples load only an editable draft with an expected diagnostic; they cannot run.
           </Typography>
 
           {loading && (
@@ -116,7 +128,7 @@ function ScenarioLibrary({
               }}
               sx={{ minWidth: { sm: 230 } }}
             >
-              <MenuItem value="all">All scenarios ({scenarioPresets.length})</MenuItem>
+              <MenuItem value="all">All entries ({libraryEntries.length})</MenuItem>
               {categories.map((entry) => (
                 <MenuItem key={entry.id} value={entry.id}>
                   {entry.label} ({entry.count})
@@ -125,10 +137,10 @@ function ScenarioLibrary({
             </TextField>
           </Stack>
           <Typography variant="body2" color="text.secondary" aria-live="polite">
-            {matchingPresets.length} matching scenarios · {visiblePresets.length} shown
+            {matchingEntries.length} matching entries · {visibleEntries.length} shown
           </Typography>
 
-          {matchingPresets.length === 0 && (
+          {matchingEntries.length === 0 && (
             <Alert severity="info">
               No scenarios match these filters.
               <Button
@@ -145,10 +157,11 @@ function ScenarioLibrary({
           )}
 
           <Grid container spacing={2}>
-            {visiblePresets.map((preset) => {
-              const isApplied = applied?.id === preset.id;
+            {visibleEntries.map((entry) => {
+              const isSourceExample = entry.kind === 'sourceExample';
+              const isApplied = !isSourceExample && applied?.id === entry.id;
               return (
-                <Grid key={preset.id} size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
+                <Grid key={entry.id} size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
                   <Card
                     variant="outlined"
                     sx={{
@@ -159,21 +172,28 @@ function ScenarioLibrary({
                     <CardContent>
                       <Stack spacing={1} alignItems="flex-start">
                         <Chip
-                          label={presetCategories.find((entry) => entry.id === preset.category)?.label}
+                          label={isSourceExample
+                            ? 'Source example · not runnable'
+                            : presetCategories.find(category => category.id === entry.category)?.label}
                           size="small"
                           variant="outlined"
                         />
-                        <Typography variant="subtitle1">{preset.title}</Typography>
+                        <Typography variant="subtitle1">{entry.title}</Typography>
                         <Typography variant="body2" color="text.secondary">
-                          {preset.description}
+                          {entry.description}
                         </Typography>
+                        {entry.kind === 'sourceExample' && (
+                          <Typography variant="caption" color="text.secondary">
+                            Expected diagnostic: {entry.expectedDiagnostic}
+                          </Typography>
+                        )}
                         <Button
                           variant={isApplied ? 'contained' : 'outlined'}
-                          disabled={!canLoad}
-                          aria-label={`Load preset: ${preset.title}`}
-                          onClick={() => onLoad(preset.id)}
+                          disabled={isSourceExample ? !canLoadSource : !canLoadPreset}
+                          aria-label={`${isSourceExample ? 'Load source example' : 'Load preset'}: ${entry.title}`}
+                          onClick={() => isSourceExample ? onLoadSourceExample(entry.id) : onLoad(entry.id)}
                         >
-                          Load preset
+                          {isSourceExample ? 'Load source example' : 'Load preset'}
                         </Button>
                       </Stack>
                     </CardContent>
@@ -195,7 +215,7 @@ function ScenarioLibrary({
 
           {applied && (
             <Stack spacing={1}>
-              <Typography variant="subtitle2">Loaded into editor: {applied.title}</Typography>
+              <Typography variant="subtitle2">Applied preset: {applied.title}</Typography>
               {unappliedInput ? (
                 <Typography variant="body2" color="text.secondary">
                   Apply or discard the configuration edits before using this draft.

@@ -1,12 +1,13 @@
 import { Alert, Button, Card, CardContent, CardHeader, Stack } from '@mui/material';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  initialLanguageSource, loadLanguageSource, serializeLanguageSource, validateLanguageDocument,
+  initialLanguageSource, inspectLanguageSource, loadLanguageSource, serializeLanguageSource, validateLanguageDocument,
 } from '../scenario-language/editor';
 import { LanguageError } from '../scenario-language/source';
 import { formatScenarioDocument, readScenarioFile, serializeScenario } from '../scenarios/files';
 import { validateEditorDocument } from '../scenarios/editor';
 import { scenarioPresets } from '../scenarios/presets';
+import { sourceExamples } from '../scenarios/sourceExamples';
 import { scenarioApi } from '../scenarios/runtimeApi';
 import { validateScenario } from '../scenarios/validation';
 import type { CurrentSimulation, Scenario, ValidatedScenario } from '../scenarios/types';
@@ -186,6 +187,18 @@ function ExperimentSetup({
     );
   }
 
+  // Examples are editable local drafts; keep the applied scenario and discard baseline intact.
+  function loadSourceExample(id: string) {
+    if (loading || validationRef.current || pending || hasUnappliedDocument()) return;
+    const example = sourceExamples.find(entry => entry.id === id);
+    if (!example) return;
+
+    loadSourceDraft(
+      inspectLanguageSource(example.source),
+      `Loaded source example: ${example.title}. This example is not runnable; inspect the diagnostic or discard the source edits.`,
+    );
+  }
+
   function importScenario(file: File) {
     if (hasUnappliedDocument()) return;
     void validateAndApply(
@@ -292,14 +305,7 @@ function ExperimentSetup({
     try {
       const loaded = await loadLanguageSource(file, controller.signal);
       if (controller.signal.aborted || validationRef.current !== controller) return;
-      setEditorFormat('language');
-      languageSourceRef.current = loaded.source;
-      setLanguageSource(loaded.source);
-      setLanguageError(loaded.diagnostic);
-      setFileNotice({
-        severity: loaded.diagnostic ? 'error' : 'success',
-        message: `Loaded ${file.name} into the source draft. Compile and apply when ready.`,
-      });
+      loadSourceDraft(loaded, `Loaded ${file.name} into the source draft. Compile and apply when ready.`);
     } catch (failure) {
       if (!controller.signal.aborted && validationRef.current === controller) {
         setFileNotice({
@@ -312,6 +318,17 @@ function ExperimentSetup({
         if (!controller.signal.aborted) setValidating(false);
       }
     }
+  }
+
+  function loadSourceDraft(
+    loaded: ReturnType<typeof inspectLanguageSource>,
+    message: string,
+  ) {
+    setEditorFormat('language');
+    languageSourceRef.current = loaded.source;
+    setLanguageSource(loaded.source);
+    setLanguageError(loaded.diagnostic);
+    setFileNotice({ severity: loaded.diagnostic ? 'error' : 'success', message });
   }
 
   function exportLanguage() {
@@ -398,6 +415,7 @@ function ExperimentSetup({
         applied={applied}
         error={error}
         onLoad={loadPreset}
+        onLoadSourceExample={loadSourceExample}
         onRetryDefaults={reloadDefaults}
       />
 
