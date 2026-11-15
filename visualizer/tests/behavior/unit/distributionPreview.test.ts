@@ -46,14 +46,18 @@ previewTest('exponential mean defines the conditional density', ['exponential'],
   close(densityAt(preview, 3), expected);
 });
 
-previewTest('gamma and Weibull use scale and conditional density consistently', ["gamma","weibull"], () => {
-  const common = { unit: 'number', min: '1', max: '5' } as const;
-  const gamma = continuous({ ...common, kind: 'gamma', shape: '1', scale: '2' });
-  const weibull = continuous({ ...common, kind: 'weibull', shape: '1', scale: '2' });
+previewTest('gamma shape and scale agree with exponential and Erlang densities', ['gamma'], () => {
+  const gamma = continuous({ kind: 'gamma', unit: 'number', min: '1', max: '5', shape: '1', scale: '2' });
   const expected = (Math.exp(-1.5) / 2) / (Math.exp(-0.5) - Math.exp(-2.5));
-  for (const preview of [gamma, weibull]) close(densityAt(preview, 3), expected);
+  close(densityAt(gamma, 3), expected);
   const gammaTwo = continuous({ kind: 'gamma', unit: 'number', shape: '2', scale: '2', min: '0', max: '8' });
   close(densityAt(gammaTwo, 2), Math.exp(-1) / 2 / (1 - 5 * Math.exp(-4)));
+});
+
+previewTest('Weibull shape one agrees with the exponential density', ['weibull'], () => {
+  const preview = continuous({ kind: 'weibull', unit: 'number', min: '1', max: '5', shape: '1', scale: '2' });
+  const expected = (Math.exp(-1.5) / 2) / (Math.exp(-0.5) - Math.exp(-2.5));
+  close(densityAt(preview, 3), expected);
 });
 
 previewTest('Student t location-scale conversion agrees with the independent Cauchy formula', ["studentT"], () => {
@@ -93,7 +97,7 @@ previewTest('triangular peak and endpoint modes remain analytical', ["triangular
   close(densityAt(continuous({ ...common, mode: '8' }), 8), 1 / 3);
 });
 
-previewTest('integrable singular endpoints are explicit and never Infinity or a fake finite endpoint', ["beta","gamma","weibull"], () => {
+previewTest('Beta singular endpoints retain explicit omitted intervals', ['beta'], () => {
   const beta = continuous({ kind: 'beta', unit: 'number', alpha: '0.5', beta: '0.5', min: '2', max: '10' });
   assert.deepEqual(beta.singularities, [
     { edge: 'minimum', value: '2', finiteCurveBoundary: '2.015625' },
@@ -101,13 +105,18 @@ previewTest('integrable singular endpoints are explicit and never Infinity or a 
   ]);
   assert.equal(beta.points[0].position, 1 / 512);
   assert.equal(beta.points[beta.points.length - 1].position, 511 / 512);
-  for (const kind of ['gamma', 'weibull'] as const) {
+});
+
+for (const kind of ['gamma', 'weibull'] as const) {
+  previewTest(`${kind} singular minimum is explicit and its finite curve starts inside support`, [kind], () => {
     const preview = continuous({ kind, unit: 'number', shape: '0.5', scale: '1', min: '0', max: '4' });
-    assert.equal(preview.singularities[0].edge, 'minimum');
+    assert.deepEqual(preview.singularities, [
+      { edge: 'minimum', value: '0', finiteCurveBoundary: '0.0078125' },
+    ]);
     assert.ok(preview.points.every(point => Number.isFinite(point.density)));
     assert.ok(preview.points.every(point => point.position > 0));
-  }
-});
+  });
+}
 
 previewTest('Bernoulli handles endpoint probabilities and exact complementary fractions', ["bernoulli"], () => {
   for (const probability of ['0', '0.125', '1']) {

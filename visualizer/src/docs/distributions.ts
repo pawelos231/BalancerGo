@@ -9,4 +9,8 @@ export const distributionPages = [
     id: 'exponential', title: 'Exponential distributions', path: '/docs/language/exponential',
     loadMarkdown: () => import('../../docs/language/exponential.md?raw').then(module => module.default),
   },
+  {
+    id: 'gamma', title: 'Gamma distributions', path: '/docs/language/gamma',
+    loadMarkdown: () => import('../../docs/language/gamma.md?raw').then(module => module.default),
+  },
 ] as const;
