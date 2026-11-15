@@ -30,6 +30,7 @@ export function buildDensityPreview(input: RandomProfile): DensityPreview {
     };
   }
 
+  if (profile.kind !== 'uniform') throw new Error('This preview describes constant and uniform profiles.');
   const minimum = decimalFraction(profile.min);
   const maximum = decimalFraction(profile.max);
   const scale = minimum.scale > maximum.scale ? minimum.scale : maximum.scale;

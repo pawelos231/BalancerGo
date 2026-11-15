@@ -2,6 +2,7 @@ import { tokenize } from './lexer.ts';
 import type { Token } from './lexer.ts';
 import { LanguageError } from './source.ts';
 import type { Command, Declaration, DistributionExpression, Program, Property, TimelineBlock } from './syntax.ts';
+import { familyBySource } from '../scenarios/randomness/registry.ts';
 
 // Read syntax without applying defaults, converting units or constructing a scenario.
 export function parse(source: string): Program {
@@ -107,7 +108,7 @@ class Parser {
 
   // Named and inline definitions keep the same parameter syntax and source positions.
   private distributionExpression(family: Token): DistributionExpression {
-    if (family.text !== 'uniform') {
+    if (!familyBySource(family.text) || family.text === 'constant') {
       throw new LanguageError(`Unsupported distribution ${JSON.stringify(family.text)}.`, family.range);
     }
     const parameters = this.block();

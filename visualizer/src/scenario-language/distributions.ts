@@ -1,4 +1,4 @@
-import { INT64_MAX } from '../scenarios/values.ts';
+import { decimalText, readBound, type Bound } from './distributionValues.ts';
 import { validateRandomProfile } from '../scenarios/randomness.ts';
 import type { RandomProfile, RandomUnit } from '../scenarios/randomness.ts';
 import { prefixName } from './identity.ts';
@@ -6,13 +6,9 @@ import type { Token } from './lexer.ts';
 import { LanguageError } from './source.ts';
 import type { Declaration, DistributionExpression, Program, Property } from './syntax.ts';
 import type { SourceRange } from './source.ts';
-import { byteUnits, decimalParts, timeUnits } from './values.ts';
+import { familyBySource } from '../scenarios/randomness/registry.ts';
+import { compileFamilyDefinition, requireFamilyCompilation } from './distributionFamilies.ts';
 
-interface Bound {
-  dimension: 'number' | 'time' | 'bytes' | 'percentage';
-  numerator: bigint;
-  denominator: bigint;
-}
 
 // Check the declared [min, max) range, for example 500us <= x < 1ms.
 // This reads parameters only; no random values are drawn during compilation.
@@ -66,9 +62,10 @@ function checkedUniformBounds(expression: DistributionExpression): { minimum: Bo
 
 // Named definitions are stored, but binding one to a runtime field is a later stage.
 export function rejectInlineDistribution(expression: DistributionExpression): never {
-  validateUniformDistribution(expression);
+  if (expression.family.text === 'uniform') validateUniformDistribution(expression);
+  else compileFamilyDefinition(expression);
   throw new LanguageError(
-    'Uniform definitions compile as named distributions; runtime field sampling is not available yet.',
+    `${familyBySource(expression.family.text)?.title ?? 'Distribution'} definitions compile as named distributions; runtime field sampling is not available yet.`,
     expression.family.range,
   );
 }
@@ -109,7 +106,11 @@ export function compileRandomProfiles(
     for (const parameter of expression.parameters) {
       locations.set(`${path}.${parameter.key.text}`, parameter.key.range);
     }
-    result[id] = compileUniformDistribution(expression);
+    if (expression.family.text === 'uniform') result[id] = compileUniformDistribution(expression);
+    else {
+      result[id] = compileFamilyDefinition(expression);
+      requireFamilyCompilation(familyBySource(expression.family.text)!, expression);
+    }
   }
   return Object.keys(result).length ? result : undefined;
 }
@@ -131,36 +132,3 @@ export function compileUniformDistribution(expression: DistributionExpression): 
   }
 }
 
-// A power-of-ten denominator keeps 0.125 exact, and removes redundant trailing zeros.
-function decimalText(bound: Bound): string {
-  const whole = bound.numerator / bound.denominator;
-  const remainder = bound.numerator % bound.denominator;
-  if (remainder === 0n) return whole.toString();
-  const places = bound.denominator.toString().length - 1;
-  const fraction = remainder.toString().padStart(places, '0').replace(/0+$/, '');
-  return `${whole}.${fraction}`;
-}
-
-// Convert units for comparison without rounding bounds to a sampled integer value.
-function readBound(token: Token): Bound {
-  const { numerator, denominator, unit } = decimalParts(token);
-  let dimension: Bound['dimension'];
-  let multiplier = 1n;
-
-  if (Object.prototype.hasOwnProperty.call(timeUnits, unit)) {
-    dimension = 'time';
-    multiplier = timeUnits[unit];
-  } else if (Object.prototype.hasOwnProperty.call(byteUnits, unit)) {
-    dimension = 'bytes';
-    multiplier = byteUnits[unit];
-  } else if (unit === '%') dimension = 'percentage';
-  else if (unit === '') dimension = 'number';
-  else throw new LanguageError(`Unsupported uniform bound unit ${JSON.stringify(unit)}.`, token.range);
-
-  const value = numerator * multiplier;
-  const limit = dimension === 'percentage' ? 100n : INT64_MAX;
-  if (value < 0n || value > limit * denominator) {
-    throw new LanguageError(`Uniform bounds must be between 0 and ${limit} in their base unit.`, token.range);
-  }
-  return { dimension, numerator: value, denominator };
-}

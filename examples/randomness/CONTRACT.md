@@ -1,5 +1,11 @@
 # Stochastic profile contract
 
+Backend definitions and strict codecs live in `randomness/profile`, shared RNG
+interfaces in `randomness/source`, and uniform implementations in
+`randomness/uniform`. The root package keeps compatible aliases and constructors.
+Additional families gain their own packages and are admitted individually when
+their declaration stages are implemented.
+
 The profile format is shared by Go and TypeScript. Since E5.1.3, Scenario v2 can
 retain named definitions in optional `fixed.randomProfiles`. Definitions are
 unbound: storing one does not assign it to a host, link or client setting.
