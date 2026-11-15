@@ -17,4 +17,8 @@ export const distributionPages = [
     id: 'student-t', title: 'Student t distributions', path: '/docs/language/student-t',
     loadMarkdown: () => import('../../docs/language/student-t.md?raw').then(module => module.default),
   },
+  {
+    id: 'beta', title: 'Beta distributions', path: '/docs/language/beta',
+    loadMarkdown: () => import('../../docs/language/beta.md?raw').then(module => module.default),
+  },
 ] as const;
