@@ -1,0 +1,27 @@
+language 1
+run 2s speed 0
+
+# Named definitions are unbound; the topology below keeps scalar settings.
+# A beta density favoring the lower part of 1ms through 5ms.
+distribution early-time beta {
+    alpha 2
+    beta 5
+    min 1ms
+    max 5ms
+}
+
+# A U-shaped density with integrable peaks at both endpoints.
+distribution edge-time beta {
+    alpha 0.5
+    beta 0.5
+    min 1ms
+    max 5ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

@@ -1,0 +1,79 @@
+{
+  "family": "beta",
+  "source": "beta",
+  "expectedProfiles": {
+    "early-time": {
+      "kind": "beta",
+      "unit": "nanoseconds",
+      "alpha": "2",
+      "beta": "5",
+      "min": "1000000",
+      "max": "5000000"
+    },
+    "edge-time": {
+      "kind": "beta",
+      "unit": "nanoseconds",
+      "alpha": "0.5",
+      "beta": "0.5",
+      "min": "1000000",
+      "max": "5000000"
+    }
+  },
+  "cases": [
+    {
+      "name": "early-time",
+      "valid": true,
+      "document": "{\"kind\":\"beta\",\"unit\":\"nanoseconds\",\"alpha\":\"2\",\"beta\":\"5\",\"min\":\"1000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "edge-time",
+      "valid": true,
+      "document": "{\"kind\":\"beta\",\"unit\":\"nanoseconds\",\"alpha\":\"0.5\",\"beta\":\"0.5\",\"min\":\"1000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"beta\",\"unit\":\"nanoseconds\",\"alpha\":\"2\",\"beta\":\"5\",\"min\":\"1000000\",\"max\":\"5000000\",\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"beta\",\"unit\":\"nanoseconds\",\"alpha\":null,\"beta\":\"5\",\"min\":\"1000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"beta\",\"unit\":\"nanoseconds\",\"alpha\":1,\"beta\":\"5\",\"min\":\"1000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"beta\",\"unit\":\"nanoseconds\",\"beta\":\"5\",\"min\":\"1000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "empty interval",
+      "valid": false,
+      "document": "{\"kind\":\"beta\",\"unit\":\"nanoseconds\",\"alpha\":\"2\",\"beta\":\"5\",\"min\":\"1000000\",\"max\":\"1000000\"}"
+    },
+    {
+      "name": "reversed interval",
+      "valid": false,
+      "document": "{\"kind\":\"beta\",\"unit\":\"nanoseconds\",\"alpha\":\"2\",\"beta\":\"5\",\"min\":\"5000000\",\"max\":\"1000000\"}"
+    },
+    {
+      "name": "zero alpha",
+      "valid": false,
+      "document": "{\"kind\":\"beta\",\"unit\":\"nanoseconds\",\"alpha\":\"0\",\"beta\":\"5\",\"min\":\"1000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "zero beta",
+      "valid": false,
+      "document": "{\"kind\":\"beta\",\"unit\":\"nanoseconds\",\"alpha\":\"2\",\"beta\":\"0\",\"min\":\"1000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"beta\",\"unit\":\"number\",\"unit\":\"nanoseconds\",\"alpha\":\"2\",\"beta\":\"5\",\"min\":\"1000000\",\"max\":\"5000000\"}"
+    }
+  ]
+}
