@@ -6,7 +6,7 @@ export default {
   source: 'exponential',
   title: 'Exponential',
   bounded: true,
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'mean', role: 'positiveQuantity' },
     { name: 'min', role: 'quantity' },
