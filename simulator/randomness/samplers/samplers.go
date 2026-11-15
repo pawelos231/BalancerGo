@@ -8,6 +8,7 @@ import (
 	"load-balancer/randomness/exponential"
 	"load-balancer/randomness/gamma"
 	"load-balancer/randomness/internal/numeric"
+	"load-balancer/randomness/lognormal"
 	"load-balancer/randomness/normal"
 	"load-balancer/randomness/profile"
 	"load-balancer/randomness/source"
@@ -32,6 +33,8 @@ func NewFloat(definition profile.Profile) (source.FloatSampler, error) {
 		return studentt.New(definition)
 	case profile.KindBeta:
 		return beta.New(definition)
+	case profile.KindLognormal:
+		return lognormal.New(definition)
 	default:
 		return nil, fmt.Errorf("randomness: no sampler for profile kind %q", definition.Kind)
 	}
