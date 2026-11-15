@@ -1,6 +1,8 @@
 import { StreamLanguage, type StreamParser } from '@codemirror/language';
 
-const namedDeclarations = new Set(['balancer', 'backend', 'backends', 'clients', 'client', 'profile']);
+const namedDeclarations = new Set([
+  'balancer', 'backend', 'backends', 'clients', 'client', 'profile', 'distribution',
+]);
 const commands = new Set(['add', 'set', 'down', 'up', 'drain', 'stop', 'remove']);
 const keywords = new Set([
   'language', 'run', 'defaults', 'tcp', ...namedDeclarations, ...commands,
@@ -25,7 +27,7 @@ interface HighlightState {
   blocks: Block[];
   nextBlock: Block;
   command: string | null;
-  afterName: 'field' | 'statement';
+  afterName: 'field' | 'statement' | 'value';
 }
 
 // Track token positions for color only; the compiler remains the semantic validator.
@@ -92,7 +94,7 @@ const scenarioParser: StreamParser<HighlightState> = {
         if (word === 'use') state.afterName = 'field';
       } else if (namedDeclarations.has(word)) {
         state.role = 'name';
-        state.afterName = 'field';
+        state.afterName = word === 'distribution' ? 'value' : 'field';
       } else if (word === 'run' || word === 'language' || word === 'at') {
         state.role = 'value';
         if (word === 'at') state.nextBlock = 'statements';

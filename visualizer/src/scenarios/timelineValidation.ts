@@ -18,6 +18,7 @@ import {
 } from './settings.ts';
 import { validateTCP } from './tcp.ts';
 import { endpointKey, INT64_MAX } from './values.ts';
+import { validateRandomProfile } from './randomness.ts';
 
 const maxBackends = 10_000;
 
@@ -37,6 +38,18 @@ export function checkScenario(input: Scenario): void {
   validateLink(fixed.network.defaults, 'fixed.network.defaults');
   const profiles = validateProfiles(fixed.network, 'fixed.network');
   validateStream(fixed.workload.defaults, 'fixed.workload.defaults');
+  // Definitions are validated even while no runtime field refers to them.
+  if (fixed.randomProfiles !== undefined) {
+    for (const [id, profile] of Object.entries(fixed.randomProfiles)) {
+      const path = `fixed.randomProfiles[${JSON.stringify(id)}]`;
+      validateID(id, path);
+      try {
+        validateRandomProfile(profile);
+      } catch (error) {
+        throw new Error(`${path}: ${error instanceof Error ? error.message : 'invalid random profile'}`);
+      }
+    }
+  }
 
   if (!Object.prototype.hasOwnProperty.call(input.states, '0')) {
     throw new Error('states: a state at timestamp 0 is required');

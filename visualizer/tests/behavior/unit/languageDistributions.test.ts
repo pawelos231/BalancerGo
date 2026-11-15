@@ -95,7 +95,7 @@ test('uniform rejects incompatible units and out-of-range quantities', () => {
 });
 
 // Direct field writers cannot accidentally treat uniform parameters as an ordinary block.
-test('field writing refuses a checked distribution until native compilation is supported', () => {
+test('field writing refuses a checked distribution until runtime binding is supported', () => {
   const properties = parse('defaults travel uniform { min 1ms max 2ms }').declarations[0].properties;
   const target = {};
 
@@ -103,7 +103,7 @@ test('field writing refuses a checked distribution until native compilation is s
     () => new FieldWriter().apply(properties, { travel: { path: 'travel', read: timeValue } }, target, ''),
     error => {
       assert.ok(error instanceof LanguageError);
-      assert.match(error.message, /syntax is recognized, but scenario compilation is not available yet/);
+      assert.match(error.message, /runtime field sampling is not available yet/);
       assert.equal(error.range.start.column, 17);
       return true;
     },

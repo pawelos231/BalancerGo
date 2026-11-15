@@ -1,6 +1,10 @@
 package scenario
 
-import "time"
+import (
+	"time"
+
+	"load-balancer/randomness"
+)
 
 const CurrentScenarioVersion = 2
 
@@ -20,6 +24,8 @@ type FixedConfig struct {
 	LoadBalancer LoadBalancerIdentity   `json:"loadBalancer"`
 	Network      NetworkConfig          `json:"network"`
 	Workload     WorkloadDefaultsConfig `json:"workload"`
+	// RandomProfiles stores unbound definitions; runtime fields do not sample them.
+	RandomProfiles map[string]randomness.Profile `json:"randomProfiles,omitempty"`
 }
 
 // LoadBalancerIdentity keeps the balancer's ID out of the settings that change over time.

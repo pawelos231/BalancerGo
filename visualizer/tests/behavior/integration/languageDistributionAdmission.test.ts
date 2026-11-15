@@ -20,7 +20,7 @@ test('uniform cannot be discarded from defaults, unused profiles or timeline com
   for (const source of sources) {
     assert.throws(() => compileScenario(source), error => {
       assert.ok(error instanceof LanguageError);
-      assert.match(error.message, /Uniform distribution syntax is recognized/);
+      assert.match(error.message, /runtime field sampling is not available yet/);
       assert.equal(error.range.start.offset, source.indexOf('uniform'));
       return true;
     });

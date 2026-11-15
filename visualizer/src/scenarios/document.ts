@@ -1,11 +1,13 @@
 import type { Scenario } from './types.ts';
 import { JSONNumber, replaceLoneSurrogates } from './json.ts';
 import { INT64_MAX, INT64_MIN, UINT64_MAX } from './values.ts';
+import { validateRandomProfile } from './randomness.ts';
 
 type Shape =
   | { kind: 'object'; fields: Record<string, Shape> }
-  | { kind: 'array' | 'map' | 'pointer'; item: Shape }
+  | { kind: 'array' | 'map' | 'pointer' | 'optional'; item: Shape }
   | { kind: 'integer'; minimum: bigint; maximum: bigint }
+  | { kind: 'randomProfile' }
   | { kind: 'string' | 'boolean' | 'float' };
 
 const int64: Shape = { kind: 'integer', minimum: INT64_MIN, maximum: INT64_MAX };
@@ -14,6 +16,7 @@ const uint16: Shape = { kind: 'integer', minimum: 0n, maximum: 65535n };
 const text: Shape = { kind: 'string' };
 const boolean: Shape = { kind: 'boolean' };
 const float: Shape = { kind: 'float' };
+const profileShape: Shape = { kind: 'randomProfile' };
 
 const object = (fields: Record<string, Shape>): Shape => ({ kind: 'object', fields });
 const array = (item: Shape): Shape => ({ kind: 'array', item });
@@ -131,6 +134,7 @@ const scenario = object({
     loadBalancer: object({ id: text }),
     network: object({ defaults: link, profiles: array(object({ id: text, config: linkPatch })) }),
     workload: object({ defaults: stream }),
+    randomProfiles: { kind: 'optional', item: { kind: 'map', item: profileShape } },
   }),
   states: { kind: 'map', item: state },
 });
@@ -146,6 +150,17 @@ function invalid(path: string, message: string): never {
 
 // Follow the destination type, so a float may use exponent notation but an integer may not.
 function decode(shape: Shape, input: unknown, path: string): unknown {
+  if (shape.kind === 'optional') {
+    return input === undefined ? undefined : decode(shape.item, input, path);
+  }
+  // Profile parameters never receive ordinary DTO zero values or pointer defaults.
+  if (shape.kind === 'randomProfile') {
+    try {
+      return validateRandomProfile(input);
+    } catch (error) {
+      return invalid(path, error instanceof Error ? error.message : 'invalid random profile');
+    }
+  }
   if (shape.kind === 'pointer') {
     return input == null ? input : decode(shape.item, input, path);
   }

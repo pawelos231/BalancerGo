@@ -1,0 +1,26 @@
+language 1
+run 2s speed 0
+
+# These are unbound definitions. CPU and link settings below remain scalar.
+distribution cpu-time uniform {
+    min 5us
+    max 15us
+}
+
+distribution travel-time uniform {
+    min 500us
+    max 1ms
+}
+
+distribution precise-bytes uniform {
+    min 9007199254740992.125B
+    max 9007199254740992.375B
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

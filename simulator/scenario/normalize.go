@@ -62,6 +62,9 @@ func normalizeFixed(input FixedConfig) (NormalizedFixedConfig, map[string]LinkPa
 	if err := validateID(input.LoadBalancer.ID, "fixed.loadBalancer.id"); err != nil {
 		return NormalizedFixedConfig{}, nil, err
 	}
+	if err := validateRandomProfiles(input.RandomProfiles); err != nil {
+		return NormalizedFixedConfig{}, nil, err
+	}
 
 	tcp, err := normalizeTCP(input.TCP)
 	if err != nil {

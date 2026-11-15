@@ -1,4 +1,5 @@
 import type { ExperimentContext } from '../experiment';
+import type { RandomProfile } from './randomness';
 
 // Large integers stay as decimal strings so JSON round trips preserve every digit.
 export type ExactInteger = number | string;
@@ -84,6 +85,8 @@ export interface Scenario {
     loadBalancer: { id: string };
     network: ScenarioNetworkConfig;
     workload: { defaults: ScenarioStream };
+    // Named definitions remain unbound until a model field supports sampling.
+    randomProfiles?: Record<string, RandomProfile>;
   };
   states: Record<string, ScenarioState>;
 }

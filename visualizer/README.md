@@ -356,7 +356,10 @@ must have compatible units. Declaration checks compare exact quantities;
 field-specific limits and integer conversion belong to later integration.
 Compilation currently rejects these expressions explicitly, including unused
 profiles and timeline changes. Standalone backend uniform samplers are available;
-native scenario JSON compilation and runtime field integration are not enabled.
+named declarations (`distribution name uniform { min ... max ... }`) compile into
+optional `fixed.randomProfiles` and are validated before Start. These definitions
+are unbound: runtime field integration is not enabled. Inline CPU/link declarations
+keep an explicit diagnostic until their field integration stage.
 
 The standalone [random-profile contract](../examples/randomness/CONTRACT.md)
 defines constant and uniform values for Go and TypeScript. Quantities are canonical

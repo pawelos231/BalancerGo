@@ -12,12 +12,12 @@ import { countValue, timeValue } from './values.ts';
 import { compileClientGroup, compileClientOverrides } from './workload.ts';
 import { TimelineBuilder } from './timeline.ts';
 import { applyTimelineCommands } from './timelineCommands.ts';
-import { rejectUncompiledDistributions } from './distributions.ts';
+import { compileRandomProfiles, rejectInlineDistributions } from './distributions.ts';
 
-// Compile once before Start; the engine and Go CLI receive the unchanged JSON v2 contract.
+// Compile once before Start; the engine and Go CLI receive the same native JSON v2 document.
 export function compileScenario(source: string): Scenario {
   const program = parse(source);
-  rejectUncompiledDistributions(program);
+  rejectInlineDistributions(program);
   checkSupported(program);
   const run = oneDeclaration(program, 'run');
   const balancer = oneDeclaration(program, 'balancer');
@@ -25,6 +25,8 @@ export function compileScenario(source: string): Scenario {
 
   const scenario = scenarioDefaults(timeValue(run.argument!, 1n));
   const writer = new FieldWriter();
+  const randomProfiles = compileRandomProfiles(program.declarations, writer.locations);
+  if (randomProfiles) scenario.fixed.randomProfiles = randomProfiles;
   writer.locations.set('fixed.execution', run.range);
   writer.locations.set('fixed.execution.durationNanoseconds', run.argument!.range);
   writer.apply(run.properties, executionFields, scenario.fixed.execution, 'fixed.execution');
@@ -113,6 +115,7 @@ export function compileScenario(source: string): Scenario {
 function checkSupported(program: Program): void {
   const supported = [
     'language', 'run', 'defaults', 'tcp', 'balancer', 'backend', 'backends', 'clients', 'client', 'profile',
+    'distribution',
   ];
   for (const declaration of program.declarations) {
     if (!supported.includes(declaration.keyword.text)) {

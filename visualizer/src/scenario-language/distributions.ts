@@ -1,7 +1,11 @@
 import { INT64_MAX } from '../scenarios/values.ts';
+import { validateRandomProfile } from '../scenarios/randomness.ts';
+import type { RandomProfile, RandomUnit } from '../scenarios/randomness.ts';
+import { prefixName } from './identity.ts';
 import type { Token } from './lexer.ts';
 import { LanguageError } from './source.ts';
-import type { DistributionExpression, Program, Property } from './syntax.ts';
+import type { Declaration, DistributionExpression, Program, Property } from './syntax.ts';
+import type { SourceRange } from './source.ts';
 import { byteUnits, decimalParts, timeUnits } from './values.ts';
 
 interface Bound {
@@ -11,8 +15,13 @@ interface Bound {
 }
 
 // Check the declared [min, max) range, for example 500us <= x < 1ms.
-// This reads parameters only; sampling and native JSON compilation come later.
+// This reads parameters only; no random values are drawn during compilation.
 export function validateUniformDistribution(expression: DistributionExpression): void {
+  checkedUniformBounds(expression);
+}
+
+// Validate once and return exact bounds for both compilation and declaration checks.
+function checkedUniformBounds(expression: DistributionExpression): { minimum: Bound; maximum: Bound } {
   if (expression.family.text !== 'uniform') {
     throw new LanguageError('Only the uniform distribution is supported here.', expression.family.range);
   }
@@ -52,23 +61,24 @@ export function validateUniformDistribution(expression: DistributionExpression):
   if (scaledMinimum >= scaledMaximum) {
     throw new LanguageError('Uniform min must be less than max; use a scalar for a fixed value.', maximum.range);
   }
+  return { minimum: lower, maximum: upper };
 }
 
-// Keep drafts explicit until E5.1.3 connects distributions to the native scenario.
-export function rejectUncompiledDistribution(expression: DistributionExpression): never {
+// Named definitions are stored, but binding one to a runtime field is a later stage.
+export function rejectInlineDistribution(expression: DistributionExpression): never {
   validateUniformDistribution(expression);
   throw new LanguageError(
-    'Uniform distribution syntax is recognized, but scenario compilation is not available yet.',
+    'Uniform definitions compile as named distributions; runtime field sampling is not available yet.',
     expression.family.range,
   );
 }
 
 // Include unused profiles and timeline additions, so no declaration is silently discarded.
-export function rejectUncompiledDistributions(program: Program): void {
+export function rejectInlineDistributions(program: Program): void {
   const visit = (properties: Property[]) => {
     for (const property of properties) {
       if (Array.isArray(property.value)) visit(property.value);
-      else if (property.value.kind === 'distribution') rejectUncompiledDistribution(property.value);
+      else if (property.value.kind === 'distribution') rejectInlineDistribution(property.value);
     }
   };
 
@@ -79,6 +89,56 @@ export function rejectUncompiledDistributions(program: Program): void {
       else if (command.kind === 'add') visit(command.declaration.properties);
     }
   }
+}
+
+// Store unbound definitions in fixed.randomProfiles, for example 5us becomes "5000" ns.
+// Names and source locations are retained; runtime fields keep their scalar contract.
+export function compileRandomProfiles(
+  declarations: Declaration[],
+  locations: Map<string, SourceRange>,
+): Record<string, RandomProfile> | undefined {
+  const result: Record<string, RandomProfile> = Object.create(null);
+  for (const declaration of declarations.filter(item => item.keyword.text === 'distribution')) {
+    const id = prefixName(declaration.argument!);
+    if (Object.prototype.hasOwnProperty.call(result, id)) {
+      throw new LanguageError(`Duplicate distribution ${id}.`, declaration.argument!.range);
+    }
+    const expression = declaration.distribution!;
+    const path = `fixed.randomProfiles[${JSON.stringify(id)}]`;
+    locations.set(path, expression.range);
+    for (const parameter of expression.parameters) {
+      locations.set(`${path}.${parameter.key.text}`, parameter.key.range);
+    }
+    result[id] = compileUniformDistribution(expression);
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
+// Convert exact source bounds to canonical base-unit decimals, without rounding or sampling.
+export function compileUniformDistribution(expression: DistributionExpression): RandomProfile {
+  const { minimum, maximum } = checkedUniformBounds(expression);
+  const units: Record<Bound['dimension'], RandomUnit> = {
+    time: 'nanoseconds', bytes: 'bytes', number: 'number', percentage: 'percentage',
+  };
+  try {
+    return validateRandomProfile({
+      kind: 'uniform', unit: units[minimum.dimension],
+      min: decimalText(minimum), max: decimalText(maximum),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid uniform definition.';
+    throw new LanguageError(message, expression.range);
+  }
+}
+
+// A power-of-ten denominator keeps 0.125 exact, and removes redundant trailing zeros.
+function decimalText(bound: Bound): string {
+  const whole = bound.numerator / bound.denominator;
+  const remainder = bound.numerator % bound.denominator;
+  if (remainder === 0n) return whole.toString();
+  const places = bound.denominator.toString().length - 1;
+  const fraction = remainder.toString().padStart(places, '0').replace(/0+$/, '');
+  return `${whole}.${fraction}`;
 }
 
 // Convert units for comparison without rounding bounds to a sampled integer value.

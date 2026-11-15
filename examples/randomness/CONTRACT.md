@@ -1,10 +1,9 @@
 # Stochastic profile contract
 
-E5.0.1 defines a standalone profile format shared by Go and TypeScript. It does
-not add a field to Scenario v2, compile a distribution into a scenario, or sample
-values. The existing scalar fields, 37 runnable presets and their runtime
-behavior keep their current meaning. The uniform source examples remain drafts
-until the later compilation and field integration stages support them.
+The profile format is shared by Go and TypeScript. Since E5.1.3, Scenario v2 can
+retain named definitions in optional `fixed.randomProfiles`. Definitions are
+unbound: storing one does not assign it to a host, link or client setting.
+Existing scalar fields and runnable presets keep their runtime meaning.
 
 ```json
 {"kind":"constant","unit":"nanoseconds","value":"5"}
@@ -115,11 +114,46 @@ one with exactly one result needs no draw. For example,
 float64, while its integer conversion can still return 9007199254740992.
 Floating constant conversion is not provided in this stage.
 
-These are standalone backend APIs. Scenario v2 still accepts scalar settings;
-the language's explicit compilation guard remains until E5.1.3, and runtime
-field integration belongs to E5.15+. The six uniform source examples therefore
-remain non-runnable drafts. Preparing a sampler does not integrate it with a
-scenario field or alter current simulation results.
+These backend APIs are prepared for field integration in E5.15+. Scenario v2
+retains scalar runtime settings. Preparing or storing a sampler definition does
+not integrate it with a field or alter current simulation results.
+
+## Named definitions in a scenario
+
+```text
+distribution cpu-time uniform {
+    min 5us
+    max 15us
+}
+```
+
+This compiles to `fixed.randomProfiles["cpu-time"]` with `kind: "uniform"`,
+`unit: "nanoseconds"`, `min: "5000"` and `max: "15000"`. Named definitions must
+precede every `at` block and have unique lowercase letter/hyphen names. They
+occupy a separate namespace from endpoint network `profile` declarations. There
+is no `use` binding or named reference syntax for random profiles yet.
+
+Source units infer nanoseconds, bytes, plain numbers or percentage units.
+In an unbound definition, `1GB` is a byte quantity. Native JSON additionally
+supports explicit `bitsPerSecond`; the compiler does not infer a bit rate from
+a definition's name. Bounds convert to canonical decimal strings with exact
+bigint arithmetic; no sampling or whole-unit rounding occurs during compilation.
+
+Go and TypeScript validate every definition, including unused ones, before Start.
+The native codec delegates each leaf to the strict profile validator, so null,
+duplicate, missing and unknown parameters remain errors. Native JSON also accepts
+constant definitions using the same standalone contract. The registry is optional
+and omitted from old documents. Definitions remain in the original admitted
+scenario, CLI manifest and exported results; normalized runtime settings omit
+unbound definitions deliberately.
+
+The canonical library source is
+[`uniform-profile-definitions.lb`](../../visualizer/src/scenarios/examples/sources/uniform-profile-definitions.lb),
+with its shared compiled fixture [`uniform-scenario.json`](uniform-scenario.json).
+It can be compiled and validated; its baseline simulation still uses scalar
+settings. The other six uniform source examples remain runtime drafts or error
+examples. Inline `packet-time uniform { ... }` and `travel uniform { ... }` are
+explicitly rejected until their respective field integrations are implemented.
 
 ## Future scenario and runtime use
 
@@ -171,8 +205,8 @@ seed does not promise the same packet losses across different algorithms.
 
 The source AST continues to preserve original units and exact fractional bounds.
 Its current declaration checks remain separate from target-field conversion.
-The explicit compilation guard stays in place until E5.1.3 supplies the complete
-source-to-native validation path; field runtime use is handled in E5.15+.
+Named definitions use the complete source-to-native validation path. Inline
+runtime fields keep a guard until field use is handled in E5.15+.
 
 ## Shared validation evidence
 

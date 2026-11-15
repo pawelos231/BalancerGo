@@ -9,9 +9,13 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	"load-balancer/randomness"
 )
 
 const maxSafeDocumentInteger int64 = 1<<53 - 1
+
+var randomProfileType = reflect.TypeOf(randomness.Profile{})
 
 // decodeDocument handles strict scenario document tokens.
 func decodeDocument(data []byte, target reflect.Value, path string) error {
@@ -33,6 +37,13 @@ func decodeDocument(data []byte, target reflect.Value, path string) error {
 
 // encodeDocumentValue follows Go field types so float settings stay JSON numbers.
 func encodeDocumentValue(value reflect.Value, path string) (any, error) {
+	if value.Type() == randomProfileType {
+		encoded, err := randomness.EncodeProfile(value.Interface().(randomness.Profile))
+		if err != nil {
+			return nil, randomProfileError(path, err)
+		}
+		return json.RawMessage(encoded), nil
+	}
 	switch value.Kind() {
 	case reflect.Pointer:
 		if value.IsNil() {
@@ -129,6 +140,19 @@ func emptyDocumentValue(value reflect.Value) bool {
 
 // decodeDocumentValue retains the original numeric text instead of using float64.
 func decodeDocumentValue(decoder *json.Decoder, target reflect.Value, path string) error {
+	// Preserve parameter presence, including forbidden nulls, for the strict profile codec.
+	if target.Type() == randomProfileType {
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		profile, err := randomness.DecodeProfile(raw)
+		if err != nil {
+			return randomProfileError(path, err)
+		}
+		target.Set(reflect.ValueOf(profile))
+		return nil
+	}
 	token, err := decoder.Token()
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)

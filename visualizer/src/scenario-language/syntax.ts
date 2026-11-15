@@ -20,6 +20,8 @@ export interface Declaration {
   keyword: Token;
   argument?: Token;
   profile?: Token;
+  // Present only on named distribution declarations.
+  distribution?: DistributionExpression;
   properties: Property[];
   range: SourceRange;
 }

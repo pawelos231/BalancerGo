@@ -1,7 +1,7 @@
 import { tokenize } from './lexer.ts';
 import type { Token } from './lexer.ts';
 import { LanguageError } from './source.ts';
-import type { Command, Declaration, Program, Property, TimelineBlock } from './syntax.ts';
+import type { Command, Declaration, DistributionExpression, Program, Property, TimelineBlock } from './syntax.ts';
 
 // Read syntax without applying defaults, converting units or constructing a scenario.
 export function parse(source: string): Program {
@@ -43,7 +43,8 @@ class Parser {
 
   private declaration(): Declaration {
     const keyword = this.expect('word', 'Expected a declaration.');
-    const named = ['balancer', 'backend', 'backends', 'clients', 'client', 'profile'].includes(keyword.text);
+    const named = ['balancer', 'backend', 'backends', 'clients', 'client', 'profile', 'distribution']
+      .includes(keyword.text);
     if (!named && !['run', 'defaults', 'tcp', 'language'].includes(keyword.text)) {
       throw new LanguageError(`Unsupported declaration ${JSON.stringify(keyword.text)}.`, keyword.range);
     }
@@ -55,6 +56,14 @@ class Parser {
     }
     if (named) {
       argument = this.expect('word', `Expected a name after ${keyword.text}.`);
+      if (keyword.text === 'distribution') {
+        const family = this.expect('word', 'Expected a distribution family such as uniform.');
+        const distribution = this.distributionExpression(family);
+        return {
+          keyword, argument, distribution, properties: [],
+          range: { start: keyword.range.start, end: distribution.range.end },
+        };
+      }
       if (this.peek().kind === 'word' && this.peek().text === 'use') {
         this.take();
         profile = this.expect('word', 'Expected a profile name after use.');
@@ -88,22 +97,24 @@ class Parser {
       }
       this.take();
       if (value.kind === 'word' && this.peek().kind === '{') {
-        if (value.text !== 'uniform') {
-          throw new LanguageError(`Unsupported distribution ${JSON.stringify(value.text)}.`, value.range);
-        }
-        const parameters = this.block();
-        properties.push({
-          key,
-          value: {
-            kind: 'distribution', family: value, parameters,
-            range: { start: value.range.start, end: this.tokens[this.index - 1].range.end },
-          },
-        });
+        properties.push({ key, value: this.distributionExpression(value) });
       } else {
         properties.push({ key, value });
       }
     }
     return properties;
+  }
+
+  // Named and inline definitions keep the same parameter syntax and source positions.
+  private distributionExpression(family: Token): DistributionExpression {
+    if (family.text !== 'uniform') {
+      throw new LanguageError(`Unsupported distribution ${JSON.stringify(family.text)}.`, family.range);
+    }
+    const parameters = this.block();
+    return {
+      kind: 'distribution', family, parameters,
+      range: { start: family.range.start, end: this.tokens[this.index - 1].range.end },
+    };
   }
 
   // All nested settings share this reader; 64 levels bound recursion on pasted input.

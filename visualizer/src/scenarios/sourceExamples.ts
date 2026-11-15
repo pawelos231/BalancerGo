@@ -4,6 +4,7 @@ import uniformTimelineSource from './examples/sources/uniform-timeline-declarati
 import uniformInvalidRangeSource from './examples/sources/uniform-invalid-range.lb?raw';
 import uniformInvalidUnitsSource from './examples/sources/uniform-invalid-units.lb?raw';
 import uniformMissingBoundSource from './examples/sources/uniform-missing-bound.lb?raw';
+import uniformProfileSource from './examples/sources/uniform-profile-definitions.lb?raw';
 
 // These editable sources demonstrate declarations and diagnostics before runtime integration.
 export interface ScenarioSourceExample {
@@ -14,20 +15,28 @@ export interface ScenarioSourceExample {
   readonly description: string;
   readonly source: string;
   // The compiler adds source locations when checking the loaded draft.
-  readonly expectedDiagnostic: string;
+  readonly expectedDiagnostic?: string;
 }
 
 const declarationDiagnostic =
-  'Uniform distribution syntax is recognized, but scenario compilation is not available yet.';
+  'Uniform definitions compile as named distributions; runtime field sampling is not available yet.';
 
 export const sourceExamples: readonly ScenarioSourceExample[] = [
+  {
+    kind: 'sourceExample',
+    id: 'uniform-profile-definitions',
+    category: 'distributions',
+    title: 'Uniform profile definitions',
+    description: 'Compiles three named definitions into JSON. They are unbound; CPU and links keep scalar settings.',
+    source: uniformProfileSource,
+  },
   {
     kind: 'sourceExample',
     id: 'uniform-cpu-declaration',
     category: 'distributions',
     title: 'Uniform backend CPU declaration',
     description: 'Declares CPU time from 5us to 15us. Bounds are valid; '
-      + 'scenario compilation and execution are pending.',
+      + 'binding the definition to CPU processing is pending.',
     source: uniformCpuSource,
     expectedDiagnostic: declarationDiagnostic,
   },
@@ -37,7 +46,7 @@ export const sourceExamples: readonly ScenarioSourceExample[] = [
     category: 'distributions',
     title: 'Uniform travel with mixed units',
     description: 'Declares travel from 500us to 1ms with compatible units. '
-      + 'Scenario compilation and execution are pending.',
+      + 'Binding the definition to a link is pending.',
     source: uniformTravelSource,
     expectedDiagnostic: declarationDiagnostic,
   },
@@ -46,7 +55,7 @@ export const sourceExamples: readonly ScenarioSourceExample[] = [
     id: 'uniform-timeline-declaration',
     category: 'distributions',
     title: 'Uniform timeline declaration',
-    description: 'Starts with fixed CPU time and declares uniform bounds at 1s. Uniform compilation is pending.',
+    description: 'Starts with fixed CPU time and declares uniform bounds at 1s. Runtime field binding is pending.',
     source: uniformTimelineSource,
     expectedDiagnostic: declarationDiagnostic,
   },

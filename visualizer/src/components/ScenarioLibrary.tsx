@@ -92,7 +92,8 @@ function ScenarioLibrary({
             Explore links, queues, loss, workloads, routing, reference experiments and edge cases, or run the
             unpaced simulator throughput benchmark.
             Loading a preset updates its language source, JSON and planned topology after validation.
-            Source examples load only an editable draft with an expected diagnostic; they cannot run.
+            Source examples load an editable draft. Named definitions compile to JSON;
+            inline runtime fields show their expected diagnostic.
           </Typography>
 
           {loading && (
@@ -160,6 +161,12 @@ function ScenarioLibrary({
             {visibleEntries.map((entry) => {
               const isSourceExample = entry.kind === 'sourceExample';
               const isApplied = !isSourceExample && applied?.id === entry.id;
+              let entryLabel: string | undefined;
+              if (entry.kind === 'sourceExample') {
+                entryLabel = entry.expectedDiagnostic ? 'Source example · not runnable' : 'Unbound definitions';
+              } else {
+                entryLabel = presetCategories.find(category => category.id === entry.category)?.label;
+              }
               return (
                 <Grid key={entry.id} size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
                   <Card
@@ -172,9 +179,7 @@ function ScenarioLibrary({
                     <CardContent>
                       <Stack spacing={1} alignItems="flex-start">
                         <Chip
-                          label={isSourceExample
-                            ? 'Source example · not runnable'
-                            : presetCategories.find(category => category.id === entry.category)?.label}
+                          label={entryLabel}
                           size="small"
                           variant="outlined"
                         />
@@ -182,7 +187,7 @@ function ScenarioLibrary({
                         <Typography variant="body2" color="text.secondary">
                           {entry.description}
                         </Typography>
-                        {entry.kind === 'sourceExample' && (
+                        {entry.kind === 'sourceExample' && entry.expectedDiagnostic && (
                           <Typography variant="caption" color="text.secondary">
                             Expected diagnostic: {entry.expectedDiagnostic}
                           </Typography>

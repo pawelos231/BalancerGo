@@ -35,9 +35,10 @@ function distributions(program: Program): DistributionExpression[] {
   return found;
 }
 
-test('distribution catalog uses the six canonical source files without native JSON examples', () => {
+test('distribution catalog uses canonical source files for definitions and runtime drafts', () => {
   const ids = [
     ...declarationIds, 'uniform-invalid-range', 'uniform-invalid-units', 'uniform-missing-bound',
+    'uniform-profile-definitions',
   ];
   assert.deepEqual(sourceExamples.map(example => example.id).sort(), ids.sort());
   assert.deepEqual(readdirSync(directory).sort(), ids.map(id => `${id}.lb`).sort());
@@ -50,7 +51,7 @@ test('distribution catalog uses the six canonical source files without native JS
   }
 });
 
-for (const example of sourceExamples) {
+for (const example of sourceExamples.filter(entry => entry.expectedDiagnostic)) {
   test(`${example.id} retains its expected diagnostic through parsing, import and export`, async () => {
     const expressions = distributions(parse(example.source));
     assert.equal(expressions.length, 1);
@@ -118,7 +119,7 @@ test('valid declaration examples compile when their single distribution is repla
   }
 });
 
-test('applying any distribution source example fails before sending native JSON to the API', async () => {
+test('applying an inline distribution draft fails before sending native JSON to the API', async () => {
   let requests = 0;
   const api = {
     validate: async () => {
@@ -126,7 +127,7 @@ test('applying any distribution source example fails before sending native JSON 
       throw new Error('Source examples must not reach native JSON validation.');
     },
   };
-  for (const example of sourceExamples) {
+  for (const example of sourceExamples.filter(entry => entry.expectedDiagnostic)) {
     await assert.rejects(
       validateLanguageDocument(example.source, api, new AbortController().signal),
       error => {
