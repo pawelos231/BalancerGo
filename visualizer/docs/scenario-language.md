@@ -2,7 +2,7 @@
 
 ## Summary
 
-The published English guide starts at [Start here](/docs/language). Its ten
+The published English guide starts at [Start here](/docs/language). Its published
 Markdown source pages are linked below for review. Source examples are checked
 against the current language compiler.
 
@@ -17,9 +17,10 @@ against the current language compiler.
 | Start here | [start.md](language/start.md) | [Open](/docs/language) |
 | Syntax and units | [syntax.md](language/syntax.md) | [Open](/docs/language/syntax) |
 | Uniform distributions | [uniform.md](language/uniform.md) | [Open](/docs/language/uniform) |
+| Normal distributions | [normal.md](language/normal.md) | [Open](/docs/language/normal) |
 | Topology and capacity | [topology.md](language/topology.md) | [Open](/docs/language/topology) |
 | Clients and traffic | [clients.md](language/clients.md) | [Open](/docs/language/clients) |
-| Defaults and profiles | [defaults.md](language/defaults.md) | [Open](/docs/language/defaults) |
+| Defaults, profiles and overrides | [defaults.md](language/defaults.md) | [Open](/docs/language/defaults) |
 | TCP settings | [tcp.md](language/tcp.md) | [Open](/docs/language/tcp) |
 | Timeline changes | [timeline.md](language/timeline.md) | [Open](/docs/language/timeline) |
 | Small experiments | [examples.md](language/examples.md) | [Open](/docs/language/examples) |

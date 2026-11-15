@@ -1,3 +1,5 @@
+import { distributionPages } from './distributions.ts';
+
 // The reading order is also the sidebar order; each page has one authored source.
 export const languagePages = [
   {
@@ -12,6 +14,7 @@ export const languagePages = [
     id: 'uniform', title: 'Uniform distributions', path: '/docs/language/uniform',
     loadMarkdown: () => import('../../docs/language/uniform.md?raw').then(module => module.default),
   },
+  ...distributionPages,
   {
     id: 'topology', title: 'Topology and capacity', path: '/docs/language/topology',
     loadMarkdown: () => import('../../docs/language/topology.md?raw').then(module => module.default),

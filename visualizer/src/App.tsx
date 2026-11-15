@@ -29,6 +29,7 @@ import SimulationPage from './pages/SimulationPage';
 import type { LoadBalancerState } from './types';
 import type { Scenario } from './scenarios/types';
 import useResults from './results/useResults';
+import { distributionPages } from './docs/distributions';
 
 const TopologyPage = lazy(() => import('./pages/TopologyPage'));
 const PlannedTopologyPage = lazy(() => import('./pages/PlannedTopologyPage'));
@@ -300,6 +301,9 @@ function App() {
               <Route path="/docs/language" element={<DocsPage languagePage="start" />} />
               <Route path="/docs/language/syntax" element={<DocsPage languagePage="syntax" />} />
               <Route path="/docs/language/uniform" element={<DocsPage languagePage="uniform" />} />
+              {distributionPages.map(page => (
+                <Route key={page.id} path={page.path} element={<DocsPage languagePage={page.id} />} />
+              ))}
               <Route path="/docs/language/topology" element={<DocsPage languagePage="topology" />} />
               <Route path="/docs/language/clients" element={<DocsPage languagePage="clients" />} />
               <Route path="/docs/language/defaults" element={<DocsPage languagePage="defaults" />} />

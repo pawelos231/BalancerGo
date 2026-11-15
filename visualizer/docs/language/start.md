@@ -12,13 +12,14 @@
 1. [Start here](/docs/language)
 2. [Syntax and units](/docs/language/syntax)
 3. [Uniform distributions](/docs/language/uniform)
-4. [Topology and capacity](/docs/language/topology)
-5. [Clients and traffic](/docs/language/clients)
-6. [Defaults, profiles and overrides](/docs/language/defaults)
-7. [TCP settings](/docs/language/tcp)
-8. [Timeline changes](/docs/language/timeline)
-9. [Small experiments](/docs/language/examples)
-10. [Fixing errors](/docs/language/errors)
+4. [Normal distributions](/docs/language/normal)
+5. [Topology and capacity](/docs/language/topology)
+6. [Clients and traffic](/docs/language/clients)
+7. [Defaults, profiles and overrides](/docs/language/defaults)
+8. [TCP settings](/docs/language/tcp)
+9. [Timeline changes](/docs/language/timeline)
+10. [Small experiments](/docs/language/examples)
+11. [Fixing errors](/docs/language/errors)
 
 ## On this page
 

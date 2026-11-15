@@ -9,6 +9,10 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { documentationConcepts, remarkConceptBacklinks, remarkConceptLinks } from '../../../src/docs/concepts.ts';
 import { languagePages as languageCatalog } from '../../../src/docs/language.ts';
+import { distributionPages } from '../../../src/docs/distributions.ts';
+import { buildDistributionPreview } from '../../../src/docs/distributionPreview.ts';
+import { familyBySource } from '../../../src/scenarios/randomness/registry.ts';
+import { sourceExamples } from '../../../src/scenarios/sourceExamples.ts';
 import { splitOverview } from '../../../src/docs/overview.ts';
 import { compileScenario } from '../../../src/scenario-language/compile.ts';
 import { documentationExamples, wrapDocumentationExample } from '../../documentationExamples.ts';
@@ -44,7 +48,7 @@ function assertDestination(destination: string, source: string) {
 }
 
 test('all authored language pages expose a summary and a working table of contents at the top', () => {
-  const ids = ['start', 'syntax', 'uniform', 'topology', 'clients', 'defaults', 'tcp', 'timeline', 'examples', 'errors'];
+  const ids = ['start', 'syntax', 'uniform', ...distributionPages.map(page => page.id), 'topology', 'clients', 'defaults', 'tcp', 'timeline', 'examples', 'errors'];
   assert.deepEqual(languagePages.map(page => page.id), ids);
   assert.deepEqual(
     readdirSync(new URL('../../../docs/language/', import.meta.url)).filter(name => name.endsWith('.md')).sort(),
@@ -163,4 +167,22 @@ test('concept plugins reject unknown keys and keep backlinks scoped to a page an
   assert.equal(toString(tree.children[secondHeading + 1]), 'Second explanation.');
   const unrelated = unified().use(remarkParse).use(remarkGfm).use(remarkConceptBacklinks, { path: '/docs/simulation' });
   assert.equal(links(unrelated.runSync(unrelated.parse(repeated))).length, 0);
+});
+
+test('published distribution chapters pair a working preview heading with canonical compiled definitions', () => {
+  for (const chapter of distributionPages) {
+    const family = familyBySource(chapter.id);
+    assert.ok(family?.compilationAvailable, `${chapter.id}: language stage precedes publication`);
+    const document = languagePages.find(page => page.id === chapter.id)!;
+    assert.ok(headingIds(document.markdown).has('density-preview'), chapter.id);
+    const source = sourceExamples.find(example => example.id === `${chapter.id}-profile-definitions`);
+    assert.ok(source, `${chapter.id}: the preview reuses a canonical source-library example`);
+    const scenario = compileScenario(source.source);
+    const profiles = Object.values(scenario.fixed.randomProfiles ?? {}).filter(profile => profile.kind === family.kind);
+    assert.ok(profiles.length > 0, chapter.id);
+    for (const profile of profiles) {
+      const preview = buildDistributionPreview(profile);
+      assert.equal(preview.family, family.kind);
+    }
+  }
 });

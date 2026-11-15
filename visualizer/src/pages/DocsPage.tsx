@@ -7,11 +7,13 @@ import { Link as RouterLink, useLocation, useNavigate } from 'react-router';
 import readme from '../../../README.md?raw';
 import DocumentationArticle from '../components/DocumentationArticle';
 import { languagePages } from '../docs/language';
+import { distributionPages } from '../docs/distributions';
 import type { LanguageDocument, LanguagePageId } from '../docs/language';
 import { overviewPages, splitOverview } from '../docs/overview';
 import type { OverviewDocument, OverviewPageId } from '../docs/overview';
 
 const UniformDensityPreview = lazy(() => import('../components/UniformDensityPreview'));
+const DistributionPreview = lazy(() => import('../components/DistributionPreview'));
 const overviewContent = splitOverview(readme);
 const navigationGroups = [
   { id: 'overview', title: 'Overview', pages: overviewPages },
@@ -129,13 +131,20 @@ function LanguageGuide({ document }: { document: LanguageDocument }) {
 
   // Loading the lazy chart can move headings below it; restore the bookmark once it mounts.
   const markPreviewReady = useCallback(() => setPreviewReady(true), []);
-  const sectionContent = useMemo(() => document.id === 'uniform' ? {
-    'density-preview': (
-      <Suspense fallback={<Typography role="status">Loading density preview…</Typography>}>
-        <UniformDensityPreview onReady={markPreviewReady} />
-      </Suspense>
-    ),
-  } : undefined, [document.id, markPreviewReady]);
+  const sectionContent = useMemo(() => {
+    const preview = document.id === 'uniform'
+      ? <UniformDensityPreview onReady={markPreviewReady} />
+      : distributionPages.some(page => page.id === document.id)
+        ? <DistributionPreview family={document.id} onReady={markPreviewReady} />
+        : null;
+    return preview ? {
+      'density-preview': (
+        <Suspense fallback={<Typography role="status">Loading density preview…</Typography>}>
+          {preview}
+        </Suspense>
+      ),
+    } : undefined;
+  }, [document.id, markPreviewReady]);
 
   useEffect(() => {
     let current = true;
