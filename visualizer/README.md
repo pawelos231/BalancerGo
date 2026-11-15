@@ -357,6 +357,12 @@ field-specific limits and integer conversion belong to later integration.
 Compilation currently rejects these expressions explicitly, including unused
 profiles and timeline changes. Sampling and native JSON support are not enabled.
 
+The standalone [random-profile contract](../examples/randomness/CONTRACT.md)
+defines constant and uniform values for Go and TypeScript. Quantities are canonical
+decimal strings in explicit base units, preserving fractional bounds and large
+integers. Both validators run the same JSON cases from `examples/randomness/`.
+Scenario fields and source compilation retain their current behavior until integration.
+
 Build output is written to `dist/`. `VITE_WS_URL` is embedded at build time, so
 changing the backend URL for a static deployment requires rebuilding.
 

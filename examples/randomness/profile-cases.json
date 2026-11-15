@@ -1,0 +1,159 @@
+{
+  "cases": [
+    {
+      "name": "constant zero",
+      "valid": true,
+      "document": "{\"kind\":\"constant\",\"unit\":\"nanoseconds\",\"value\":\"0\"}"
+    },
+    {
+      "name": "constant int64 maximum",
+      "valid": true,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"9223372036854775807\"}"
+    },
+    {
+      "name": "constant bytes above safe integer",
+      "valid": true,
+      "document": "{\"kind\":\"constant\",\"unit\":\"bytes\",\"value\":\"9007199254740993\"}"
+    },
+    {
+      "name": "uniform adjacent unsafe integers",
+      "valid": true,
+      "document": "{\"kind\":\"uniform\",\"unit\":\"nanoseconds\",\"min\":\"9007199254740992\",\"max\":\"9007199254740993\"}"
+    },
+    {
+      "name": "uniform fractional bytes",
+      "valid": true,
+      "document": "{\"kind\":\"uniform\",\"unit\":\"bytes\",\"min\":\"0.125\",\"max\":\"1\"}"
+    },
+    {
+      "name": "uniform exact fractional difference",
+      "valid": true,
+      "document": "{\"kind\":\"uniform\",\"unit\":\"number\",\"min\":\"1.0000000000000000001\",\"max\":\"1.0000000000000000002\"}"
+    },
+    {
+      "name": "uniform percentage upper boundary",
+      "valid": true,
+      "document": "{\"kind\":\"uniform\",\"unit\":\"percentage\",\"min\":\"99.99999999999999999\",\"max\":\"100\"}"
+    },
+    {
+      "name": "constant bit rate",
+      "valid": true,
+      "document": "{\"kind\":\"constant\",\"unit\":\"bitsPerSecond\",\"value\":\"80000000000000000\"}"
+    },
+    {
+      "name": "constant maximum decimal length",
+      "valid": true,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"0.111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\"}"
+    },
+    {
+      "name": "unsupported future family",
+      "valid": false,
+      "document": "{\"kind\":\"normal\",\"unit\":\"nanoseconds\",\"min\":\"0\",\"max\":\"1\"}"
+    },
+    {
+      "name": "unsupported source unit",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"ms\",\"value\":\"1\"}"
+    },
+    {
+      "name": "missing constant value",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\"}"
+    },
+    {
+      "name": "constant rejects bounds",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"1\",\"min\":\"0\",\"max\":\"2\"}"
+    },
+    {
+      "name": "uniform rejects constant parameter",
+      "valid": false,
+      "document": "{\"kind\":\"uniform\",\"unit\":\"number\",\"min\":\"0\",\"max\":\"2\",\"value\":\"1\"}"
+    },
+    {
+      "name": "missing uniform bound",
+      "valid": false,
+      "document": "{\"kind\":\"uniform\",\"unit\":\"number\",\"min\":\"0\"}"
+    },
+    {
+      "name": "equal uniform bounds",
+      "valid": false,
+      "document": "{\"kind\":\"uniform\",\"unit\":\"number\",\"min\":\"1\",\"max\":\"1\"}"
+    },
+    {
+      "name": "reversed exact uniform bounds",
+      "valid": false,
+      "document": "{\"kind\":\"uniform\",\"unit\":\"number\",\"min\":\"1.0000000000000000002\",\"max\":\"1.0000000000000000001\"}"
+    },
+    {
+      "name": "fraction exceeds int64 maximum",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"nanoseconds\",\"value\":\"9223372036854775807.000000000000000001\"}"
+    },
+    {
+      "name": "percentage exceeds upper boundary",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"percentage\",\"value\":\"100.000000000000000001\"}"
+    },
+    {
+      "name": "negative quantity",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"-1\"}"
+    },
+    {
+      "name": "leading zero",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"01\"}"
+    },
+    {
+      "name": "fractional trailing zero",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"1.20\"}"
+    },
+    {
+      "name": "exponent notation",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"1e3\"}"
+    },
+    {
+      "name": "decimal without integer part",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\".5\"}"
+    },
+    {
+      "name": "decimal too long",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"0.1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\"}"
+    },
+    {
+      "name": "duplicate field",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"1\",\"value\":\"2\"}"
+    },
+    {
+      "name": "unknown field",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"1\",\"unused\":\"2\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":null}"
+    },
+    {
+      "name": "numeric parameter loses contract precision",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":9007199254740992}"
+    },
+    {
+      "name": "non-object definition",
+      "valid": false,
+      "document": "[]"
+    },
+    {
+      "name": "trailing JSON definition",
+      "valid": false,
+      "document": "{\"kind\":\"constant\",\"unit\":\"number\",\"value\":\"1\"} {}"
+    }
+  ]
+}
