@@ -1,0 +1,18 @@
+language 1
+run 2s speed 0
+
+# Expected error: The dimensionless gamma shape must be positive.
+distribution invalid-example gamma {
+    shape 0
+    scale 1ms
+    min 0ms
+    max 10ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

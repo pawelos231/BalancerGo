@@ -1,11 +1,18 @@
 import { StreamLanguage, type StreamParser } from '@codemirror/language';
+import { familyBySource, familySpecs } from '../scenarios/randomness/registry.ts';
 
 const namedDeclarations = new Set([
   'balancer', 'backend', 'backends', 'clients', 'client', 'profile', 'distribution',
 ]);
 const commands = new Set(['add', 'set', 'down', 'up', 'drain', 'stop', 'remove']);
+const distributionKeywords = familySpecs.flatMap(family => family.parameters.flatMap(parameter => {
+  const name = parameter.source ?? parameter.name;
+  if (parameter.role === 'entries') return [name, 'entry', 'value', 'weight'];
+  if (parameter.role === 'observations') return [name, 'observation'];
+  return [name];
+}));
 const keywords = new Set([
-  'language', 'run', 'defaults', 'tcp', ...namedDeclarations, ...commands,
+  'language', 'run', 'defaults', 'tcp', ...namedDeclarations, ...commands, ...distributionKeywords,
   'use', 'at', 'arrivals',
   'seed', 'speed', 'snapshots', 'max-events', 'link', 'travel', 'queue', 'loss',
   'queue-policy', 'ecn-threshold', 'signal-probability', 'to-lb', 'from-lb',
@@ -81,7 +88,7 @@ const scenarioParser: StreamParser<HighlightState> = {
       }
       if (state.role === 'value') {
         state.role = 'field';
-        if (word === 'uniform' && stream.match(/^\s*\{/, false)) return 'keyword';
+        if (familyBySource(word) && stream.match(/^\s*\{/, false)) return 'keyword';
         if (word === 'true' || word === 'false') return 'bool';
         return word === 'null' ? 'null' : 'variableName';
       }

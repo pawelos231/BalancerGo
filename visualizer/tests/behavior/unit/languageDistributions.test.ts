@@ -83,10 +83,10 @@ test('uniform rejects incompatible units and out-of-range quantities', () => {
   const cases = [
     ['min 1ms max 2KB', /compatible units/],
     ['min 1 max 2%', /compatible units/],
-    ['min 1Mbps max 2Mbps', /Unsupported uniform bound unit/],
-    ['min -1ms max 2ms', /bounds must be between/],
-    ['min 0% max 100.00000000000000001%', /bounds must be between/],
-    ['min 0ns max 9223372036854775808ns', /bounds must be between/],
+    ['min 1Mbps max 2Mbps', /Unsupported distribution unit/],
+    ['min -1ms max 2ms', /Distribution values must be between/],
+    ['min 0% max 100.00000000000000001%', /Distribution values must be between/],
+    ['min 0ns max 9223372036854775808ns', /Distribution values must be between/],
   ] as const;
 
   for (const [parameters, message] of cases) {

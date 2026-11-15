@@ -8,6 +8,14 @@ import { parse } from '../../../src/scenario-language/parser.ts';
 import { familySpecs } from '../../../src/scenarios/randomness/registry.ts';
 import { sourceExamples } from '../../../src/scenarios/sourceExamples.ts';
 
+test('family quantity diagnostics describe distribution units and ranges', () => {
+  const definition = (mean: string) => parse(`distribution cost normal {
+    mean ${mean} stddev 1us min 0us max 2us
+  }`).declarations[0].distribution!;
+  assert.throws(() => compileFamilyDefinition(definition('1Mbps')), /Unsupported distribution unit "Mbps"/);
+  assert.throws(() => compileFamilyDefinition(definition('-1us')), /Distribution values must be between 0/);
+});
+
 for (const family of familySpecs.filter(item => !['constant', 'uniform'].includes(item.kind))) {
   const examples = sourceExamples.filter(item => item.id.startsWith(`${family.source}-`));
   const valid = examples.find(item => item.id.endsWith('-profile-definitions'))!;

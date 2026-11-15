@@ -33,12 +33,12 @@ export function readBound(token: Token): Bound {
     multiplier = byteUnits[unit];
   } else if (unit === '%') dimension = 'percentage';
   else if (unit === '') dimension = 'number';
-  else throw new LanguageError(`Unsupported uniform bound unit ${JSON.stringify(unit)}.`, token.range);
+  else throw new LanguageError(`Unsupported distribution unit ${JSON.stringify(unit)}.`, token.range);
 
   const value = numerator * multiplier;
   const limit = dimension === 'percentage' ? 100n : INT64_MAX;
   if (value < 0n || value > limit * denominator) {
-    throw new LanguageError(`Uniform bounds must be between 0 and ${limit} in their base unit.`, token.range);
+    throw new LanguageError(`Distribution values must be between 0 and ${limit} in their base unit.`, token.range);
   }
   return { dimension, numerator: value, denominator };
 }

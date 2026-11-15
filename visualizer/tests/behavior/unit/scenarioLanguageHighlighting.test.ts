@@ -4,6 +4,8 @@ import { EditorState, type Extension } from '@codemirror/state';
 import { ensureSyntaxTree } from '@codemirror/language';
 import { highlightTree, tagHighlighter, tags } from '@lezer/highlight';
 import { scenarioFieldFragment, scenarioLanguage } from '../../../src/components/scenarioLanguageHighlighting.ts';
+import { familySpecs } from '../../../src/scenarios/randomness/registry.ts';
+import { sourceExamples } from '../../../src/scenarios/sourceExamples.ts';
 
 function highlighted(source: string, language: Extension = scenarioLanguage) {
   const state = EditorState.create({ doc: source, extensions: [language] });
@@ -112,6 +114,34 @@ test('field fragments highlight first-line uniform definitions consistently', ()
   assert.deepEqual(highlighted('admin uniform', scenarioFieldFragment), [
     { text: 'admin', style: 'keyword' }, { text: 'uniform', style: 'name' },
   ]);
+});
+
+test('canonical family definitions highlight active family and parameter keywords', () => {
+  for (const family of familySpecs.filter(item => !['constant', 'uniform'].includes(item.kind))) {
+    const example = sourceExamples.find(item => item.id === `${family.source}-profile-definitions`)!;
+    const tokens = highlighted(example.source);
+    const parameters = family.parameters.flatMap(parameter => {
+      const names = [parameter.source ?? parameter.name];
+      if (parameter.role === 'entries') names.push('entry', 'value', 'weight');
+      if (parameter.role === 'observations') names.push('observation');
+      return names;
+    });
+    for (const word of [family.source, ...parameters]) {
+      assert.ok(tokens.some(token => token.text === word && token.style === 'keyword'), `${family.source}: ${word}`);
+    }
+  }
+});
+
+test('family names retain name and value colors outside distribution expressions', () => {
+  for (const family of familySpecs.filter(item => item.kind !== 'constant')) {
+    const source = `profile ${family.source} {}
+backend ${family.source} use ${family.source} { admin ${family.source} }
+distribution ${family.source} ${family.source} {}
+defaults travel ${family.source} {}`;
+    assert.deepEqual(highlighted(source).filter(token => token.text === family.source).map(token => token.style), [
+      'name', 'name', 'name', 'name', 'name', 'keyword', 'keyword',
+    ], family.source);
+  }
 });
 
 test('field fragments preserve field, enum and nested value styles in each documented context', () => {

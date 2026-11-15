@@ -1,0 +1,84 @@
+{
+  "family": "gamma",
+  "source": "gamma",
+  "expectedProfiles": {
+    "two-stage-time": {
+      "kind": "gamma",
+      "unit": "nanoseconds",
+      "shape": "2",
+      "scale": "1000000",
+      "min": "0",
+      "max": "10000000"
+    },
+    "near-zero-time": {
+      "kind": "gamma",
+      "unit": "nanoseconds",
+      "shape": "0.5",
+      "scale": "2000000",
+      "min": "0",
+      "max": "10000000"
+    }
+  },
+  "cases": [
+    {
+      "name": "two-stage-time",
+      "valid": true,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"nanoseconds\",\"shape\":\"2\",\"scale\":\"1000000\",\"min\":\"0\",\"max\":\"10000000\"}"
+    },
+    {
+      "name": "near-zero-time",
+      "valid": true,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"nanoseconds\",\"shape\":\"0.5\",\"scale\":\"2000000\",\"min\":\"0\",\"max\":\"10000000\"}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"nanoseconds\",\"shape\":\"2\",\"scale\":\"1000000\",\"min\":\"0\",\"max\":\"10000000\",\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"nanoseconds\",\"shape\":null,\"scale\":\"1000000\",\"min\":\"0\",\"max\":\"10000000\"}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"nanoseconds\",\"shape\":1,\"scale\":\"1000000\",\"min\":\"0\",\"max\":\"10000000\"}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"nanoseconds\",\"scale\":\"1000000\",\"min\":\"0\",\"max\":\"10000000\"}"
+    },
+    {
+      "name": "empty interval",
+      "valid": false,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"nanoseconds\",\"shape\":\"2\",\"scale\":\"1000000\",\"min\":\"0\",\"max\":\"0\"}"
+    },
+    {
+      "name": "reversed interval",
+      "valid": false,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"nanoseconds\",\"shape\":\"2\",\"scale\":\"1000000\",\"min\":\"10000000\",\"max\":\"0\"}"
+    },
+    {
+      "name": "zero shape",
+      "valid": false,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"nanoseconds\",\"shape\":\"0\",\"scale\":\"1000000\",\"min\":\"0\",\"max\":\"10000000\"}"
+    },
+    {
+      "name": "zero scale",
+      "valid": false,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"nanoseconds\",\"shape\":\"2\",\"scale\":\"0\",\"min\":\"0\",\"max\":\"10000000\"}"
+    },
+    {
+      "name": "dimensionless shape above percentage ceiling",
+      "valid": true,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"percentage\",\"shape\":\"250\",\"scale\":\"1\",\"min\":\"0\",\"max\":\"10\"}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"gamma\",\"unit\":\"number\",\"unit\":\"nanoseconds\",\"shape\":\"2\",\"scale\":\"1000000\",\"min\":\"0\",\"max\":\"10000000\"}"
+    }
+  ]
+}
