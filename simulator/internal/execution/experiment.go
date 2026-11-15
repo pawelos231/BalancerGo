@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"load-balancer/internal/contract"
+	"load-balancer/randomness"
 )
 
 const experimentModel = "host-cpu-v1"
@@ -20,10 +21,11 @@ func Context(
 ) contract.ExperimentContext {
 	hash := sha256.Sum256(document)
 	return contract.ExperimentContext{
-		Model:          experimentModel,
-		ScenarioSHA256: hex.EncodeToString(hash[:]),
-		Execution:      execution,
-		Build:          experimentBuild(),
+		Model:           experimentModel,
+		RandomnessModel: randomness.StreamModel,
+		ScenarioSHA256:  hex.EncodeToString(hash[:]),
+		Execution:       execution,
+		Build:           experimentBuild(),
 	}
 }
 

@@ -95,7 +95,8 @@ func assertInteractiveExperiment(
 	}
 
 	cli := execution.Manifest(document, false)
-	if experiment.Model != cli.Model || !reflect.DeepEqual(experiment.Build, cli.Build) {
-		t.Fatal("CLI and interactive runs use different model or build metadata")
+	if experiment.Model != cli.Model || experiment.RandomnessModel != cli.RandomnessModel ||
+		!reflect.DeepEqual(experiment.Build, cli.Build) {
+		t.Fatal("CLI and interactive runs use different model, randomness or build metadata")
 	}
 }

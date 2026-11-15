@@ -10,6 +10,7 @@ import (
 	"load-balancer/balancer"
 	"load-balancer/host"
 	"load-balancer/network"
+	"load-balancer/randomness"
 	"load-balancer/scenario"
 )
 
@@ -211,7 +212,7 @@ func (s *World) prepareResourceCommits(commits []configurationCommit) {
 			config := change.config
 			if config.QueuePolicy == "threshold" &&
 				config.CongestionSignalProbability > 0 && config.CongestionSignalProbability < 1 {
-				change.congestionRNG = s.resourceRNG(change.id + "/congestion")
+				change.congestionRNG = s.randomStreams.Stream(change.id, randomness.Congestion)
 			}
 		}
 	}

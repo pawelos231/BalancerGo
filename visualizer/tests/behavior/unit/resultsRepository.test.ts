@@ -67,6 +67,40 @@ test('archives round-trip all fields, exact integers, unsafe float settings and 
   assert.deepEqual(repository.list(), { entries: [row], warnings: [] });
 });
 
+test('archives preserve optional current and future randomness models while accepting legacy absence', () => {
+  for (const randomnessModel of [undefined, 'test-randomness-v1', 'future-randomness-v99']) {
+    const result = JSON.parse(JSON.stringify(resultFixture('a')));
+    const contexts = [result.context.experiment, result.collection.metadata.experiment,
+      result.collection.samples[0].snapshot.simulation.experiment];
+    if (randomnessModel !== undefined) {
+      for (const experiment of contexts) experiment.randomnessModel = randomnessModel;
+    }
+    const repository = new LocalResultsRepository(new MemoryStorage());
+    repository.save(result);
+    const restored = repository.read('a')!;
+    assert.deepEqual(restored, result);
+    assert.equal(restored.context.experiment?.randomnessModel, randomnessModel);
+    assert.equal(restored.collection.metadata?.experiment?.randomnessModel, randomnessModel);
+    assert.equal(restored.collection.samples[0].snapshot.simulation.experiment?.randomnessModel, randomnessModel);
+  }
+});
+
+test('archives reject malformed randomness models in every experiment context', () => {
+  for (const location of ['context', 'metadata', 'snapshot']) {
+    for (const randomnessModel of [null, '', 0, true, [], {}]) {
+      const result = JSON.parse(JSON.stringify(resultFixture('a')));
+      const experiment = location === 'context' ? result.context.experiment
+        : location === 'metadata' ? result.collection.metadata.experiment
+          : result.collection.samples[0].snapshot.simulation.experiment;
+      experiment.randomnessModel = randomnessModel;
+      assert.throws(() => parseRunResultJSON(JSON.stringify(result)), /randomnessModel/);
+      const storage = new MemoryStorage();
+      storeRecord(storage, result);
+      expectError(() => new LocalResultsRepository(storage).read('a'), 'corrupt');
+    }
+  }
+});
+
 test('the compact list reads only the index and owned key names, never archived series', () => {
   const storage = new MemoryStorage();
   const repository = new LocalResultsRepository(storage);

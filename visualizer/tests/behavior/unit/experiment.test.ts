@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { isExperimentContext } from '../../../src/experiment.ts';
+import { parseSnapshot } from '../../../src/telemetry/parse.ts';
 import { experimentFixture } from '../../scenarioFixture.ts';
+import { telemetryFrame } from '../../telemetryFixture.ts';
 
 test('experiment context accepts zero speed, false flags and optional build provenance', () => {
   const context = experimentFixture();
@@ -13,6 +15,27 @@ test('experiment context accepts zero speed, false flags and optional build prov
   context.build.vcsRevision = '';
   context.build.vcsModified = true;
   assert.equal(isExperimentContext(context), true);
+});
+
+test('live experiment context accepts legacy absence and preserves current or future randomness models', () => {
+  const frame = telemetryFrame();
+  assert.equal(isExperimentContext(frame.simulation.experiment), true);
+  assert.equal(parseSnapshot(frame).simulation.experiment?.randomnessModel, undefined);
+  for (const randomnessModel of ['test-randomness-v1', 'future-randomness-v99']) {
+    const experiment = { ...experimentFixture(), randomnessModel };
+    assert.equal(isExperimentContext(experiment), true);
+    const snapshot = parseSnapshot({ ...frame, simulation: { ...frame.simulation, experiment } });
+    assert.equal(snapshot.simulation.experiment?.randomnessModel, randomnessModel);
+  }
+});
+
+test('live experiment context rejects a present malformed randomness model', () => {
+  const frame = telemetryFrame();
+  for (const randomnessModel of [undefined, null, '', 0, true, [], {}]) {
+    const experiment = { ...experimentFixture(), randomnessModel };
+    assert.equal(isExperimentContext(experiment), false);
+    assert.throws(() => parseSnapshot({ ...frame, simulation: { ...frame.simulation, experiment } }), /incomplete/);
+  }
 });
 
 test('experiment context rejects missing or malformed identities', () => {

@@ -96,6 +96,34 @@ validation, metrics and UI previews must not consume that RNG. A preview shows
 the definition, rather than a future runtime realization. Seed provenance and
 isolated streams belong to E5.0.2; uniform sampling belongs to E5.1.2.
 
+## Seeded streams and experiment provenance
+
+E5.0.2 supplies `randomness.NewStreams(seed)`. Each run owns advancing streams
+keyed by `(resourceID, phenomenon)`. Repeating a lookup continues the same stream;
+creating or drawing from another pair does not advance it. The DES goroutine owns
+the registry and its generators, so they do not add locks or concurrent access.
+Future CPU times, travel times, arrivals and payload sizes can use separate
+phenomena. Reusing a profile does not mean sharing its random sequence.
+
+`resource-phenomenon-v1` uses Go's legacy `math/rand` source. Existing algorithm
+selection, balancer loss and `link/` loss/congestion bindings retain their prior
+seeds and realized behavior. Other pairs derive their seed with FNV-1a-64 from the
+master seed (8 little-endian bytes), followed by the model, resource and phenomenon
+UTF-8 strings, each prefixed by its 8-byte little-endian byte length. This makes
+tuple boundaries explicit. Stream ownership is separate even if derived seeds
+collide; this scheme does not promise statistically independent PRNG sequences.
+
+New live metadata and CLI manifests include `randomnessModel` alongside the
+existing model/build identity. The executed scenario retains the exact signed
+64-bit seed. Old saved results without `randomnessModel` remain readable and do
+not silently gain a claimed version. Future nonempty version IDs are preserved.
+Reproduction requires the scenario, seed, model/build and stream/sampler versions;
+the stream version alone is not a complete description of an experiment.
+
+Measurements and topology/configuration reads consume no runtime draws. A change
+to traffic or routing can still change which packets request loss draws: the same
+seed does not promise the same packet losses across different algorithms.
+
 The source AST continues to preserve original units and exact fractional bounds.
 Its current declaration checks remain separate from target-field conversion.
 The explicit compilation guard stays in place until E5.1.3 supplies the complete

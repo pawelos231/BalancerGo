@@ -361,6 +361,11 @@ The standalone [random-profile contract](../examples/randomness/CONTRACT.md)
 defines constant and uniform values for Go and TypeScript. Quantities are canonical
 decimal strings in explicit base units, preserving fractional bounds and large
 integers. Both validators run the same JSON cases from `examples/randomness/`.
+
+New experiment metadata also carries `randomnessModel`, identifying the backend's
+seed derivation and resource/phenomenon stream scheme. The scenario retains the
+exact seed. Live messages and result history accept older metadata without that
+field, and preserve future nonempty version IDs without rewriting provenance.
 Scenario fields and source compilation retain their current behavior until integration.
 
 Build output is written to `dist/`. `VITE_WS_URL` is embedded at build time, so

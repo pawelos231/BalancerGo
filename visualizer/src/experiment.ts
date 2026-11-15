@@ -1,6 +1,7 @@
 // Identifies the model, scenario and executable used by one run.
 export interface ExperimentContext {
   model: string;
+  randomnessModel?: string;
   scenarioSha256: string;
   execution: {
     headless: boolean;
@@ -28,6 +29,7 @@ function nonempty(value: unknown): value is string {
 // HTTP and WebSocket must accept the same experiment context.
 export function isExperimentContext(value: unknown): value is ExperimentContext {
   if (!record(value) || !nonempty(value.model)
+    || ('randomnessModel' in value && !nonempty(value.randomnessModel))
     || typeof value.scenarioSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.scenarioSha256)) {
     return false;
   }

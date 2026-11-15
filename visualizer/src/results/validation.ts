@@ -142,6 +142,9 @@ function jsonTree(value: unknown, path = 'JSON', ancestors = new Set<object>(), 
 function experiment(value: unknown, path: string): void {
   const entry = object(value, path);
   id(entry.model, `${path}.model`);
+  if ('randomnessModel' in entry && (typeof entry.randomnessModel !== 'string' || !entry.randomnessModel.length)) {
+    invalid(`${path}.randomnessModel`);
+  }
   if (typeof entry.scenarioSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(entry.scenarioSha256)) invalid(`${path}.scenarioSha256`);
   const execution = object(entry.execution, `${path}.execution`);
   fields(execution, ['headless', 'traceEnabled'], boolean, `${path}.execution`);

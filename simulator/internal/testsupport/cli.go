@@ -55,10 +55,11 @@ func assertManifest(
 ) {
 	t.Helper()
 	var manifest struct {
-		Model          string          `json:"model"`
-		Scenario       json.RawMessage `json:"scenario"`
-		ScenarioSHA256 string          `json:"scenarioSha256"`
-		Execution      struct {
+		Model           string          `json:"model"`
+		RandomnessModel string          `json:"randomnessModel"`
+		Scenario        json.RawMessage `json:"scenario"`
+		ScenarioSHA256  string          `json:"scenarioSha256"`
+		Execution       struct {
 			Headless     bool    `json:"headless"`
 			Speed        float64 `json:"speed"`
 			TraceEnabled bool    `json:"traceEnabled"`
@@ -75,6 +76,9 @@ func assertManifest(
 	}
 	if manifest.Model != "host-cpu-v1" {
 		t.Fatalf("model profile = %q", manifest.Model)
+	}
+	if manifest.RandomnessModel != "resource-phenomenon-v1" {
+		t.Fatalf("randomness model = %q", manifest.RandomnessModel)
 	}
 	if !manifest.Execution.Headless || manifest.Execution.Speed != 0 ||
 		manifest.Execution.TraceEnabled != traceEnabled {

@@ -2,10 +2,8 @@ package simulation
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"math/rand"
 	"time"
 
@@ -15,6 +13,7 @@ import (
 	"load-balancer/host"
 	"load-balancer/model"
 	"load-balancer/network"
+	"load-balancer/randomness"
 	"load-balancer/scenario"
 )
 
@@ -26,6 +25,7 @@ type World struct {
 	engine        *engine.Engine
 	timeline      *timelineRuntime
 	lb            *balancer.LoadBalancer
+	randomStreams *randomness.Streams
 	algorithmRNG  *rand.Rand
 
 	egress           *network.Egress
@@ -85,9 +85,10 @@ func newWorld(
 		timeline:      timeline,
 		algorithm:     initial.LoadBalancer.Algorithm,
 		engine:        e,
+		randomStreams: randomness.NewStreams(execution.Seed),
 		backends:      make(map[string]*runtimeBackend, len(initial.Backends)),
 	}
-	s.algorithmRNG = s.resourceRNG("algorithm")
+	s.algorithmRNG = s.randomStreams.Stream("algorithm", randomness.Selection)
 
 	var algorithm algorithms.Algorithm = &algorithms.RoundRobin{}
 	if initial.LoadBalancer.Algorithm == "random" {
@@ -98,7 +99,7 @@ func newWorld(
 		e,
 		model.LBModeNAT,
 		algorithm,
-		s.resourceRNG("balancer"),
+		s.randomStreams.Stream("balancer", randomness.PacketLoss),
 	)
 	s.lb.SetMappingTimeouts(configuredMappingTimeouts(initial.LoadBalancer))
 	s.lb.SetHostConfig(configuredHost(initial.LoadBalancer.Host))
@@ -150,23 +151,11 @@ func (s *World) AdvanceBatch(ctx context.Context, until time.Duration) (bool, er
 	return err == nil, err
 }
 
-// resourceRNG gives each resource its own repeatable random sequence.
-// Creating other links or reading snapshots cannot change this sequence.
-func (s *World) resourceRNG(id string) *rand.Rand {
-	var seed [8]byte
-	binary.LittleEndian.PutUint64(seed[:], uint64(s.fixed.Execution.Seed))
-
-	hash := fnv.New64a()
-	_, _ = hash.Write(seed[:])
-	_, _ = hash.Write([]byte(id))
-	return rand.New(rand.NewSource(int64(hash.Sum64())))
-}
-
 // Only probabilistic signaling needs another random source; tail drop adds none.
 func (s *World) configureCongestionRNG(link *network.Link, id string, config scenario.LinkConfig) {
 	probability := config.CongestionSignalProbability
 	if config.QueuePolicy == "threshold" && probability > 0 && probability < 1 {
-		link.SetCongestionRNG(s.resourceRNG(id + "/congestion"))
+		link.SetCongestionRNG(s.randomStreams.Stream(id, randomness.Congestion))
 	}
 }
 
@@ -175,7 +164,11 @@ func (s *World) addLink(
 	id, source, target string,
 	config scenario.LinkConfig,
 ) *network.Link {
-	link := network.NewLink(s.engine, configuredLink(config), s.resourceRNG(id))
+	link := network.NewLink(
+		s.engine,
+		configuredLink(config),
+		s.randomStreams.Stream(id, randomness.PacketLoss),
+	)
 	s.configureCongestionRNG(link, id, config)
 
 	s.links = append(s.links, namedLink{
@@ -248,7 +241,7 @@ func (s *World) connectIngress(config scenario.LinkConfig) {
 	link := network.NewLink(
 		s.engine,
 		configuredLink(config),
-		s.resourceRNG("link/infrastructure/ingress"),
+		s.randomStreams.Stream("link/infrastructure/ingress", randomness.PacketLoss),
 	)
 	s.configureCongestionRNG(link, "link/infrastructure/ingress", config)
 	s.ingress = network.NewIngress(link)

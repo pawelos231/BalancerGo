@@ -307,10 +307,12 @@ type ExperimentManifest struct {
 // ExperimentContext identifies the model, executable and canonical scenario of a run.
 // It travels with live measurements without repeating the whole scenario document.
 type ExperimentContext struct {
-	Model          string              `json:"model"`
-	ScenarioSHA256 string              `json:"scenarioSha256"`
-	Execution      ExperimentExecution `json:"execution"`
-	Build          ExperimentBuild     `json:"build"`
+	Model string `json:"model"`
+	// Seed derivation and stream behavior used by this run.
+	RandomnessModel string              `json:"randomnessModel,omitempty"`
+	ScenarioSHA256  string              `json:"scenarioSha256"`
+	Execution       ExperimentExecution `json:"execution"`
+	Build           ExperimentBuild     `json:"build"`
 }
 
 // ExperimentExecution describes how the program ran, outside virtual traffic.
