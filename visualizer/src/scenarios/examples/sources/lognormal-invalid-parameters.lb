@@ -1,0 +1,18 @@
+language 1
+run 2s speed 0
+
+# Expected error: A zero log standard deviation would collapse the continuous density.
+distribution invalid-example lognormal {
+    median 5ms
+    log-stddev 0
+    min 0ms
+    max 20ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

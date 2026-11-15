@@ -1,0 +1,79 @@
+{
+  "family": "lognormal",
+  "source": "lognormal",
+  "expectedProfiles": {
+    "moderate-tail-time": {
+      "kind": "lognormal",
+      "unit": "nanoseconds",
+      "median": "5000000",
+      "logStddev": "0.5",
+      "min": "0",
+      "max": "20000000"
+    },
+    "long-tail-time": {
+      "kind": "lognormal",
+      "unit": "nanoseconds",
+      "median": "5000000",
+      "logStddev": "1",
+      "min": "0",
+      "max": "40000000"
+    }
+  },
+  "cases": [
+    {
+      "name": "moderate-tail-time",
+      "valid": true,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"nanoseconds\",\"median\":\"5000000\",\"logStddev\":\"0.5\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "long-tail-time",
+      "valid": true,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"nanoseconds\",\"median\":\"5000000\",\"logStddev\":\"1\",\"min\":\"0\",\"max\":\"40000000\"}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"nanoseconds\",\"median\":\"5000000\",\"logStddev\":\"0.5\",\"min\":\"0\",\"max\":\"20000000\",\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"nanoseconds\",\"median\":null,\"logStddev\":\"0.5\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"nanoseconds\",\"median\":1,\"logStddev\":\"0.5\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"nanoseconds\",\"logStddev\":\"0.5\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "empty interval",
+      "valid": false,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"nanoseconds\",\"median\":\"5000000\",\"logStddev\":\"0.5\",\"min\":\"0\",\"max\":\"0\"}"
+    },
+    {
+      "name": "reversed interval",
+      "valid": false,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"nanoseconds\",\"median\":\"5000000\",\"logStddev\":\"0.5\",\"min\":\"20000000\",\"max\":\"0\"}"
+    },
+    {
+      "name": "zero median",
+      "valid": false,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"nanoseconds\",\"median\":\"0\",\"logStddev\":\"0.5\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "zero logStddev",
+      "valid": false,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"nanoseconds\",\"median\":\"5000000\",\"logStddev\":\"0\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"lognormal\",\"unit\":\"number\",\"unit\":\"nanoseconds\",\"median\":\"5000000\",\"logStddev\":\"0.5\",\"min\":\"0\",\"max\":\"20000000\"}"
+    }
+  ]
+}
