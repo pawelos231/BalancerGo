@@ -1,0 +1,29 @@
+language 1
+run 2s speed 0
+
+# Named definitions are unbound; the topology below keeps scalar settings.
+# A truncated, heavy-tailed Student t density.
+distribution heavy-tail-time student-t {
+    location 10ms
+    scale 2ms
+    degrees-of-freedom 3
+    min 0ms
+    max 30ms
+}
+
+# The Cauchy-shaped case, retained inside finite bounds.
+distribution cauchy-time student-t {
+    location 10ms
+    scale 2ms
+    degrees-of-freedom 1
+    min 0ms
+    max 30ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

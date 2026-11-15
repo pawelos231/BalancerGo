@@ -1,0 +1,81 @@
+{
+  "family": "studentT",
+  "source": "student-t",
+  "expectedProfiles": {
+    "heavy-tail-time": {
+      "kind": "studentT",
+      "unit": "nanoseconds",
+      "location": "10000000",
+      "scale": "2000000",
+      "degreesOfFreedom": "3",
+      "min": "0",
+      "max": "30000000"
+    },
+    "cauchy-time": {
+      "kind": "studentT",
+      "unit": "nanoseconds",
+      "location": "10000000",
+      "scale": "2000000",
+      "degreesOfFreedom": "1",
+      "min": "0",
+      "max": "30000000"
+    }
+  },
+  "cases": [
+    {
+      "name": "heavy-tail-time",
+      "valid": true,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"nanoseconds\",\"location\":\"10000000\",\"scale\":\"2000000\",\"degreesOfFreedom\":\"3\",\"min\":\"0\",\"max\":\"30000000\"}"
+    },
+    {
+      "name": "cauchy-time",
+      "valid": true,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"nanoseconds\",\"location\":\"10000000\",\"scale\":\"2000000\",\"degreesOfFreedom\":\"1\",\"min\":\"0\",\"max\":\"30000000\"}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"nanoseconds\",\"location\":\"10000000\",\"scale\":\"2000000\",\"degreesOfFreedom\":\"3\",\"min\":\"0\",\"max\":\"30000000\",\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"nanoseconds\",\"location\":null,\"scale\":\"2000000\",\"degreesOfFreedom\":\"3\",\"min\":\"0\",\"max\":\"30000000\"}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"nanoseconds\",\"location\":1,\"scale\":\"2000000\",\"degreesOfFreedom\":\"3\",\"min\":\"0\",\"max\":\"30000000\"}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"nanoseconds\",\"scale\":\"2000000\",\"degreesOfFreedom\":\"3\",\"min\":\"0\",\"max\":\"30000000\"}"
+    },
+    {
+      "name": "empty interval",
+      "valid": false,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"nanoseconds\",\"location\":\"10000000\",\"scale\":\"2000000\",\"degreesOfFreedom\":\"3\",\"min\":\"0\",\"max\":\"0\"}"
+    },
+    {
+      "name": "reversed interval",
+      "valid": false,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"nanoseconds\",\"location\":\"10000000\",\"scale\":\"2000000\",\"degreesOfFreedom\":\"3\",\"min\":\"30000000\",\"max\":\"0\"}"
+    },
+    {
+      "name": "zero scale",
+      "valid": false,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"nanoseconds\",\"location\":\"10000000\",\"scale\":\"0\",\"degreesOfFreedom\":\"3\",\"min\":\"0\",\"max\":\"30000000\"}"
+    },
+    {
+      "name": "zero degreesOfFreedom",
+      "valid": false,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"nanoseconds\",\"location\":\"10000000\",\"scale\":\"2000000\",\"degreesOfFreedom\":\"0\",\"min\":\"0\",\"max\":\"30000000\"}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"studentT\",\"unit\":\"number\",\"unit\":\"nanoseconds\",\"location\":\"10000000\",\"scale\":\"2000000\",\"degreesOfFreedom\":\"3\",\"min\":\"0\",\"max\":\"30000000\"}"
+    }
+  ]
+}

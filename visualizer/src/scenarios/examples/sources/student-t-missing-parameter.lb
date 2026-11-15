@@ -1,0 +1,18 @@
+language 1
+run 2s speed 0
+
+# Expected error: required degrees-of-freedom is omitted.
+distribution missing-example student-t {
+    location 10ms
+    scale 2ms
+    min 0ms
+    max 30ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

@@ -1,0 +1,19 @@
+language 1
+run 2s speed 0
+
+# Expected error: Degrees of freedom must be a positive dimensionless value.
+distribution invalid-example student-t {
+    location 10ms
+    scale 2ms
+    degrees-of-freedom 0
+    min 0ms
+    max 30ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}
