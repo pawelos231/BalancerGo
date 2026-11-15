@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'beta-profile-definitions',
     title: 'Beta profile definitions',
-    description: 'Declares named beta profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named beta definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Beta declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',

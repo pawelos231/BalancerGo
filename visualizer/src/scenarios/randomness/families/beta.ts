@@ -6,7 +6,7 @@ export default {
   source: 'beta',
   title: 'Beta',
   bounded: true,
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'alpha', role: 'shape' },
     { name: 'beta', role: 'shape' },
