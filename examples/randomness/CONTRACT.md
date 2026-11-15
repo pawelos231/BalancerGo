@@ -60,8 +60,8 @@ exactly once. A constant follows the same conversion without drawing randomness.
 Thus `[0.125, 1)` realizes 0, and `[1.1, 1.2)` realizes 1. A quantized integer can
 be below a fractional lower bound; the original continuous sample remains inside
 `[min, max)`. Quantized uniform values need not have equal probabilities when
-the two endpoint buckets have different widths. The later integer sampler must
-preserve those exact bucket probabilities without converting the bounds through
+the two endpoint buckets have different widths. The integer sampler preserves
+those exact bucket probabilities without converting the bounds through
 float64. Target-domain validation must check the converted support before Start.
 
 There is no implicit clipping to a field limit. Restricting a distribution means
@@ -71,10 +71,55 @@ different operations. This initial format accepts no additional truncation or
 clipping parameters. Unbounded families must agree on explicit restrictions
 before being added. Target limits cannot silently repair an invalid definition.
 
-For a future floating point target, its precision and boundary conversion must
-be selected and validated before Start. This stage supplies no floating point
-target converter and does not claim that every exact decimal remains distinct
-after such a conversion.
+Floating point admission must likewise be checked before Start. E5.1.2 supplies
+a separate uniform float64 constructor, described below; an exact definition can
+remain valid even when its floating representation is unavailable.
+
+## Backend uniform samplers
+
+E5.1.2 compiles immutable sampler settings once, without drawing randomness.
+`NewIntegerSampler(profile)` accepts constants and uniform definitions and returns
+whole base units. `NewUniformFloatSampler(profile)` accepts only uniform and
+returns a float64 approximation. Both expose `Sample(source)` and receive an
+explicit `RNG` with `Uint64() uint64`; a stream from `NewStreams` satisfies it.
+The RNG must produce uniform full-width words. Neither sampler owns a global RNG.
+
+```go
+profile, err := randomness.DecodeProfile([]byte(
+    `{"kind":"uniform","unit":"nanoseconds","min":"5000","max":"15000"}`,
+))
+if err != nil { panic(err) }
+sampler, err := randomness.NewIntegerSampler(profile)
+if err != nil { panic(err) }
+streams := randomness.NewStreams(42)
+packetTime := sampler.Sample(streams.Stream("backend/api-0", "cpu-time"))
+```
+
+The integer sampler preserves exact quantized probabilities. Whole bounds use
+unbiased bounded uint64 draws. Fractional bounds are scaled to a common integer
+denominator and sampled without float64 conversion. For `[0.5,2.5)`, the integer
+probabilities are 0: 25%, 1: 50%, 2: 25%. A constant or a uniform interval that
+always floors to one integer consumes no draws. For example, `[1.1,1.2)` always
+produces 1. Bounds are validated and copied at preparation; changing the input
+profile later cannot change an existing sampler.
+
+The floating sampler uses 53 random bits and linear interpolation. It selects
+the first representable value at or above each exact decimal boundary; the upper
+one remains exclusive. Rounding at the upper endpoint returns the preceding
+representable value. Thus results stay in the original exact `[min,max)`, but
+floating rounding and endpoint adjustment are an approximation of the continuous
+density, not an exact decimal distribution or equal weights over float64 values.
+An interval with no representable float64 value is rejected during preparation;
+one with exactly one result needs no draw. For example,
+`[9007199254740992.1,9007199254740992.2)` is definition-valid but unavailable as
+float64, while its integer conversion can still return 9007199254740992.
+Floating constant conversion is not provided in this stage.
+
+These are standalone backend APIs. Scenario v2 still accepts scalar settings;
+the language's explicit compilation guard remains until E5.1.3, and runtime
+field integration belongs to E5.15+. The six uniform source examples therefore
+remain non-runnable drafts. Preparing a sampler does not integrate it with a
+scenario field or alter current simulation results.
 
 ## Future scenario and runtime use
 
@@ -91,7 +136,7 @@ E5.15+ choose the exact sampling moment and correlation scope for each phenomeno
 Reusing a definition does not by itself introduce correlated samples. No new
 correlation mechanism is part of this initial contract.
 
-Future samplers receive their runtime RNG explicitly. Source compilation,
+Samplers receive their runtime RNG explicitly. Source compilation,
 validation, metrics and UI previews must not consume that RNG. A preview shows
 the definition, rather than a future runtime realization. Seed provenance and
 isolated streams belong to E5.0.2; uniform sampling belongs to E5.1.2.

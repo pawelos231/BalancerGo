@@ -355,7 +355,8 @@ Bounds describe `[min, max)`, must be nonnegative and strictly ordered, and
 must have compatible units. Declaration checks compare exact quantities;
 field-specific limits and integer conversion belong to later integration.
 Compilation currently rejects these expressions explicitly, including unused
-profiles and timeline changes. Sampling and native JSON support are not enabled.
+profiles and timeline changes. Standalone backend uniform samplers are available;
+native scenario JSON compilation and runtime field integration are not enabled.
 
 The standalone [random-profile contract](../examples/randomness/CONTRACT.md)
 defines constant and uniform values for Go and TypeScript. Quantities are canonical

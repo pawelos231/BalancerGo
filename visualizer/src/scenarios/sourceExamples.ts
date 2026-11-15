@@ -26,7 +26,8 @@ export const sourceExamples: readonly ScenarioSourceExample[] = [
     id: 'uniform-cpu-declaration',
     category: 'distributions',
     title: 'Uniform backend CPU declaration',
-    description: 'Declares CPU time from 5us to 15us. Bounds are valid; compilation and sampling are pending.',
+    description: 'Declares CPU time from 5us to 15us. Bounds are valid; '
+      + 'scenario compilation and execution are pending.',
     source: uniformCpuSource,
     expectedDiagnostic: declarationDiagnostic,
   },
@@ -35,7 +36,8 @@ export const sourceExamples: readonly ScenarioSourceExample[] = [
     id: 'uniform-travel-declaration',
     category: 'distributions',
     title: 'Uniform travel with mixed units',
-    description: 'Declares travel from 500us to 1ms with compatible units. Compilation and sampling are pending.',
+    description: 'Declares travel from 500us to 1ms with compatible units. '
+      + 'Scenario compilation and execution are pending.',
     source: uniformTravelSource,
     expectedDiagnostic: declarationDiagnostic,
   },

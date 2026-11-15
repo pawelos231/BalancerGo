@@ -4,9 +4,10 @@ These six small scenarios are available in the frontend scenario library under
 **Distribution examples**. Select an example to load its editable source, or save a linked
 `.lb` file and import it in the language editor.
 
-Uniform syntax and parameter validation are supported. Compilation to native
-scenario JSON and runtime sampling are pending, so these sources cannot currently
-be applied or started. The first three have valid declarations; the final three
+Uniform syntax and parameter validation are supported. Standalone backend uniform
+samplers are available, but scenario compilation and runtime field integration
+are pending, so these sources cannot currently be applied or started.
+The first three have valid declarations; the final three
 intentionally demonstrate parameter errors. No runnable JSON versions are provided.
 
 The files below are the canonical sources used by the frontend library.
