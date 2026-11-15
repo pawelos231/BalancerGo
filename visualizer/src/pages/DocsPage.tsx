@@ -2,7 +2,7 @@ import {
   Alert, Box, Button, Collapse, List, ListItemButton, ListItemText, Stack, Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { memo, useEffect, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router';
 import readme from '../../../README.md?raw';
 import DocumentationArticle from '../components/DocumentationArticle';
@@ -11,6 +11,7 @@ import type { LanguageDocument, LanguagePageId } from '../docs/language';
 import { overviewPages, splitOverview } from '../docs/overview';
 import type { OverviewDocument, OverviewPageId } from '../docs/overview';
 
+const UniformDensityPreview = lazy(() => import('../components/UniformDensityPreview'));
 const overviewContent = splitOverview(readme);
 const navigationGroups = [
   { id: 'overview', title: 'Overview', pages: overviewPages },
@@ -121,9 +122,20 @@ function LanguageGuide({ document }: { document: LanguageDocument }) {
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [previewReady, setPreviewReady] = useState(false);
   const index = languagePages.indexOf(document);
   const previous = languagePages[index - 1];
   const next = languagePages[index + 1];
+
+  // Loading the lazy chart can move headings below it; restore the bookmark once it mounts.
+  const markPreviewReady = useCallback(() => setPreviewReady(true), []);
+  const sectionContent = useMemo(() => document.id === 'uniform' ? {
+    'density-preview': (
+      <Suspense fallback={<Typography role="status">Loading density preview…</Typography>}>
+        <UniformDensityPreview onReady={markPreviewReady} />
+      </Suspense>
+    ),
+  } : undefined, [document.id, markPreviewReady]);
 
   useEffect(() => {
     let current = true;
@@ -147,12 +159,15 @@ function LanguageGuide({ document }: { document: LanguageDocument }) {
     } catch {
       // Ignore malformed bookmarks.
     }
-  }, [markdown, hash]);
+  }, [markdown, hash, previewReady]);
 
   return (
     <Stack spacing={2} sx={{ minWidth: 0 }}>
       {markdown !== null ? (
-        <DocumentationArticle title={document.title} markdown={markdown} />
+        <DocumentationArticle
+          title={document.title} markdown={markdown}
+          sectionContent={sectionContent}
+        />
       ) : failed ? (
         <Alert
           severity="error"

@@ -103,6 +103,10 @@ In initial declarations and `add` initializers, directional values win over shar
 
 Profiles contain network settings only. They cannot contain workload, CPU or directional blocks, select another profile, or change during the run. Every profile is validated, including unused ones.
 
+A `profile` selects reusable network patches. A named
+[`distribution`](/docs/language/uniform) stores a separate probability definition;
+it cannot be selected with `use` or bound to a runtime field yet.
+
 Select one with `clients users use mobile` or a `use mobile` field inside the block. Use one form per declaration; supplying both is a duplicate. Definitions may appear after the resources that use them, but must precede the first `at` block.
 
 An endpoint can switch to another existing profile inside `at`; its explicit endpoint patches still win. An empty profile, such as `profile plain { }`, contributes no patches and can replace a previous profile selection. For a client override, that restores the resolved group base; for a backend or group, it restores the global defaults beneath endpoint patches. `use null` is unsupported.

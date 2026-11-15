@@ -43,8 +43,8 @@ function assertDestination(destination: string, source: string) {
   }
 }
 
-test('all nine authored language pages expose a summary and a working table of contents at the top', () => {
-  const ids = ['start', 'syntax', 'topology', 'clients', 'defaults', 'tcp', 'timeline', 'examples', 'errors'];
+test('all authored language pages expose a summary and a working table of contents at the top', () => {
+  const ids = ['start', 'syntax', 'uniform', 'topology', 'clients', 'defaults', 'tcp', 'timeline', 'examples', 'errors'];
   assert.deepEqual(languagePages.map(page => page.id), ids);
   assert.deepEqual(
     readdirSync(new URL('../../../docs/language/', import.meta.url)).filter(name => name.endsWith('.md')).sort(),

@@ -1,4 +1,5 @@
 import { Box, Link } from '@mui/material';
+import { useMemo, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router';
 import Markdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -56,9 +57,28 @@ interface DocumentationArticleProps {
   title: string;
   markdown: string;
   overviewPath?: string;
+  sectionContent?: Readonly<Record<string, ReactNode>>;
 }
 
-export default function DocumentationArticle({ title, markdown, overviewPath }: DocumentationArticleProps) {
+export default function DocumentationArticle({
+  title, markdown, overviewPath, sectionContent,
+}: DocumentationArticleProps) {
+  // Stable heading renderers preserve interactive section state during anchor navigation.
+  const components = useMemo<Components>(() => {
+    if (!sectionContent) return markdownComponents;
+    return {
+      ...markdownComponents,
+      h2({ id, children }) {
+        return (
+          <>
+            <h2 id={id}>{children}</h2>
+            {id && sectionContent[id]}
+          </>
+        );
+      },
+    };
+  }, [sectionContent]);
+
   return (
     <Box
       component="article" aria-label={title}
@@ -101,7 +121,7 @@ export default function DocumentationArticle({ title, markdown, overviewPath }: 
     >
       <Markdown
         remarkPlugins={[remarkGfm, remarkConceptLinks, [remarkConceptBacklinks, { path: overviewPath }]]}
-        rehypePlugins={[rehypeSlug]} components={markdownComponents} skipHtml
+        rehypePlugins={[rehypeSlug]} components={components} skipHtml
       >
         {markdown}
       </Markdown>

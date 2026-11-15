@@ -19,6 +19,11 @@ results after changing one value; a configuration does not guarantee drops,
 completed transfers or a particular routing outcome. Planned topology shows
 configuration, while a running simulation produces observations.
 
+For named range definitions, a density preview and the seven distribution
+examples in the Scenario library, see
+[Uniform distributions](/docs/language/uniform). Those definitions remain
+unbound; the experiments below use scalar settings.
+
 ## One transfer
 
 Start with one client sending 10KB through one LB to one backend. Watch the

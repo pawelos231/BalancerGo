@@ -120,12 +120,16 @@ The same conflict rule covers aliases: `down` and `set available` write one fiel
 | --- | --- |
 | Run duration, seed, speed, snapshots and event limit | LB algorithm, ingress, egress and mapping idle timeouts |
 | TCP settings | LB/backend host cores, packet time and CPU queue |
-| Global defaults and profile definitions | Endpoint network fields and selection of an existing profile |
+| Global defaults, network profiles and named distributions | Endpoint network fields and selection of an existing network profile |
 | LB ID and resource roles | Backend display name, physical availability and administrative state |
 | Backend ID, address and port | Group count, `every`, stream settings and sparse client overrides |
 | Retained group ID and `start`; historical identity reservations | New backends and client groups through `add` |
 
 Profiles are fixed, but endpoints may switch to an already declared profile. A new resource's initializer can set its identity and start settings. Backend removal, mutable TCP, client CPU and direct observed-health setters are unsupported.
+
+Declare [uniform distributions](/docs/language/uniform) before the first `at`
+block. They remain unbound definitions; a timeline setter cannot attach one to
+CPU, link or workload settings. Scalar timeline changes continue to work.
 
 ## Backend availability
 

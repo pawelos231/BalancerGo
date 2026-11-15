@@ -9,6 +9,10 @@ export const languagePages = [
     loadMarkdown: () => import('../../docs/language/syntax.md?raw').then(module => module.default),
   },
   {
+    id: 'uniform', title: 'Uniform distributions', path: '/docs/language/uniform',
+    loadMarkdown: () => import('../../docs/language/uniform.md?raw').then(module => module.default),
+  },
+  {
     id: 'topology', title: 'Topology and capacity', path: '/docs/language/topology',
     loadMarkdown: () => import('../../docs/language/topology.md?raw').then(module => module.default),
   },

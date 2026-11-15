@@ -2,7 +2,7 @@
 
 ## Summary
 
-The published English guide starts at [Start here](/docs/language). Its nine
+The published English guide starts at [Start here](/docs/language). Its ten
 Markdown source pages are linked below for review. Source examples are checked
 against the current language compiler.
 
@@ -16,6 +16,7 @@ against the current language compiler.
 | --- | --- | --- |
 | Start here | [start.md](language/start.md) | [Open](/docs/language) |
 | Syntax and units | [syntax.md](language/syntax.md) | [Open](/docs/language/syntax) |
+| Uniform distributions | [uniform.md](language/uniform.md) | [Open](/docs/language/uniform) |
 | Topology and capacity | [topology.md](language/topology.md) | [Open](/docs/language/topology) |
 | Clients and traffic | [clients.md](language/clients.md) | [Open](/docs/language/clients) |
 | Defaults and profiles | [defaults.md](language/defaults.md) | [Open](/docs/language/defaults) |
@@ -26,7 +27,7 @@ against the current language compiler.
 
 ## Maintaining the guide
 
-Edit the nine source pages instead of keeping a second reference here. This
+Edit the chapter source pages instead of keeping a second reference here. This
 index preserves existing repository links to `docs/scenario-language.md`.
 The app resolves `concept:` links in those sources through its shared concept
 link resolver.

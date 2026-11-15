@@ -12,7 +12,7 @@ remaining errors.
 [Time order](#time-order) ·
 [Command order and existence](#command-order-and-existence) ·
 [Duplicate settings](#duplicate-settings) · [Names and units](#names-and-units) ·
-[TCP dependencies](#tcp-dependencies) · [Unsupported syntax](#unsupported-syntax) ·
+[Uniform definitions](#uniform-definitions) · [TCP dependencies](#tcp-dependencies) · [Unsupported syntax](#unsupported-syntax) ·
 [Size and value limits](#size-and-value-limits)
 
 Messages below quote actual compiler text without its changing line/column
@@ -160,6 +160,34 @@ Duplicate resource identities are different from duplicate fields. Declaring
 `backend api-0` twice, including through `backends api { count 1 }`, produces
 `Duplicate backend api-0.` Keep one declaration or use a different prefix/index.
 See [syntax and units](/docs/language/syntax).
+
+## Uniform definitions
+
+Both bounds are required, use compatible units, and must satisfy `min < max`.
+This invalid top-level fragment uses equal bounds:
+
+```lb-invalid context=top-level error="Uniform min must be less than max; use a scalar for a fixed value."
+distribution cpu-time uniform {
+    min 5us
+    max 5us
+}
+```
+
+Choose different bounds for a range. For a fixed CPU cost, keep the scalar
+`packet-time 5us` inside the host block.
+
+| Bad definition | Compiler text | Fix |
+| --- | --- | --- |
+| Omitted `max` | `Uniform requires both min and max bounds.` | Supply both bounds |
+| `min 1us`, `max 2B` | `Uniform min and max must use compatible units.` | Use two time bounds or two byte bounds |
+| Repeated `max` | `Duplicate uniform parameter "max".` | Write each parameter once |
+| Extra `mean` | `Unknown uniform parameter "mean".` | Use only `min` and `max` |
+
+Named definitions compile, but runtime field binding is still pending. An inline
+range inside `packet-time`, `travel` or a timeline setter reports
+`Uniform definitions compile as named distributions; runtime field sampling is not available yet.`
+See [Uniform distributions](/docs/language/uniform) for the supported declaration
+and the library examples.
 
 ## TCP dependencies
 

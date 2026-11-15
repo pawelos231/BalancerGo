@@ -66,6 +66,7 @@ declaration. There are no variables, loops or expressions.
 | Individual backend | `api-0`, `web-api-12` | Prefix followed by a decimal index |
 | Client group | `users`, `wave-20s` | Lowercase first segment; later segments may contain digits |
 | Individual client | `users-0`, `wave-20s-2` | Group name followed by a decimal index |
+| Named distribution | `cpu-time`, `travel-time` | Lowercase letters with internal hyphens |
 
 Indices start at zero and have no leading zeroes. `api-0` is valid; `api-01`
 and `api2-0` are invalid. Use unique resource names, up to 128 bytes.
@@ -95,11 +96,15 @@ selections and quantities are unquoted.
 Byte units are decimal powers of 1000. A link's `1GB` means one billion bytes
 per second. Do not write `GiB`, `Mbps`, `Gbps`, or a `/s` suffix.
 
-Decimals must resolve exactly to the field's stored unit: `0.001KB` is one byte
+Scalar quantities must resolve exactly to the field's stored unit: `0.001KB` is one byte
 and `0.5ms` is valid, but `0.1B` as a payload and `0.1ns` as a time are invalid.
 Rates resolve to whole bits per second. Fields also have size limits; for
 example, `1EB` is an accepted rate while `2EB` exceeds the rate limit.
 Exponents, digit separators and a leading `+` are unsupported.
+
+Named [uniform distributions](/docs/language/uniform) preserve fractional bounds
+exactly, including fractions of a nanosecond or byte. They currently store
+unbound definitions; scalar runtime fields keep the whole-unit rules above.
 
 ## Zero and null
 

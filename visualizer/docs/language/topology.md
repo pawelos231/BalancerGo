@@ -84,6 +84,10 @@ order is defaults → profile → endpoint settings → directional settings, so
 direction wins regardless of where its block appears in the declaration.
 [How links work](concept:links).
 
+`travel` currently takes a scalar time. Named
+[uniform distributions](/docs/language/uniform) can describe a range, but binding
+one to packet travel is not available yet.
+
 ## Shared LB limits
 
 `ingress` is one shared physical receiver for arrivals from clients **and**
@@ -159,6 +163,10 @@ The LB and each backend accept a `host` block. Client generators do not.
 CPU bottleneck needs an explicit positive cost. The example above uses two
 workers taking `10us` per packet. These settings describe this simulator's
 packet processing model; they do not emulate a Linux host stack.
+
+`packet-time` currently takes a scalar cost. The
+[uniform chapter](/docs/language/uniform) explains range definitions and their
+density preview; those definitions do not yet change CPU processing.
 
 CPU capacity, endpoint links, shared LB limits, queues and TCP can all affect
 the observed result. [How CPU processing works](concept:cpu).

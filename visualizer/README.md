@@ -46,7 +46,7 @@ The Markdown ships with the frontend; reading it does not require the backend.
   displays **PLACEHOLDER DOCS GENERATED FULLY BY AI, WILL BE CHANGED**.
   Original section bookmarks still open the correct page. Tables, lists and
   code blocks retain their Markdown formatting; repository file links open GitHub.
-  **Language documentation** (`/docs/language`) has nine authored chapters, from
+  **Language documentation** (`/docs/language`) has ten authored chapters, from
   a first transfer through syntax, resources, profiles, TCP, timeline changes,
   experiments and errors. Each starts with a summary and a local table of contents.
   Concept links connect settings to precise Overview explanations and back.
@@ -54,6 +54,9 @@ The Markdown ships with the frontend; reading it does not require the backend.
   CodeMirror with the main editor's syntax colors, without compilation or live
   diagnostics. Each example mounts near the viewport and is destroyed when its
   chapter closes; distant examples remain plain text until approached.
+  The Uniform distributions chapter adds an analytical density preview for the
+  canonical named profiles and a scalar constant reference. Its labels preserve
+  exact decimals; previewing consumes no runtime randomness.
   The sidebar groups can be collapsed; navigation stays on the left on desktop
   and above the document on small screens.
 

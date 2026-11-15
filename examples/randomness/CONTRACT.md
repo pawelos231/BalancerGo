@@ -210,6 +210,11 @@ runtime fields keep a guard until field use is handled in E5.15+.
 
 ## Shared validation evidence
 
+The frontend's [Uniform distributions chapter](../../visualizer/docs/language/uniform.md)
+explains the source syntax and includes an analytical density preview. The chart
+uses exact labels and normalized coordinates, with no RNG or predicted runtime
+samples. Integer quantization is explained separately from continuous density.
+
 [`profile-cases.json`](profile-cases.json) is the common Go/TypeScript corpus.
 Each case contains a name, a `valid` boolean and a raw JSON `document` string,
 so duplicate keys and other ambiguous JSON cannot disappear through fixture

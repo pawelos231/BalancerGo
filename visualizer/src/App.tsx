@@ -299,6 +299,7 @@ function App() {
               <Route path="/docs/verification" element={<DocsPage section="verification" />} />
               <Route path="/docs/language" element={<DocsPage languagePage="start" />} />
               <Route path="/docs/language/syntax" element={<DocsPage languagePage="syntax" />} />
+              <Route path="/docs/language/uniform" element={<DocsPage languagePage="uniform" />} />
               <Route path="/docs/language/topology" element={<DocsPage languagePage="topology" />} />
               <Route path="/docs/language/clients" element={<DocsPage languagePage="clients" />} />
               <Route path="/docs/language/defaults" element={<DocsPage languagePage="defaults" />} />
