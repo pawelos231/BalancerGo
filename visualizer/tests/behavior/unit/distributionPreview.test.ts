@@ -40,13 +40,18 @@ previewTest('normal is normalized over the configured interval rather than the f
   assert.equal(preview.maximum, '4');
 });
 
-previewTest('exponential, gamma and Weibull use scale and conditional density consistently', ["exponential","gamma","weibull"], () => {
+previewTest('exponential mean defines the conditional density', ['exponential'], () => {
+  const preview = continuous({ kind: 'exponential', unit: 'number', mean: '2', min: '1', max: '5' });
+  const expected = (Math.exp(-1.5) / 2) / (Math.exp(-0.5) - Math.exp(-2.5));
+  close(densityAt(preview, 3), expected);
+});
+
+previewTest('gamma and Weibull use scale and conditional density consistently', ["gamma","weibull"], () => {
   const common = { unit: 'number', min: '1', max: '5' } as const;
-  const exponential = continuous({ ...common, kind: 'exponential', mean: '2' });
   const gamma = continuous({ ...common, kind: 'gamma', shape: '1', scale: '2' });
   const weibull = continuous({ ...common, kind: 'weibull', shape: '1', scale: '2' });
   const expected = (Math.exp(-1.5) / 2) / (Math.exp(-0.5) - Math.exp(-2.5));
-  for (const preview of [exponential, gamma, weibull]) close(densityAt(preview, 3), expected);
+  for (const preview of [gamma, weibull]) close(densityAt(preview, 3), expected);
   const gammaTwo = continuous({ kind: 'gamma', unit: 'number', shape: '2', scale: '2', min: '0', max: '8' });
   close(densityAt(gammaTwo, 2), Math.exp(-1) / 2 / (1 - 5 * Math.exp(-4)));
 });

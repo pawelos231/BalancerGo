@@ -13,13 +13,14 @@
 2. [Syntax and units](/docs/language/syntax)
 3. [Uniform distributions](/docs/language/uniform)
 4. [Normal distributions](/docs/language/normal)
-5. [Topology and capacity](/docs/language/topology)
-6. [Clients and traffic](/docs/language/clients)
-7. [Defaults, profiles and overrides](/docs/language/defaults)
-8. [TCP settings](/docs/language/tcp)
-9. [Timeline changes](/docs/language/timeline)
-10. [Small experiments](/docs/language/examples)
-11. [Fixing errors](/docs/language/errors)
+5. [Exponential distributions](/docs/language/exponential)
+6. [Topology and capacity](/docs/language/topology)
+7. [Clients and traffic](/docs/language/clients)
+8. [Defaults, profiles and overrides](/docs/language/defaults)
+9. [TCP settings](/docs/language/tcp)
+10. [Timeline changes](/docs/language/timeline)
+11. [Small experiments](/docs/language/examples)
+12. [Fixing errors](/docs/language/errors)
 
 ## On this page
 

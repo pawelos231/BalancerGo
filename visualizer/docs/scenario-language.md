@@ -18,6 +18,7 @@ against the current language compiler.
 | Syntax and units | [syntax.md](language/syntax.md) | [Open](/docs/language/syntax) |
 | Uniform distributions | [uniform.md](language/uniform.md) | [Open](/docs/language/uniform) |
 | Normal distributions | [normal.md](language/normal.md) | [Open](/docs/language/normal) |
+| Exponential distributions | [exponential.md](language/exponential.md) | [Open](/docs/language/exponential) |
 | Topology and capacity | [topology.md](language/topology.md) | [Open](/docs/language/topology) |
 | Clients and traffic | [clients.md](language/clients.md) | [Open](/docs/language/clients) |
 | Defaults, profiles and overrides | [defaults.md](language/defaults.md) | [Open](/docs/language/defaults) |
