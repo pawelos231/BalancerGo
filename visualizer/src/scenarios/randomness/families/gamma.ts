@@ -6,7 +6,7 @@ export default {
   source: 'gamma',
   title: 'Gamma',
   bounded: true,
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'shape', role: 'shape' },
     { name: 'scale', role: 'positiveQuantity' },

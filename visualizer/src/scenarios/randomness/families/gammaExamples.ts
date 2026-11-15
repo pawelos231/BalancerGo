@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'gamma-profile-definitions',
     title: 'Gamma profile definitions',
-    description: 'Declares named gamma profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named gamma definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Gamma declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',
