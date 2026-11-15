@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'normal-profile-definitions',
     title: 'Normal profile definitions',
-    description: 'Declares named normal profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named normal definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Normal declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',

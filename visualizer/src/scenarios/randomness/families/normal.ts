@@ -6,7 +6,7 @@ export default {
   source: 'normal',
   title: 'Normal',
   bounded: true,
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'mean', role: 'quantity' },
     { name: 'stddev', role: 'positiveQuantity' },
