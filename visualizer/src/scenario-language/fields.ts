@@ -2,6 +2,7 @@ import type { Token } from './lexer.ts';
 import { LanguageError } from './source.ts';
 import type { SourceRange } from './source.ts';
 import type { Property } from './syntax.ts';
+import { rejectUncompiledDistribution } from './distributions.ts';
 
 export type FieldRule =
   | { path: string; read: (token: Token) => unknown; nullable?: boolean }
@@ -25,6 +26,9 @@ export class FieldWriter {
   apply(properties: Property[], rules: FieldRules, target: object, path: string): void {
     const names = new Set<string>();
     for (const property of properties) {
+      if (!Array.isArray(property.value) && property.value.kind === 'distribution') {
+        rejectUncompiledDistribution(property.value);
+      }
       const name = property.key.text;
       const known = Object.prototype.hasOwnProperty.call(rules, name);
       if (!known) throw new LanguageError(`Unknown setting ${JSON.stringify(name)}.`, property.key.range);

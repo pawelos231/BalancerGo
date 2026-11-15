@@ -3,7 +3,7 @@ import { INT64_MAX, INT64_MIN, UINT64_MAX } from '../scenarios/values.ts';
 import type { Token } from './lexer.ts';
 import { LanguageError } from './source.ts';
 
-const byteUnits: Readonly<Record<string, bigint>> = {
+export const byteUnits: Readonly<Record<string, bigint>> = {
   B: 1n,
   KB: 1000n,
   MB: 1000n ** 2n,
@@ -13,7 +13,9 @@ const byteUnits: Readonly<Record<string, bigint>> = {
   EB: 1000n ** 6n,
 };
 const bitRateUnits = Object.fromEntries(Object.entries(byteUnits).map(([unit, bytes]) => [unit, bytes * 8n]));
-const timeUnits = { ns: 1n, us: 1000n, ms: 1_000_000n, s: 1_000_000_000n, m: 60_000_000_000n };
+export const timeUnits: Readonly<Record<string, bigint>> = {
+  ns: 1n, us: 1000n, ms: 1_000_000n, s: 1_000_000_000n, m: 60_000_000_000n,
+};
 
 // Payload and window values count bytes, not bits or packets.
 export function dataBytes(token: Token, minimum = 0n, maximum = INT64_MAX): ExactInteger {

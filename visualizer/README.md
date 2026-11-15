@@ -342,6 +342,14 @@ Fences marked `lb` are complete scenarios; `lb-fragment context=tcp` is checked
 inside the named baseline block. `lb-invalid` fences declare an expected compiler
 error. The shared example helper also supports backend CLI validation.
 
+Uniform distribution syntax is staged in E5.1.1: the parser recognizes
+`packet-time uniform { min 5us max 15us }` and preserves its source locations.
+Bounds describe `[min, max)`, must be nonnegative and strictly ordered, and
+must have compatible units. Declaration checks compare exact quantities;
+field-specific limits and integer conversion belong to later integration.
+Compilation currently rejects these expressions explicitly, including unused
+profiles and timeline changes. Sampling and native JSON support are not enabled.
+
 Build output is written to `dist/`. `VITE_WS_URL` is embedded at build time, so
 changing the backend URL for a static deployment requires rebuilding.
 

@@ -68,7 +68,7 @@ class Parser {
     };
   }
 
-  // Each field consumes one scalar, so "speed" alone points to its missing value.
+  // Fields accept scalars, nested settings or an inline distribution definition.
   private properties(inBlock: boolean): Property[] {
     const properties: Property[] = [];
     while (this.peek().kind !== 'eof' && this.peek().kind !== '}') {
@@ -86,7 +86,22 @@ class Parser {
       if (!['word', 'number', 'string'].includes(value.kind)) {
         throw new LanguageError(`Expected a value for ${key.text}.`, value.range);
       }
-      properties.push({ key, value: this.take() });
+      this.take();
+      if (value.kind === 'word' && this.peek().kind === '{') {
+        if (value.text !== 'uniform') {
+          throw new LanguageError(`Unsupported distribution ${JSON.stringify(value.text)}.`, value.range);
+        }
+        const parameters = this.block();
+        properties.push({
+          key,
+          value: {
+            kind: 'distribution', family: value, parameters,
+            range: { start: value.range.start, end: this.tokens[this.index - 1].range.end },
+          },
+        });
+      } else {
+        properties.push({ key, value });
+      }
     }
     return properties;
   }

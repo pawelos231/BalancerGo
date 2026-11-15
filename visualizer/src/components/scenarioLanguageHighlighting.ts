@@ -14,7 +14,7 @@ const keywords = new Set([
   'mode', 'fast-retransmit', 'fast-convergence', 'initial-window', 'maximum-window',
   'ssthresh', 'rto', 'backoff', 'initial', 'minimum', 'maximum', 'close', 'msl',
   'fin-wait', 'fin-retries', 'delayed-ack', 'enabled', 'segments', 'max-delay',
-  'algo', 'ingress', 'egress', 'name', 'address', 'available', 'admin',
+  'algo', 'ingress', 'egress', 'name', 'address', 'available', 'admin', 'min', 'max',
 ]);
 
 type Role = 'statement' | 'field' | 'value' | 'name' | 'target';
@@ -79,6 +79,7 @@ const scenarioParser: StreamParser<HighlightState> = {
       }
       if (state.role === 'value') {
         state.role = 'field';
+        if (word === 'uniform' && stream.match(/^\s*\{/, false)) return 'keyword';
         if (word === 'true' || word === 'false') return 'bool';
         return word === 'null' ? 'null' : 'variableName';
       }
@@ -87,7 +88,8 @@ const scenarioParser: StreamParser<HighlightState> = {
         return keywords.has(word) ? 'keyword' : 'variableName';
       }
       if (state.role === 'field') {
-        state.role = 'value';
+        state.role = word === 'use' ? 'name' : 'value';
+        if (word === 'use') state.afterName = 'field';
       } else if (namedDeclarations.has(word)) {
         state.role = 'name';
         state.afterName = 'field';

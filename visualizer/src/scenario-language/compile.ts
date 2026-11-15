@@ -12,10 +12,12 @@ import { countValue, timeValue } from './values.ts';
 import { compileClientGroup, compileClientOverrides } from './workload.ts';
 import { TimelineBuilder } from './timeline.ts';
 import { applyTimelineCommands } from './timelineCommands.ts';
+import { rejectUncompiledDistributions } from './distributions.ts';
 
 // Compile once before Start; the engine and Go CLI receive the unchanged JSON v2 contract.
 export function compileScenario(source: string): Scenario {
   const program = parse(source);
+  rejectUncompiledDistributions(program);
   checkSupported(program);
   const run = oneDeclaration(program, 'run');
   const balancer = oneDeclaration(program, 'balancer');

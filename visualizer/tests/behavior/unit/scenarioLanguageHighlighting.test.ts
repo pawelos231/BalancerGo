@@ -81,6 +81,39 @@ test('field fragments give first-line booleans the same styles as complete TCP b
   }
 });
 
+test('language highlighting colors inline uniform families and bounds contextually', () => {
+  const tokens = highlighted(`profile uniform { travel 1ms }
+backend uniform use uniform {
+    admin uniform
+    host { packet-time uniform { min 5us max 15us } cores 2 }
+}
+at 1s { set backend uniform { host { packet-time uniform { min 1us max 2us } } } }`);
+  assert.deepEqual(tokens.filter(token => token.text === 'uniform').map(token => token.style), [
+    'name', 'name', 'name', 'name', 'keyword', 'name', 'keyword',
+  ]);
+  assert.deepEqual(tokens.filter(token => token.text === 'min' || token.text === 'max'), [
+    { text: 'min', style: 'keyword' }, { text: 'max', style: 'keyword' },
+    { text: 'min', style: 'keyword' }, { text: 'max', style: 'keyword' },
+  ]);
+  assert.ok(tokens.some(token => token.text === 'cores' && token.style === 'keyword'));
+});
+
+test('field fragments highlight first-line uniform definitions consistently', () => {
+  const source = 'packet-time uniform { min 5us max 15us }';
+  assert.deepEqual(highlighted(source, scenarioFieldFragment), [
+    { text: 'packet-time', style: 'keyword' },
+    { text: 'uniform', style: 'keyword' },
+    { text: 'min', style: 'keyword' },
+    { text: '5us', style: 'number' },
+    { text: 'max', style: 'keyword' },
+    { text: '15us', style: 'number' },
+  ]);
+  assert.deepEqual(highlighted(source, scenarioFieldFragment), highlighted(`defaults {\n${source}\n}`).slice(1));
+  assert.deepEqual(highlighted('admin uniform', scenarioFieldFragment), [
+    { text: 'admin', style: 'keyword' }, { text: 'uniform', style: 'name' },
+  ]);
+});
+
 test('field fragments preserve field, enum and nested value styles in each documented context', () => {
   for (const [declaration, source] of [
     ['tcp', 'SACK true\nECN false\ncongestion-control { mode cubic fast-retransmit null }'],

@@ -4,7 +4,15 @@ import type { SourceRange } from './source.ts';
 // A setting still carries its source token; for example speed -> the token "1".
 export interface Property {
   key: Token;
-  value: Token | Property[];
+  value: Token | Property[] | DistributionExpression;
+}
+
+// Keep distribution parameters as source syntax; later passes check units and domains.
+export interface DistributionExpression {
+  kind: 'distribution';
+  family: Token;
+  parameters: Property[];
+  range: SourceRange;
 }
 
 // Syntax only: run's argument is its duration; settings are checked in later passes.
