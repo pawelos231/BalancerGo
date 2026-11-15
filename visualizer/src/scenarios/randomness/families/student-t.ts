@@ -6,7 +6,7 @@ export default {
   source: 'student-t',
   title: 'Student t',
   bounded: true,
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'location', role: 'quantity' },
     { name: 'scale', role: 'positiveQuantity' },

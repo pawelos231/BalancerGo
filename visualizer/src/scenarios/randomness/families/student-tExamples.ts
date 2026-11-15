@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'student-t-profile-definitions',
     title: 'Student t profile definitions',
-    description: 'Declares named student-t profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named student-t definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Student t declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',
