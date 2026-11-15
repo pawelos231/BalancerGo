@@ -81,7 +81,7 @@ E5.1.2 compiles immutable sampler settings once, without drawing randomness.
 `NewIntegerSampler(profile)` accepts constants and uniform definitions and returns
 whole base units. `NewUniformFloatSampler(profile)` accepts only uniform and
 returns a float64 approximation. Both expose `Sample(source)` and receive an
-explicit `RNG` with `Uint64() uint64`; a stream from `NewStreams` satisfies it.
+explicit `RNG` with `Uint64() uint64`; a stream from `NewRandomGenerators` satisfies it.
 The RNG must produce uniform full-width words. Neither sampler owns a global RNG.
 
 ```go
@@ -91,8 +91,8 @@ profile, err := randomness.DecodeProfile([]byte(
 if err != nil { panic(err) }
 sampler, err := randomness.NewIntegerSampler(profile)
 if err != nil { panic(err) }
-streams := randomness.NewStreams(42)
-packetTime := sampler.Sample(streams.Stream("backend/api-0", "cpu-time"))
+generators := randomness.NewRandomGenerators(42)
+packetTime := sampler.Sample(generators.Stream("backend/api-0", "cpu-time"))
 ```
 
 The integer sampler preserves exact quantized probabilities. Whole bounds use
@@ -143,7 +143,7 @@ isolated streams belong to E5.0.2; uniform sampling belongs to E5.1.2.
 
 ## Seeded streams and experiment provenance
 
-E5.0.2 supplies `randomness.NewStreams(seed)`. Each run owns advancing streams
+E5.0.2 supplies `randomness.NewRandomGenerators(seed)`. Each run owns advancing streams
 keyed by `(resourceID, phenomenon)`. Repeating a lookup continues the same stream;
 creating or drawing from another pair does not advance it. The DES goroutine owns
 the registry and its generators, so they do not add locks or concurrent access.

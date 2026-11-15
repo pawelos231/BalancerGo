@@ -81,7 +81,7 @@ func (s *World) clientLinkSettings(id string, config scenario.LinkConfig) (netwo
 	var congestionRNG *rand.Rand
 	if config.QueuePolicy == "threshold" &&
 		config.CongestionSignalProbability > 0 && config.CongestionSignalProbability < 1 {
-		congestionRNG = s.randomStreams.Stream(id, randomness.Congestion)
+		congestionRNG = s.randomGenerators.Stream(id, randomness.Congestion)
 	}
 	return configuredLink(config), congestionRNG
 }

@@ -33,7 +33,7 @@ func TestWorldObservationsPreserveRandomStreams(t *testing.T) {
 	var baseline observed
 	for _, inspect := range []bool{false, true} {
 		world := newTimelineWorld(t, definition)
-		if world.randomStreams.Stream("algorithm", randomness.Selection) != world.algorithmRNG {
+		if world.randomGenerators.Stream("algorithm", randomness.Selection) != world.algorithmRNG {
 			t.Fatal("the selector is not using the world's cached stream")
 		}
 		link := world.backends[world.lb.GetServers()[0].ID].returnLink

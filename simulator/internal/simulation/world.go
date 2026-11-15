@@ -20,13 +20,13 @@ import (
 // World owns the protocol endpoints, network and virtual-time measurements.
 // All access, including observation, belongs to one owner goroutine.
 type World struct {
-	fixed         scenario.NormalizedFixedConfig
-	configuration scenario.NormalizedState
-	engine        *engine.Engine
-	timeline      *timelineRuntime
-	lb            *balancer.LoadBalancer
-	randomStreams *randomness.Streams
-	algorithmRNG  *rand.Rand
+	fixed            scenario.NormalizedFixedConfig
+	configuration    scenario.NormalizedState
+	engine           *engine.Engine
+	timeline         *timelineRuntime
+	lb               *balancer.LoadBalancer
+	randomGenerators *randomness.RandomGenerators
+	algorithmRNG     *rand.Rand
 
 	egress           *network.Egress
 	ingress          *network.Ingress
@@ -80,15 +80,15 @@ func newWorld(
 	e.MaxEvents = execution.MaxEvents
 
 	s := &World{
-		fixed:         fixed,
-		configuration: initial,
-		timeline:      timeline,
-		algorithm:     initial.LoadBalancer.Algorithm,
-		engine:        e,
-		randomStreams: randomness.NewStreams(execution.Seed),
-		backends:      make(map[string]*runtimeBackend, len(initial.Backends)),
+		fixed:            fixed,
+		configuration:    initial,
+		timeline:         timeline,
+		algorithm:        initial.LoadBalancer.Algorithm,
+		engine:           e,
+		randomGenerators: randomness.NewRandomGenerators(execution.Seed),
+		backends:         make(map[string]*runtimeBackend, len(initial.Backends)),
 	}
-	s.algorithmRNG = s.randomStreams.Stream("algorithm", randomness.Selection)
+	s.algorithmRNG = s.randomGenerators.Stream("algorithm", randomness.Selection)
 
 	var algorithm algorithms.Algorithm = &algorithms.RoundRobin{}
 	if initial.LoadBalancer.Algorithm == "random" {
@@ -99,7 +99,7 @@ func newWorld(
 		e,
 		model.LBModeNAT,
 		algorithm,
-		s.randomStreams.Stream("balancer", randomness.PacketLoss),
+		s.randomGenerators.Stream("balancer", randomness.PacketLoss),
 	)
 	s.lb.SetMappingTimeouts(configuredMappingTimeouts(initial.LoadBalancer))
 	s.lb.SetHostConfig(configuredHost(initial.LoadBalancer.Host))
@@ -155,7 +155,7 @@ func (s *World) AdvanceBatch(ctx context.Context, until time.Duration) (bool, er
 func (s *World) configureCongestionRNG(link *network.Link, id string, config scenario.LinkConfig) {
 	probability := config.CongestionSignalProbability
 	if config.QueuePolicy == "threshold" && probability > 0 && probability < 1 {
-		link.SetCongestionRNG(s.randomStreams.Stream(id, randomness.Congestion))
+		link.SetCongestionRNG(s.randomGenerators.Stream(id, randomness.Congestion))
 	}
 }
 
@@ -167,7 +167,7 @@ func (s *World) addLink(
 	link := network.NewLink(
 		s.engine,
 		configuredLink(config),
-		s.randomStreams.Stream(id, randomness.PacketLoss),
+		s.randomGenerators.Stream(id, randomness.PacketLoss),
 	)
 	s.configureCongestionRNG(link, id, config)
 
@@ -241,7 +241,7 @@ func (s *World) connectIngress(config scenario.LinkConfig) {
 	link := network.NewLink(
 		s.engine,
 		configuredLink(config),
-		s.randomStreams.Stream("link/infrastructure/ingress", randomness.PacketLoss),
+		s.randomGenerators.Stream("link/infrastructure/ingress", randomness.PacketLoss),
 	)
 	s.configureCongestionRNG(link, "link/infrastructure/ingress", config)
 	s.ingress = network.NewIngress(link)

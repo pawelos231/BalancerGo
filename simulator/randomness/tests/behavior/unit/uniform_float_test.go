@@ -112,7 +112,7 @@ func TestUniformFloatCopiesProfileBounds(t *testing.T) {
 // A fixed stream replays the same samples even if another resource draws between them.
 func TestUniformFloatReplaysWithoutConsumingOtherStreams(t *testing.T) {
 	sampler := floatSampler(t, "0", "10")
-	first, second := randomness.NewStreams(2026), randomness.NewStreams(2026)
+	first, second := randomness.NewRandomGenerators(2026), randomness.NewRandomGenerators(2026)
 	bins := [10]int{}
 	for range 10_000 {
 		second.Stream("other", "travel").Uint64()

@@ -50,7 +50,7 @@ func TestTimelineAlgorithmChangesKeepExistingRoutes(t *testing.T) {
 
 	advanceTimelinePolicy(t, world, 100*time.Millisecond)
 	newClient := timelinePolicyClient(t, world, 2)
-	want := randomness.NewStreams(definition.Fixed.Execution.Seed).
+	want := randomness.NewRandomGenerators(definition.Fixed.Execution.Seed).
 		Stream("algorithm", randomness.Selection).Intn(len(backends))
 	if selected, err := world.lb.Route(newClient); err != nil || selected != backends[want] {
 		t.Fatalf("new random mapping = %v, %v; want %s", selected, err, backends[want].ID)
@@ -101,7 +101,7 @@ func TestTimelineAlgorithmStateAndRandomStreamSurviveOtherChanges(t *testing.T) 
 	for run := range 2 {
 		world := newTimelineWorld(t, definition)
 		backends := world.lb.GetServers()
-		reference := randomness.NewStreams(definition.Fixed.Execution.Seed).
+		reference := randomness.NewRandomGenerators(definition.Fixed.Execution.Seed).
 			Stream("algorithm", randomness.Selection)
 		var selectedIDs []string
 		pick := func(want int) {

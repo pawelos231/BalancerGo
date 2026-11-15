@@ -320,7 +320,7 @@ func TestIntegerSamplerSnapshotsDefinitionAndDoesNotMutateIt(t *testing.T) {
 // Drawing for backend b2 leaves backend b1's fixed-seed sample sequence unchanged.
 func TestIntegerSamplerRepeatabilityAndResourceStreamIsolation(t *testing.T) {
 	sampler := integerSampler(t, `{"kind":"uniform","unit":"nanoseconds","min":"0.5","max":"100.5"}`)
-	first, second := randomness.NewStreams(-123), randomness.NewStreams(-123)
+	first, second := randomness.NewRandomGenerators(-123), randomness.NewRandomGenerators(-123)
 	firstStream := first.Stream("backend/b1", "processing")
 	secondStream := second.Stream("backend/b1", "processing")
 	unrelated := first.Stream("backend/b2", "processing")
@@ -335,7 +335,7 @@ func TestIntegerSamplerRepeatabilityAndResourceStreamIsolation(t *testing.T) {
 	if !reflect.DeepEqual(actual, reference) {
 		t.Fatal("unrelated resource draws changed a fixed-seed sample sequence")
 	}
-	otherSeed := randomness.NewStreams(-124).Stream("backend/b1", "processing")
+	otherSeed := randomness.NewRandomGenerators(-124).Stream("backend/b1", "processing")
 	var different []int64
 	for range actual {
 		different = append(different, sampler.Sample(otherSeed))
@@ -372,7 +372,7 @@ func TestIntegerSamplerWholeAndFractionalFrequencies(t *testing.T) {
 	for _, example := range cases {
 		t.Run(example.name, func(t *testing.T) {
 			sampler := integerSampler(t, example.document)
-			stream := randomness.NewStreams(17).Stream("frequency-check", example.name)
+			stream := randomness.NewRandomGenerators(17).Stream("frequency-check", example.name)
 			counts := make([]int, len(example.want))
 			for draw := 0; draw < example.samples; draw++ {
 				value := sampler.Sample(stream)

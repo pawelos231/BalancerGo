@@ -212,7 +212,7 @@ func (s *World) prepareResourceCommits(commits []configurationCommit) {
 			config := change.config
 			if config.QueuePolicy == "threshold" &&
 				config.CongestionSignalProbability > 0 && config.CongestionSignalProbability < 1 {
-				change.congestionRNG = s.randomStreams.Stream(change.id, randomness.Congestion)
+				change.congestionRNG = s.randomGenerators.Stream(change.id, randomness.Congestion)
 			}
 		}
 	}

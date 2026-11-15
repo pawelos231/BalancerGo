@@ -10,9 +10,9 @@ import (
 )
 
 func TestStreamLookupContinuesItsSequence(t *testing.T) {
-	streams := randomness.NewStreams(41)
+	streams := randomness.NewRandomGenerators(41)
 	stream := streams.Stream("algorithm", randomness.Selection)
-	reference := randomness.NewStreams(41).Stream("algorithm", randomness.Selection)
+	reference := randomness.NewRandomGenerators(41).Stream("algorithm", randomness.Selection)
 	for index := range 32 {
 		if lookup := streams.Stream("algorithm", randomness.Selection); lookup != stream {
 			t.Fatal("a repeated lookup replaced the owned stream")
@@ -33,7 +33,7 @@ func TestStreamCreationOrderDoesNotChangeSequences(t *testing.T) {
 		{"group/alpha", "payload-size"},
 		{"group/beta", "arrival"},
 	}
-	forward, reverse := randomness.NewStreams(19), randomness.NewStreams(19)
+	forward, reverse := randomness.NewRandomGenerators(19), randomness.NewRandomGenerators(19)
 	first, second := make([]*rand.Rand, len(keys)), make([]*rand.Rand, len(keys))
 	for index, key := range keys {
 		first[index] = forward.Stream(key[0], key[1])
@@ -52,7 +52,7 @@ func TestStreamCreationOrderDoesNotChangeSequences(t *testing.T) {
 }
 
 func TestDifferentPhenomenaAndResourcesIsolateConsumption(t *testing.T) {
-	streams, reference := randomness.NewStreams(5), randomness.NewStreams(5)
+	streams, reference := randomness.NewRandomGenerators(5), randomness.NewRandomGenerators(5)
 	loss := streams.Stream("link/shared", randomness.PacketLoss)
 	control := reference.Stream("link/shared", randomness.PacketLoss)
 	others := []*rand.Rand{
@@ -80,10 +80,10 @@ func TestDifferentPhenomenaAndResourcesIsolateConsumption(t *testing.T) {
 // These legacy names intentionally derive the same seed. Ownership must still
 // use the tuple so consuming one stream cannot consume the other stream.
 func TestLegacySeedAliasesStillOwnSeparateStreams(t *testing.T) {
-	streams := randomness.NewStreams(7)
+	streams := randomness.NewRandomGenerators(7)
 	congestion := streams.Stream("link/a", randomness.Congestion)
 	loss := streams.Stream("link/a/congestion", randomness.PacketLoss)
-	control := randomness.NewStreams(7).Stream("link/a/congestion", randomness.PacketLoss)
+	control := randomness.NewRandomGenerators(7).Stream("link/a/congestion", randomness.PacketLoss)
 	if congestion == loss {
 		t.Fatal("legacy seed alias replaced tuple-based ownership")
 	}
@@ -107,7 +107,7 @@ func TestStreamsReplayTheFullSignedSeedRange(t *testing.T) {
 		math.MaxInt64,
 	} {
 		t.Run(strconv.FormatInt(seed, 10), func(t *testing.T) {
-			first, second := randomness.NewStreams(seed), randomness.NewStreams(seed)
+			first, second := randomness.NewRandomGenerators(seed), randomness.NewRandomGenerators(seed)
 			for _, key := range [][2]string{
 				{"algorithm", randomness.Selection},
 				{"link/a", randomness.PacketLoss},
@@ -183,7 +183,7 @@ func TestStreamsRetainLegacyGoldenSequences(t *testing.T) {
 		},
 	} {
 		t.Run(strconv.FormatInt(test.seed, 10)+"/"+test.resource+"/"+test.phenomenon, func(t *testing.T) {
-			stream := randomness.NewStreams(test.seed).Stream(test.resource, test.phenomenon)
+			stream := randomness.NewRandomGenerators(test.seed).Stream(test.resource, test.phenomenon)
 			for draw, want := range test.want {
 				if got := stream.Int63(); got != want {
 					t.Fatalf("legacy draw %d = %d, want %d", draw, got, want)
@@ -197,7 +197,7 @@ func TestNewTupleEncodingHasStableUnambiguousBoundaries(t *testing.T) {
 	if randomness.StreamModel != "resource-phenomenon-v1" {
 		t.Fatal("update the golden vectors when the stream model changes")
 	}
-	streams := randomness.NewStreams(1)
+	streams := randomness.NewRandomGenerators(1)
 	// Concatenation and NUL delimiters would confuse these pairs; length prefixes
 	// preserve each resource and phenomenon boundary.
 	for _, test := range []struct {
@@ -243,7 +243,7 @@ func TestStreamsRejectEmptyNames(t *testing.T) {
 					t.Fatal("an empty resource or phenomenon did not panic")
 				}
 			}()
-			randomness.NewStreams(1).Stream(key[0], key[1])
+			randomness.NewRandomGenerators(1).Stream(key[0], key[1])
 		})
 	}
 }
