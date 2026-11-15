@@ -1,0 +1,72 @@
+{
+  "family": "exponential",
+  "source": "exponential",
+  "expectedProfiles": {
+    "short-delays": {
+      "kind": "exponential",
+      "unit": "nanoseconds",
+      "mean": "5000000",
+      "min": "0",
+      "max": "20000000"
+    },
+    "tail-delays": {
+      "kind": "exponential",
+      "unit": "nanoseconds",
+      "mean": "5000000",
+      "min": "10000000",
+      "max": "30000000"
+    }
+  },
+  "cases": [
+    {
+      "name": "short-delays",
+      "valid": true,
+      "document": "{\"kind\":\"exponential\",\"unit\":\"nanoseconds\",\"mean\":\"5000000\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "tail-delays",
+      "valid": true,
+      "document": "{\"kind\":\"exponential\",\"unit\":\"nanoseconds\",\"mean\":\"5000000\",\"min\":\"10000000\",\"max\":\"30000000\"}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"exponential\",\"unit\":\"nanoseconds\",\"mean\":\"5000000\",\"min\":\"0\",\"max\":\"20000000\",\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"exponential\",\"unit\":\"nanoseconds\",\"mean\":null,\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"exponential\",\"unit\":\"nanoseconds\",\"mean\":1,\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"exponential\",\"unit\":\"nanoseconds\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "empty interval",
+      "valid": false,
+      "document": "{\"kind\":\"exponential\",\"unit\":\"nanoseconds\",\"mean\":\"5000000\",\"min\":\"0\",\"max\":\"0\"}"
+    },
+    {
+      "name": "reversed interval",
+      "valid": false,
+      "document": "{\"kind\":\"exponential\",\"unit\":\"nanoseconds\",\"mean\":\"5000000\",\"min\":\"20000000\",\"max\":\"0\"}"
+    },
+    {
+      "name": "zero mean",
+      "valid": false,
+      "document": "{\"kind\":\"exponential\",\"unit\":\"nanoseconds\",\"mean\":\"0\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"exponential\",\"unit\":\"number\",\"unit\":\"nanoseconds\",\"mean\":\"5000000\",\"min\":\"0\",\"max\":\"20000000\"}"
+    }
+  ]
+}
