@@ -10,6 +10,7 @@ declare module 'jstat' {
       normal: Law; exponential: Law; gamma: Law; studentt: Law; beta: Law;
       lognormal: Law; pareto: Law; weibull: Law; triangular: Law;
       gammaln(value: number): number;
+      ibeta(value: number, alpha: number, beta: number): number;
     };
   };
   export default jstat;

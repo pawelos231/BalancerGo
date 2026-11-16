@@ -152,12 +152,12 @@ function continuousPreview(profile: ContinuousProfile): ContinuousPreview {
   }
   const notes = [
     profile.kind === 'beta'
-      ? 'Beta is mapped affinely from [0, 1] to [min, max); density includes the reciprocal-width Jacobian.'
+      ? 'The Beta curve is stretched to fit [min, max). Its area stays 1.'
       : profile.kind === 'triangular'
-        ? 'The full triangular support is [min, max); mode may equal either endpoint.'
-        : 'The density is conditional on min ≤ X < max: f(x) / (F(max) − F(min)). Mass outside the bounds is excluded.',
-    'The horizontal axis shows the complete configured support. The maximum is excluded; its curve value is a left-hand limit.',
-    'This is an analytical numerical approximation before integer flooring or runtime conversion. No random samples are used.',
+        ? 'The triangle covers [min, max). Its peak can be at either end.'
+        : 'Values outside [min, max) are excluded. The remaining curve is rescaled so its area is 1.',
+    'The whole configured range is visible. The curve at the excluded maximum shows the height approached from the left.',
+    'Calculated from the definition, before integer rounding. This is not a sampled histogram or a simulation result.',
   ];
   if (singularities.length > 0) notes.push(
     'An endpoint arrow marks density tending to +∞. Each singular endpoint omits 1/512 of the horizontal span from the finite curve; no infinite height is replaced by a finite value.',
@@ -201,9 +201,14 @@ function analyticLaw(profile: ContinuousProfile, minimum: number, maximum: numbe
       const location = parameter(profile.location, 'location');
       const scale = parameter(profile.scale, 'scale');
       const degrees = parameter(profile.degreesOfFreedom, 'degreesOfFreedom');
+      // Larger shapes exceed the verified range of jStat's beta/gamma approximations.
+      if (degrees > 1_000_000) {
+        throw precisionError('Degrees of freedom above 1,000,000 exceed this chart’s supported numerical range.');
+      }
       return {
+        // https://www.itl.nist.gov/div898/handbook/eda/section3/eda3664.htm
         pdf: x => jStat.studentt.pdf((x - location) / scale, degrees) / scale,
-        cdf: x => jStat.studentt.cdf((x - location) / scale, degrees), landmarks: [location],
+        cdf: x => studentTCDF((x - location) / scale, degrees), landmarks: [location],
       };
     }
     case 'beta': {
@@ -252,6 +257,21 @@ function analyticLaw(profile: ContinuousProfile, minimum: number, maximum: numbe
       };
     }
   }
+}
+
+// https://github.com/gonum/gonum/blob/v0.16.0/stat/distuv/studentst.go
+function studentTCDF(value: number, degrees: number): number {
+  if (value === 0) return 0.5;
+  const square = value * value;
+  const denominator = degrees + square;
+  // The complementary beta identity preserves small central probabilities
+  // that would disappear when degrees / denominator rounds to one.
+  if (Math.abs(value) < 1) {
+    const center = 0.5 * jStat.ibeta(square / denominator, 0.5, degrees / 2);
+    return value < 0 ? 0.5 - center : 0.5 + center;
+  }
+  const tail = 0.5 * jStat.ibeta(degrees / denominator, degrees / 2, 0.5);
+  return value < 0 ? tail : 1 - tail;
 }
 
 function bernoulliPreview(profile: Extract<RandomProfile, { kind: 'bernoulli' }>): MassPreview {

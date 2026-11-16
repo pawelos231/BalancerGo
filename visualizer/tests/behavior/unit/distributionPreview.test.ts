@@ -29,6 +29,14 @@ function densityAt(preview: ContinuousPreview, value: number): number {
   return point.density;
 }
 
+function densityArea(preview: ContinuousPreview): number {
+  const width = Number(preview.maximum) - Number(preview.minimum);
+  return preview.points.slice(1).reduce((area, point, index) => {
+    const previous = preview.points[index];
+    return area + width * (point.position - previous.position) * (point.density + previous.density) / 2;
+  }, 0);
+}
+
 // Oracles below use elementary special cases, independently of jStat:
 // Gamma(1, theta) and Weibull(1, lambda) are exponential; t(1) is Cauchy.
 // The normal interval mass is the high-precision value Phi(2) - Phi(-2).
@@ -65,6 +73,70 @@ previewTest('Student t location-scale conversion agrees with the independent Cau
   close(preview.normalizationMass, 2 * Math.atan(2) / Math.PI);
   // jStat's Student-t PDF uses its beta-function approximation (about 1e-8).
   close(densityAt(preview, 2), 1 / (2 * Math.atan(2)), 1e-8);
+});
+
+previewTest('Student t time presets retain their asymmetric bounds and normalized elementary densities', ['studentT'], () => {
+  const cases = [
+    {
+      degrees: '1',
+      pdf: (z: number) => 1 / (Math.PI * (1 + z * z)),
+      cdf: (z: number) => 0.5 + Math.atan(z) / Math.PI,
+    },
+    {
+      degrees: '3',
+      pdf: (z: number) => 2 / (Math.PI * Math.sqrt(3)) * Math.pow(1 + z * z / 3, -2),
+      cdf: (z: number) => 0.5 + (Math.atan(z / Math.sqrt(3)) + Math.sqrt(3) * z / (z * z + 3)) / Math.PI,
+    },
+  ];
+  for (const law of cases) {
+    const preview = continuous({
+      kind: 'studentT', unit: 'nanoseconds', location: '10000000', scale: '2000000',
+      degreesOfFreedom: law.degrees, min: '0', max: '30000000',
+    });
+    const mass = law.cdf(10) - law.cdf(-5);
+    close(preview.normalizationMass, mass);
+    const peak = preview.points.reduce((highest, point) => point.density > highest.density ? point : highest);
+    assert.equal(peak.position, 1 / 3);
+    for (const point of preview.points) {
+      const valueMs = 30 * point.position;
+      const expectedPerMs = law.pdf((valueMs - 10) / 2) / 2 / mass;
+      // Relative comparison prevents nanosecond densities passing on absolute tolerance alone.
+      close(point.density * 1e6 / expectedPerMs, 1, 1e-8);
+    }
+    close(densityArea(preview), 1, 1e-5);
+  }
+});
+
+previewTest('Student t with two degrees of freedom agrees with elementary PDF and CDF formulas', ['studentT'], () => {
+  const preview = continuous({ kind: 'studentT', unit: 'number', location: '2', scale: '1', degreesOfFreedom: '2', min: '0', max: '4' });
+  const cdf = (z: number) => 0.5 + z / (2 * Math.sqrt(z * z + 2));
+  const mass = cdf(2) - cdf(-2);
+  close(preview.normalizationMass, mass, 1e-8);
+  for (const point of preview.points) {
+    const z = 4 * point.position - 2;
+    close(point.density / (Math.pow(z * z + 2, -1.5) / mass), 1, 1e-8);
+  }
+});
+
+previewTest('Student t large degrees preserve symmetry and resolve narrow intervals around the location', ['studentT'], () => {
+  const common = { kind: 'studentT', unit: 'number', location: '10', scale: '2', degreesOfFreedom: '1000000' } as const;
+  const half = continuous({ ...common, min: '10', max: '30' });
+  close(half.normalizationMass, 0.5);
+  // The t density approaches the normal density as degrees of freedom grow.
+  close(densityAt(half, 10), 1 / Math.sqrt(2 * Math.PI), 2e-7);
+  close(densityArea(half), 1, 1e-5);
+
+  const narrow = continuous({ ...common, min: '9.99998', max: '10.00002' });
+  const normalLimitMass = 2e-5 / Math.sqrt(2 * Math.PI);
+  close(narrow.normalizationMass / normalLimitMass, 1, 5e-7);
+  close(densityArea(narrow), 1, 1e-7);
+});
+
+previewTest('Student t degrees outside the verified preview range report finite precision', ['studentT'], () => {
+  assert.throws(() => buildDistributionPreview({
+    kind: 'studentT', unit: 'number', location: '10', scale: '2',
+    degreesOfFreedom: '1000001', min: '0', max: '30',
+  }), /Degrees of freedom above 1,000,000.*finite precision/);
 });
 
 previewTest('Beta affine support applies its Jacobian and keeps exact parameter labels', ["beta"], () => {

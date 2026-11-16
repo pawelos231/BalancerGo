@@ -49,11 +49,16 @@ Choose a definition from the library’s **Normal profile definitions** example.
 **service-time** shows the centered interval from 0us to 20us;
 **upper-tail** retains 12us to 16us from the same underlying curve.
 
-The horizontal axis shows the complete configured interval **[min, max)** in
-base units. The vertical axis is probability density per base unit. The filled
-minimum marker includes min; the open maximum marker shows the excluded
-endpoint’s left-hand limit. The curve is normalized by the probability mass
-retained within the bounds, so its analytical area is 1.
+Read **service-time** as “values near 10 µs are most common; values near
+0 or 20 µs are rare.” The axis uses µs instead of long nanosecond numbers.
+For example, a height near **0.2 per µs** means an interval about 1 µs wide
+near the peak has roughly a 20% chance. The height describes a small interval,
+not the probability of one exact value.
+
+The whole configured interval **[min, max)** remains visible. The filled
+minimum marker includes min; the open maximum marker excludes max. Bounds
+and parameters in the caption stay exact; numerical ticks are rounded.
+Changing display units also rescales density, preserving all probabilities.
 
 The diagram is a deterministic numerical approximation of the continuous
 definition before integer flooring or floating-point sampler conversion.

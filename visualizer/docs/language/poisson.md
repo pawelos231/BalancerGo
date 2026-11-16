@@ -48,7 +48,7 @@ Choose a definition from the library’s **Poisson profile definitions** example
 
 The bars show the Poisson PMF conditional on the integer outcomes in [min, max). The excluded maximum has no bar. The numerical bar heights sum to 1.
 
-The horizontal axis shows the complete configured support, with exact base-unit labels and padding where appropriate. The caption identifies the vertical-axis units and endpoint conventions.
+The horizontal axis shows the whole configured range in readable units such as µs or ms, with padding where needed. Captions and table values keep exact decimal precision; only numerical ticks are rounded. The vertical-axis label names its units.
 
 This deterministic preview approximates the conditioned Poisson PMF. It draws no random values and predicts no future packets. If the configured interval cannot be displayed reliably, the preview explains the limit instead of omitting outcomes.
 

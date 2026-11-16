@@ -2,9 +2,12 @@ import { Alert, Box, MenuItem, Stack, TextField, Typography, useTheme } from '@m
 import { useEffect, useId, useMemo, useState } from 'react';
 import { buildDistributionPreview } from '../docs/distributionPreview.ts';
 import type { DistributionPreview as Preview } from '../docs/distributionPreview.ts';
+import {
+  continuousValueTicks, createPreviewDisplay, densityAxis, formatChartNumber,
+} from '../docs/previewDisplay.ts';
 import { compileScenario } from '../scenario-language/compile.ts';
 import { sourceExamples } from '../scenarios/sourceExamples.ts';
-import { familyBySource } from '../scenarios/randomness/registry.ts';
+import { familyByKind, familyBySource } from '../scenarios/randomness/registry.ts';
 
 interface Example { id: string; preview?: Preview; error?: string }
 interface DistributionPreviewProps { family: string; onReady?: () => void }
@@ -32,6 +35,24 @@ export default function DistributionPreview({ family, onReady }: DistributionPre
   const [exampleID, setExampleID] = useState('');
   const selected = examples.find(example => example.id === exampleID) ?? examples[0];
   const preview = selected.preview;
+  const display = preview && createPreviewDisplay(preview.unitLabel, preview.axisMinimum, preview.axisMaximum);
+  const verticalAxis = preview?.kind === 'pdf' && display
+    ? densityAxis(preview.densityMaximum * display.scale)
+    : { maximum: 1, ticks: [0, 0.25, 0.5, 0.75, 1] };
+  const rawDensityMaximum = display ? verticalAxis.maximum / display.scale : 1;
+  const parameterSpecs = preview && familyByKind(preview.family)?.parameters;
+  const definition = preview && display && preview.parameters.map(({ name, value }) => {
+    const specification = parameterSpecs?.find(parameter => parameter.name === name);
+    const role = specification?.role;
+    const isQuantity = role === 'quantity' || role === 'positiveQuantity' || role === 'integerQuantity';
+    const label = isQuantity ? `${display.quantity(value)} ${display.unitLabel}` : value;
+    return `${specification?.source ?? name} = ${label}`;
+  }).join('; ');
+
+  // Only numerical tick labels are rounded; the caption keeps exact values.
+  const horizontalTicks = preview?.kind === 'pdf' && display
+    ? continuousValueTicks(preview.minimum, preview.maximum, display.scale)
+    : [];
   const diagramID = useId();
   const theme = useTheme();
   const ink = theme.palette.text.secondary;
@@ -49,7 +70,7 @@ export default function DistributionPreview({ family, onReady }: DistributionPre
         {examples.map(example => <MenuItem key={example.id} value={example.id}>{example.id}</MenuItem>)}
       </TextField>
       {selected.error && <Alert severity="info">{selected.error}</Alert>}
-      {preview && (
+      {preview && display && (
         <Box component="figure" sx={{ m: 0, p: { xs: 1.5, sm: 2 }, border: 1, borderColor: 'divider', borderRadius: 1 }}>
           <Box
             component="svg" viewBox="0 0 700 275" role="img"
@@ -58,12 +79,12 @@ export default function DistributionPreview({ family, onReady }: DistributionPre
           >
             <title id={`${diagramID}-title`}>{chartTitle(preview)}: {selected.id}</title>
             <desc id={`${diagramID}-description`}>
-              {preview.notes.join(' ')} Axis: {preview.axisMinimum} to {preview.axisMaximum} {preview.unitLabel}.
+              {preview.notes.join(' ')} Axis: {display.quantity(preview.axisMinimum)} to {display.quantity(preview.axisMaximum)} {display.unitLabel}.
             </desc>
             <g fill="none" stroke={ink} strokeWidth="1.5"><path d="M70 30 V210 H660" /></g>
             {preview.kind === 'pdf' && (
               <g stroke={curve}>
-                <path d={densityPath(preview)} fill="none" strokeWidth="3" />
+                <path d={densityPath(preview, rawDensityMaximum)} fill="none" strokeWidth="3" />
                 {preview.singularities.map(singularity => {
                   const x = singularity.edge === 'minimum' ? 70 : 660;
                   return <g key={singularity.edge}>
@@ -74,10 +95,10 @@ export default function DistributionPreview({ family, onReady }: DistributionPre
                   </g>;
                 })}
                 {preview.singularities.every(singularity => singularity.edge !== 'minimum') && (
-                  <circle cx="70" cy={densityY(preview.points[0].density, preview.densityMaximum)} r="4" fill={curve} />
+                  <circle cx="70" cy={densityY(preview.points[0].density, rawDensityMaximum)} r="4" fill={curve} />
                 )}
                 {preview.singularities.every(singularity => singularity.edge !== 'maximum') && (
-                  <circle cx="660" cy={densityY(preview.points[preview.points.length - 1].density, preview.densityMaximum)}
+                  <circle cx="660" cy={densityY(preview.points[preview.points.length - 1].density, rawDensityMaximum)}
                     r="4" fill={paper} strokeWidth="2" />
                 )}
               </g>
@@ -89,7 +110,7 @@ export default function DistributionPreview({ family, onReady }: DistributionPre
                   const y = probabilityY(bar.probability);
                   const width = Math.min(28, 460 / preview.bars.length);
                   return <g key={bar.value}>
-                    <title>{bar.value} {preview.unitLabel}: probability {bar.probabilityLabel}</title>
+                    <title>{display.quantity(bar.value)} {display.unitLabel}: probability {bar.probabilityLabel}</title>
                     <rect x={x - width / 2} y={y} width={width} height={210 - y} fillOpacity="0.22" strokeWidth="1.5" />
                     <circle cx={x} cy={y} r="3" />
                   </g>;
@@ -102,7 +123,7 @@ export default function DistributionPreview({ family, onReady }: DistributionPre
                   const x = horizontal(step.position);
                   const previous = index === 0 ? 70 : horizontal(preview.steps[index - 1].position);
                   return <g key={step.value}>
-                    <title>{step.value} {preview.unitLabel}: {step.count} observations; cumulative mass {step.cumulativeLabel}</title>
+                    <title>{display.quantity(step.value)} {display.unitLabel}: {step.count} observations; cumulative mass {step.cumulativeLabel}</title>
                     <path d={`M${previous} ${probabilityY(step.before)} H${x}`} />
                     <path d={`M${x} ${probabilityY(step.before)} V${probabilityY(step.after)}`} strokeDasharray="3 4" strokeWidth="1" />
                     <circle cx={x} cy={probabilityY(step.before)} r="4" fill={paper} />
@@ -113,34 +134,47 @@ export default function DistributionPreview({ family, onReady }: DistributionPre
               </g>
             )}
             <g fill={ink} fontSize="16" fontFamily="sans-serif">
-              <text x="57" y="215" textAnchor="end">0</text>
-              <text x="57" y="39" textAnchor="end">
-                {preview.kind === 'pdf' ? formatNumber(preview.densityMaximum) : '1'}
-              </text>
-              <text x="70" y="238" textAnchor="start">{preview.kind === 'pdf' ? 'min (included)' : 'axis min'}</text>
-              <text x="660" y="238" textAnchor="end">{preview.kind === 'pdf' ? 'max (excluded)' : 'axis max'}</text>
-              <text x="365" y="268" textAnchor="middle">Value ({preview.unitLabel})</text>
+              {verticalAxis.ticks.map(value => <g key={value}>
+                <path d={`M65 ${densityY(value, verticalAxis.maximum)} H70`} stroke={ink} />
+                <text x="57" y={densityY(value, verticalAxis.maximum) + 5} textAnchor="end" fontSize="13">
+                  {preview.kind === 'pdf' ? formatChartNumber(value) : `${value * 100}%`}
+                </text>
+              </g>)}
+              {preview.kind === 'pdf'
+                ? horizontalTicks.map(({ position, label }) => <text key={position}
+                  x={horizontal(position)} y="238"
+                  textAnchor={position === 0 ? 'start' : position === 1 ? 'end' : 'middle'}>
+                  {label}
+                </text>)
+                : <>
+                  <text x="70" y="238" textAnchor="start">axis min</text>
+                  <text x="660" y="238" textAnchor="end">axis max</text>
+                </>}
+              <text x="365" y="268" textAnchor="middle">Value ({display.unitLabel})</text>
               <text x="20" y="120" textAnchor="middle" transform="rotate(-90 20 120)">
-                {preview.kind === 'pdf' ? 'Density' : preview.kind === 'pmf' ? 'Probability mass' : 'Cumulative probability'}
+                {preview.kind === 'pdf' ? `Density (per ${display.unitLabel})` : preview.kind === 'pmf' ? 'Probability mass' : 'Cumulative probability'}
               </text>
             </g>
           </Box>
           <Stack component="figcaption" spacing={1} sx={{ mt: 2, overflowWrap: 'anywhere' }} aria-live="polite">
             <Typography variant="body2">
-              <strong>Horizontal axis:</strong> {preview.axisMinimum} to {preview.axisMaximum} {preview.unitLabel}.
+              <strong>{preview.kind === 'pdf' ? 'Values:' : 'Horizontal axis:'}</strong>{' '}
+              {display.quantity(preview.axisMinimum)} to {display.quantity(preview.axisMaximum)} {display.unitLabel}.
+              {preview.kind === 'pdf' && ' The filled minimum is included; the open maximum is excluded.'}
             </Typography>
             {preview.parameters.length > 0 && (
               <Typography variant="body2">
-                <strong>Exact definition:</strong> {preview.parameters.map(parameter => `${parameter.name} = ${parameter.value}`).join('; ')}.
+                <strong>Definition:</strong> {definition}.
               </Typography>
             )}
             {preview.kind === 'pdf' && <Typography variant="body2">
-              <strong>Vertical axis:</strong> 0 to {formatNumber(preview.densityMaximum)} per {preview.unitLabel}.
-              {preview.singularities.length === 0 ? ' The analytical conditional density has total area 1.' : ' The unbounded endpoint height lies above this finite drawing.'}
+              <strong>Read the curve:</strong> higher parts mean values nearby are more common.
+              Height is density per {display.unitLabel}, not the probability of one exact value.
+              {preview.singularities.length > 0 && ' The endpoint arrow continues above this finite drawing.'}
             </Typography>}
             {preview.kind === 'pdf' && preview.singularities.map(singularity => <Typography key={singularity.edge} variant="body2">
-              <strong>Singular {singularity.edge}:</strong> density tends to +∞ at {singularity.value} {preview.unitLabel};
-              the finite curve {singularity.edge === 'minimum' ? 'starts' : 'ends'} at {singularity.finiteCurveBoundary} {preview.unitLabel}.
+              <strong>Singular {singularity.edge}:</strong> density tends to +∞ at {display.quantity(singularity.value)} {display.unitLabel};
+              the finite curve {singularity.edge === 'minimum' ? 'starts' : 'ends'} at {display.quantity(singularity.finiteCurveBoundary)} {display.unitLabel}.
             </Typography>)}
             {preview.notes.map(note => <Typography key={note} variant="body2" color="text.secondary">{note}</Typography>)}
           </Stack>
@@ -157,14 +191,14 @@ export default function DistributionPreview({ family, onReady }: DistributionPre
                 '& td': { whiteSpace: 'nowrap' },
               }}>
                 <thead><tr>
-                  <th scope="col">Value ({preview.unitLabel})</th>
+                  <th scope="col">Value ({display.unitLabel})</th>
                   <th scope="col">{preview.kind === 'pmf' ? 'Probability mass' : 'Count'}</th>
                   {preview.kind === 'ecdf' && <th scope="col">Cumulative probability</th>}
                 </tr></thead>
                 <tbody>{preview.kind === 'pmf'
-                  ? preview.bars.map(bar => <tr key={bar.value}><td>{bar.value}</td><td>{bar.probabilityLabel}</td></tr>)
+                  ? preview.bars.map(bar => <tr key={bar.value}><td>{display.quantity(bar.value)}</td><td>{bar.probabilityLabel}</td></tr>)
                   : preview.steps.map(step => <tr key={step.value}>
-                    <td>{step.value}</td><td>{step.count}</td><td>{step.cumulativeLabel}</td>
+                    <td>{display.quantity(step.value)}</td><td>{step.count}</td><td>{step.cumulativeLabel}</td>
                   </tr>)}</tbody>
               </Box>
             </Box>
@@ -186,8 +220,7 @@ function chartTitle(preview: Preview): string {
 function horizontal(position: number): number { return 70 + 590 * position; }
 function probabilityY(probability: number): number { return 210 - 175 * probability; }
 function densityY(density: number, maximum: number): number { return 210 - 175 * density / maximum; }
-function densityPath(preview: Extract<Preview, { kind: 'pdf' }>): string {
+function densityPath(preview: Extract<Preview, { kind: 'pdf' }>, maximum: number): string {
   return preview.points.map((point, index) =>
-    `${index === 0 ? 'M' : 'L'}${horizontal(point.position)} ${densityY(point.density, preview.densityMaximum)}`).join(' ');
+    `${index === 0 ? 'M' : 'L'}${horizontal(point.position)} ${densityY(point.density, maximum)}`).join(' ');
 }
-function formatNumber(value: number): string { return Number(value.toPrecision(5)).toString(); }

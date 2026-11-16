@@ -49,11 +49,28 @@ Density plots describe probability per horizontal-axis unit; interval probabilit
 
 Choose a definition from the library’s **Student t profile definitions** example: **heavy-tail-time**, **cauchy-time**.
 
+Both examples are centered at **10 ms**, not at the middle of the drawing.
+Their bounds are **0–30 ms**, leaving 10 ms to the left of the center and
+20 ms to the right. That makes the visible interval asymmetric even though
+the underlying density is symmetric. Choosing equal distances around
+`location` would show a symmetric interval.
+
+**cauchy-time** has one degree of freedom and heavier tails than
+**heavy-tail-time**, which has three. Far from 10 ms, its curve falls more
+slowly. Each chart chooses its own vertical scale; compare the labeled
+heights as well as the shape. `scale 2ms` controls the spread but does not
+mean a standard deviation of 2 ms.
+
 The density is conditional on [min, max): the underlying density is divided by the probability mass retained within those bounds. Its analytical area is 1.
 
-The horizontal axis shows the complete configured support, with exact base-unit labels and padding where appropriate. The caption identifies the vertical-axis units and endpoint conventions.
+The horizontal axis shows the whole configured range in readable units such as µs or ms, with padding where needed. Captions and table values keep exact decimal precision; only numerical ticks are rounded. The vertical-axis label names its units.
 
 This is a deterministic analytical approximation of the definition before integer flooring or runtime conversion. It draws no random values and predicts no future packets. If an axis or numerical calculation cannot be resolved reliably, the preview explains the limit instead of drawing a substitute curve.
+
+The chart supports up to **1,000,000 degrees of freedom**. Larger values
+remain valid exact definitions, but the preview reports its numerical limit
+instead of drawing an unreliable curve. This limit does not change the JSON
+contract or the standalone sampler.
 
 ## Numeric admission
 

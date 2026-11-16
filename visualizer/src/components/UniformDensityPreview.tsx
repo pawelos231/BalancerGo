@@ -1,6 +1,7 @@
 import { Box, MenuItem, Stack, TextField, Typography, useTheme } from '@mui/material';
 import { useEffect, useId, useState } from 'react';
 import { buildDensityPreview } from '../docs/densityPreview.ts';
+import { createPreviewDisplay } from '../docs/previewDisplay.ts';
 import { compileScenario } from '../scenario-language/compile.ts';
 import type { RandomProfile } from '../scenarios/randomness.ts';
 import canonicalSource from '../scenarios/examples/sources/uniform-profile-definitions.lb?raw';
@@ -33,6 +34,12 @@ export default function UniformDensityPreview({ onReady }: UniformDensityPreview
   const [exampleID, setExampleID] = useState(examples[0].id);
   const selected = examples.find(example => example.id === exampleID) ?? examples[0];
   const preview = selected.preview;
+  const display = createPreviewDisplay(
+    preview.unitLabel,
+    preview.kind === 'uniform' ? preview.minimum : preview.value,
+    preview.kind === 'uniform' ? preview.maximum : preview.value,
+  );
+  const density = preview.kind === 'uniform' ? display.exactDensity(preview.density) : '';
   const diagramID = useId();
   const theme = useTheme();
   const ink = theme.palette.text.secondary;
@@ -65,8 +72,8 @@ export default function UniformDensityPreview({ onReady }: UniformDensityPreview
           </title>
           <desc id={`${diagramID}-description`}>
             {preview.kind === 'uniform'
-              ? `Flat density ${preview.density} per ${preview.unitLabel} from included minimum ${preview.minimum} to excluded maximum ${preview.maximum}. The complete support is shown.`
-              : `A single fixed value of ${preview.value} ${preview.unitLabel}, with probability one. No finite density curve is drawn.`}
+              ? `Flat density ${density} per ${display.unitLabel} from included minimum ${display.quantity(preview.minimum)} to excluded maximum ${display.quantity(preview.maximum)}. The complete support is shown.`
+              : `A single fixed value of ${display.quantity(preview.value)} ${display.unitLabel}, with probability one. No finite density curve is drawn.`}
           </desc>
 
           {uniform ? (
@@ -80,10 +87,14 @@ export default function UniformDensityPreview({ onReady }: UniformDensityPreview
               <g fill={ink} fontSize="18" fontFamily="sans-serif">
                 <text x="48" y="196" textAnchor="end">0</text>
                 <text x="48" y="76" textAnchor="end">h</text>
-                <text x="150" y="220" textAnchor="middle">min</text>
-                <text x="510" y="220" textAnchor="middle">max</text>
-                <text x="330" y="247" textAnchor="middle">Value ({preview.unitLabel})</text>
-                <text x="18" y="115" textAnchor="middle" transform="rotate(-90 18 115)">Density</text>
+                <text x="150" y="220" textAnchor="middle">
+                  {shortBound(display.quantity(preview.minimum), 'min')}
+                </text>
+                <text x="510" y="220" textAnchor="middle">
+                  {shortBound(display.quantity(preview.maximum), 'max')}
+                </text>
+                <text x="330" y="247" textAnchor="middle">Value ({display.unitLabel})</text>
+                <text x="18" y="115" textAnchor="middle" transform="rotate(-90 18 115)">Density (per {display.unitLabel})</text>
               </g>
             </g>
           ) : (
@@ -92,7 +103,7 @@ export default function UniformDensityPreview({ onReady }: UniformDensityPreview
               <circle cx="330" cy="130" r="7" fill={curve} />
               <g fill={ink} fontSize="18" fontFamily="sans-serif" textAnchor="middle">
                 <text x="330" y="100">One fixed value</text>
-                <text x="330" y="165">Value ({preview.unitLabel})</text>
+                <text x="330" y="165">{display.quantity(preview.value)} {display.unitLabel}</text>
               </g>
             </g>
           )}
@@ -102,22 +113,23 @@ export default function UniformDensityPreview({ onReady }: UniformDensityPreview
           {preview.kind === 'uniform' ? (
             <>
               <Typography variant="body2">
-                <strong>Support:</strong> [{preview.minimum}, {preview.maximum}) {preview.unitLabel}.
+                <strong>Values:</strong> [{display.quantity(preview.minimum)}, {display.quantity(preview.maximum)}) {display.unitLabel}.
                 The filled endpoint includes min; the open endpoint excludes max.
               </Typography>
               <Typography variant="body2">
-                <strong>Density h:</strong> {preview.density} per {preview.unitLabel}.
-                The shaded area is 1. The vertical axis runs from 0 to 1.25 × h.
+                <strong>Equal chances:</strong> intervals of the same width are equally likely.
+                The left half and the right half each have a 50% chance.
+                Height h = {density} per {display.unitLabel}; it is not the probability of one exact value.
               </Typography>
             </>
           ) : (
             <Typography variant="body2">
-              <strong>Fixed value:</strong> {preview.value} {preview.unitLabel}, with probability 1.
+              <strong>Fixed value:</strong> {display.quantity(preview.value)} {display.unitLabel}, with probability 100%.
               The dot marks a value; its height does not represent a finite density.
             </Typography>
           )}
           <Typography variant="body2">
-            <strong>Horizontal axis:</strong> {preview.axisMinimum} to {preview.axisMaximum} {preview.unitLabel}.
+            <strong>Horizontal axis:</strong> {display.quantity(preview.axisMinimum)} to {display.quantity(preview.axisMaximum)} {display.unitLabel}.
             The entire support is visible, with padding and no truncation.
           </Typography>
         </Stack>
@@ -135,4 +147,9 @@ export default function UniformDensityPreview({ onReady }: UniformDensityPreview
       )}
     </Stack>
   );
+}
+
+// Very long exact bounds remain in the caption instead of overlapping the plot.
+function shortBound(value: string, fallback: string): string {
+  return value.length <= 12 ? value : fallback;
 }

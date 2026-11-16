@@ -47,7 +47,7 @@ Choose a definition from the library’s **Bernoulli profile definitions** examp
 
 The bars show probability mass at 0 and 1, with heights 1 − probability and probability. There is no density between the two outcomes.
 
-The horizontal axis shows the complete configured support, with exact base-unit labels and padding where appropriate. The caption identifies the vertical-axis units and endpoint conventions.
+The horizontal axis shows the whole configured range in readable units such as µs or ms, with padding where needed. Captions and table values keep exact decimal precision; only numerical ticks are rounded. The vertical-axis label names its units.
 
 This deterministic preview shows exact probability labels alongside numerical bar heights. It draws no random values and predicts no future packets.
 

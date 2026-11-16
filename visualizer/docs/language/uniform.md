@@ -84,6 +84,11 @@ compare it with that example's current fixed backend CPU cost. The axes show
 the full support and their padding explicitly. The fixed reference is one
 point, rather than a finite-height density curve.
 
+For `[5us, 15us)`, the chart shows **5–15 µs** and a flat height of
+**0.1 per µs**. Read it as “each 1 µs interval has a 10% chance.” Display
+units keep the numbers short; exact bounds remain in the caption, including
+all digits in the precise-byte example.
+
 This is the continuous mathematical definition before conversion to a target
 type. It is not a histogram of sampled values or a simulation prediction.
 For the precise byte example, integer conversion collapses the interval to

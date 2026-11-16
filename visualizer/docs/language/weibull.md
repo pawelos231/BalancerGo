@@ -49,7 +49,7 @@ Choose a definition from the library’s **Weibull profile definitions** example
 
 The density is conditional on [min, max): the underlying density is divided by the probability mass retained within those bounds. Its analytical area is 1.
 
-The horizontal axis shows the complete configured support, with exact base-unit labels and padding where appropriate. The caption identifies the vertical-axis units and endpoint conventions.
+The horizontal axis shows the whole configured range in readable units such as µs or ms, with padding where needed. Captions and table values keep exact decimal precision; only numerical ticks are rounded. The vertical-axis label names its units.
 
 When density diverges at an endpoint, an infinity arrow marks the singularity. The caption gives the exact finite-curve boundary and the omitted endpoint interval; no infinite height is replaced by a finite spike.
 

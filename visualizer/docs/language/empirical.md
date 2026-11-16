@@ -55,7 +55,7 @@ Choose a definition from the library’s **Empirical profile definitions** examp
 
 The ECDF assigns equal mass 1/n to every observation. Duplicate values produce a larger jump. The curve stays constant between observations; open and filled markers distinguish the values before and after each jump. There is no interpolation.
 
-The horizontal axis shows the complete configured support, with exact base-unit labels and padding where appropriate. The caption identifies the vertical-axis units and endpoint conventions.
+The horizontal axis shows the whole configured range in readable units such as µs or ms, with padding where needed. Captions and table values keep exact decimal precision; only numerical ticks are rounded. The vertical-axis label names its units.
 
 This is a deterministic analytical approximation of the definition before integer flooring or runtime conversion. It draws no random values and predicts no future packets. If an axis or numerical calculation cannot be resolved reliably, the preview explains the limit instead of drawing a substitute curve.
 
