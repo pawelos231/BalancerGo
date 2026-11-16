@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'triangular-profile-definitions',
     title: 'Triangular profile definitions',
-    description: 'Declares named triangular profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named triangular definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Triangular declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',

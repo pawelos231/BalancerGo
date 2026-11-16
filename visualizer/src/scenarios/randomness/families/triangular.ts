@@ -6,7 +6,7 @@ export default {
   source: 'triangular',
   title: 'Triangular',
   bounded: true,
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'min', role: 'quantity' },
     { name: 'mode', role: 'quantity' },
