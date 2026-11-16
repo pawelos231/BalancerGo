@@ -8,6 +8,7 @@ import lognormal from './families/lognormalExamples.ts';
 import pareto from './families/paretoExamples.ts';
 import weibull from './families/weibullExamples.ts';
 import triangular from './families/triangularExamples.ts';
+import bernoulli from './families/bernoulliExamples.ts';
 
 export const randomFamilyExamples: readonly ScenarioSourceExample[] = [
   ...normal,
@@ -19,4 +20,5 @@ export const randomFamilyExamples: readonly ScenarioSourceExample[] = [
   ...pareto,
   ...weibull,
   ...triangular,
+  ...bernoulli,
 ];

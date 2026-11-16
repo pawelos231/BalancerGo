@@ -1,0 +1,78 @@
+{
+  "family": "bernoulli",
+  "source": "bernoulli",
+  "expectedProfiles": {
+    "quarter-success": {
+      "kind": "bernoulli",
+      "unit": "number",
+      "probability": "0.25"
+    },
+    "never-success": {
+      "kind": "bernoulli",
+      "unit": "number",
+      "probability": "0"
+    },
+    "always-success": {
+      "kind": "bernoulli",
+      "unit": "number",
+      "probability": "1"
+    }
+  },
+  "cases": [
+    {
+      "name": "quarter-success",
+      "valid": true,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"number\",\"probability\":\"0.25\"}"
+    },
+    {
+      "name": "never-success",
+      "valid": true,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"number\",\"probability\":\"0\"}"
+    },
+    {
+      "name": "always-success",
+      "valid": true,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"number\",\"probability\":\"1\"}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"number\",\"probability\":\"0.25\",\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"number\",\"probability\":null}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"number\",\"probability\":1}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"number\"}"
+    },
+    {
+      "name": "wrong output unit",
+      "valid": false,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"bytes\",\"probability\":\"0.25\"}"
+    },
+    {
+      "name": "probability above one",
+      "valid": false,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"number\",\"probability\":\"1.01\"}"
+    },
+    {
+      "name": "tiny exact probability",
+      "valid": true,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"number\",\"probability\":\"0.000000000000000000000000000001\"}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"bernoulli\",\"unit\":\"number\",\"unit\":\"number\",\"probability\":\"0.25\"}"
+    }
+  ]
+}

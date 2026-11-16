@@ -1,0 +1,26 @@
+language 1
+run 2s speed 0
+
+# Named definitions are unbound; the topology below keeps scalar settings.
+# Mass 0.75 at 0 and mass 0.25 at 1.
+distribution quarter-success bernoulli {
+    probability 0.25
+}
+
+# The valid deterministic endpoint probability 0.
+distribution never-success bernoulli {
+    probability 0
+}
+
+# The valid deterministic endpoint probability 1.
+distribution always-success bernoulli {
+    probability 1
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

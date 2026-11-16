@@ -1,0 +1,15 @@
+language 1
+run 2s speed 0
+
+# Expected error: A probability cannot be greater than 1.
+distribution invalid-example bernoulli {
+    probability 1.1
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

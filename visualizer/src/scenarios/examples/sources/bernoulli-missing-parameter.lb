@@ -1,0 +1,14 @@
+language 1
+run 2s speed 0
+
+# Expected error: required probability is omitted.
+distribution missing-example bernoulli {
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}
