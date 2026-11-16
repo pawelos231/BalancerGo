@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'weighted-profile-definitions',
     title: 'Weighted discrete profile definitions',
-    description: 'Declares named weighted profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named weighted definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Weighted discrete declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',

@@ -5,7 +5,7 @@ export default {
   kind: 'discreteWeighted',
   source: 'weighted',
   title: 'Weighted discrete',
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'entries', role: 'entries' },
   ],
