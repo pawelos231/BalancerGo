@@ -15,6 +15,7 @@ import (
 	"load-balancer/randomness/source"
 	"load-balancer/randomness/studentt"
 	"load-balancer/randomness/uniform"
+	"load-balancer/randomness/weibull"
 )
 
 // NewFloat prepares the selected family without consuming randomness.
@@ -38,6 +39,8 @@ func NewFloat(definition profile.Profile) (source.FloatSampler, error) {
 		return lognormal.New(definition)
 	case profile.KindPareto:
 		return pareto.New(definition)
+	case profile.KindWeibull:
+		return weibull.New(definition)
 	default:
 		return nil, fmt.Errorf("randomness: no sampler for profile kind %q", definition.Kind)
 	}
