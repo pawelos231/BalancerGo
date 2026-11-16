@@ -12,6 +12,7 @@ import (
 	"load-balancer/randomness/lognormal"
 	"load-balancer/randomness/normal"
 	"load-balancer/randomness/pareto"
+	"load-balancer/randomness/poisson"
 	"load-balancer/randomness/profile"
 	"load-balancer/randomness/source"
 	"load-balancer/randomness/studentt"
@@ -47,6 +48,8 @@ func NewFloat(definition profile.Profile) (source.FloatSampler, error) {
 		return triangular.New(definition)
 	case profile.KindBernoulli:
 		return bernoulli.New(definition)
+	case profile.KindPoisson:
+		return poisson.New(definition)
 	default:
 		return nil, fmt.Errorf("randomness: no sampler for profile kind %q", definition.Kind)
 	}
@@ -59,6 +62,8 @@ func NewInteger(definition profile.Profile) (source.IntegerSampler, error) {
 		return uniform.NewIntegerSampler(definition)
 	case profile.KindBernoulli:
 		return bernoulli.NewInteger(definition)
+	case profile.KindPoisson:
+		return poisson.NewInteger(definition)
 	default:
 		sampler, err := NewFloat(definition)
 		if err != nil {
