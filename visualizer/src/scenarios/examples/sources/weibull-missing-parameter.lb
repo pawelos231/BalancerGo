@@ -1,0 +1,17 @@
+language 1
+run 2s speed 0
+
+# Expected error: required shape is omitted.
+distribution missing-example weibull {
+    scale 5ms
+    min 0ms
+    max 20ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

@@ -1,0 +1,79 @@
+{
+  "family": "weibull",
+  "source": "weibull",
+  "expectedProfiles": {
+    "peaked-time": {
+      "kind": "weibull",
+      "unit": "nanoseconds",
+      "scale": "5000000",
+      "shape": "2",
+      "min": "0",
+      "max": "20000000"
+    },
+    "early-time": {
+      "kind": "weibull",
+      "unit": "nanoseconds",
+      "scale": "5000000",
+      "shape": "0.5",
+      "min": "0",
+      "max": "20000000"
+    }
+  },
+  "cases": [
+    {
+      "name": "peaked-time",
+      "valid": true,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"nanoseconds\",\"scale\":\"5000000\",\"shape\":\"2\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "early-time",
+      "valid": true,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"nanoseconds\",\"scale\":\"5000000\",\"shape\":\"0.5\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"nanoseconds\",\"scale\":\"5000000\",\"shape\":\"2\",\"min\":\"0\",\"max\":\"20000000\",\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"nanoseconds\",\"scale\":null,\"shape\":\"2\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"nanoseconds\",\"scale\":1,\"shape\":\"2\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"nanoseconds\",\"shape\":\"2\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "empty interval",
+      "valid": false,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"nanoseconds\",\"scale\":\"5000000\",\"shape\":\"2\",\"min\":\"0\",\"max\":\"0\"}"
+    },
+    {
+      "name": "reversed interval",
+      "valid": false,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"nanoseconds\",\"scale\":\"5000000\",\"shape\":\"2\",\"min\":\"20000000\",\"max\":\"0\"}"
+    },
+    {
+      "name": "zero scale",
+      "valid": false,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"nanoseconds\",\"scale\":\"0\",\"shape\":\"2\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "zero shape",
+      "valid": false,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"nanoseconds\",\"scale\":\"5000000\",\"shape\":\"0\",\"min\":\"0\",\"max\":\"20000000\"}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"weibull\",\"unit\":\"number\",\"unit\":\"nanoseconds\",\"scale\":\"5000000\",\"shape\":\"2\",\"min\":\"0\",\"max\":\"20000000\"}"
+    }
+  ]
+}

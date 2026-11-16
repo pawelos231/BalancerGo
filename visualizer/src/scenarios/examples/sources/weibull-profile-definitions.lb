@@ -1,0 +1,27 @@
+language 1
+run 2s speed 0
+
+# Named definitions are unbound; the topology below keeps scalar settings.
+# A Weibull density with its peak away from zero.
+distribution peaked-time weibull {
+    scale 5ms
+    shape 2
+    min 0ms
+    max 20ms
+}
+
+# A shape below 1, concentrated near zero.
+distribution early-time weibull {
+    scale 5ms
+    shape 0.5
+    min 0ms
+    max 20ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}
