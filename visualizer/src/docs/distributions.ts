@@ -29,4 +29,8 @@ export const distributionPages = [
     id: 'pareto', title: 'Pareto distributions', path: '/docs/language/pareto',
     loadMarkdown: () => import('../../docs/language/pareto.md?raw').then(module => module.default),
   },
+  {
+    id: 'weibull', title: 'Weibull distributions', path: '/docs/language/weibull',
+    loadMarkdown: () => import('../../docs/language/weibull.md?raw').then(module => module.default),
+  },
 ] as const;
