@@ -1,0 +1,25 @@
+language 1
+run 2s speed 0
+
+# Named definitions are unbound; the topology below keeps scalar settings.
+# Poisson count masses at integers 0 through 11.
+distribution small-count poisson {
+    mean 4
+    min 0
+    max 12
+}
+
+# The valid mean-zero point mass at 0.
+distribution zero-count poisson {
+    mean 0
+    min 0
+    max 1
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

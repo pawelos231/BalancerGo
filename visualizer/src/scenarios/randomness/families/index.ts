@@ -8,6 +8,19 @@ import pareto from './pareto.ts';
 import weibull from './weibull.ts';
 import triangular from './triangular.ts';
 import bernoulli from './bernoulli.ts';
+import poisson from './poisson.ts';
 
 // Additional families are enabled in declaration order.
-export const additionalFamilies = [normal, exponential, gamma, studentT, beta, lognormal, pareto, weibull, triangular, bernoulli] as const;
+export const additionalFamilies = [
+  normal,
+  exponential,
+  gamma,
+  studentT,
+  beta,
+  lognormal,
+  pareto,
+  weibull,
+  triangular,
+  bernoulli,
+  poisson,
+] as const;

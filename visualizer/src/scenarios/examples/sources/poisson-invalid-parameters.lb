@@ -1,0 +1,17 @@
+language 1
+run 2s speed 0
+
+# Expected error: Poisson support bounds must be whole numbers.
+distribution invalid-example poisson {
+    mean 4
+    min 0.5
+    max 12
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

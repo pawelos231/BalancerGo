@@ -20,7 +20,9 @@ export type RandomProfile =
   | (BoundedProfile & { readonly kind: 'weibull'; readonly shape: string; readonly scale: string })
   | (BoundedProfile & { readonly kind: 'triangular'; readonly mode: string })
   | { readonly kind: 'bernoulli'; readonly unit: 'number'; readonly probability: string }
-  | (BoundedProfile & { readonly kind: 'poisson'; readonly mean: string })
+  | (BoundedProfile & {
+    readonly kind: 'poisson'; readonly unit: 'number'; readonly mean: string;
+  })
   | (QuantityProfile & { readonly kind: 'discreteWeighted'; readonly entries: readonly WeightedEntry[] })
   | (QuantityProfile & { readonly kind: 'empirical'; readonly observations: readonly string[] });
 

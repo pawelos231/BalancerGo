@@ -1,0 +1,87 @@
+{
+  "family": "poisson",
+  "source": "poisson",
+  "expectedProfiles": {
+    "small-count": {
+      "kind": "poisson",
+      "unit": "number",
+      "mean": "4",
+      "min": "0",
+      "max": "12"
+    },
+    "zero-count": {
+      "kind": "poisson",
+      "unit": "number",
+      "mean": "0",
+      "min": "0",
+      "max": "1"
+    }
+  },
+  "cases": [
+    {
+      "name": "small-count",
+      "valid": true,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"mean\":\"4\",\"min\":\"0\",\"max\":\"12\"}"
+    },
+    {
+      "name": "zero-count",
+      "valid": true,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"mean\":\"0\",\"min\":\"0\",\"max\":\"1\"}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"mean\":\"4\",\"min\":\"0\",\"max\":\"12\",\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"mean\":null,\"min\":\"0\",\"max\":\"12\"}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"mean\":1,\"min\":\"0\",\"max\":\"12\"}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"min\":\"0\",\"max\":\"12\"}"
+    },
+    {
+      "name": "empty interval",
+      "valid": false,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"mean\":\"4\",\"min\":\"0\",\"max\":\"0\"}"
+    },
+    {
+      "name": "reversed interval",
+      "valid": false,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"mean\":\"4\",\"min\":\"12\",\"max\":\"0\"}"
+    },
+    {
+      "name": "wrong output unit",
+      "valid": false,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"bytes\",\"mean\":\"4\",\"min\":\"0\",\"max\":\"12\"}"
+    },
+    {
+      "name": "fractional count bound",
+      "valid": false,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"mean\":\"4\",\"min\":\"0.5\",\"max\":\"12\"}"
+    },
+    {
+      "name": "zero mean excludes zero",
+      "valid": false,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"mean\":\"0\",\"min\":\"1\",\"max\":\"3\"}"
+    },
+    {
+      "name": "zero mean",
+      "valid": true,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"mean\":\"0\",\"min\":\"0\",\"max\":\"3\"}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"poisson\",\"unit\":\"number\",\"unit\":\"number\",\"mean\":\"4\",\"min\":\"0\",\"max\":\"12\"}"
+    }
+  ]
+}
