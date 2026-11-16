@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { documentationConcepts, remarkConceptBacklinks, remarkConceptLinks } from '../../../src/docs/concepts.ts';
-import { languagePages as languageCatalog } from '../../../src/docs/language.ts';
+import { languageNavigation, languageNavigationAncestors, languagePages as languageCatalog } from '../../../src/docs/language.ts';
 import { distributionPages } from '../../../src/docs/distributions.ts';
 import { buildDistributionPreview } from '../../../src/docs/distributionPreview.ts';
 import { familyBySource } from '../../../src/scenarios/randomness/registry.ts';
@@ -39,6 +39,41 @@ function headingIds(markdown: string): Set<string> {
 
 const anchors = new Map(documents.map(page => [page.path, headingIds(page.markdown)]));
 
+test('language navigation lists every chapter once and groups distribution families under Randomness', () => {
+  const pages = languageNavigation.flatMap(item => 'sections' in item
+    ? item.sections.flatMap(section => section.pages)
+    : [item]);
+  assert.equal(new Set(pages.map(page => page.id)).size, pages.length);
+  assert.deepEqual(pages.map(page => [page.id, page.path]), languageCatalog.map(page => [page.id, page.path]));
+  assert.deepEqual(languageNavigation.filter(item => !('sections' in item)).map(page => page.id), [
+    'start', 'syntax', 'topology', 'clients', 'defaults', 'tcp', 'timeline', 'examples', 'errors',
+  ]);
+
+  const randomness = languageNavigation.find(item => 'sections' in item)!;
+  assert.equal(randomness.title, 'Randomness');
+  assert.deepEqual(randomness.sections.map(section => [section.title, section.pages.map(page => page.id)]), [
+    ['Continuous', ['uniform', 'normal', 'exponential', 'gamma', 'student-t', 'beta', 'lognormal', 'pareto', 'weibull', 'triangular']],
+    ['Discrete', ['bernoulli', 'poisson', 'weighted', 'empirical']],
+  ]);
+  assert.equal(randomness.sections[0].pages.find(page => page.id === 'gamma')?.title, 'Gamma/Erlang');
+  assert.equal(languageCatalog.find(page => page.id === 'gamma')?.title, 'Gamma distributions');
+});
+
+test('direct language routes expand only the active Randomness ancestors', () => {
+  assert.deepEqual(languageNavigationAncestors(), []);
+  for (const item of languageNavigation) {
+    if ('sections' in item) {
+      for (const section of item.sections) {
+        for (const page of section.pages) {
+          assert.deepEqual(languageNavigationAncestors(page.id), ['randomness', section.id], page.id);
+        }
+      }
+    } else {
+      assert.deepEqual(languageNavigationAncestors(item.id), [], item.id);
+    }
+  }
+});
+
 function assertDestination(destination: string, source: string) {
   const [path, hash] = destination.split('#');
   assert.ok(anchors.has(path), `${source}: unknown documentation page ${path}`);
@@ -59,7 +94,7 @@ test('all authored language pages expose a summary and a working table of conten
     const children = parser.parse(page.markdown).children;
     assert.equal(children[0].type, 'heading', `${page.id}: begins with a title`);
     assert.equal(children[0].type === 'heading' && children[0].depth, 1, page.id);
-    assert.equal(toString(children[0]), page.title, `${page.id}: navigation uses the chapter title`);
+    assert.equal(toString(children[0]), page.title, `${page.id}: source retains the chapter title`);
     const sectionHeadings = children.filter((node): node is Heading => node.type === 'heading' && node.depth === 2);
     assert.equal(toString(sectionHeadings[0]), 'Summary', `${page.id}: summary precedes the reading guide`);
     const summary = children.findIndex(node => node.type === 'heading' && toString(node) === 'Summary');

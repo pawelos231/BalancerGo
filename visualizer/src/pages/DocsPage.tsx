@@ -2,13 +2,14 @@ import {
   Alert, Box, Button, Collapse, List, ListItemButton, ListItemText, Stack, Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useId, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router';
 import readme from '../../../README.md?raw';
 import DocumentationArticle from '../components/DocumentationArticle';
-import { languagePages } from '../docs/language';
+import { languageNavigation, languageNavigationAncestors, languagePages } from '../docs/language';
 import { distributionPages } from '../docs/distributions';
-import type { LanguageDocument, LanguagePageId } from '../docs/language';
+import type { LanguageDocument, LanguageNavigationGroupId, LanguagePageId } from '../docs/language';
 import { overviewPages, splitOverview } from '../docs/overview';
 import type { OverviewDocument, OverviewPageId } from '../docs/overview';
 
@@ -16,8 +17,8 @@ const UniformDensityPreview = lazy(() => import('../components/UniformDensityPre
 const DistributionPreview = lazy(() => import('../components/DistributionPreview'));
 const overviewContent = splitOverview(readme);
 const navigationGroups = [
-  { id: 'overview', title: 'Overview', pages: overviewPages },
-  { id: 'language', title: 'Language documentation', pages: languagePages },
+  { id: 'overview', title: 'Overview' },
+  { id: 'language', title: 'Language documentation' },
 ] as const;
 type NavigationGroup = typeof navigationGroups[number]['id'];
 
@@ -28,13 +29,35 @@ interface DocsPageProps {
 
 // Keep both documentation groups local and independent of backend availability.
 function DocsPage({ section = 'introduction', languagePage }: DocsPageProps) {
-  const { hash } = useLocation();
+  const { hash, key: locationKey } = useLocation();
   const navigate = useNavigate();
+  const navigationId = useId();
   const activeGroup = languagePage ? 'language' : 'overview';
   const activePage = languagePage ?? section;
   const [expandedGroup, setExpandedGroup] = useState<NavigationGroup | null>(activeGroup);
+  const [expandedLanguageGroups, setExpandedLanguageGroups] = useState(() => languageNavigationAncestors(languagePage));
 
-  useEffect(() => { setExpandedGroup(activeGroup); }, [activeGroup]);
+  useEffect(() => {
+    setExpandedGroup(activeGroup);
+    setExpandedLanguageGroups(languageNavigationAncestors(languagePage));
+  }, [activeGroup, languagePage, locationKey, hash]);
+
+  function toggleLanguageGroup(id: LanguageNavigationGroupId) {
+    setExpandedLanguageGroups(groups => groups.includes(id) ? groups.filter(group => group !== id) : [...groups, id]);
+  }
+
+  function navigationLink(page: { id: string; title: string; path: string }, group: NavigationGroup, depth = 1) {
+    const selected = activeGroup === group && activePage === page.id;
+    return (
+      <ListItemButton
+        key={page.path} component={RouterLink} to={page.path}
+        selected={selected} aria-current={selected ? 'page' : undefined}
+        sx={{ borderRadius: 1, pl: 2 + depth }}
+      >
+        <ListItemText primary={page.title} />
+      </ListItemButton>
+    );
+  }
 
   useEffect(() => {
     if (languagePage) return;
@@ -78,43 +101,61 @@ function DocsPage({ section = 'introduction', languagePage }: DocsPageProps) {
         }}
       >
         <Typography variant="overline" color="text.secondary" sx={{ px: 2 }}>Documentation</Typography>
-        {navigationGroups.map(group => {
-          const expanded = expandedGroup === group.id;
-          return (
-            <Box key={group.id}>
-              <ListItemButton
-                aria-expanded={expanded} aria-controls={`${group.id}-navigation`}
-                onClick={() => setExpandedGroup(expanded ? null : group.id)}
-                sx={{ borderRadius: 1 }}
-              >
-                <ListItemText primary={group.title} slotProps={{ primary: { fontWeight: 600 } }} />
-                <ExpandMoreIcon sx={{ transform: expanded ? 'rotate(180deg)' : undefined }} />
-              </ListItemButton>
-              <Collapse in={expanded}>
-                <List component="div" id={`${group.id}-navigation`} disablePadding>
-                  {group.pages.map(item => {
-                    const selected = activeGroup === group.id && activePage === item.id;
-                    return (
-                      <ListItemButton
-                        key={item.path} component={RouterLink} to={item.path}
-                        selected={selected} aria-current={selected ? 'page' : undefined}
-                        sx={{ borderRadius: 1, pl: 3 }}
-                      >
-                        <ListItemText primary={item.title} />
-                      </ListItemButton>
-                    );
-                  })}
-                </List>
-              </Collapse>
-            </Box>
-          );
-        })}
+        {navigationGroups.map(group => (
+          <NavigationSection
+            key={group.id} title={group.title} controlId={`${navigationId}-${group.id}`}
+            expanded={expandedGroup === group.id}
+            onToggle={() => setExpandedGroup(expandedGroup === group.id ? null : group.id)}
+          >
+            {group.id === 'overview' ? overviewPages.map(page => navigationLink(page, group.id)) : (
+              languageNavigation.map(item => 'sections' in item ? (
+                <NavigationSection
+                  key={item.id} title={item.title} controlId={`${navigationId}-${item.id}`} depth={1}
+                  expanded={expandedLanguageGroups.includes(item.id)} onToggle={() => toggleLanguageGroup(item.id)}
+                >
+                  {item.sections.map(section => (
+                    <NavigationSection
+                      key={section.id} title={section.title} controlId={`${navigationId}-${section.id}`} depth={2}
+                      expanded={expandedLanguageGroups.includes(section.id)} onToggle={() => toggleLanguageGroup(section.id)}
+                    >
+                      {section.pages.map(page => navigationLink(page, 'language', 3))}
+                    </NavigationSection>
+                  ))}
+                </NavigationSection>
+              ) : navigationLink(item, 'language'))
+            )}
+          </NavigationSection>
+        ))}
       </Box>
       {languagePage ? (
         <LanguageGuide key={languagePage} document={languagePages.find(page => page.id === languagePage)!} />
       ) : (
         <DocsOverview document={overviewContent.pages.find(page => page.id === section)!} />
       )}
+    </Box>
+  );
+}
+
+function NavigationSection({ title, controlId, expanded, onToggle, children, depth = 0 }: {
+  title: string;
+  controlId: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  depth?: number;
+}) {
+  return (
+    <Box>
+      <ListItemButton
+        aria-expanded={expanded} aria-controls={controlId} onClick={onToggle}
+        sx={{ borderRadius: 1, pl: 2 + depth }}
+      >
+        <ListItemText primary={title} slotProps={{ primary: { fontWeight: 600 } }} />
+        <ExpandMoreIcon sx={{ transform: expanded ? 'rotate(180deg)' : undefined }} />
+      </ListItemButton>
+      <Collapse in={expanded}>
+        <List component="div" id={controlId} disablePadding>{children}</List>
+      </Collapse>
     </Box>
   );
 }

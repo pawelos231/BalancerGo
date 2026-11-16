@@ -8,6 +8,7 @@ import { formatScenarioDocument, readScenarioFile, serializeScenario } from '../
 import { validateEditorDocument } from '../scenarios/editor';
 import { scenarioPresets } from '../scenarios/presets';
 import { sourceExamples } from '../scenarios/sourceExamples';
+import { sourceExampleNotice } from '../scenarios/library';
 import { scenarioApi } from '../scenarios/runtimeApi';
 import { validateScenario } from '../scenarios/validation';
 import type { CurrentSimulation, Scenario, ValidatedScenario } from '../scenarios/types';
@@ -195,7 +196,7 @@ function ExperimentSetup({
 
     loadSourceDraft(
       inspectLanguageSource(example.source),
-      `Loaded source example: ${example.title}. This example is not runnable; inspect the diagnostic or discard the source edits.`,
+      sourceExampleNotice(example),
     );
   }
 

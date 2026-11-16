@@ -13,14 +13,9 @@ import {
   Typography,
 } from '@mui/material';
 import { useState } from 'react';
-import { presetCategories, scenarioPresets } from '../scenarios/presets';
-import { sourceExamples } from '../scenarios/sourceExamples';
+import { presetCategories } from '../scenarios/presets';
+import { filterLibraryEntries, libraryCategories } from '../scenarios/library';
 import type { ScenarioSummary } from '../scenarios/types';
-
-const libraryEntries = [
-  ...scenarioPresets.map(preset => ({ ...preset, kind: 'preset' as const })),
-  ...sourceExamples,
-];
 
 // A loaded preset identifies the applied document until another document replaces it.
 export interface AppliedPreset {
@@ -60,20 +55,8 @@ function ScenarioLibrary({
   const [page, setPage] = useState(1);
   const canLoadSource = !loading && !validating && !pending && !unappliedInput;
   const canLoadPreset = defaultsReady && canLoadSource;
-  const query = search.trim().toLowerCase();
-  const categories = [
-    ...presetCategories.map((entry) => ({
-      ...entry,
-      count: scenarioPresets.filter((preset) => preset.category === entry.id).length,
-    })),
-    { id: 'distributions', label: 'Distribution examples', count: sourceExamples.length },
-  ];
-
-  const matchingEntries = libraryEntries.filter((entry) => {
-    const matchesCategory = category === 'all' || entry.category === category;
-    const text = `${entry.title} ${entry.description} ${entry.id}`.toLowerCase();
-    return matchesCategory && text.includes(query);
-  });
+  const matchingEntries = filterLibraryEntries(category, search);
+  const showingDiagnostics = category === 'diagnostics';
 
   // Keep the configuration editor within reach as the catalog grows.
   const pageSize = 6;
@@ -92,9 +75,14 @@ function ScenarioLibrary({
             Explore links, queues, loss, workloads, routing, reference experiments and edge cases, or run the
             unpaced simulator throughput benchmark.
             Loading a preset updates its language source, JSON and planned topology after validation.
-            Source examples load an editable draft. Named definitions compile to JSON;
-            inline runtime fields show their expected diagnostic.
+            Distribution definitions load a valid editable source draft.
+            Expected errors and unsupported runtime drafts are available through their separate category.
           </Typography>
+
+          {showingDiagnostics && <Alert severity="info">
+            These examples deliberately produce a diagnostic. They demonstrate invalid parameters
+            or runtime bindings that are not supported yet; they cannot be applied unchanged.
+          </Alert>}
 
           {loading && (
             <Typography variant="body2">Loading backend scenario defaults…</Typography>
@@ -129,8 +117,7 @@ function ScenarioLibrary({
               }}
               sx={{ minWidth: { sm: 230 } }}
             >
-              <MenuItem value="all">All entries ({libraryEntries.length})</MenuItem>
-              {categories.map((entry) => (
+              {libraryCategories.map((entry) => (
                 <MenuItem key={entry.id} value={entry.id}>
                   {entry.label} ({entry.count})
                 </MenuItem>
@@ -163,7 +150,7 @@ function ScenarioLibrary({
               const isApplied = !isSourceExample && applied?.id === entry.id;
               let entryLabel: string | undefined;
               if (entry.kind === 'sourceExample') {
-                entryLabel = entry.expectedDiagnostic ? 'Source example · not runnable' : 'Unbound definitions';
+                entryLabel = entry.expectedDiagnostic ? 'Expected diagnostic' : 'Unbound definitions';
               } else {
                 entryLabel = presetCategories.find(category => category.id === entry.category)?.label;
               }

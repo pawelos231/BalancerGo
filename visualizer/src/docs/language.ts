@@ -1,6 +1,6 @@
 import { distributionPages } from './distributions.ts';
 
-// The reading order is also the sidebar order; each page has one authored source.
+// Keep the reading order stable when the sidebar groups related chapters.
 export const languagePages = [
   {
     id: 'start', title: 'Start here', path: '/docs/language',
@@ -47,3 +47,53 @@ export const languagePages = [
 
 export type LanguagePageId = typeof languagePages[number]['id'];
 export type LanguageDocument = typeof languagePages[number];
+
+function navigationPage(id: LanguagePageId, label?: string) {
+  const page = languagePages.find(page => page.id === id)!;
+  return { id: page.id, title: label ?? page.title, path: page.path };
+}
+
+const randomnessSections = [
+  {
+    id: 'continuous', title: 'Continuous', pages: [
+      navigationPage('uniform', 'Uniform'),
+      navigationPage('normal', 'Normal'),
+      navigationPage('exponential', 'Exponential'),
+      navigationPage('gamma', 'Gamma/Erlang'),
+      navigationPage('student-t', 'Student t'),
+      navigationPage('beta', 'Beta'),
+      navigationPage('lognormal', 'Lognormal'),
+      navigationPage('pareto', 'Pareto'),
+      navigationPage('weibull', 'Weibull'),
+      navigationPage('triangular', 'Triangular'),
+    ],
+  },
+  {
+    id: 'discrete', title: 'Discrete', pages: [
+      navigationPage('bernoulli', 'Bernoulli'),
+      navigationPage('poisson', 'Poisson'),
+      navigationPage('weighted', 'Weighted'),
+      navigationPage('empirical', 'Empirical'),
+    ],
+  },
+] as const;
+
+export const languageNavigation = [
+  navigationPage('start'),
+  navigationPage('syntax'),
+  { id: 'randomness', title: 'Randomness', sections: randomnessSections },
+  navigationPage('topology'),
+  navigationPage('clients'),
+  navigationPage('defaults'),
+  navigationPage('tcp'),
+  navigationPage('timeline'),
+  navigationPage('examples'),
+  navigationPage('errors'),
+] as const;
+
+export type LanguageNavigationGroupId = 'randomness' | typeof randomnessSections[number]['id'];
+
+export function languageNavigationAncestors(pageId?: LanguagePageId): readonly LanguageNavigationGroupId[] {
+  const section = randomnessSections.find(section => section.pages.some(page => page.id === pageId));
+  return section ? ['randomness', section.id] : [];
+}
