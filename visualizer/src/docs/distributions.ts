@@ -37,4 +37,8 @@ export const distributionPages = [
     id: 'triangular', title: 'Triangular distributions', path: '/docs/language/triangular',
     loadMarkdown: () => import('../../docs/language/triangular.md?raw').then(module => module.default),
   },
+  {
+    id: 'bernoulli', title: 'Bernoulli distributions', path: '/docs/language/bernoulli',
+    loadMarkdown: () => import('../../docs/language/bernoulli.md?raw').then(module => module.default),
+  },
 ] as const;
