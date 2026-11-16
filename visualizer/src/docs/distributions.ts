@@ -45,4 +45,8 @@ export const distributionPages = [
     id: 'poisson', title: 'Poisson distributions', path: '/docs/language/poisson',
     loadMarkdown: () => import('../../docs/language/poisson.md?raw').then(module => module.default),
   },
+  {
+    id: 'weighted', title: 'Weighted discrete distributions', path: '/docs/language/weighted',
+    loadMarkdown: () => import('../../docs/language/weighted.md?raw').then(module => module.default),
+  },
 ] as const;

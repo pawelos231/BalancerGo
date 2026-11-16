@@ -28,6 +28,7 @@ against the current language compiler.
 | Triangular distributions | [triangular.md](language/triangular.md) | [Open](/docs/language/triangular) |
 | Bernoulli distributions | [bernoulli.md](language/bernoulli.md) | [Open](/docs/language/bernoulli) |
 | Poisson distributions | [poisson.md](language/poisson.md) | [Open](/docs/language/poisson) |
+| Weighted discrete distributions | [weighted.md](language/weighted.md) | [Open](/docs/language/weighted) |
 | Topology and capacity | [topology.md](language/topology.md) | [Open](/docs/language/topology) |
 | Clients and traffic | [clients.md](language/clients.md) | [Open](/docs/language/clients) |
 | Defaults, profiles and overrides | [defaults.md](language/defaults.md) | [Open](/docs/language/defaults) |
