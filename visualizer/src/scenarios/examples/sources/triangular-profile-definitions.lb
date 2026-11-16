@@ -1,0 +1,25 @@
+language 1
+run 2s speed 0
+
+# Named definitions are unbound; the topology below keeps scalar settings.
+# A symmetric triangle on 1ms through 5ms.
+distribution symmetric-time triangular {
+    min 1ms
+    mode 3ms
+    max 5ms
+}
+
+# A valid endpoint mode at the lower support bound.
+distribution descending-time triangular {
+    min 1ms
+    mode 1ms
+    max 5ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

@@ -1,0 +1,72 @@
+{
+  "family": "triangular",
+  "source": "triangular",
+  "expectedProfiles": {
+    "symmetric-time": {
+      "kind": "triangular",
+      "unit": "nanoseconds",
+      "min": "1000000",
+      "mode": "3000000",
+      "max": "5000000"
+    },
+    "descending-time": {
+      "kind": "triangular",
+      "unit": "nanoseconds",
+      "min": "1000000",
+      "mode": "1000000",
+      "max": "5000000"
+    }
+  },
+  "cases": [
+    {
+      "name": "symmetric-time",
+      "valid": true,
+      "document": "{\"kind\":\"triangular\",\"unit\":\"nanoseconds\",\"min\":\"1000000\",\"mode\":\"3000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "descending-time",
+      "valid": true,
+      "document": "{\"kind\":\"triangular\",\"unit\":\"nanoseconds\",\"min\":\"1000000\",\"mode\":\"1000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"triangular\",\"unit\":\"nanoseconds\",\"min\":\"1000000\",\"mode\":\"3000000\",\"max\":\"5000000\",\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"triangular\",\"unit\":\"nanoseconds\",\"min\":null,\"mode\":\"3000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"triangular\",\"unit\":\"nanoseconds\",\"min\":1,\"mode\":\"3000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"triangular\",\"unit\":\"nanoseconds\",\"mode\":\"3000000\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "empty interval",
+      "valid": false,
+      "document": "{\"kind\":\"triangular\",\"unit\":\"nanoseconds\",\"min\":\"1000000\",\"mode\":\"3000000\",\"max\":\"1000000\"}"
+    },
+    {
+      "name": "reversed interval",
+      "valid": false,
+      "document": "{\"kind\":\"triangular\",\"unit\":\"nanoseconds\",\"min\":\"5000000\",\"mode\":\"3000000\",\"max\":\"1000000\"}"
+    },
+    {
+      "name": "mode outside support",
+      "valid": false,
+      "document": "{\"kind\":\"triangular\",\"unit\":\"nanoseconds\",\"min\":\"1000000\",\"mode\":\"9223372036854775807\",\"max\":\"5000000\"}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"triangular\",\"unit\":\"number\",\"unit\":\"nanoseconds\",\"min\":\"1000000\",\"mode\":\"3000000\",\"max\":\"5000000\"}"
+    }
+  ]
+}

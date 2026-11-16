@@ -1,0 +1,16 @@
+language 1
+run 2s speed 0
+
+# Expected error: required mode is omitted.
+distribution missing-example triangular {
+    min 1ms
+    max 5ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

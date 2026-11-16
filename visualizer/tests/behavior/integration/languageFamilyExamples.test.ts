@@ -5,6 +5,7 @@ import { compileScenario } from '../../../src/scenario-language/compile.ts';
 import { compileFamilyDefinition } from '../../../src/scenario-language/distributionFamilies.ts';
 import { checkLanguageSource } from '../../../src/scenario-language/diagnostics.ts';
 import { parse } from '../../../src/scenario-language/parser.ts';
+import { LanguageError } from '../../../src/scenario-language/source.ts';
 import { familySpecs } from '../../../src/scenarios/randomness/registry.ts';
 import { sourceExamples } from '../../../src/scenarios/sourceExamples.ts';
 
@@ -14,6 +15,24 @@ test('family quantity diagnostics describe distribution units and ranges', () =>
   }`).declarations[0].distribution!;
   assert.throws(() => compileFamilyDefinition(definition('1Mbps')), /Unsupported distribution unit "Mbps"/);
   assert.throws(() => compileFamilyDefinition(definition('-1us')), /Distribution values must be between 0/);
+});
+
+test('family relation diagnostics highlight the offending parameter value', () => {
+  const cases = [
+    ['triangular { min 1ms mode 6ms max 5ms }', '6ms'],
+    ['pareto { scale 2ms shape 1 min 1ms max 5ms }', '1ms'],
+    ['normal { mean 1ms stddev 1ms min 3ms max 2ms }', '2ms'],
+  ] as const;
+
+  for (const [expression, value] of cases) {
+    const source = `distribution invalid ${expression}`;
+    const definition = parse(source).declarations[0].distribution!;
+    assert.throws(() => compileFamilyDefinition(definition), error => {
+      assert.ok(error instanceof LanguageError);
+      assert.equal(source.slice(error.range.start.offset, error.range.end.offset), value);
+      return true;
+    });
+  }
 });
 
 for (const family of familySpecs.filter(item => !['constant', 'uniform'].includes(item.kind))) {

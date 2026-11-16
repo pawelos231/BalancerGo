@@ -51,8 +51,9 @@ export function compileFamilyDefinition(expression: DistributionExpression): Ran
     return validateRandomProfile(record);
   } catch (error) {
     let message = error instanceof Error ? error.message : 'Invalid distribution definition.';
-    const parameter = /min.*max/.test(message) ? 'max'
-      : spec.parameters.find(item => message.includes(item.name))?.name;
+    const parameter = message.includes('min must be less than max') ? 'max'
+      : spec.parameters.find(item => message.startsWith(`Random ${spec.source} ${item.name} `)
+        || message.startsWith(`Random profile ${item.name} `))?.name;
     const property = parameter ? seen.get(parameter) : undefined;
     const range = property && !Array.isArray(property.value) ? property.value.range : expression.range;
     for (const field of spec.parameters) {

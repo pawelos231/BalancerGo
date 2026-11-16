@@ -1,0 +1,17 @@
+language 1
+run 2s speed 0
+
+# Expected error: The triangular mode cannot lie outside its support.
+distribution invalid-example triangular {
+    min 1ms
+    mode 6ms
+    max 5ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}
