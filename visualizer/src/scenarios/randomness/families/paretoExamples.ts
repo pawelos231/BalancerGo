@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'pareto-profile-definitions',
     title: 'Pareto profile definitions',
-    description: 'Declares named pareto profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named pareto definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Pareto declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',
