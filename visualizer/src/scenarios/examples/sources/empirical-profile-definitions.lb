@@ -1,0 +1,27 @@
+language 1
+run 2s speed 0
+
+# Named definitions are unbound; the topology below keeps scalar settings.
+# Duplicate 1ms observations carry combined mass 2/3.
+distribution observed-time empirical {
+    observations {
+        observation 1ms
+        observation 1ms
+        observation 3ms
+    }
+}
+
+# A one-observation empirical definition is a point mass.
+distribution single-time empirical {
+    observations {
+        observation 2ms
+    }
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

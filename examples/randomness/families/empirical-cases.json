@@ -1,0 +1,74 @@
+{
+  "family": "empirical",
+  "source": "empirical",
+  "expectedProfiles": {
+    "observed-time": {
+      "kind": "empirical",
+      "unit": "nanoseconds",
+      "observations": [
+        "1000000",
+        "1000000",
+        "3000000"
+      ]
+    },
+    "single-time": {
+      "kind": "empirical",
+      "unit": "nanoseconds",
+      "observations": [
+        "2000000"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "observed-time",
+      "valid": true,
+      "document": "{\"kind\":\"empirical\",\"unit\":\"nanoseconds\",\"observations\":[\"1000000\",\"1000000\",\"3000000\"]}"
+    },
+    {
+      "name": "single-time",
+      "valid": true,
+      "document": "{\"kind\":\"empirical\",\"unit\":\"nanoseconds\",\"observations\":[\"2000000\"]}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"empirical\",\"unit\":\"nanoseconds\",\"observations\":[\"1000000\",\"1000000\",\"3000000\"],\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"empirical\",\"unit\":\"nanoseconds\",\"observations\":null}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"empirical\",\"unit\":\"nanoseconds\",\"observations\":1}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"empirical\",\"unit\":\"nanoseconds\"}"
+    },
+    {
+      "name": "empty observations",
+      "valid": false,
+      "document": "{\"kind\":\"empirical\",\"unit\":\"nanoseconds\",\"observations\":[]}"
+    },
+    {
+      "name": "duplicate observations retain mass",
+      "valid": true,
+      "document": "{\"kind\":\"empirical\",\"unit\":\"nanoseconds\",\"observations\":[\"1\",\"1\",\"3\"]}"
+    },
+    {
+      "name": "unsafe integer observations",
+      "valid": true,
+      "document": "{\"kind\":\"empirical\",\"unit\":\"nanoseconds\",\"observations\":[\"9007199254740993\",\"9007199254740994\"]}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"empirical\",\"unit\":\"number\",\"unit\":\"nanoseconds\",\"observations\":[\"1000000\",\"1000000\",\"3000000\"]}"
+    }
+  ]
+}

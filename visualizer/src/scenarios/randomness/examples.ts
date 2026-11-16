@@ -11,6 +11,7 @@ import triangular from './families/triangularExamples.ts';
 import bernoulli from './families/bernoulliExamples.ts';
 import poisson from './families/poissonExamples.ts';
 import discreteWeighted from './families/weightedExamples.ts';
+import empirical from './families/empiricalExamples.ts';
 
 export const randomFamilyExamples: readonly ScenarioSourceExample[] = [
   ...normal,
@@ -25,4 +26,5 @@ export const randomFamilyExamples: readonly ScenarioSourceExample[] = [
   ...bernoulli,
   ...poisson,
   ...discreteWeighted,
+  ...empirical,
 ];
