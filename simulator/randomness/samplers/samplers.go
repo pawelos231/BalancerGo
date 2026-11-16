@@ -14,6 +14,7 @@ import (
 	"load-balancer/randomness/profile"
 	"load-balancer/randomness/source"
 	"load-balancer/randomness/studentt"
+	"load-balancer/randomness/triangular"
 	"load-balancer/randomness/uniform"
 	"load-balancer/randomness/weibull"
 )
@@ -41,6 +42,8 @@ func NewFloat(definition profile.Profile) (source.FloatSampler, error) {
 		return pareto.New(definition)
 	case profile.KindWeibull:
 		return weibull.New(definition)
+	case profile.KindTriangular:
+		return triangular.New(definition)
 	default:
 		return nil, fmt.Errorf("randomness: no sampler for profile kind %q", definition.Kind)
 	}
