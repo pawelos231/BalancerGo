@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'bernoulli-profile-definitions',
     title: 'Bernoulli profile definitions',
-    description: 'Declares named bernoulli profiles; scenario compilation is pending.',
+    description: 'Compiles 3 named bernoulli definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Bernoulli declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',

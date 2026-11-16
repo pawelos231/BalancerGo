@@ -6,7 +6,7 @@ export default {
   source: 'bernoulli',
   title: 'Bernoulli',
   numberOnly: true,
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'probability', role: 'probability' },
   ],

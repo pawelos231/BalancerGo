@@ -35,6 +35,25 @@ test('family relation diagnostics highlight the offending parameter value', () =
   }
 });
 
+test('Bernoulli percentages compile to exact fractions with number outcomes', () => {
+  const canonical = sourceExamples.find(item => item.id === 'bernoulli-profile-definitions')!.source;
+  for (const [literal, probability] of [
+    ['0.25', '0.25'], ['25%', '0.25'], ['0%', '0'], ['100%', '1'],
+    ['30%', '0.3'],
+    ['0.0000000000000000000000000001%', '0.000000000000000000000000000001'],
+  ]) {
+    const source = canonical.replace('probability 0.25', `probability ${literal}`);
+    assert.deepEqual(compileScenario(source).fixed.randomProfiles?.['quarter-success'], {
+      kind: 'bernoulli', unit: 'number', probability,
+    });
+  }
+
+  for (const literal of ['25', '101%', '1ms']) {
+    const source = canonical.replace('probability 0.25', `probability ${literal}`);
+    assert.throws(() => compileScenario(source), /between 0 and 1|dimensionless/);
+  }
+});
+
 for (const family of familySpecs.filter(item => !['constant', 'uniform'].includes(item.kind))) {
   const examples = sourceExamples.filter(item => item.id.startsWith(`${family.source}-`));
   const valid = examples.find(item => item.id.endsWith('-profile-definitions'))!;
