@@ -25,6 +25,7 @@ against the current language compiler.
 | Lognormal distributions | [lognormal.md](language/lognormal.md) | [Open](/docs/language/lognormal) |
 | Pareto distributions | [pareto.md](language/pareto.md) | [Open](/docs/language/pareto) |
 | Weibull distributions | [weibull.md](language/weibull.md) | [Open](/docs/language/weibull) |
+| Triangular distributions | [triangular.md](language/triangular.md) | [Open](/docs/language/triangular) |
 | Topology and capacity | [topology.md](language/topology.md) | [Open](/docs/language/topology) |
 | Clients and traffic | [clients.md](language/clients.md) | [Open](/docs/language/clients) |
 | Defaults, profiles and overrides | [defaults.md](language/defaults.md) | [Open](/docs/language/defaults) |

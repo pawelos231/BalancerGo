@@ -20,13 +20,14 @@
 9. [Lognormal distributions](/docs/language/lognormal)
 10. [Pareto distributions](/docs/language/pareto)
 11. [Weibull distributions](/docs/language/weibull)
-12. [Topology and capacity](/docs/language/topology)
-13. [Clients and traffic](/docs/language/clients)
-14. [Defaults, profiles and overrides](/docs/language/defaults)
-15. [TCP settings](/docs/language/tcp)
-16. [Timeline changes](/docs/language/timeline)
-17. [Small experiments](/docs/language/examples)
-18. [Fixing errors](/docs/language/errors)
+12. [Triangular distributions](/docs/language/triangular)
+13. [Topology and capacity](/docs/language/topology)
+14. [Clients and traffic](/docs/language/clients)
+15. [Defaults, profiles and overrides](/docs/language/defaults)
+16. [TCP settings](/docs/language/tcp)
+17. [Timeline changes](/docs/language/timeline)
+18. [Small experiments](/docs/language/examples)
+19. [Fixing errors](/docs/language/errors)
 
 ## On this page
 

@@ -33,4 +33,8 @@ export const distributionPages = [
     id: 'weibull', title: 'Weibull distributions', path: '/docs/language/weibull',
     loadMarkdown: () => import('../../docs/language/weibull.md?raw').then(module => module.default),
   },
+  {
+    id: 'triangular', title: 'Triangular distributions', path: '/docs/language/triangular',
+    loadMarkdown: () => import('../../docs/language/triangular.md?raw').then(module => module.default),
+  },
 ] as const;
