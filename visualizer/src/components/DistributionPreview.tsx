@@ -147,10 +147,16 @@ export default function DistributionPreview({ family, onReady }: DistributionPre
           {preview.kind !== 'pdf' && (
             <Box sx={{ mt: 2, maxHeight: 240, overflow: 'auto' }}>
               <Box component="table" aria-label="Exact values and probabilities" sx={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', '& th, & td': { textAlign: 'left', p: 1, borderBottom: 1, borderColor: 'divider', overflowWrap: 'anywhere' } }}>
-                <thead><tr><th scope="col">Value ({preview.unitLabel})</th><th scope="col">{preview.kind === 'pmf' ? 'Probability mass' : 'Observations / cumulative mass'}</th></tr></thead>
+                <thead><tr>
+                  <th scope="col">Value ({preview.unitLabel})</th>
+                  <th scope="col">{preview.kind === 'pmf' ? 'Probability mass' : 'Observations'}</th>
+                  {preview.kind === 'ecdf' && <th scope="col">Cumulative probability</th>}
+                </tr></thead>
                 <tbody>{preview.kind === 'pmf'
                   ? preview.bars.map(bar => <tr key={bar.value}><td>{bar.value}</td><td>{bar.probabilityLabel}</td></tr>)
-                  : preview.steps.map(step => <tr key={step.value}><td>{step.value}</td><td>{step.count} / {step.cumulativeLabel}</td></tr>)}</tbody>
+                  : preview.steps.map(step => <tr key={step.value}>
+                    <td>{step.value}</td><td>{step.count}</td><td>{step.cumulativeLabel}</td>
+                  </tr>)}</tbody>
               </Box>
             </Box>
           )}
