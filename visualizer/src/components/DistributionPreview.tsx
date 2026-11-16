@@ -146,10 +146,19 @@ export default function DistributionPreview({ family, onReady }: DistributionPre
           </Stack>
           {preview.kind !== 'pdf' && (
             <Box sx={{ mt: 2, maxHeight: 240, overflow: 'auto' }}>
-              <Box component="table" aria-label="Exact values and probabilities" sx={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', '& th, & td': { textAlign: 'left', p: 1, borderBottom: 1, borderColor: 'divider', overflowWrap: 'anywhere' } }}>
+              <Box component="table" aria-label="Exact values and probabilities" sx={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '0.875rem',
+                '& th, & td': {
+                  textAlign: 'left', p: 1, borderBottom: 1, borderColor: 'divider',
+                  overflowWrap: 'normal',
+                },
+                '& td': { whiteSpace: 'nowrap' },
+              }}>
                 <thead><tr>
                   <th scope="col">Value ({preview.unitLabel})</th>
-                  <th scope="col">{preview.kind === 'pmf' ? 'Probability mass' : 'Observations'}</th>
+                  <th scope="col">{preview.kind === 'pmf' ? 'Probability mass' : 'Count'}</th>
                   {preview.kind === 'ecdf' && <th scope="col">Cumulative probability</th>}
                 </tr></thead>
                 <tbody>{preview.kind === 'pmf'
