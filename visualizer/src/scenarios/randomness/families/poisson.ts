@@ -7,7 +7,7 @@ export default {
   title: 'Poisson',
   bounded: true,
   numberOnly: true,
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'mean', role: 'nonnegativeShape' },
     { name: 'min', role: 'integerQuantity' },

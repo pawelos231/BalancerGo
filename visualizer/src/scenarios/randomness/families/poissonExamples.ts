@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'poisson-profile-definitions',
     title: 'Poisson profile definitions',
-    description: 'Declares named poisson profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named poisson definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Poisson declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',
