@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'weibull-profile-definitions',
     title: 'Weibull profile definitions',
-    description: 'Declares named weibull profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named weibull definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Weibull declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',

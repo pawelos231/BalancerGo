@@ -6,7 +6,7 @@ export default {
   source: 'weibull',
   title: 'Weibull',
   bounded: true,
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'scale', role: 'positiveQuantity' },
     { name: 'shape', role: 'shape' },
