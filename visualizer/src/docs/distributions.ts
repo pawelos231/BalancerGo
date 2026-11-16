@@ -49,4 +49,8 @@ export const distributionPages = [
     id: 'weighted', title: 'Weighted discrete distributions', path: '/docs/language/weighted',
     loadMarkdown: () => import('../../docs/language/weighted.md?raw').then(module => module.default),
   },
+  {
+    id: 'empirical', title: 'Empirical distributions', path: '/docs/language/empirical',
+    loadMarkdown: () => import('../../docs/language/empirical.md?raw').then(module => module.default),
+  },
 ] as const;

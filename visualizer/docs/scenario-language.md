@@ -29,6 +29,7 @@ against the current language compiler.
 | Bernoulli distributions | [bernoulli.md](language/bernoulli.md) | [Open](/docs/language/bernoulli) |
 | Poisson distributions | [poisson.md](language/poisson.md) | [Open](/docs/language/poisson) |
 | Weighted discrete distributions | [weighted.md](language/weighted.md) | [Open](/docs/language/weighted) |
+| Empirical distributions | [empirical.md](language/empirical.md) | [Open](/docs/language/empirical) |
 | Topology and capacity | [topology.md](language/topology.md) | [Open](/docs/language/topology) |
 | Clients and traffic | [clients.md](language/clients.md) | [Open](/docs/language/clients) |
 | Defaults, profiles and overrides | [defaults.md](language/defaults.md) | [Open](/docs/language/defaults) |

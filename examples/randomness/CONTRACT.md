@@ -3,8 +3,9 @@
 Backend definitions and strict codecs live in `randomness/profile`, shared RNG
 interfaces in `randomness/source`, and uniform implementations in
 `randomness/uniform`. The root package keeps compatible aliases and constructors.
-Additional families gain their own packages and are admitted individually when
-their declaration stages are implemented.
+Each additional family has its own sampler package. The `randomness/samplers`
+factory selects a family; profile validation, RNG interfaces and shared numerical
+helpers remain separate from the implementations.
 
 The profile format is shared by Go and TypeScript. Since E5.1.3, Scenario v2 can
 retain named definitions in optional `fixed.randomProfiles`. Definitions are
@@ -47,8 +48,9 @@ JavaScript's safe integer limit and differences smaller than float64 precision.
 
 The decoders reject nulls, numeric quantity tokens, missing required fields,
 unknown or duplicate fields, inappropriate parameters, trailing JSON and all
-unimplemented kinds or units. There is no generic parameter bag. Future families
-extend the typed definition and its validator when their parameters are agreed.
+unsupported kinds or units. Each family admits only its typed required fields;
+there is no generic parameter bag. Entries and observations use explicit arrays,
+limited to 4096 items, with the same strict leaf checks.
 The Go boundary is `ValidateProfile`, `DecodeProfile` and `EncodeProfile`; ordinary
 `encoding/json.Unmarshal` does not provide this strict contract.
 
@@ -72,9 +74,10 @@ float64. Target-domain validation must check the converted support before Start.
 There is no implicit clipping to a field limit. Restricting a distribution means
 conditioning it on an explicitly admitted interval and renormalizing its
 probabilities; clipping instead creates probability mass at a boundary. They are
-different operations. This initial format accepts no additional truncation or
-clipping parameters. Unbounded families must agree on explicit restrictions
-before being added. Target limits cannot silently repair an invalid definition.
+different operations. Unbounded continuous families require finite `min` and `max`
+and condition on that interval. Beta uses affine scaling and triangular uses
+its complete bounded support instead. Discrete families have the support rules
+listed below. There is no implicit clipping. Target limits cannot silently repair an invalid definition.
 
 Floating point admission must likewise be checked before Start. E5.1.2 supplies
 a separate uniform float64 constructor, described below; an exact definition can
@@ -118,11 +121,89 @@ An interval with no representable float64 value is rejected during preparation;
 one with exactly one result needs no draw. For example,
 `[9007199254740992.1,9007199254740992.2)` is definition-valid but unavailable as
 float64, while its integer conversion can still return 9007199254740992.
-Floating constant conversion is not provided in this stage.
+The uniform-only floating constructor still rejects constants. The generic
+factory below accepts a constant only when its value is exactly representable
+as binary64; neither constant path draws randomness.
 
 These backend APIs are prepared for field integration in E5.15+. Scenario v2
 retains scalar runtime settings. Preparing or storing a sampler definition does
 not integrate it with a field or alter current simulation results.
+
+## Family samplers (E5.2–E5.14)
+
+The source names below map to native JSON kinds. All scalar parameters remain
+canonical decimal strings; source units are converted exactly before encoding.
+
+| Source / JSON kind | Required fields beyond kind and unit | Support |
+| --- | --- | --- |
+| `normal` | mean, stddev, min, max | Conditional [min,max); stddev > 0 |
+| `exponential` | mean, min, max | Conditional [min,max); mean > 0 |
+| `gamma` | shape, scale, min, max | Conditional [min,max); shape/scale > 0; integer shape is Erlang |
+| `student-t` / `studentT` | location, scale, degreesOfFreedom, min, max | Conditional [min,max); scale/degreesOfFreedom > 0 |
+| `beta` | alpha, beta, min, max | Affine [min,max); alpha/beta > 0 |
+| `lognormal` | median, logStddev, min, max | Conditional [min,max); median/logStddev > 0 |
+| `pareto` | shape, scale, min, max | Conditional [min,max); shape/scale > 0 and min >= scale |
+| `weibull` | shape, scale, min, max | Conditional [min,max); shape/scale > 0 |
+| `triangular` | min, mode, max | Full [min,max); min <= mode <= max |
+| `bernoulli` | probability | Exact outcomes 0 and 1; 0 <= probability <= 1 |
+| `poisson` | mean, min, max | Integer [min,max); mean >= 0; zero mean must include zero |
+| `weighted` / `discreteWeighted` | entries: [{value, weight}, ...] | Listed values; nonnegative weights with positive total |
+| `empirical` | observations: [value, ...] | Listed observations with mass 1/n each; duplicates retain frequency |
+
+Bernoulli and Poisson require JSON unit `number`. Quantity parameters inherit
+the profile unit; shape parameters and weights are dimensionless and use the
+int64 ceiling, even with percentage outcomes. Probability has its separate
+[0,1] limit. Thus Gamma shape `250` with percentage bounds [0,10) is valid.
+The DSL accepts Bernoulli `probability 25%` as exact JSON `"0.25"`; this does
+not change its outcome unit to percentage.
+
+The generic Go boundary is `samplers.NewInteger(definition)` or
+`samplers.NewFloat(definition)`, from `load-balancer/randomness/samplers`.
+Both prepare immutable settings without consuming RNG. Call `Sample(rng)`
+with the operation's resource/phenomenon stream. The original root constructors
+remain uniform/constant compatibility APIs; they do not silently select new
+families.
+
+Integer preparation preserves the existing exact uniform path and exact Bernoulli
+probabilities. Weighted and empirical samplers floor the selected exact decimal
+once, retaining int64 precision; Poisson returns exact integer counts. Weighted selection scales
+rational weights to integer coordinates, without floating normalization.
+Empirical selection resamples observations without interpolation. Other
+continuous families floor their binary64 sample once. Positive-mass discrete
+outcomes must be exactly representable for the floating API; use the integer
+API to retain int64 values above JavaScript's safe integer range.
+
+Continuous samplers use inverse distribution functions or stable conditional
+transforms. Their probability draw is the midpoint of one of 2^52 cells, so
+neither 0 nor 1 reaches an unbounded inverse. Uniform retains its established
+53-bit path and seeded sequences. Constant profiles and explicitly deterministic
+preparations consume no RNG.
+
+Exact definition validation and numerical sampler preparation are separate.
+Preparation rejects empty floating supports, unresolved probability intervals
+and failed numerical inversions. Conditional probability probes use tolerance
+1e-7 as an admission check, not as a claimed global accuracy bound. A bounded
+CDF inversion handles unavailable inverse results; there is no clipped-law
+fallback. Gamma uses a narrow guard for a pinned Gonum lower-tail underflow
+case, covered by regression tests.
+
+Poisson prepares at most 65,536 outcomes with a binary64 cumulative table.
+Its integer counts remain exact, but extremely small positive tail masses can
+disappear through rounding. It does not provide exact rare-event probabilities;
+Bernoulli and weighted selection retain their rational probabilities instead.
+
+Special functions for Gamma, Student t and Beta come from pinned
+[Gonum v0.16.0](https://pkg.go.dev/gonum.org/v1/gonum@v0.16.0/stat/distuv).
+Gonum does not own or draw the simulation RNG. The analytical documentation
+previews use jStat 1.9.6 and have their own explicit numerical display limits;
+they are neither sampled histograms nor predictions of future packets.
+
+Every family has a chapter under
+[`visualizer/docs/language`](../../visualizer/docs/language/), canonical sources
+in the frontend library, shared raw validation cases, and a native CLI fixture.
+Their definitions are unbound until E5.15+; all existing runtime fields remain
+scalar.
+
 
 ## Named definitions in a scenario
 
@@ -153,7 +234,7 @@ and omitted from old documents. Definitions remain in the original admitted
 scenario, CLI manifest and exported results; normalized runtime settings omit
 unbound definitions deliberately.
 
-The canonical library source is
+The canonical Uniform library source is
 [`uniform-profile-definitions.lb`](../../visualizer/src/scenarios/examples/sources/uniform-profile-definitions.lb),
 with its shared compiled fixture [`uniform-scenario.json`](uniform-scenario.json).
 It can be compiled and validated; its baseline simulation still uses scalar
@@ -222,6 +303,8 @@ uses exact labels and normalized coordinates, with no RNG or predicted runtime
 samples. Integer quantization is explained separately from continuous density.
 
 [`profile-cases.json`](profile-cases.json) is the common Go/TypeScript corpus.
-Each case contains a name, a `valid` boolean and a raw JSON `document` string,
+The additional families use matching `families/*-cases.json` files and native
+`families/*-scenario.json` fixtures, paired with their canonical `.lb` sources.
+Each raw case contains a name, a `valid` boolean and a JSON `document` string,
 so duplicate keys and other ambiguous JSON cannot disappear through fixture
 parsing. Both implementations check the same exact bounds and rejection cases.

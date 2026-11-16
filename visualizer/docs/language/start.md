@@ -24,13 +24,14 @@
 13. [Bernoulli distributions](/docs/language/bernoulli)
 14. [Poisson distributions](/docs/language/poisson)
 15. [Weighted discrete distributions](/docs/language/weighted)
-16. [Topology and capacity](/docs/language/topology)
-17. [Clients and traffic](/docs/language/clients)
-18. [Defaults, profiles and overrides](/docs/language/defaults)
-19. [TCP settings](/docs/language/tcp)
-20. [Timeline changes](/docs/language/timeline)
-21. [Small experiments](/docs/language/examples)
-22. [Fixing errors](/docs/language/errors)
+16. [Empirical distributions](/docs/language/empirical)
+17. [Topology and capacity](/docs/language/topology)
+18. [Clients and traffic](/docs/language/clients)
+19. [Defaults, profiles and overrides](/docs/language/defaults)
+20. [TCP settings](/docs/language/tcp)
+21. [Timeline changes](/docs/language/timeline)
+22. [Small experiments](/docs/language/examples)
+23. [Fixing errors](/docs/language/errors)
 
 ## On this page
 
