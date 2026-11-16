@@ -1,0 +1,100 @@
+{
+  "family": "discreteWeighted",
+  "source": "weighted",
+  "expectedProfiles": {
+    "two-time-values": {
+      "kind": "discreteWeighted",
+      "unit": "nanoseconds",
+      "entries": [
+        {
+          "value": "1000000",
+          "weight": "2"
+        },
+        {
+          "value": "3000000",
+          "weight": "1"
+        },
+        {
+          "value": "3000000",
+          "weight": "1"
+        }
+      ]
+    },
+    "zero-weight-time": {
+      "kind": "discreteWeighted",
+      "unit": "nanoseconds",
+      "entries": [
+        {
+          "value": "1000000",
+          "weight": "0"
+        },
+        {
+          "value": "5000000",
+          "weight": "1"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "two-time-values",
+      "valid": true,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\",\"entries\":[{\"value\":\"1000000\",\"weight\":\"2\"},{\"value\":\"3000000\",\"weight\":\"1\"},{\"value\":\"3000000\",\"weight\":\"1\"}]}"
+    },
+    {
+      "name": "zero-weight-time",
+      "valid": true,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\",\"entries\":[{\"value\":\"1000000\",\"weight\":\"0\"},{\"value\":\"5000000\",\"weight\":\"1\"}]}"
+    },
+    {
+      "name": "unknown parameter",
+      "valid": false,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\",\"entries\":[{\"value\":\"1000000\",\"weight\":\"2\"},{\"value\":\"3000000\",\"weight\":\"1\"},{\"value\":\"3000000\",\"weight\":\"1\"}],\"unexpected\":\"1\"}"
+    },
+    {
+      "name": "null parameter",
+      "valid": false,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\",\"entries\":null}"
+    },
+    {
+      "name": "wrong parameter type",
+      "valid": false,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\",\"entries\":1}"
+    },
+    {
+      "name": "missing parameter",
+      "valid": false,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\"}"
+    },
+    {
+      "name": "empty entries",
+      "valid": false,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\",\"entries\":[]}"
+    },
+    {
+      "name": "zero total weight",
+      "valid": false,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\",\"entries\":[{\"value\":\"1\",\"weight\":\"0\"}]}"
+    },
+    {
+      "name": "zero weight allowed",
+      "valid": true,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\",\"entries\":[{\"value\":\"1\",\"weight\":\"0\"},{\"value\":\"2\",\"weight\":\"1\"}]}"
+    },
+    {
+      "name": "unsafe integer outcomes",
+      "valid": true,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\",\"entries\":[{\"value\":\"9007199254740993\",\"weight\":\"0.2\"},{\"value\":\"9007199254740994\",\"weight\":\"0.25\"}]}"
+    },
+    {
+      "name": "duplicate nested value",
+      "valid": false,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"nanoseconds\",\"entries\":[{\"value\":\"1\",\"value\":\"2\",\"weight\":\"1\"}]}"
+    },
+    {
+      "name": "duplicate unit",
+      "valid": false,
+      "document": "{\"kind\":\"discreteWeighted\",\"unit\":\"number\",\"unit\":\"nanoseconds\",\"entries\":[{\"value\":\"1000000\",\"weight\":\"2\"},{\"value\":\"3000000\",\"weight\":\"1\"},{\"value\":\"3000000\",\"weight\":\"1\"}]}"
+    }
+  ]
+}

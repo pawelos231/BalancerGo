@@ -1,0 +1,24 @@
+language 1
+run 2s speed 0
+
+# Expected error: All-zero weights cannot be normalized into probabilities.
+distribution invalid-example weighted {
+    entries {
+        entry {
+            value 1ms
+            weight 0
+        }
+        entry {
+            value 3ms
+            weight 0
+        }
+    }
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

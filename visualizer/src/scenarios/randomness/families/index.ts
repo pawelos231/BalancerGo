@@ -9,6 +9,7 @@ import weibull from './weibull.ts';
 import triangular from './triangular.ts';
 import bernoulli from './bernoulli.ts';
 import poisson from './poisson.ts';
+import discreteWeighted from './weighted.ts';
 
 // Additional families are enabled in declaration order.
 export const additionalFamilies = [
@@ -23,4 +24,5 @@ export const additionalFamilies = [
   triangular,
   bernoulli,
   poisson,
+  discreteWeighted,
 ] as const;

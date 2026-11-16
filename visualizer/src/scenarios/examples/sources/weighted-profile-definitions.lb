@@ -1,0 +1,43 @@
+language 1
+run 2s speed 0
+
+# Named definitions are unbound; the topology below keeps scalar settings.
+# Duplicate 3ms entries combine to the same mass as the weight-2 1ms entry.
+distribution two-time-values weighted {
+    entries {
+        entry {
+            value 1ms
+            weight 2
+        }
+        entry {
+            value 3ms
+            weight 1
+        }
+        entry {
+            value 3ms
+            weight 1
+        }
+    }
+}
+
+# A zero-weight entry is valid; all mass is at 5ms.
+distribution zero-weight-time weighted {
+    entries {
+        entry {
+            value 1ms
+            weight 0
+        }
+        entry {
+            value 5ms
+            weight 1
+        }
+    }
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}
