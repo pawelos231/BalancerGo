@@ -25,4 +25,8 @@ export const distributionPages = [
     id: 'lognormal', title: 'Lognormal distributions', path: '/docs/language/lognormal',
     loadMarkdown: () => import('../../docs/language/lognormal.md?raw').then(module => module.default),
   },
+  {
+    id: 'pareto', title: 'Pareto distributions', path: '/docs/language/pareto',
+    loadMarkdown: () => import('../../docs/language/pareto.md?raw').then(module => module.default),
+  },
 ] as const;

@@ -82,9 +82,15 @@ previewTest('lognormal median is converted to log-space mean', ["lognormal"], ()
   close(densityAt(preview, 2), 1 / Math.sqrt(2 * Math.PI));
 });
 
-previewTest('Pareto and Weibull match elementary conditional formulas', ["pareto","weibull"], () => {
-  const pareto = continuous({ kind: 'pareto', unit: 'bytes', scale: '1', shape: '2', min: '1', max: '5' });
+previewTest('Pareto conditions its power-law density on fixed bounds', ['pareto'], () => {
+  const profile = { kind: 'pareto', unit: 'bytes', scale: '1', shape: '2', min: '1', max: '5' } as const;
+  const pareto = continuous(profile);
   close(densityAt(pareto, 2), 0.25 / (1 - 1 / 25));
+  const lowerScale = continuous({ ...profile, scale: '0.5' });
+  close(densityAt(lowerScale, 2), densityAt(pareto, 2));
+});
+
+previewTest('Weibull shape two matches its elementary conditional density', ['weibull'], () => {
   const weibull = continuous({ kind: 'weibull', unit: 'number', scale: '2', shape: '2', min: '0', max: '4' });
   close(densityAt(weibull, 2), Math.exp(-1) / (1 - Math.exp(-4)));
 });
