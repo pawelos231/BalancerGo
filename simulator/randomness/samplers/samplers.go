@@ -6,6 +6,7 @@ import (
 
 	"load-balancer/randomness/bernoulli"
 	"load-balancer/randomness/beta"
+	"load-balancer/randomness/discreteweighted"
 	"load-balancer/randomness/exponential"
 	"load-balancer/randomness/gamma"
 	"load-balancer/randomness/internal/numeric"
@@ -50,6 +51,8 @@ func NewFloat(definition profile.Profile) (source.FloatSampler, error) {
 		return bernoulli.New(definition)
 	case profile.KindPoisson:
 		return poisson.New(definition)
+	case profile.KindDiscreteWeighted:
+		return discreteweighted.New(definition)
 	default:
 		return nil, fmt.Errorf("randomness: no sampler for profile kind %q", definition.Kind)
 	}
@@ -64,6 +67,8 @@ func NewInteger(definition profile.Profile) (source.IntegerSampler, error) {
 		return bernoulli.NewInteger(definition)
 	case profile.KindPoisson:
 		return poisson.NewInteger(definition)
+	case profile.KindDiscreteWeighted:
+		return discreteweighted.NewInteger(definition)
 	default:
 		sampler, err := NewFloat(definition)
 		if err != nil {
