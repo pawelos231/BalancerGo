@@ -41,4 +41,8 @@ export const distributionPages = [
     id: 'bernoulli', title: 'Bernoulli distributions', path: '/docs/language/bernoulli',
     loadMarkdown: () => import('../../docs/language/bernoulli.md?raw').then(module => module.default),
   },
+  {
+    id: 'poisson', title: 'Poisson distributions', path: '/docs/language/poisson',
+    loadMarkdown: () => import('../../docs/language/poisson.md?raw').then(module => module.default),
+  },
 ] as const;

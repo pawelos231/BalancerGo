@@ -22,13 +22,14 @@
 11. [Weibull distributions](/docs/language/weibull)
 12. [Triangular distributions](/docs/language/triangular)
 13. [Bernoulli distributions](/docs/language/bernoulli)
-14. [Topology and capacity](/docs/language/topology)
-15. [Clients and traffic](/docs/language/clients)
-16. [Defaults, profiles and overrides](/docs/language/defaults)
-17. [TCP settings](/docs/language/tcp)
-18. [Timeline changes](/docs/language/timeline)
-19. [Small experiments](/docs/language/examples)
-20. [Fixing errors](/docs/language/errors)
+14. [Poisson distributions](/docs/language/poisson)
+15. [Topology and capacity](/docs/language/topology)
+16. [Clients and traffic](/docs/language/clients)
+17. [Defaults, profiles and overrides](/docs/language/defaults)
+18. [TCP settings](/docs/language/tcp)
+19. [Timeline changes](/docs/language/timeline)
+20. [Small experiments](/docs/language/examples)
+21. [Fixing errors](/docs/language/errors)
 
 ## On this page
 

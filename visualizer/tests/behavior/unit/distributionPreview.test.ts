@@ -215,6 +215,7 @@ test('unsupported numerical axes, unresolved tail CDFs and excessive PMF ranges 
     { kind: 'normal', unit: 'number', mean: '1', stddev: '1', min: '100', max: '101' },
     { kind: 'poisson', unit: 'number', mean: '2', min: '0', max: '513' },
     { kind: 'poisson', unit: 'number', mean: '1000001', min: '0', max: '2' },
+    { kind: 'poisson', unit: 'number', mean: '1', min: '1000000', max: '1000001' },
     { kind: 'normal', unit: 'number', mean: '1', stddev: '0.0000000000000000000000001', min: '0', max: '2' },
     { kind: 'beta', unit: 'number', alpha: '0.9999999999999999999999999', beta: '2', min: '0', max: '2' },
     { kind: 'empirical', unit: 'number', observations: ['0', '0.0000000000000000000000001', '1'] },
