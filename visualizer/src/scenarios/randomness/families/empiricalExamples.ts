@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'empirical-profile-definitions',
     title: 'Empirical profile definitions',
-    description: 'Declares named empirical profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named empirical definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Empirical declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',

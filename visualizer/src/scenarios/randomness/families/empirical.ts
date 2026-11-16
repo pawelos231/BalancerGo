@@ -5,7 +5,7 @@ export default {
   kind: 'empirical',
   source: 'empirical',
   title: 'Empirical',
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'observations', role: 'observations' },
   ],
