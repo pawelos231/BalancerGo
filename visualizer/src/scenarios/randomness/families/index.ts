@@ -4,6 +4,7 @@ import gamma from './gamma.ts';
 import studentT from './student-t.ts';
 import beta from './beta.ts';
 import lognormal from './lognormal.ts';
+import pareto from './pareto.ts';
 
 // Additional families are enabled in declaration order.
-export const additionalFamilies = [normal, exponential, gamma, studentT, beta, lognormal] as const;
+export const additionalFamilies = [normal, exponential, gamma, studentT, beta, lognormal, pareto] as const;

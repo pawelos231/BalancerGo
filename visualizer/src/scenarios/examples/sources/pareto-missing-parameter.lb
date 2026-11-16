@@ -1,0 +1,17 @@
+language 1
+run 2s speed 0
+
+# Expected error: required scale is omitted.
+distribution missing-example pareto {
+    shape 2
+    min 1ms
+    max 10ms
+}
+
+balancer lb {}
+backend api-0 {}
+clients regular {
+    count 2
+    payload 8KB
+    every 10ms
+}

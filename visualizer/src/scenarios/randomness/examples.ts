@@ -5,6 +5,7 @@ import gamma from './families/gammaExamples.ts';
 import studentT from './families/student-tExamples.ts';
 import beta from './families/betaExamples.ts';
 import lognormal from './families/lognormalExamples.ts';
+import pareto from './families/paretoExamples.ts';
 
 export const randomFamilyExamples: readonly ScenarioSourceExample[] = [
   ...normal,
@@ -13,4 +14,5 @@ export const randomFamilyExamples: readonly ScenarioSourceExample[] = [
   ...studentT,
   ...beta,
   ...lognormal,
+  ...pareto,
 ];
