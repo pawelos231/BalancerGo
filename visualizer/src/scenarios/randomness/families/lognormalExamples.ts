@@ -9,9 +9,8 @@ export default [
     kind: 'sourceExample', category: 'distributions',
     id: 'lognormal-profile-definitions',
     title: 'Lognormal profile definitions',
-    description: 'Declares named lognormal profiles; scenario compilation is pending.',
+    description: 'Compiles 2 named lognormal definitions into exact JSON. Runtime settings remain scalar.',
     source: definitionSource,
-    expectedDiagnostic: 'Lognormal declaration is recognized; scenario compilation is not available yet.',
   },
   {
     kind: 'sourceExample', category: 'distributions',

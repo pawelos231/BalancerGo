@@ -6,7 +6,7 @@ export default {
   source: 'lognormal',
   title: 'Lognormal',
   bounded: true,
-  compilationAvailable: false,
+  compilationAvailable: true,
   parameters: [
     { name: 'median', role: 'positiveQuantity' },
     { name: 'logStddev', role: 'shape', source: 'log-stddev' },
