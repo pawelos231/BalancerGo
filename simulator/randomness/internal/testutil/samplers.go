@@ -82,10 +82,15 @@ func Continuous(t *testing.T, constructor func(profile.Profile) (source.FloatSam
 func Frequencies(t *testing.T, sampler source.IntegerSampler, expected map[int64]float64) {
 	t.Helper()
 	rng := rand.New(rand.NewSource(793))
+	replay := rand.New(rand.NewSource(793))
 	const count = 30000
 	actual := make(map[int64]int)
 	for i := 0; i < count; i++ {
-		actual[sampler.Sample(rng)]++
+		value := sampler.Sample(rng)
+		if value != sampler.Sample(replay) {
+			t.Fatal("seeded replay differs")
+		}
+		actual[value]++
 	}
 	for value, total := range actual {
 		probability, exists := expected[value]

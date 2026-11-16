@@ -4,6 +4,7 @@ package samplers
 import (
 	"fmt"
 
+	"load-balancer/randomness/bernoulli"
 	"load-balancer/randomness/beta"
 	"load-balancer/randomness/exponential"
 	"load-balancer/randomness/gamma"
@@ -44,6 +45,8 @@ func NewFloat(definition profile.Profile) (source.FloatSampler, error) {
 		return weibull.New(definition)
 	case profile.KindTriangular:
 		return triangular.New(definition)
+	case profile.KindBernoulli:
+		return bernoulli.New(definition)
 	default:
 		return nil, fmt.Errorf("randomness: no sampler for profile kind %q", definition.Kind)
 	}
@@ -54,7 +57,8 @@ func NewInteger(definition profile.Profile) (source.IntegerSampler, error) {
 	switch definition.Kind {
 	case profile.KindConstant, profile.KindUniform:
 		return uniform.NewIntegerSampler(definition)
-
+	case profile.KindBernoulli:
+		return bernoulli.NewInteger(definition)
 	default:
 		sampler, err := NewFloat(definition)
 		if err != nil {
