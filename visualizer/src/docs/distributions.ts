@@ -21,4 +21,8 @@ export const distributionPages = [
     id: 'beta', title: 'Beta distributions', path: '/docs/language/beta',
     loadMarkdown: () => import('../../docs/language/beta.md?raw').then(module => module.default),
   },
+  {
+    id: 'lognormal', title: 'Lognormal distributions', path: '/docs/language/lognormal',
+    loadMarkdown: () => import('../../docs/language/lognormal.md?raw').then(module => module.default),
+  },
 ] as const;

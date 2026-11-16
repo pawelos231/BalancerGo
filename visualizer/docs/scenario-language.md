@@ -22,6 +22,7 @@ against the current language compiler.
 | Gamma distributions | [gamma.md](language/gamma.md) | [Open](/docs/language/gamma) |
 | Student t distributions | [student-t.md](language/student-t.md) | [Open](/docs/language/student-t) |
 | Beta distributions | [beta.md](language/beta.md) | [Open](/docs/language/beta) |
+| Lognormal distributions | [lognormal.md](language/lognormal.md) | [Open](/docs/language/lognormal) |
 | Topology and capacity | [topology.md](language/topology.md) | [Open](/docs/language/topology) |
 | Clients and traffic | [clients.md](language/clients.md) | [Open](/docs/language/clients) |
 | Defaults, profiles and overrides | [defaults.md](language/defaults.md) | [Open](/docs/language/defaults) |

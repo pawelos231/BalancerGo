@@ -17,13 +17,14 @@
 6. [Gamma distributions](/docs/language/gamma)
 7. [Student t distributions](/docs/language/student-t)
 8. [Beta distributions](/docs/language/beta)
-9. [Topology and capacity](/docs/language/topology)
-10. [Clients and traffic](/docs/language/clients)
-11. [Defaults, profiles and overrides](/docs/language/defaults)
-12. [TCP settings](/docs/language/tcp)
-13. [Timeline changes](/docs/language/timeline)
-14. [Small experiments](/docs/language/examples)
-15. [Fixing errors](/docs/language/errors)
+9. [Lognormal distributions](/docs/language/lognormal)
+10. [Topology and capacity](/docs/language/topology)
+11. [Clients and traffic](/docs/language/clients)
+12. [Defaults, profiles and overrides](/docs/language/defaults)
+13. [TCP settings](/docs/language/tcp)
+14. [Timeline changes](/docs/language/timeline)
+15. [Small experiments](/docs/language/examples)
+16. [Fixing errors](/docs/language/errors)
 
 ## On this page
 
